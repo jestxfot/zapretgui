@@ -13,6 +13,7 @@ from PyQt6.QtGui import (QColor, QPainter, QPainterPath, QBrush,
 import qtawesome as qta
 
 from log import log
+from ui.theme import get_theme_tokens
 
 
 class StrategiesListTooltip(QWidget):
@@ -20,6 +21,8 @@ class StrategiesListTooltip(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self._tokens = get_theme_tokens()
         
         self.setWindowFlags(
             Qt.WindowType.ToolTip |
@@ -67,17 +70,13 @@ class StrategiesListTooltip(QWidget):
         header_layout.setSpacing(6)
         
         header_icon = QLabel()
-        header_icon.setPixmap(qta.icon('fa5s.list-ul', color='#60cdff').pixmap(14, 14))
+        header_icon.setPixmap(qta.icon('fa5s.list-ul', color=self._tokens.accent_hex).pixmap(14, 14))
         header_layout.addWidget(header_icon)
         
         self.title_label = QLabel("Все активные стратегии")
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #60cdff;
-                font-size: 11px;
-                font-weight: 600;
-            }
-        """)
+        self.title_label.setStyleSheet(
+            f"color: {self._tokens.accent_hex}; font-size: 11px; font-weight: 600;"
+        )
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         
@@ -86,7 +85,8 @@ class StrategiesListTooltip(QWidget):
         # Разделитель
         separator = QWidget()
         separator.setFixedHeight(1)
-        separator.setStyleSheet("background: rgba(255, 255, 255, 0.1);")
+        sep = "rgba(0, 0, 0, 0.12)" if self._tokens.is_light else "rgba(255, 255, 255, 0.10)"
+        separator.setStyleSheet(f"background: {sep};")
         container_layout.addWidget(separator)
         
         # Контейнер для списка стратегий
@@ -116,7 +116,8 @@ class StrategiesListTooltip(QWidget):
         # Номер
         num_label = QLabel(f"{index}.")
         num_label.setFixedWidth(18)
-        num_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 10px;")
+        num_color = "rgba(0, 0, 0, 0.40)" if self._tokens.is_light else "rgba(255, 255, 255, 0.40)"
+        num_label.setStyleSheet(f"color: {num_color}; font-size: 10px;")
         row_layout.addWidget(num_label)
         
         # Иконка категории (Font Awesome)
@@ -126,7 +127,7 @@ class StrategiesListTooltip(QWidget):
             icon_label.setPixmap(pixmap)
         except:
             # Fallback на простую иконку
-            pixmap = qta.icon('fa5s.globe', color='#60cdff').pixmap(14, 14)
+            pixmap = qta.icon('fa5s.globe', color=self._tokens.accent_hex).pixmap(14, 14)
             icon_label.setPixmap(pixmap)
         icon_label.setFixedSize(16, 16)
         row_layout.addWidget(icon_label)
@@ -139,7 +140,8 @@ class StrategiesListTooltip(QWidget):
         
         # Название стратегии
         strat_label = QLabel(strategy_name)
-        strat_label.setStyleSheet("color: rgba(255, 255, 255, 0.85); font-size: 10px;")
+        strat_color = "rgba(0, 0, 0, 0.85)" if self._tokens.is_light else "rgba(255, 255, 255, 0.85)"
+        strat_label.setStyleSheet(f"color: {strat_color}; font-size: 10px;")
         strat_label.setWordWrap(False)
         row_layout.addWidget(strat_label, 1)
         
@@ -153,6 +155,7 @@ class StrategiesListTooltip(QWidget):
             strategies: список кортежей (icon_name, icon_color, category_name, strategy_name)
         """
         self._strategies = strategies
+        self._tokens = get_theme_tokens()
 
         # Очищаем старые строки - важно отсоединить от родителя сразу
         while self.strategies_layout.count():
@@ -169,6 +172,13 @@ class StrategiesListTooltip(QWidget):
 
         # Обновляем заголовок
         self.title_label.setText(f"Все активные стратегии ({len(strategies)})")
+        # Keep header accent in sync with current theme.
+        try:
+            self.title_label.setStyleSheet(
+                f"color: {self._tokens.accent_hex}; font-size: 11px; font-weight: 600;"
+            )
+        except Exception:
+            pass
 
         # Пересчитываем размер
         self.strategies_layout.invalidate()
@@ -281,14 +291,20 @@ class StrategiesListTooltip(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(rect), radius, radius)
         
+        tokens = self._tokens
         # Градиентный фон
         gradient = QLinearGradient(0, 0, 0, rect.height())
-        gradient.setColorAt(0, QColor(45, 45, 48, 252))
-        gradient.setColorAt(1, QColor(30, 30, 32, 252))
+        if tokens.is_light:
+            gradient.setColorAt(0, QColor(255, 255, 255, 252))
+            gradient.setColorAt(1, QColor(243, 246, 251, 252))
+        else:
+            gradient.setColorAt(0, QColor(45, 45, 48, 252))
+            gradient.setColorAt(1, QColor(30, 30, 32, 252))
         painter.fillPath(path, QBrush(gradient))
         
         # Тонкая рамка
-        painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
+        border = QColor(0, 0, 0, 26) if tokens.is_light else QColor(255, 255, 255, 15)
+        painter.setPen(QPen(border, 1))
         painter.drawPath(path)
 
 
@@ -349,4 +365,3 @@ class StrategiesTooltipManager:
 
 # Глобальный экземпляр менеджера
 strategies_tooltip_manager = StrategiesTooltipManager()
-

@@ -1,7 +1,7 @@
 # ui/pages/logs_page.py
 """Страница просмотра логов в реальном времени"""
 
-from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve, pyqtSignal, QObject, QSettings
+from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve, pyqtSignal, QObject, QSettings, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QApplication, QMessageBox,
@@ -18,6 +18,7 @@ import html
 
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
 from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
@@ -187,6 +188,22 @@ class LogsPage(BasePage):
         self._error_pattern = re.compile('|'.join(ERROR_PATTERNS))
         self._exclude_pattern = re.compile('|'.join(EXCLUDE_PATTERNS), re.IGNORECASE)
 
+        self._tokens = get_theme_tokens()
+
+        # Theme-dependent colors used in runtime status/output updates.
+        self._winws_stdout_color = "#00ff88"
+        self._winws_stderr_color = "#ff6b6b"
+        self._winws_status_neutral = self._tokens.fg_muted
+        self._winws_status_running = self._tokens.accent_hex
+        self._winws_status_error = self._tokens.fg
+
+        # References for theme refresh (icons/labels created as locals).
+        self._warning_icon_label = None
+        self._terminal_icon_label = None
+        self._info_icon_label = None
+        self._orchestra_icon_label = None
+        self._orchestra_text_label = None
+
         # Winws output worker
         self._winws_thread = None
         self._winws_worker = None
@@ -200,6 +217,289 @@ class LogsPage(BasePage):
         self._send_tab_initialized = False
 
         self._build_ui()
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            try:
+                self._apply_theme()
+            except Exception:
+                pass
+        super().changeEvent(event)
+
+    def _apply_theme(self, theme_name: str | None = None) -> None:
+        tokens = get_theme_tokens(theme_name)
+        self._tokens = tokens
+
+        # Tabs
+        self._tab_style_active = (
+            "QPushButton {"
+            " background-color: transparent;"
+            f" color: {tokens.accent_hex};"
+            " border: none;"
+            f" border-bottom: 2px solid {tokens.accent_hex};"
+            " padding: 8px 16px;"
+            " font-size: 12px;"
+            " font-weight: 600;"
+            f" font-family: {tokens.font_family_qss};"
+            " }"
+        )
+        self._tab_style_inactive = (
+            "QPushButton {"
+            " background-color: transparent;"
+            f" color: {tokens.fg_faint};"
+            " border: none;"
+            " border-bottom: 2px solid transparent;"
+            " padding: 8px 16px;"
+            " font-size: 12px;"
+            " font-weight: 600;"
+            f" font-family: {tokens.font_family_qss};"
+            " }"
+            "QPushButton:hover {"
+            f" color: {tokens.fg_muted};"
+            " }"
+        )
+
+        self._tab_icon_logs_active = qta.icon('fa5s.file-alt', color=tokens.accent_hex)
+        self._tab_icon_send_active = qta.icon('fa5s.paper-plane', color=tokens.accent_hex)
+        self._tab_icon_inactive = qta.icon('fa5s.file-alt', color=tokens.fg_faint)
+        self._tab_icon_inactive_send = qta.icon('fa5s.paper-plane', color=tokens.fg_faint)
+        self._update_tab_styles()
+
+        # Controls
+        if hasattr(self, "log_combo"):
+            popup_bg = "#ffffff" if tokens.is_light else "rgba(45, 45, 48, 0.95)"
+            self.log_combo.setStyleSheet(
+                "QComboBox {"
+                f" background-color: {tokens.surface_bg};"
+                f" color: {tokens.fg_muted};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 8px;"
+                " padding: 10px 14px;"
+                " font-size: 12px;"
+                " }"
+                "QComboBox:hover {"
+                f" background-color: {tokens.surface_bg_hover};"
+                f" border-color: {tokens.surface_border_hover};"
+                " }"
+                "QComboBox::drop-down { border: none; padding-right: 10px; }"
+                "QComboBox::down-arrow { image: none; width: 0; }"
+                "QComboBox QAbstractItemView {"
+                f" background-color: {popup_bg};"
+                f" color: {tokens.fg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 8px;"
+                " padding: 4px;"
+                " outline: none;"
+                " }"
+                "QComboBox QAbstractItemView::item {"
+                " padding: 8px 12px;"
+                " border-radius: 6px;"
+                " margin: 2px 4px;"
+                " }"
+                "QComboBox QAbstractItemView::item:hover {"
+                f" background-color: {tokens.surface_bg_hover};"
+                " }"
+                "QComboBox QAbstractItemView::item:selected {"
+                f" background-color: {tokens.accent_soft_bg};"
+                f" color: {tokens.accent_hex};"
+                " }"
+            )
+
+        if hasattr(self, "refresh_btn"):
+            self.refresh_btn.setStyleSheet(
+                "QPushButton {"
+                f" background-color: {tokens.surface_bg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 8px;"
+                " }"
+                "QPushButton:hover {"
+                f" background-color: {tokens.surface_bg_hover};"
+                f" border-color: {tokens.surface_border_hover};"
+                " }"
+                "QPushButton:pressed {"
+                f" background-color: {tokens.surface_bg_pressed};"
+                " }"
+            )
+
+            self._refresh_icon_normal = qta.icon('fa5s.sync-alt', color=tokens.fg)
+            self._refresh_icon_spinning = qta.icon(
+                'fa5s.sync-alt',
+                color=tokens.accent_hex,
+                animation=self._refresh_spin_animation,
+            )
+            self.refresh_btn.setIcon(
+                self._refresh_icon_spinning
+                if self._refresh_spin_animation.isRunning()
+                else self._refresh_icon_normal
+            )
+
+        if hasattr(self, "info_label"):
+            self.info_label.setStyleSheet(f"QLabel {{ color: {tokens.accent_hex}; font-size: 11px; }}")
+
+        # Log area
+        editor_bg = "rgba(255, 255, 255, 0.85)" if tokens.is_light else "rgba(0, 0, 0, 0.55)"
+        editor_fg = "rgba(0, 0, 0, 0.88)" if tokens.is_light else "rgba(255, 255, 255, 0.90)"
+        if hasattr(self, "log_text"):
+            self.log_text.setStyleSheet(
+                "QTextEdit {"
+                f" background-color: {editor_bg};"
+                f" color: {editor_fg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 6px;"
+                " padding: 12px;"
+                " font-family: 'Consolas', 'Courier New', monospace;"
+                " font-size: 11px;"
+                " line-height: 1.4;"
+                " }"
+            )
+
+        if hasattr(self, "stats_label"):
+            self.stats_label.setProperty("tone", "faint")
+            self.stats_label.setStyleSheet("font-size: 10px; padding-top: 4px;")
+
+        # Errors panel
+        err_fg = "rgba(220, 38, 38, 0.92)" if tokens.is_light else "rgba(248, 113, 113, 0.95)"
+        err_bg = "rgba(220, 38, 38, 0.08)" if tokens.is_light else "rgba(248, 113, 113, 0.10)"
+        err_border = "rgba(220, 38, 38, 0.25)" if tokens.is_light else "rgba(248, 113, 113, 0.25)"
+
+        if self._warning_icon_label is not None:
+            try:
+                self._warning_icon_label.setPixmap(qta.icon('fa5s.exclamation-triangle', color=err_fg).pixmap(16, 16))
+            except Exception:
+                pass
+
+        if hasattr(self, "errors_count_label"):
+            self.errors_count_label.setStyleSheet(f"QLabel {{ color: {err_fg}; font-size: 11px; font-weight: bold; }}")
+
+        if hasattr(self, "errors_text"):
+            self.errors_text.setStyleSheet(
+                "QTextEdit {"
+                f" background-color: {err_bg};"
+                f" color: {err_fg};"
+                f" border: 1px solid {err_border};"
+                " border-radius: 6px;"
+                " padding: 8px;"
+                " font-family: 'Consolas', 'Courier New', monospace;"
+                " font-size: 11px;"
+                " }"
+            )
+
+        # winws panel
+        if self._terminal_icon_label is not None:
+            try:
+                self._terminal_icon_label.setPixmap(qta.icon('fa5s.terminal', color=tokens.accent_hex).pixmap(16, 16))
+            except Exception:
+                pass
+
+        self._winws_stdout_color = "rgba(21, 128, 61, 0.92)" if tokens.is_light else "#00ff88"
+        self._winws_stderr_color = err_fg
+        self._winws_status_neutral = tokens.fg_muted
+        self._winws_status_running = tokens.accent_hex
+        self._winws_status_error = err_fg
+
+        if hasattr(self, "winws_text"):
+            self.winws_text.setStyleSheet(
+                "QTextEdit {"
+                f" background-color: {editor_bg};"
+                f" color: {editor_fg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 6px;"
+                " padding: 8px;"
+                " font-family: 'Consolas', 'Courier New', monospace;"
+                " font-size: 11px;"
+                " }"
+            )
+            self._refresh_winws_status_style_only()
+
+        # Send tab (exists only after lazy init)
+        if self._info_icon_label is not None:
+            try:
+                self._info_icon_label.setPixmap(qta.icon('fa5s.info-circle', color=tokens.accent_hex).pixmap(14, 14))
+            except Exception:
+                pass
+
+        if hasattr(self, "send_status_label"):
+            self.send_status_label.setStyleSheet(f"color: {tokens.accent_hex}; font-size: 11px;")
+
+        if hasattr(self, "problem_text"):
+            self.problem_text.setStyleSheet(
+                "QTextEdit {"
+                f" background-color: {tokens.surface_bg};"
+                f" color: {tokens.fg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 8px;"
+                " padding: 12px;"
+                " font-size: 12px;"
+                " }"
+                "QTextEdit:focus {"
+                f" border-color: {tokens.accent_hex};"
+                f" background-color: {tokens.surface_bg_hover};"
+                " }"
+            )
+
+        if hasattr(self, "tg_contact"):
+            self.tg_contact.setStyleSheet(
+                "QLineEdit {"
+                f" background-color: {tokens.surface_bg};"
+                f" color: {tokens.fg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 8px;"
+                " padding: 12px;"
+                " font-size: 12px;"
+                " }"
+                "QLineEdit:focus {"
+                f" border-color: {tokens.accent_hex};"
+                f" background-color: {tokens.surface_bg_hover};"
+                " }"
+            )
+
+    def _update_tab_styles(self) -> None:
+        idx = 0
+        try:
+            idx = self.stacked_widget.currentIndex()
+        except Exception:
+            idx = 0
+
+        if idx == 0:
+            self.tab_logs_btn.setStyleSheet(self._tab_style_active)
+            self.tab_logs_btn.setIcon(getattr(self, "_tab_icon_logs_active", qta.icon('fa5s.file-alt')))
+            self.tab_send_btn.setStyleSheet(self._tab_style_inactive)
+            self.tab_send_btn.setIcon(getattr(self, "_tab_icon_inactive_send", qta.icon('fa5s.paper-plane')))
+        else:
+            self.tab_logs_btn.setStyleSheet(self._tab_style_inactive)
+            self.tab_logs_btn.setIcon(getattr(self, "_tab_icon_inactive", qta.icon('fa5s.file-alt')))
+            self.tab_send_btn.setStyleSheet(self._tab_style_active)
+            self.tab_send_btn.setIcon(getattr(self, "_tab_icon_send_active", qta.icon('fa5s.paper-plane')))
+
+    def _refresh_winws_status_style_only(self) -> None:
+        try:
+            cur = (self.winws_status_label.text() or "").strip()
+        except Exception:
+            cur = ""
+        if not cur:
+            self._set_winws_status("neutral", "")
+            return
+
+        if "PID:" in cur:
+            self._set_winws_status("running", cur)
+            return
+
+        if "ошиб" in cur.lower():
+            self._set_winws_status("error", cur)
+            return
+
+        self._set_winws_status("neutral", cur)
+
+    def _set_winws_status(self, kind: str, text: str) -> None:
+        if kind == "running":
+            color = self._winws_status_running
+        elif kind == "error":
+            color = self._winws_status_error
+        else:
+            color = self._winws_status_neutral
+
+        self.winws_status_label.setText(text)
+        self.winws_status_label.setStyleSheet(f"QLabel {{ color: {color}; font-size: 11px; }}")
         
     def _build_ui(self):
         # ═══════════════════════════════════════════════════════════
@@ -210,56 +510,23 @@ class LogsPage(BasePage):
         tabs_layout.setContentsMargins(0, 0, 0, 8)
         tabs_layout.setSpacing(0)
 
-        # Стиль для кнопок табов
-        tab_style_active = """
-            QPushButton {
-                background-color: transparent;
-                color: #60cdff;
-                border: none;
-                border-bottom: 2px solid #60cdff;
-                padding: 8px 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-        """
-        tab_style_inactive = """
-            QPushButton {
-                background-color: transparent;
-                color: rgba(255, 255, 255, 0.5);
-                border: none;
-                border-bottom: 2px solid transparent;
-                padding: 8px 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                color: rgba(255, 255, 255, 0.8);
-            }
-        """
-
         self.tab_logs_btn = QPushButton()
-        self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#60cdff'))
         self.tab_logs_btn.setText(" ЛОГИ")
         self.tab_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.tab_logs_btn.setStyleSheet(tab_style_active)
         self.tab_logs_btn.clicked.connect(lambda: self._switch_tab(0))
         tabs_layout.addWidget(self.tab_logs_btn)
 
         self.tab_send_btn = QPushButton()
-        self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#888888'))
         self.tab_send_btn.setText(" ОТПРАВКА")
         self.tab_send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.tab_send_btn.setStyleSheet(tab_style_inactive)
         self.tab_send_btn.clicked.connect(lambda: self._switch_tab(1))
         tabs_layout.addWidget(self.tab_send_btn)
 
         tabs_layout.addStretch()
 
-        # Сохраняем стили для переключения
-        self._tab_style_active = tab_style_active
-        self._tab_style_inactive = tab_style_inactive
+        # Styles are token-driven and set in _apply_theme().
+        self._tab_style_active = ""
+        self._tab_style_inactive = ""
 
         self.add_widget(tabs_container)
 
@@ -288,6 +555,9 @@ class LogsPage(BasePage):
 
         self.add_widget(self.stacked_widget)
 
+        # Apply token-driven styles once widgets exist.
+        self._apply_theme()
+
     def _switch_tab(self, index: int):
         """Переключает между табами"""
         if index == 1 and not self._send_tab_initialized:
@@ -299,16 +569,9 @@ class LogsPage(BasePage):
 
         self.stacked_widget.setCurrentIndex(index)
 
-        if index == 0:
-            self.tab_logs_btn.setStyleSheet(self._tab_style_active)
-            self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#60cdff'))
-            self.tab_send_btn.setStyleSheet(self._tab_style_inactive)
-            self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#888888'))
-        else:
-            self.tab_logs_btn.setStyleSheet(self._tab_style_inactive)
-            self.tab_logs_btn.setIcon(qta.icon('fa5s.file-alt', color='#888888'))
-            self.tab_send_btn.setStyleSheet(self._tab_style_active)
-            self.tab_send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#60cdff'))
+        self._update_tab_styles()
+
+        if index == 1:
             # Обновляем видимость индикатора оркестратора
             self._update_orchestra_indicator()
 
@@ -327,74 +590,18 @@ class LogsPage(BasePage):
         
         self.log_combo = QComboBox()
         self.log_combo.setMinimumWidth(350)
-        self.log_combo.setStyleSheet("""
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.05);
-                color: rgba(255, 255, 255, 0.7);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
-                padding: 10px 14px;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                border-color: rgba(255, 255, 255, 0.15);
-            }
-            QComboBox::drop-down {
-                border: none;
-                padding-right: 10px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                width: 0;
-            }
-            QComboBox QAbstractItemView {
-                background-color: rgba(45, 45, 48, 0.95);
-                color: rgba(255, 255, 255, 0.8);
-                selection-background-color: rgba(96, 205, 255, 0.2);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 4px;
-                outline: none;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 8px 12px;
-                border-radius: 6px;
-                margin: 2px 4px;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background-color: rgba(96, 205, 255, 0.15);
-                color: #60cdff;
-            }
-        """)
         self.log_combo.currentIndexChanged.connect(self._on_log_selected)
         row1.addWidget(self.log_combo, 1)
         
         self.refresh_btn = QPushButton()
-        self._refresh_icon_normal = qta.icon('fa5s.sync-alt', color='#ffffff')
+        tokens = get_theme_tokens()
+        self._refresh_icon_normal = qta.icon('fa5s.sync-alt', color=tokens.fg)
         self._refresh_spin_animation = qta.Spin(self.refresh_btn, interval=10, step=8)
-        self._refresh_icon_spinning = qta.icon('fa5s.sync-alt', color='#60cdff', animation=self._refresh_spin_animation)
+        self._refresh_icon_spinning = qta.icon('fa5s.sync-alt', color=tokens.accent_hex, animation=self._refresh_spin_animation)
         self.refresh_btn.setIcon(self._refresh_icon_normal)
         self.refresh_btn.setFixedSize(36, 36)
         self.refresh_btn.setToolTip("Обновить список файлов")
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.05);
-            }
-        """)
         self.refresh_btn.clicked.connect(self._refresh_logs_list)
         row1.addWidget(self.refresh_btn)
         
@@ -420,12 +627,6 @@ class LogsPage(BasePage):
         
         # Информационная строка
         self.info_label = QLabel()
-        self.info_label.setStyleSheet("""
-            QLabel {
-                color: #60cdff;
-                font-size: 11px;
-            }
-        """)
         row2.addWidget(self.info_label)
         
         controls_main.addLayout(row2)
@@ -445,42 +646,10 @@ class LogsPage(BasePage):
         self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.log_text.setFont(QFont("Consolas", 9))
         self.log_text.setMinimumHeight(260)
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                border: 1px solid #3d3d3d;
-                border-radius: 6px;
-                padding: 12px;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11px;
-                line-height: 1.4;
-            }
-            QScrollBar:vertical {
-                background: #2d2d30;
-                width: 10px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background: #5a5a5a;
-                border-radius: 5px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #6a6a6a;
-            }
-        """)
         log_layout.addWidget(self.log_text)
         
         # Статистика внизу лог-карточки
         self.stats_label = QLabel()
-        self.stats_label.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 10px;
-                padding-top: 4px;
-            }
-        """)
         log_layout.addWidget(self.stats_label)
         
         log_card.add_layout(log_layout)
@@ -497,30 +666,17 @@ class LogsPage(BasePage):
         
         # Иконка предупреждения
         warning_icon = QLabel()
-        warning_icon.setPixmap(qta.icon('fa5s.exclamation-triangle', color='#ff6b6b').pixmap(16, 16))
+        self._warning_icon_label = warning_icon
         errors_header.addWidget(warning_icon)
         
         # Заголовок
         errors_title = QLabel("Ошибки и предупреждения")
-        errors_title.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-        """)
+        errors_title.setProperty("tone", "primary")
+        errors_title.setStyleSheet("font-size: 14px; font-weight: 600;")
         errors_header.addWidget(errors_title)
         errors_header.addSpacing(16)
         
         self.errors_count_label = QLabel("Ошибок: 0")
-        self.errors_count_label.setStyleSheet("""
-            QLabel {
-                color: #ff6b6b;
-                font-size: 11px;
-                font-weight: bold;
-            }
-        """)
         errors_header.addWidget(self.errors_count_label)
         
         errors_header.addStretch()
@@ -537,27 +693,6 @@ class LogsPage(BasePage):
         self.errors_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.errors_text.setFont(QFont("Consolas", 9))
         self.errors_text.setFixedHeight(100)
-        self.errors_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #2a1a1a;
-                color: #ff8888;
-                border: 1px solid #5a2a2a;
-                border-radius: 6px;
-                padding: 8px;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11px;
-            }
-            QScrollBar:vertical {
-                background: #2d2d30;
-                width: 10px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background: #5a3a3a;
-                border-radius: 5px;
-                min-height: 30px;
-            }
-        """)
         errors_layout.addWidget(self.errors_text)
 
         errors_card.add_layout(errors_layout)
@@ -574,30 +709,18 @@ class LogsPage(BasePage):
 
         # Иконка терминала
         terminal_icon = QLabel()
-        terminal_icon.setPixmap(qta.icon('fa5s.terminal', color='#60cdff').pixmap(16, 16))
+        self._terminal_icon_label = terminal_icon
         winws_header.addWidget(terminal_icon)
 
         # Заголовок
         winws_title = QLabel("Вывод winws.exe")
-        winws_title.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-        """)
+        winws_title.setProperty("tone", "primary")
+        winws_title.setStyleSheet("font-size: 14px; font-weight: 600;")
         winws_header.addWidget(winws_title)
         winws_header.addSpacing(16)
 
         # Статус процесса
         self.winws_status_label = QLabel("Процесс не запущен")
-        self.winws_status_label.setStyleSheet("""
-            QLabel {
-                color: #888888;
-                font-size: 11px;
-            }
-        """)
         winws_header.addWidget(self.winws_status_label)
 
         winws_header.addStretch()
@@ -615,30 +738,6 @@ class LogsPage(BasePage):
         self.winws_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.winws_text.setFont(QFont("Consolas", 9))
         self.winws_text.setFixedHeight(150)
-        self.winws_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #1a1a2e;
-                color: #00ff88;
-                border: 1px solid #2a2a4a;
-                border-radius: 6px;
-                padding: 8px;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11px;
-            }
-            QScrollBar:vertical {
-                background: #2d2d30;
-                width: 10px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background: #4a4a6a;
-                border-radius: 5px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #5a5a7a;
-            }
-        """)
         winws_layout.addWidget(self.winws_text)
 
         winws_card.add_layout(winws_layout)
@@ -671,10 +770,12 @@ class LogsPage(BasePage):
 
         orchestra_icon = QLabel()
         orchestra_icon.setPixmap(qta.icon('fa5s.brain', color='#a855f7').pixmap(16, 16))
+        self._orchestra_icon_label = orchestra_icon
         orchestra_layout.addWidget(orchestra_icon)
 
         orchestra_text = QLabel("Режим оркестратора активен — будут отправлены 2 файла")
         orchestra_text.setStyleSheet("color: #a855f7; font-size: 12px; font-weight: 600; background: transparent;")
+        self._orchestra_text_label = orchestra_text
         orchestra_layout.addWidget(orchestra_text)
         orchestra_layout.addStretch()
 
@@ -691,13 +792,15 @@ class LogsPage(BasePage):
         desc_label = QLabel(
             "Опишите проблему и оставьте контакты для обратной связи (необязательно):"
         )
-        desc_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px;")
+        desc_label.setProperty("tone", "muted")
+        desc_label.setStyleSheet("font-size: 12px;")
         desc_label.setWordWrap(True)
         send_layout.addWidget(desc_label)
 
         # Поле "Описание проблемы"
         problem_header = QLabel("Описание проблемы:")
-        problem_header.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 600;")
+        problem_header.setProperty("tone", "primary")
+        problem_header.setStyleSheet("font-size: 12px; font-weight: 600;")
         send_layout.addWidget(problem_header)
 
         self.problem_text = QTextEdit()
@@ -705,43 +808,16 @@ class LogsPage(BasePage):
             "Опишите, что не работает или какая ошибка возникает."
         )
         self.problem_text.setMaximumHeight(150)
-        self.problem_text.setStyleSheet("""
-            QTextEdit {
-                background-color: rgba(255, 255, 255, 0.05);
-                color: rgba(255, 255, 255, 0.9);
-                border: 1px solid #60cdff;
-                border-radius: 8px;
-                padding: 12px;
-                font-size: 12px;
-            }
-            QTextEdit:focus {
-                border-color: #60cdff;
-                background-color: rgba(255, 255, 255, 0.08);
-            }
-        """)
         send_layout.addWidget(self.problem_text)
 
         # Поле "Telegram для связи"
         tg_header = QLabel("Telegram для связи (необязательно):")
-        tg_header.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 600;")
+        tg_header.setProperty("tone", "primary")
+        tg_header.setStyleSheet("font-size: 12px; font-weight: 600;")
         send_layout.addWidget(tg_header)
 
         self.tg_contact = QLineEdit()
         self.tg_contact.setPlaceholderText("@username или ссылка на профиль")
-        self.tg_contact.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.05);
-                color: rgba(255, 255, 255, 0.9);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 8px;
-                padding: 12px;
-                font-size: 12px;
-            }
-            QLineEdit:focus {
-                border-color: #60cdff;
-                background-color: rgba(255, 255, 255, 0.08);
-            }
-        """)
         send_layout.addWidget(self.tg_contact)
 
         # Информация
@@ -750,14 +826,15 @@ class LogsPage(BasePage):
         info_layout.setContentsMargins(0, 8, 0, 8)
 
         info_icon = QLabel()
-        info_icon.setPixmap(qta.icon('fa5s.info-circle', color='#60cdff').pixmap(14, 14))
+        self._info_icon_label = info_icon
         info_layout.addWidget(info_icon)
 
         info_text = QLabel(
             "Ваши данные будут отправлены только в канал техподдержки.\n"
             "Лог файл поможет разработчикам найти и исправить проблему."
         )
-        info_text.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
+        info_text.setProperty("tone", "faint")
+        info_text.setStyleSheet("font-size: 11px;")
         info_text.setWordWrap(True)
         info_layout.addWidget(info_text, 1)
 
@@ -774,7 +851,6 @@ class LogsPage(BasePage):
 
         # Статус отправки
         self.send_status_label = QLabel()
-        self.send_status_label.setStyleSheet("color: #60cdff; font-size: 11px;")
         buttons_row.addWidget(self.send_status_label)
 
         send_layout.addLayout(buttons_row)
@@ -784,6 +860,9 @@ class LogsPage(BasePage):
 
         # Растяжка чтобы форма была вверху
         parent_layout.addStretch()
+
+        # Send tab is lazily built; apply current theme now.
+        self._apply_theme()
 
     def _is_orchestra_mode(self) -> bool:
         """Проверяет, активен ли режим оркестратора"""
@@ -1306,14 +1385,12 @@ class LogsPage(BasePage):
         # Получаем текущий runner и процесс
         runner = get_current_runner()
         if not runner:
-            self.winws_status_label.setText("Процесс не запущен")
-            self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+            self._set_winws_status("neutral", "Процесс не запущен")
             return
 
         process = runner.get_process()
         if not process:
-            self.winws_status_label.setText("Процесс не запущен")
-            self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+            self._set_winws_status("neutral", "Процесс не запущен")
             return
 
         # Обновляем статус
@@ -1323,8 +1400,7 @@ class LogsPage(BasePage):
         if len(strategy_name) > 35:
             strategy_name = strategy_name[:32] + "..."
         pid = strategy_info.get('pid', '?')
-        self.winws_status_label.setText(f"PID: {pid} | {strategy_name}")
-        self.winws_status_label.setStyleSheet("QLabel { color: #60cdff; font-size: 11px; }")
+        self._set_winws_status("running", f"PID: {pid} | {strategy_name}")
 
         try:
             self._winws_thread = QThread(self)
@@ -1371,10 +1447,10 @@ class LogsPage(BasePage):
         # Форматируем текст в зависимости от потока
         if stream_type == 'stderr':
             # stderr показываем красным
-            formatted = f'<span style="color: #ff6b6b;">{safe_text}</span>'
+            formatted = f'<span style="color: {self._winws_stderr_color};">{safe_text}</span>'
         else:
             # stdout показываем зелёным
-            formatted = f'<span style="color: #00ff88;">{safe_text}</span>'
+            formatted = f'<span style="color: {self._winws_stdout_color};">{safe_text}</span>'
 
         self.winws_text.append(formatted)
 
@@ -1385,11 +1461,9 @@ class LogsPage(BasePage):
     def _on_winws_process_ended(self, exit_code: int):
         """Обработчик завершения процесса winws"""
         if exit_code == 0:
-            self.winws_status_label.setText(f"Процесс завершён (код: {exit_code})")
-            self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+            self._set_winws_status("neutral", f"Процесс завершён (код: {exit_code})")
         else:
-            self.winws_status_label.setText(f"Процесс завершён с ошибкой (код: {exit_code})")
-            self.winws_status_label.setStyleSheet("QLabel { color: #ff6b6b; font-size: 11px; }")
+            self._set_winws_status("error", f"Процесс завершён с ошибкой (код: {exit_code})")
 
     def _update_winws_status(self):
         """Периодически проверяет статус процесса winws"""
@@ -1403,8 +1477,7 @@ class LogsPage(BasePage):
         else:
             # Процесс не запущен - обновляем статус если worker не работает
             if not self._winws_thread or not self._winws_thread.isRunning():
-                self.winws_status_label.setText("Процесс не запущен")
-                self.winws_status_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
+                self._set_winws_status("neutral", "Процесс не запущен")
 
     def _clear_winws_output(self):
         """Очищает поле вывода winws"""

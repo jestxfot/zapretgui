@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer, QFileSystemWatcher
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer, QFileSystemWatcher
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -16,6 +16,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import ActionButton, SettingsCard
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -39,6 +40,16 @@ def _cached_pixmap(name: str, color, w: int = 20, h: int = 20):
     return _cached_icon(name, color).pixmap(w, h)
 
 
+def _accent_fg_for_tokens(tokens) -> str:
+    """Chooses readable foreground for the current accent color."""
+    try:
+        r, g, b = tokens.accent_rgb
+        yiq = (r * 299 + g * 587 + b * 114) / 1000
+        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+    except Exception:
+        return "rgba(0, 0, 0, 0.90)"
+
+
 class _DestructiveConfirmButton(QPushButton):
     """Кнопка опасного действия с двойным подтверждением (без модального окна)."""
 
@@ -52,6 +63,7 @@ class _DestructiveConfirmButton(QPushButton):
         self._busy_text = busy_text
         self._pending = False
         self._hovered = False
+        self._applying_theme_styles = False
 
         self.setIconSize(QSize(14, 14))
         self.setFixedHeight(28)
@@ -70,28 +82,48 @@ class _DestructiveConfirmButton(QPushButton):
         self._update_icon_and_style()
 
     def _update_icon_and_style(self):
-        if self._pending:
-            icon_color = "#ff6b6b"
-            bg = "rgba(255, 107, 107, 0.28)" if self._hovered else "rgba(255, 107, 107, 0.20)"
-            text_color = "#ff6b6b"
-        else:
-            icon_color = "white"
-            bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
-            text_color = "#ffffff"
+        if self._applying_theme_styles:
+            return
 
-        self.setIcon(_cached_icon(self._icon_name, icon_color))
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: none;
-                border-radius: 4px;
-                color: {text_color};
-                padding: 0 12px;
-                font-size: 11px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-        """)
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self._pending:
+                icon_color = "#ff6b6b"
+                bg = "rgba(255, 107, 107, 0.28)" if self._hovered else "rgba(255, 107, 107, 0.20)"
+                text_color = "#ff6b6b"
+                border = f"1px solid {tokens.surface_border}"
+            else:
+                icon_color = tokens.fg
+                bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+                text_color = tokens.fg
+                border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
+
+            self.setIcon(_cached_icon(self._icon_name, icon_color))
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 4px;
+                    color: {text_color};
+                    padding: 0 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._update_icon_and_style()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -140,6 +172,7 @@ class _DestructiveIconConfirmButton(QPushButton):
         self._busy_tooltip = busy_tooltip
         self._pending = False
         self._hovered = False
+        self._applying_theme_styles = False
 
         self.setText("")
         self.setIconSize(QSize(14, 14))
@@ -159,28 +192,49 @@ class _DestructiveIconConfirmButton(QPushButton):
         self._update_icon_and_style()
 
     def _update_icon_and_style(self):
-        if self.isEnabled():
-            if self._pending:
-                icon_color = "#ff6b6b"
-                bg = "rgba(255, 107, 107, 0.28)" if self._hovered else "rgba(255, 107, 107, 0.20)"
-                self.setToolTip(f"{self._base_tooltip}\n{self._confirm_tooltip}")
-            else:
-                icon_color = "#ffffff"
-                bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
-                self.setToolTip(self._base_tooltip)
-        else:
-            icon_color = "#ff6b6b"
-            bg = "rgba(255, 107, 107, 0.18)"
-            self.setToolTip(self._busy_tooltip)
+        if self._applying_theme_styles:
+            return
 
-        self.setIcon(_cached_icon(self._icon_name, icon_color))
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: none;
-                border-radius: 6px;
-            }}
-        """)
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self.isEnabled():
+                if self._pending:
+                    icon_color = "#ff6b6b"
+                    bg = "rgba(255, 107, 107, 0.28)" if self._hovered else "rgba(255, 107, 107, 0.20)"
+                    border = "none"
+                    self.setToolTip(f"{self._base_tooltip}\n{self._confirm_tooltip}")
+                else:
+                    icon_color = tokens.fg
+                    bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+                    border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
+                    self.setToolTip(self._base_tooltip)
+            else:
+                icon_color = "#ff6b6b"
+                bg = "rgba(255, 107, 107, 0.18)"
+                border = "none"
+                self.setToolTip(self._busy_tooltip)
+
+            self.setIcon(_cached_icon(self._icon_name, icon_color))
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 6px;
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._update_icon_and_style()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -234,6 +288,8 @@ class PresetCard(QFrame):
         self._is_builtin = False  # builtin concept removed; parameter kept for compat
         self._compact_actions = compact_actions
         self._hovered = False
+        self._applying_theme_styles = False
+        self._active_badge: QLabel | None = None
 
         self.setObjectName("presetCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -244,6 +300,8 @@ class PresetCard(QFrame):
 
     def _build_ui(self, name: str, description: str, modified: str):
         """Строит UI карточки"""
+        tokens = get_theme_tokens()
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(16, 10, 16, 10)
         main_layout.setSpacing(8)
@@ -254,7 +312,7 @@ class PresetCard(QFrame):
 
         # Иконка (звезда для активного, папка для остальных)
         icon_name = "fa5s.star" if self._is_active else "fa5s.file-alt"
-        icon_color = "#60cdff" if self._is_active else QColor(255, 255, 255, 160)
+        icon_color = tokens.accent_hex if self._is_active else tokens.fg_muted
         self.icon_label = QLabel()
         self.icon_label.setPixmap(_cached_pixmap(icon_name, icon_color, 20, 20))
         self.icon_label.setFixedSize(24, 24)
@@ -262,9 +320,12 @@ class PresetCard(QFrame):
 
         # Название
         self.name_label = QLabel(name)
+        try:
+            self.name_label.setProperty("tone", "primary")
+        except Exception:
+            pass
         self.name_label.setStyleSheet("""
             QLabel {
-                color: #ffffff;
                 font-size: 15px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
@@ -284,9 +345,12 @@ class PresetCard(QFrame):
                 formatted_date = modified
 
             date_label = QLabel(formatted_date)
+            try:
+                date_label.setProperty("tone", "faint")
+            except Exception:
+                pass
             date_label.setStyleSheet("""
                 QLabel {
-                    color: rgba(255, 255, 255, 0.35);
                     font-size: 11px;
                 }
             """)
@@ -296,18 +360,20 @@ class PresetCard(QFrame):
 
         # Бейдж "Активен"
         if self._is_active:
-            active_badge = QLabel("Активен")
-            active_badge.setStyleSheet("""
-                QLabel {
-                    color: #000000;
-                    background-color: #60cdff;
+            self._active_badge = QLabel("Активен")
+            self._active_badge.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {_accent_fg_for_tokens(tokens)};
+                    background-color: {tokens.accent_hex};
                     font-size: 10px;
                     font-weight: 600;
                     padding: 3px 8px;
                     border-radius: 4px;
-                }
-            """)
-            top_row.addWidget(active_badge)
+                }}
+                """
+            )
+            top_row.addWidget(self._active_badge)
 
         # Compact actions: small icon buttons on the right.
         if self._compact_actions:
@@ -366,9 +432,12 @@ class PresetCard(QFrame):
         # Описание (если есть)
         if description:
             desc_label = QLabel(description)
+            try:
+                desc_label.setProperty("tone", "muted")
+            except Exception:
+                pass
             desc_label.setStyleSheet("""
                 QLabel {
-                    color: rgba(255, 255, 255, 0.6);
                     font-size: 12px;
                 }
             """)
@@ -427,70 +496,202 @@ class PresetCard(QFrame):
 
     def _create_action_button(self, text: str, icon_name: str) -> QPushButton:
         """Создает кнопку действия в нейтральном стиле"""
+        tokens = get_theme_tokens()
         btn = QPushButton(text)
-        btn.setIcon(qta.icon(icon_name, color="white"))
+        btn.setProperty("_preset_icon_name", icon_name)
+        btn.setProperty("_preset_action_kind", "text")
+        btn.setIcon(_cached_icon(icon_name, tokens.fg))
         btn.setIconSize(QSize(14, 14))
         btn.setFixedHeight(28)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
+        btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 12px;
                 font-size: 11px;
                 font-weight: 500;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
+            """
+        )
         return btn
 
     def _create_icon_action_button(self, icon_name: str, tooltip: str, icon_color: str = "white") -> QPushButton:
+        tokens = get_theme_tokens()
+        _ = icon_color
         btn = QPushButton()
         btn.setToolTip(tooltip)
-        btn.setIcon(_cached_icon(icon_name, icon_color))
+        btn.setProperty("_preset_icon_name", icon_name)
+        btn.setProperty("_preset_action_kind", "icon")
+        btn.setIcon(_cached_icon(icon_name, tokens.fg))
         btn.setIconSize(QSize(14, 14))
         btn.setFixedSize(28, 28)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
+        btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
+            """
+        )
         return btn
+
+    def _refresh_action_buttons_theme(self) -> None:
+        tokens = get_theme_tokens()
+        for btn in self.findChildren(QPushButton):
+            try:
+                icon_name = btn.property("_preset_icon_name")
+                kind = btn.property("_preset_action_kind")
+            except Exception:
+                icon_name = None
+                kind = None
+
+            if not icon_name or not kind:
+                continue
+
+            try:
+                btn.setIcon(_cached_icon(str(icon_name), tokens.fg))
+            except Exception:
+                pass
+
+            if str(kind) == "icon":
+                try:
+                    btn.setStyleSheet(
+                        f"""
+                        QPushButton {{
+                            background-color: {tokens.surface_bg};
+                            border: 1px solid {tokens.surface_border};
+                            border-radius: 6px;
+                        }}
+                        QPushButton:hover {{
+                            background-color: {tokens.surface_bg_hover};
+                            border: 1px solid {tokens.surface_border_hover};
+                        }}
+                        QPushButton:pressed {{
+                            background-color: {tokens.surface_bg_pressed};
+                        }}
+                        """
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    btn.setStyleSheet(
+                        f"""
+                        QPushButton {{
+                            background-color: {tokens.surface_bg};
+                            border: 1px solid {tokens.surface_border};
+                            border-radius: 4px;
+                            color: {tokens.fg};
+                            padding: 0 12px;
+                            font-size: 11px;
+                            font-weight: 500;
+                            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                        }}
+                        QPushButton:hover {{
+                            background-color: {tokens.surface_bg_hover};
+                            border: 1px solid {tokens.surface_border_hover};
+                        }}
+                        QPushButton:pressed {{
+                            background-color: {tokens.surface_bg_pressed};
+                        }}
+                        """
+                    )
+                except Exception:
+                    pass
 
     def _update_style(self):
         """Обновляет стиль карточки"""
-        if self._is_active:
-            bg = "rgba(96, 205, 255, 0.08)"
-        elif self._hovered:
-            bg = "rgba(255, 255, 255, 0.08)"
-        else:
-            bg = "rgba(255, 255, 255, 0.04)"
+        if self._applying_theme_styles:
+            return
 
-        self.setStyleSheet(f"""
-            QFrame#presetCard {{
-                background-color: {bg};
-                border: none;
-                border-radius: 8px;
-            }}
-        """)
+        tokens = get_theme_tokens()
+
+        if self._is_active:
+            bg = tokens.accent_soft_bg_hover if self._hovered else tokens.accent_soft_bg
+            border = f"1px solid {tokens.accent_hex}"
+        else:
+            bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+            border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
+
+        self._applying_theme_styles = True
+        try:
+            self.setStyleSheet(
+                f"""
+                QFrame#presetCard {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 8px;
+                }}
+                """
+            )
+        finally:
+            self._applying_theme_styles = False
+
+    def _apply_theme(self) -> None:
+        tokens = get_theme_tokens()
+
+        try:
+            icon_name = "fa5s.star" if self._is_active else "fa5s.file-alt"
+            icon_color = tokens.accent_hex if self._is_active else tokens.fg_muted
+            self.icon_label.setPixmap(_cached_pixmap(icon_name, icon_color, 20, 20))
+        except Exception:
+            pass
+
+        try:
+            if self._active_badge is not None:
+                self._active_badge.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        color: {_accent_fg_for_tokens(tokens)};
+                        background-color: {tokens.accent_hex};
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 3px 8px;
+                        border-radius: 4px;
+                    }}
+                    """
+                )
+        except Exception:
+            pass
+
+        try:
+            self._refresh_action_buttons_theme()
+        except Exception:
+            pass
+
+        self._update_style()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._apply_theme()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def enterEvent(self, event):
         self._hovered = True
@@ -627,29 +828,44 @@ class _SegmentedChoice(QWidget):
             self.changed.emit(value)
 
     def _update_styles(self):
+        tokens = get_theme_tokens()
         active_style = """
             QPushButton {
-                background: #60cdff;
+                background: %(accent)s;
                 border: none;
-                color: #ffffff;
+                color: %(accent_fg)s;
                 font-size: 11px;
                 font-weight: 700;
                 padding: 0 12px;
             }
+            QPushButton:hover {
+                background: %(accent_hover)s;
+            }
         """
         inactive_style = """
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
+                background: %(bg)s;
                 border: none;
-                color: rgba(255, 255, 255, 0.75);
+                color: %(fg_muted)s;
                 font-size: 11px;
                 font-weight: 600;
                 padding: 0 12px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: %(bg_hover)s;
             }
         """
+
+        active_style = active_style % {
+            "accent": tokens.accent_hex,
+            "accent_hover": tokens.accent_hover_hex,
+            "accent_fg": _accent_fg_for_tokens(tokens),
+        }
+        inactive_style = inactive_style % {
+            "bg": tokens.surface_bg,
+            "bg_hover": tokens.surface_bg_hover,
+            "fg_muted": tokens.fg_muted,
+        }
         left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
         right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
 
@@ -663,6 +879,14 @@ class _SegmentedChoice(QWidget):
             self._right_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
             self._left_btn.setChecked(False)
             self._right_btn.setChecked(True)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._update_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
 
 class PresetsPage(BasePage):
@@ -837,28 +1061,25 @@ class PresetsPage(BasePage):
     def _build_ui(self):
         """Строит UI страницы"""
 
+        tokens = get_theme_tokens()
+
         # Быстрый доступ к посту с актуальными конфигами
         configs_card = SettingsCard()
-        configs_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: none;
-            }
-        """)
+        # SettingsCard background/border are theme-driven globally.
+        configs_card.setStyleSheet("")
         configs_layout = QHBoxLayout()
         configs_layout.setSpacing(12)
 
-        configs_icon = QLabel()
-        configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
-        configs_layout.addWidget(configs_icon)
+        self._configs_icon = QLabel()
+        self._configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
+        configs_layout.addWidget(self._configs_icon)
 
         configs_title = QLabel("Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно")
-        configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
+        try:
+            configs_title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        configs_title.setStyleSheet("font-size: 13px; font-weight: 600;")
         configs_title.setWordWrap(True)
         configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         configs_title.setMinimumWidth(0)
@@ -876,31 +1097,23 @@ class PresetsPage(BasePage):
 
         # Карточка с активным пресетом
         self.active_card = SettingsCard("Активный пресет")
-        # Без тонких рамок (Fluent-style)
-        self.active_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-            }
-        """)
+        self.active_card.setStyleSheet("")
         active_layout = QHBoxLayout()
         active_layout.setSpacing(12)
 
         # Иконка
-        active_icon = QLabel()
-        active_icon.setPixmap(qta.icon('fa5s.star', color='#60cdff').pixmap(20, 20))
-        active_layout.addWidget(active_icon)
+        self._active_icon = QLabel()
+        self._active_icon.setPixmap(qta.icon('fa5s.star', color=tokens.accent_hex).pixmap(20, 20))
+        active_layout.addWidget(self._active_icon)
 
         # Название активного пресета
         self.active_preset_label = QLabel("Загрузка...")
+        try:
+            self.active_preset_label.setProperty("tone", "primary")
+        except Exception:
+            pass
         self.active_preset_label.setStyleSheet("""
             QLabel {
-                color: #ffffff;
                 font-size: 14px;
                 font-weight: 500;
             }
@@ -916,28 +1129,22 @@ class PresetsPage(BasePage):
 
         # Короткая подсказка как работают официальные пресеты/копии
         info_card = SettingsCard("Как это работает")
-        info_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: none;
-            }
-        """)
+        info_card.setStyleSheet("")
         info_layout = QHBoxLayout()
         info_layout.setSpacing(12)
-        info_icon = QLabel()
-        info_icon.setPixmap(qta.icon("fa5s.info-circle", color=QColor(255, 255, 255, 180)).pixmap(16, 16))
-        info_layout.addWidget(info_icon)
+        self._info_icon = QLabel()
+        self._info_icon.setPixmap(qta.icon("fa5s.info-circle", color=tokens.fg_muted).pixmap(16, 16))
+        info_layout.addWidget(self._info_icon)
         info_text = QLabel(
             "Официальные пресеты — это шаблоны (их нельзя изменить). "
             "Если вы меняете настройки, автоматически создаётся редактируемая копия "
             "в виде отдельного пресета «(копия)»."
         )
-        info_text.setStyleSheet("color: rgba(255, 255, 255, 0.65); font-size: 12px;")
+        try:
+            info_text.setProperty("tone", "muted")
+        except Exception:
+            pass
+        info_text.setStyleSheet("font-size: 12px;")
         info_text.setWordWrap(True)
         info_layout.addWidget(info_text, 1)
         info_card.add_layout(info_layout)
@@ -955,18 +1162,7 @@ class PresetsPage(BasePage):
         self._action_reveal_layout.setSpacing(0)
 
         self._action_card = SettingsCard("")
-        # Без тонких рамок (Fluent-style)
-        self._action_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-            }
-        """)
+        self._action_card.setStyleSheet("")
         self._action_card.main_layout.setSpacing(10)
 
         header = QHBoxLayout()
@@ -974,14 +1170,17 @@ class PresetsPage(BasePage):
         header.setSpacing(10)
 
         self._action_icon = QLabel()
-        self._action_icon.setPixmap(qta.icon("fa5s.plus", color="#60cdff").pixmap(18, 18))
+        self._action_icon.setPixmap(qta.icon("fa5s.plus", color=tokens.accent_hex).pixmap(18, 18))
         self._action_icon.setFixedSize(22, 22)
         header.addWidget(self._action_icon)
 
         self._action_title = QLabel("")
+        try:
+            self._action_title.setProperty("tone", "primary")
+        except Exception:
+            pass
         self._action_title.setStyleSheet("""
             QLabel {
-                color: #ffffff;
                 font-size: 14px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
@@ -991,29 +1190,34 @@ class PresetsPage(BasePage):
         header.addStretch(1)
 
         self._action_close_btn = QPushButton()
-        self._action_close_btn.setIcon(qta.icon("fa5s.times", color="#ffffff"))
+        self._action_close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
         self._action_close_btn.setIconSize(QSize(12, 12))
         self._action_close_btn.setFixedSize(28, 28)
         self._action_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._action_close_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: none;
+        self._action_close_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255, 255, 255, 0.85);
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.10); }
-            QPushButton:pressed { background: rgba(255, 255, 255, 0.14); }
-        """)
+                color: {tokens.fg};
+            }}
+            QPushButton:hover {{ background: {tokens.surface_bg_hover}; border: 1px solid {tokens.surface_border_hover}; }}
+            QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
+            """
+        )
         self._action_close_btn.clicked.connect(self._hide_inline_action)
         header.addWidget(self._action_close_btn)
 
         self._action_card.add_layout(header)
 
         self._action_subtitle = QLabel("")
+        try:
+            self._action_subtitle.setProperty("tone", "muted")
+        except Exception:
+            pass
         self._action_subtitle.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 0.6);
                 font-size: 12px;
             }
         """)
@@ -1021,9 +1225,12 @@ class PresetsPage(BasePage):
         self._action_card.add_widget(self._action_subtitle)
 
         self._rename_from_label = QLabel("")
+        try:
+            self._rename_from_label.setProperty("tone", "faint")
+        except Exception:
+            pass
         self._rename_from_label.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 0.55);
                 font-size: 12px;
             }
         """)
@@ -1034,25 +1241,38 @@ class PresetsPage(BasePage):
         name_row = QVBoxLayout()
         name_row.setSpacing(6)
         name_label = QLabel("Название")
-        name_label.setStyleSheet("color: rgba(255, 255, 255, 0.75); font-size: 12px;")
+        try:
+            name_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        name_label.setStyleSheet("font-size: 12px;")
         name_row.addWidget(name_label)
 
         self._name_input = QLineEdit()
         self._name_input.setPlaceholderText("Введите название пресета…")
-        self._name_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: none;
+        self._name_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 10px 12px;
                 font-size: 13px;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QLineEdit:focus {
-                background-color: rgba(255, 255, 255, 0.08);
-            }
-        """)
+            }}
+            QLineEdit:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
+            QLineEdit::placeholder {{
+                color: {tokens.fg_faint};
+            }}
+            """
+        )
         self._name_input.textChanged.connect(lambda: self._set_inline_error(""))
         self._name_input.returnPressed.connect(self._submit_inline_action)
         name_row.addWidget(self._name_input)
@@ -1064,7 +1284,11 @@ class PresetsPage(BasePage):
         source_row.setContentsMargins(0, 4, 0, 0)
         source_row.setSpacing(12)
         source_label = QLabel("Создать на основе")
-        source_label.setStyleSheet("color: rgba(255, 255, 255, 0.75); font-size: 12px;")
+        try:
+            source_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        source_label.setStyleSheet("font-size: 12px;")
         source_row.addWidget(source_label)
         source_row.addStretch(1)
         self._create_source = _SegmentedChoice("Текущего активного", "current", "Пустого", "empty", self)
@@ -1147,54 +1371,223 @@ class PresetsPage(BasePage):
 
         self.layout.addStretch()
 
+        self._apply_theme_styles()
+
+    def _apply_main_button_theme(self, btn: QPushButton) -> None:
+        tokens = get_theme_tokens()
+        accent = False
+        icon_name = None
+        try:
+            accent = bool(btn.property("_main_accent"))
+            icon_name = btn.property("_main_icon_name")
+        except Exception:
+            accent = False
+            icon_name = None
+
+        accent_fg = _accent_fg_for_tokens(tokens)
+        icon_color = accent_fg if accent else tokens.fg
+        try:
+            if icon_name:
+                btn.setIcon(qta.icon(str(icon_name), color=icon_color))
+        except Exception:
+            pass
+
+        if accent:
+            btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {tokens.accent_hex};
+                    border: none;
+                    border-radius: 8px;
+                    color: {accent_fg};
+                    padding: 0 20px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.accent_hover_hex};
+                }}
+                QPushButton:pressed {{
+                    background-color: {tokens.accent_pressed_hex};
+                }}
+                """
+            )
+        else:
+            btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 8px;
+                    color: {tokens.fg};
+                    padding: 0 20px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.surface_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+                QPushButton:pressed {{
+                    background-color: {tokens.surface_bg_pressed};
+                }}
+                """
+            )
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+
+        # Top icons
+        try:
+            if hasattr(self, "_configs_icon") and self._configs_icon is not None:
+                self._configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "_active_icon") and self._active_icon is not None:
+                self._active_icon.setPixmap(qta.icon("fa5s.star", color=tokens.accent_hex).pixmap(20, 20))
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "_info_icon") and self._info_icon is not None:
+                self._info_icon.setPixmap(qta.icon("fa5s.info-circle", color=tokens.fg_muted).pixmap(16, 16))
+        except Exception:
+            pass
+
+        # Inline action widgets
+        try:
+            if hasattr(self, "_action_close_btn") and self._action_close_btn is not None:
+                self._action_close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
+                self._action_close_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        color: {tokens.fg};
+                    }}
+                    QPushButton:hover {{ background: {tokens.surface_bg_hover}; border: 1px solid {tokens.surface_border_hover}; }}
+                    QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
+                    """
+                )
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "_name_input") and self._name_input is not None:
+                self._name_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg};
+                        padding: 10px 12px;
+                        font-size: 13px;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }}
+                    QLineEdit:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid {tokens.surface_border_hover};
+                    }}
+                    QLineEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+        except Exception:
+            pass
+
+        # Main buttons
+        for btn in (
+            getattr(self, "_action_cancel_btn", None),
+            getattr(self, "_action_submit_btn", None),
+            getattr(self, "create_btn", None),
+            getattr(self, "import_btn", None),
+        ):
+            if btn is None:
+                continue
+            try:
+                self._apply_main_button_theme(btn)
+            except Exception:
+                pass
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
+
     def _create_main_button(self, text: str, icon_name: str, accent: bool = False) -> QPushButton:
         """Создает основную кнопку действия"""
         btn = QPushButton(text)
 
-        icon_color = "white"
+        try:
+            btn.setProperty("_main_icon_name", icon_name)
+            btn.setProperty("_main_accent", bool(accent))
+        except Exception:
+            pass
+
+        tokens = get_theme_tokens()
+        accent_fg = _accent_fg_for_tokens(tokens)
+        icon_color = accent_fg if accent else tokens.fg
         btn.setIcon(qta.icon(icon_name, color=icon_color))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(36)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         if accent:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #49B3FF;
-                    border: 1px solid rgba(255, 255, 255, 0.18);
+            btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {tokens.accent_hex};
+                    border: none;
                     border-radius: 8px;
-                    color: #ffffff;
+                    color: {accent_fg};
                     padding: 0 20px;
                     font-size: 13px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: rgba(96, 205, 255, 0.9);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(96, 205, 255, 0.72);
-                }
-            """)
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.accent_hover_hex};
+                }}
+                QPushButton:pressed {{
+                    background-color: {tokens.accent_pressed_hex};
+                }}
+                """
+            )
         else:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 255, 255, 0.08);
-                    border: 1px solid rgba(255, 255, 255, 0.12);
+            btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
                     border-radius: 8px;
-                    color: #ffffff;
+                    color: {tokens.fg};
                     padding: 0 20px;
                     font-size: 13px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.15);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255, 255, 255, 0.22);
-                }
-            """)
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.surface_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+                QPushButton:pressed {{
+                    background-color: {tokens.surface_bg_pressed};
+                }}
+                """
+            )
 
         return btn
 
@@ -1214,7 +1607,7 @@ class PresetsPage(BasePage):
         self._rename_source_name = None
         self._set_inline_error("")
 
-        self._action_icon.setPixmap(qta.icon("fa5s.plus", color="#60cdff").pixmap(18, 18))
+        self._action_icon.setPixmap(qta.icon("fa5s.plus", color=get_theme_tokens().accent_hex).pixmap(18, 18))
         self._action_title.setText("Создать новый пресет")
         self._action_subtitle.setText("Сохраните текущие настройки как отдельный пресет, чтобы быстро переключаться между конфигурациями.")
 
@@ -1226,7 +1619,7 @@ class PresetsPage(BasePage):
         self._name_input.setPlaceholderText("Например: Игры / YouTube / Дом")
 
         self._action_submit_btn.setText("Создать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
+        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color=_accent_fg_for_tokens(get_theme_tokens())))
 
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
@@ -1237,7 +1630,7 @@ class PresetsPage(BasePage):
         self._rename_source_name = current_name
         self._set_inline_error("")
 
-        self._action_icon.setPixmap(qta.icon("fa5s.edit", color="#60cdff").pixmap(18, 18))
+        self._action_icon.setPixmap(qta.icon("fa5s.edit", color=get_theme_tokens().accent_hex).pixmap(18, 18))
         self._action_title.setText("Переименовать пресет")
         self._action_subtitle.setText("Имя пресета отображается в списке и используется для переключения.")
 
@@ -1250,7 +1643,7 @@ class PresetsPage(BasePage):
         self._name_input.setPlaceholderText("Новое имя…")
 
         self._action_submit_btn.setText("Переименовать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
+        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color=_accent_fg_for_tokens(get_theme_tokens())))
 
         self._action_reveal.set_open(True)
         self.ensureWidgetVisible(self._action_reveal)
@@ -1371,9 +1764,12 @@ class PresetsPage(BasePage):
             # Если нет пользовательских пресетов - показываем подсказку
             if not user_items:
                 empty_label = QLabel("Нет пользовательских пресетов. Создайте новый или сделайте копию официального.")
+                try:
+                    empty_label.setProperty("tone", "muted")
+                except Exception:
+                    pass
                 empty_label.setStyleSheet("""
                     QLabel {
-                        color: rgba(255, 255, 255, 0.5);
                         font-size: 13px;
                         padding: 20px;
                     }

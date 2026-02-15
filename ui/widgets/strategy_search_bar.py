@@ -18,10 +18,12 @@ from PyQt6.QtWidgets import (
     QListView,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QSize
+from PyQt6.QtCore import QEvent
 from PyQt6.QtGui import QIcon, QPixmap
 import qtawesome as qta
 
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+from ui.theme import get_theme_tokens
 
 from strategy_menu.filter_engine import SearchQuery
 from config.reg import reg
@@ -96,10 +98,14 @@ class StrategySearchBar(QWidget):
             parent: Parent widget
         """
         super().__init__(parent)
+        self._tokens = get_theme_tokens()
+        self._current_qss = ""
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
         self._has_active_filters = False
         self._setup_ui()
         self._setup_connections()
-        self._apply_styles()
+        self._refresh_theme()
         self._load_sort_settings()
 
     def _configure_combo_no_scrollbar(self, combo: QComboBox, item_count: int) -> None:
@@ -136,44 +142,241 @@ class StrategySearchBar(QWidget):
         if combo_width > 0:
             list_view.setMinimumWidth(combo_width + 20)  # Extra space for padding
 
-        # Apply Windows 11 Fluent Design styles directly to QListView
-        # This is required because programmatically created views don't inherit
-        # parent stylesheet styles automatically
-        # Using #323232 (rgb 50,50,50) as solid color - more reliable than rgba
-        list_view.setStyleSheet(
-            """
-            QListView {
-                background-color: #373737;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                padding: 4px;
-                outline: none;
-            }
-            QListView::item {
-                background: transparent;
-                color: #ffffff;
-                padding: 6px 10px;
-                border-radius: 4px;
-                min-height: 24px;
-            }
-            QListView::item:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-            QListView::item:selected {
-                background: rgba(96, 205, 255, 0.2);
-                color: #60cdff;
-            }
-            QScrollBar:vertical, QScrollBar:horizontal {
-                width: 0px;
-                height: 0px;
-                background: transparent;
-            }
-            """
-        )
+        self._apply_combo_popup_style(list_view)
 
         # Set the custom view
         combo.setView(list_view)
         combo.setMaxVisibleItems(item_count)
+
+    def _apply_combo_popup_style(self, view: QListView) -> None:
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+
+        bg = "#f6f7f9" if tokens.is_light else "#373737"
+        border = "rgba(0, 0, 0, 0.12)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
+        text = "#111111" if tokens.is_light else "#ffffff"
+        item_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.10)"
+        item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.20)"
+
+        view.setStyleSheet(
+            f"""
+            QListView {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 4px;
+                outline: none;
+            }}
+            QListView::item {{
+                background: transparent;
+                color: {text};
+                padding: 6px 10px;
+                border-radius: 4px;
+                min-height: 24px;
+            }}
+            QListView::item:hover {{
+                background: {item_hover};
+            }}
+            QListView::item:selected {{
+                background: {item_selected_bg};
+                color: {tokens.accent_hex};
+            }}
+            QScrollBar:vertical, QScrollBar:horizontal {{
+                width: 0px;
+                height: 0px;
+                background: transparent;
+            }}
+            """
+        )
+
+    def _get_icon_color(self, *, muted: bool = False) -> str:
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        if muted:
+            return "#666666" if tokens.is_light else "#b3b3b3"
+        return "#111111" if tokens.is_light else "#ffffff"
+
+    def _refresh_icons(self) -> None:
+        icon_color = self._get_icon_color(muted=True)
+
+        try:
+            search_pixmap = qta.icon("fa5s.search", color=icon_color).pixmap(16, 16)
+            self._search_action.setIcon(QIcon(search_pixmap))
+        except Exception:
+            pass
+
+        try:
+            clear_pixmap = qta.icon("fa5s.times-circle", color=icon_color).pixmap(14, 14)
+            self._clear_btn.setIcon(QIcon(clear_pixmap))
+        except Exception:
+            pass
+
+        # Refresh combo item icons (pixmaps are not auto-recolored on theme change)
+        try:
+            for i, (_, icon_name, _) in enumerate(self.LABEL_OPTIONS):
+                pix = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
+                self._label_combo.setItemIcon(i, QIcon(pix))
+            for i, (_, icon_name, _) in enumerate(self.DESYNC_OPTIONS):
+                pix = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
+                self._desync_combo.setItemIcon(i, QIcon(pix))
+            for i, (_, icon_name, _) in enumerate(self.SORT_OPTIONS):
+                pix = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
+                self._sort_combo.setItemIcon(i, QIcon(pix))
+        except Exception:
+            pass
+
+        # Refresh combo popup view styling
+        for combo in (self._label_combo, self._desync_combo, self._sort_combo):
+            try:
+                view = combo.view()
+                if isinstance(view, QListView):
+                    self._apply_combo_popup_style(view)
+            except Exception:
+                pass
+
+    def _build_qss(self) -> str:
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        fg = "#111111" if tokens.is_light else "#ffffff"
+        placeholder = "rgba(0, 0, 0, 0.40)" if tokens.is_light else "rgba(255, 255, 255, 0.40)"
+        arrow = "rgba(0, 0, 0, 0.55)" if tokens.is_light else "rgba(255, 255, 255, 0.60)"
+        arrow_hover = "rgba(0, 0, 0, 0.80)" if tokens.is_light else "rgba(255, 255, 255, 0.90)"
+        toolbtn_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.10)"
+
+        clear_btn_bg = "rgba(0, 0, 0, 0.04)" if tokens.is_light else "rgba(255, 255, 255, 0.05)"
+        clear_btn_bg_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.08)"
+        clear_btn_bg_pressed = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
+        clear_btn_border = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.08)"
+        clear_btn_border_hover = "rgba(0, 0, 0, 0.14)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
+
+        return f"""
+            /* Search Input */
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 6px;
+                padding: 8px 12px 8px 34px;
+                color: {fg};
+                font-size: 13px;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                selection-background-color: rgba({tokens.accent_rgb_str}, 0.30);
+            }}
+            QLineEdit:hover {{
+                background: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QLineEdit:focus {{
+                background: {tokens.surface_bg_hover};
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.55);
+            }}
+            QLineEdit::placeholder {{
+                color: {placeholder};
+            }}
+            QLineEdit QToolButton {{
+                background: transparent;
+                border: none;
+                padding: 0px;
+                margin: 0px 4px;
+            }}
+            QLineEdit QToolButton:hover {{
+                background: {toolbtn_hover};
+                border-radius: 4px;
+            }}
+
+            /* ComboBox */
+            QComboBox {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 6px;
+                padding: 6px 22px 6px 10px;
+                color: {fg};
+                font-size: 13px;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QComboBox:hover {{
+                background: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QComboBox:focus {{
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.55);
+            }}
+            QComboBox:on {{
+                background: {tokens.accent_soft_bg};
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.35);
+                color: {tokens.accent_hex};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 22px;
+                subcontrol-origin: padding;
+                subcontrol-position: right center;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid {arrow};
+                margin-right: 10px;
+            }}
+            QComboBox::down-arrow:hover {{
+                border-top-color: {arrow_hover};
+            }}
+            QComboBox::down-arrow:on {{
+                border-top-color: {tokens.accent_hex};
+            }}
+
+            /* Clear Button */
+            QPushButton {{
+                background: {clear_btn_bg};
+                border: 1px solid {clear_btn_border};
+                border-radius: 6px;
+                padding: 0;
+            }}
+            QPushButton:hover {{
+                background: {clear_btn_bg_hover};
+                border: 1px solid {clear_btn_border_hover};
+            }}
+            QPushButton:pressed {{
+                background: {clear_btn_bg_pressed};
+            }}
+
+            /* Result Label */
+            QLabel {{
+                color: {tokens.fg_muted};
+                font-size: 12px;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+        """
+
+    def _refresh_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._tokens = get_theme_tokens()
+        self._applying_theme_styles = True
+        try:
+            qss = self._build_qss()
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+            self._refresh_icons()
+            self._update_clear_button_visibility()
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if (not self._applying_theme_styles) and event.type() in (
+                QEvent.Type.StyleChange,
+                QEvent.Type.PaletteChange,
+            ):
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._refresh_theme()
 
     def _setup_ui(self) -> None:
         """Set up UI components in two rows."""
@@ -194,9 +397,8 @@ class StrategySearchBar(QWidget):
         self._search_input.setFixedHeight(36)
         self._search_input.setToolTip("Введите текст для поиска стратегий")
 
-        # Add search icon (white for dark theme)
-        # Use pixmap approach to ensure white color is preserved in dark theme
-        search_icon = qta.icon("fa5s.search", color="#ffffff")
+        # Add search icon (theme-aware)
+        search_icon = qta.icon("fa5s.search", color=self._get_icon_color(muted=True))
         search_pixmap = search_icon.pixmap(16, 16)
         self._search_action = self._search_input.addAction(
             QIcon(search_pixmap), QLineEdit.ActionPosition.LeadingPosition
@@ -208,10 +410,8 @@ class StrategySearchBar(QWidget):
         self._search_timer.setInterval(self.DEBOUNCE_MS)
 
         # Clear filters button (hidden by default)
-        # Use pixmap approach with white color for consistent dark theme display
-        # Note: Using slightly dimmed white (#b3b3b3 = ~70% white) for subtle appearance
         self._clear_btn = QPushButton()
-        clear_icon = qta.icon("fa5s.times-circle", color="#b3b3b3")
+        clear_icon = qta.icon("fa5s.times-circle", color=self._get_icon_color(muted=True))
         clear_pixmap = clear_icon.pixmap(14, 14)
         self._clear_btn.setIcon(QIcon(clear_pixmap))
         self._clear_btn.setIconSize(QSize(14, 14))
@@ -241,8 +441,7 @@ class StrategySearchBar(QWidget):
         self._label_combo.setMaximumWidth(140)
         self._label_combo.setToolTip("Фильтр по типу стратегии")
         for display_text, icon_name, value in self.LABEL_OPTIONS:
-            # Use pixmap approach for white icons in QComboBox
-            icon = qta.icon(icon_name, color="#ffffff")
+            icon = qta.icon(icon_name, color=self._get_icon_color(muted=True))
             pixmap = icon.pixmap(16, 16)
             self._label_combo.addItem(QIcon(pixmap), display_text, value)
         # Configure dropdown to show all 5 items without scrollbar
@@ -255,8 +454,7 @@ class StrategySearchBar(QWidget):
         self._desync_combo.setMaximumWidth(120)
         self._desync_combo.setToolTip("Фильтр по технике обхода DPI")
         for display_text, icon_name, value in self.DESYNC_OPTIONS:
-            # Use pixmap approach for white icons in QComboBox
-            icon = qta.icon(icon_name, color="#ffffff")
+            icon = qta.icon(icon_name, color=self._get_icon_color(muted=True))
             pixmap = icon.pixmap(16, 16)
             self._desync_combo.addItem(QIcon(pixmap), display_text, value)
         # Configure dropdown to show all 7 items without scrollbar
@@ -269,8 +467,7 @@ class StrategySearchBar(QWidget):
         self._sort_combo.setMaximumWidth(200)
         self._sort_combo.setToolTip("Сортировка списка стратегий")
         for display_text, icon_name, value in self.SORT_OPTIONS:
-            # Use pixmap approach for white icons in QComboBox
-            icon = qta.icon(icon_name, color="#ffffff")
+            icon = qta.icon(icon_name, color=self._get_icon_color(muted=True))
             pixmap = icon.pixmap(16, 16)
             self._sort_combo.addItem(QIcon(pixmap), display_text, value)
         # Configure dropdown to show all 4 items without scrollbar
@@ -301,154 +498,8 @@ class StrategySearchBar(QWidget):
         self._clear_btn.clicked.connect(self.clear)
 
     def _apply_styles(self) -> None:
-        """Apply Windows 11 Fluent Design styles."""
-        self.setStyleSheet(
-            """
-            /* Search Input - Modern Windows 11 style */
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 6px;
-                padding: 8px 12px 8px 34px;
-                color: #ffffff;
-                font-size: 13px;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                selection-background-color: rgba(96, 205, 255, 0.3);
-            }
-            QLineEdit:hover {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-            }
-            QLineEdit:focus {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(96, 205, 255, 0.5);
-                border-bottom: 2px solid #60cdff;
-            }
-            QLineEdit::placeholder {
-                color: rgba(255, 255, 255, 0.4);
-            }
-            /* Style for clear button and action icons inside QLineEdit */
-            QLineEdit QToolButton {
-                background: transparent;
-                border: none;
-                padding: 0px;
-                margin: 0px 4px;
-            }
-            QLineEdit QToolButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-            }
-
-            /* ComboBox - Windows 11 Fluent Design style */
-            QComboBox {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                padding: 6px 22px 6px 10px;
-                color: #ffffff;
-                font-size: 13px;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QComboBox:hover {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-            }
-            QComboBox:focus {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(96, 205, 255, 0.5);
-            }
-            /* Active/on state - when dropdown is open */
-            QComboBox:on {
-                background: rgba(96, 205, 255, 0.15);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-                color: #60cdff;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 22px;
-                subcontrol-origin: padding;
-                subcontrol-position: right center;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid rgba(255, 255, 255, 0.6);
-                margin-right: 10px;
-            }
-            QComboBox::down-arrow:hover {
-                border-top-color: rgba(255, 255, 255, 0.9);
-            }
-            QComboBox::down-arrow:on {
-                border-top-color: #60cdff;
-            }
-
-            /* ComboBox Dropdown List - Windows 11 Fluent acrylic style */
-            /* Note: Primary styling is in _configure_combo_no_scrollbar() */
-            /* These are fallback styles for standard QAbstractItemView */
-            /* Using solid #373737 color - rgba doesn't work reliably in PyQt6 */
-            QComboBox QAbstractItemView,
-            QComboBox QListView {
-                background-color: #373737;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                padding: 4px;
-                outline: none;
-            }
-            QComboBox QAbstractItemView::item,
-            QComboBox QListView::item {
-                background: transparent;
-                color: #ffffff;
-                padding: 6px 10px;
-                border-radius: 4px;
-                min-height: 24px;
-            }
-            QComboBox QAbstractItemView::item:hover,
-            QComboBox QListView::item:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-            QComboBox QAbstractItemView::item:selected,
-            QComboBox QListView::item:selected {
-                background: rgba(96, 205, 255, 0.2);
-                color: #60cdff;
-            }
-            /* Hide scrollbar in dropdown - comprehensive selectors for PyQt6 on Windows */
-            QComboBox QAbstractItemView QScrollBar,
-            QComboBox QListView QScrollBar,
-            QComboBox QAbstractItemView QScrollBar:vertical,
-            QComboBox QListView QScrollBar:vertical,
-            QComboBox QAbstractItemView QScrollBar:horizontal,
-            QComboBox QListView QScrollBar:horizontal {
-                width: 0px;
-                height: 0px;
-                background: transparent;
-            }
-
-            /* Clear Button - Windows 11 Fluent Design */
-            QPushButton {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                padding: 0;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.12);
-            }
-
-            /* Result Label */
-            QLabel {
-                color: rgba(255, 255, 255, 0.5);
-                font-size: 12px;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            """
-        )
+        # Backward compatibility: older code can still call this.
+        self._refresh_theme()
 
     def _load_sort_settings(self) -> None:
         """Load sort settings from registry."""
@@ -490,13 +541,14 @@ class StrategySearchBar(QWidget):
         self._clear_btn.setVisible(self._has_active_filters)
 
         # Update result label color based on active filters
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
         if self._has_active_filters:
             self._result_label.setStyleSheet(
-                "color: rgba(96, 205, 255, 0.8); font-weight: 500;"
+                f"color: rgba({tokens.accent_rgb_str}, 0.85); font-weight: 500;"
             )
         else:
             self._result_label.setStyleSheet(
-                "color: rgba(255, 255, 255, 0.5); font-weight: normal;"
+                f"color: {tokens.fg_muted}; font-weight: normal;"
             )
 
     def _on_search_text_changed(self, text: str) -> None:

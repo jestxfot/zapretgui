@@ -1103,6 +1103,7 @@ def generate_preset_file(data: PresetData, output_path: Path, atomic: bool = Tru
     """
     import os
     import tempfile
+    import time
 
     output_path = Path(output_path)
     content = generate_preset_content(data)
@@ -1123,7 +1124,38 @@ def generate_preset_file(data: PresetData, output_path: Path, atomic: bool = Tru
                     f.write(content)
 
                 # Atomic replace: safe even if target exists.
-                os.replace(temp_path, output_path)
+                try:
+                    os.replace(temp_path, output_path)
+                except PermissionError as e:
+                    # Windows: destination may be locked briefly (winws2 / watcher).
+                    # Retry a bit, then fall back to direct in-place write.
+                    if os.name != "nt":
+                        raise
+
+                    last_exc = e
+                    delay = 0.03
+                    for _attempt in range(15):
+                        time.sleep(delay)
+                        try:
+                            os.replace(temp_path, output_path)
+                            last_exc = None
+                            break
+                        except PermissionError as e2:
+                            last_exc = e2
+                            delay = min(delay * 1.6, 0.2)
+
+                    if last_exc is not None:
+                        # Best-effort: write directly to destination.
+                        output_path.write_text(content, encoding='utf-8')
+                        try:
+                            if os.path.exists(temp_path):
+                                os.unlink(temp_path)
+                        except Exception:
+                            pass
+                        try:
+                            log(f"Atomic replace blocked; wrote preset file in-place: {output_path}", "DEBUG")
+                        except Exception:
+                            pass
 
             except Exception:
                 # Cleanup temp file on error

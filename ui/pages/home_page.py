@@ -11,6 +11,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, StatusIndicator, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -35,27 +36,30 @@ class AutostartCheckWorker(QThread):
             return False
 
 
-# Стиль для индикатора загрузки (бегающая полоска)
-PROGRESS_STYLE = """
-QProgressBar {
-    background-color: rgba(255, 255, 255, 0.05);
-    border: none;
-    border-radius: 2px;
-    height: 4px;
-    text-align: center;
-}
-QProgressBar::chunk {
-    background: qlineargradient(
-        x1:0, y1:0, x2:1, y2:0,
-        stop:0 transparent,
-        stop:0.3 #60cdff,
-        stop:0.5 #60cdff,
-        stop:0.7 #60cdff,
-        stop:1 transparent
-    );
-    border-radius: 2px;
-}
-"""
+def _build_progress_style() -> str:
+    """Indeterminate progress bar style (theme-aware)."""
+    tokens = get_theme_tokens()
+    accent = tokens.accent_hex
+    return f"""
+    QProgressBar {{
+        background-color: {tokens.surface_bg};
+        border: none;
+        border-radius: 2px;
+        height: 4px;
+        text-align: center;
+    }}
+    QProgressBar::chunk {{
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:0,
+            stop:0 transparent,
+            stop:0.3 {accent},
+            stop:0.5 {accent},
+            stop:0.7 {accent},
+            stop:1 transparent
+        );
+        border-radius: 2px;
+    }}
+    """
 
 
 class StatusCard(QFrame):
@@ -65,6 +69,9 @@ class StatusCard(QFrame):
 
     def __init__(self, icon_name: str, title: str, parent=None):
         super().__init__(parent)
+        self._icon_name = icon_name
+        self._use_fluent_icon = False
+        self._applying_theme_styles = False
         self.setObjectName("statusCard")
         self.setMinimumHeight(120)
         self.setCursor(Qt.CursorShape.PointingHandCursor)  # Курсор "рука" при наведении
@@ -82,16 +89,20 @@ class StatusCard(QFrame):
         try:
             from ui.fluent_icons import fluent_pixmap
             self.icon_label.setPixmap(fluent_pixmap(icon_name, 28))
+            self._use_fluent_icon = True
         except:
-            self.icon_label.setPixmap(qta.icon(icon_name, color='#60cdff').pixmap(28, 28))
+            self.icon_label.setPixmap(qta.icon(icon_name, color=get_theme_tokens().accent_hex).pixmap(28, 28))
         self.icon_label.setFixedSize(32, 32)
         top_layout.addWidget(self.icon_label)
         
         # Заголовок
         title_label = QLabel(title)
+        try:
+            title_label.setProperty("tone", "muted")
+        except Exception:
+            pass
         title_label.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 0.7);
                 font-size: 12px;
                 font-weight: 500;
             }
@@ -103,9 +114,12 @@ class StatusCard(QFrame):
         
         # Значение (большой текст)
         self.value_label = QLabel("—")
+        try:
+            self.value_label.setProperty("tone", "primary")
+        except Exception:
+            pass
         self.value_label.setStyleSheet("""
             QLabel {
-                color: #ffffff;
                 font-size: 18px;
                 font-weight: 600;
             }
@@ -114,9 +128,12 @@ class StatusCard(QFrame):
         
         # Дополнительная информация
         self.info_label = QLabel("")
+        try:
+            self.info_label.setProperty("tone", "muted")
+        except Exception:
+            pass
         self.info_label.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 0.5);
                 font-size: 11px;
             }
         """)
@@ -125,18 +142,50 @@ class StatusCard(QFrame):
         
         layout.addStretch()
         
-        # Стиль карточки (Acrylic / Glass эффект)
-        self.setStyleSheet("""
-            QFrame#statusCard {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 8px;
-            }
-            QFrame#statusCard:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            self.setStyleSheet(
+                f"""
+                QFrame#statusCard {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 8px;
+                }}
+                QFrame#statusCard:hover {{
+                    background-color: {tokens.surface_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+                """
+            )
+
+            if not bool(self._use_fluent_icon):
+                try:
+                    self.icon_label.setPixmap(
+                        qta.icon(self._icon_name, color=tokens.accent_hex).pixmap(28, 28)
+                    )
+                except Exception:
+                    pass
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._apply_theme()
+        except Exception:
+            pass
+        super().changeEvent(event)
         
     def set_value(self, value: str, info: str = ""):
         """Устанавливает текстовое значение"""
@@ -198,7 +247,7 @@ class StatusCard(QFrame):
                     pixmap = qta.icon(icon_name, color=icon_color).pixmap(20, 20)
                     icon_label.setPixmap(pixmap)
                 except:
-                    pixmap = qta.icon('fa5s.globe', color='#60cdff').pixmap(20, 20)
+                    pixmap = qta.icon('fa5s.globe', color=get_theme_tokens().accent_hex).pixmap(20, 20)
                     icon_label.setPixmap(pixmap)
                 icon_label.setFixedSize(22, 22)
                 icon_label.setToolTip(icon_name.split('.')[-1].replace('-', ' ').title())
@@ -216,16 +265,20 @@ class StatusCard(QFrame):
                     w.deleteLater()
             
             extra_label = QLabel(f"+{active_count - 9}")
-            extra_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.6);
+            tokens = get_theme_tokens()
+            extra_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {tokens.fg_muted};
                     font-size: 11px;
                     font-weight: 600;
                     padding: 2px 6px;
-                    background: rgba(255, 255, 255, 0.1);
+                    background: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
                     border-radius: 8px;
-                }
-            """)
+                }}
+                """
+            )
             self.icons_layout.addWidget(extra_label)
         
         self.icons_layout.addStretch()
@@ -233,11 +286,15 @@ class StatusCard(QFrame):
         
     def set_status_color(self, status: str):
         """Меняет цвет иконки по статусу"""
+        try:
+            neutral = get_theme_tokens().accent_hex
+        except Exception:
+            neutral = '#60cdff'
         colors = {
             'running': '#6ccb5f',
             'stopped': '#ff6b6b',
             'warning': '#ffc107',
-            'neutral': '#60cdff',
+            'neutral': neutral,
         }
         color = colors.get(status, colors['neutral'])
         # Для простоты меняем только цвет value_label
@@ -279,6 +336,17 @@ class HomePage(BasePage):
         self._autostart_worker = None
         self._build_ui()
         self._connect_card_signals()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if hasattr(self, "progress_bar") and self.progress_bar is not None:
+                    self.progress_bar.setStyleSheet(_build_progress_style())
+        except Exception:
+            pass
+        super().changeEvent(event)
     
     def showEvent(self, event):  # type: ignore[override]
         """При показе страницы обновляем статус автозапуска"""
@@ -397,7 +465,7 @@ class HomePage(BasePage):
         
         # Индикатор загрузки (бегающая полоска)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
+        self.progress_bar.setStyleSheet(_build_progress_style())
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setMinimum(0)
@@ -526,22 +594,19 @@ class HomePage(BasePage):
         text_layout.setSpacing(4)
         
         title = QLabel("Zapret Premium")
-        title.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-            }
-        """)
+        try:
+            title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        title.setStyleSheet("font-size: 14px; font-weight: 600;")
         text_layout.addWidget(title)
         
         desc = QLabel("Дополнительные темы, приоритетная поддержка и VPN-сервис")
-        desc.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-            }
-        """)
+        try:
+            desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        desc.setStyleSheet("font-size: 12px;")
         desc.setWordWrap(True)
         text_layout.addWidget(desc)
         

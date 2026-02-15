@@ -1,7 +1,7 @@
 # ui/pages/servers_page.py
 """Страница мониторинга серверов обновлений в стиле Windows 11"""
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF, QPointF
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF, QPointF, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QTableWidget, QTableWidgetItem, QHeaderView,
@@ -14,6 +14,7 @@ from datetime import datetime
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from config import APP_VERSION, CHANNEL
 from log import log
 from updater.telegram_updater import TELEGRAM_CHANNELS
@@ -33,6 +34,7 @@ class Win11ToggleSwitch(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._tokens = get_theme_tokens()
         self._checked = False
         self._position = 0.0  # 0.0 = выкл, 1.0 = вкл
         self._hover = False
@@ -50,6 +52,12 @@ class Win11ToggleSwitch(QWidget):
         self._color_animation = QPropertyAnimation(self, b"color_blend")
         self._color_animation.setDuration(200)
         self._color_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            self._tokens = get_theme_tokens()
+            self.update()
+        super().changeEvent(event)
         
     def _get_position(self):
         return self._position
@@ -168,12 +176,36 @@ class Win11ProgressBar(QWidget):
         self._progress = 0.0
         self._animation_offset = 0.0
         self._is_indeterminate = False
+
+        self._tokens = get_theme_tokens()
+        self._accent_rgb = self._tokens.accent_rgb
+        self._applying_theme_styles = False
         
         # Анимация для indeterminate режима
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._animate)
-        
-        self.setStyleSheet("background: rgba(96, 205, 255, 0.1);")
+
+        self._apply_theme()
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            if self._applying_theme_styles:
+                return super().changeEvent(event)
+            self._apply_theme()
+        super().changeEvent(event)
+
+    def _apply_theme(self, theme_name: str | None = None) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            self._tokens = get_theme_tokens(theme_name)
+            self._accent_rgb = self._tokens.accent_rgb
+            # Accent soft background is already rgba().
+            self.setStyleSheet(f"background: {self._tokens.accent_soft_bg};")
+        finally:
+            self._applying_theme_styles = False
         
     def _get_animation_offset(self):
         return self._animation_offset
@@ -215,8 +247,10 @@ class Win11ProgressBar(QWidget):
         w = self.width()
         h = self.height()
         
+        ar, ag, ab = self._accent_rgb
+
         # Фон (виден когда нет анимации)
-        painter.fillRect(0, 0, w, h, QColor(96, 205, 255, 30))
+        painter.fillRect(0, 0, w, h, QColor(ar, ag, ab, 30))
         
         if self._is_indeterminate:
             # Бегущая полоска (стиль Windows 11)
@@ -237,17 +271,17 @@ class Win11ProgressBar(QWidget):
             
             # Градиент для полоски
             gradient = QLinearGradient(x, 0, x + bar_width, 0)
-            gradient.setColorAt(0.0, QColor(96, 205, 255, 0))
-            gradient.setColorAt(0.3, QColor(96, 205, 255, 255))
-            gradient.setColorAt(0.7, QColor(96, 205, 255, 255))
-            gradient.setColorAt(1.0, QColor(96, 205, 255, 0))
+            gradient.setColorAt(0.0, QColor(ar, ag, ab, 0))
+            gradient.setColorAt(0.3, QColor(ar, ag, ab, 255))
+            gradient.setColorAt(0.7, QColor(ar, ag, ab, 255))
+            gradient.setColorAt(1.0, QColor(ar, ag, ab, 0))
             
             painter.fillRect(x, 0, bar_width, h, gradient)
         else:
             # Обычный прогресс
             if self._progress > 0:
                 progress_width = int(w * self._progress)
-                painter.fillRect(0, 0, progress_width, h, QColor(96, 205, 255))
+                painter.fillRect(0, 0, progress_width, h, QColor(ar, ag, ab))
 
 
 class UpdateStatusCard(QFrame):
@@ -259,17 +293,26 @@ class UpdateStatusCard(QFrame):
         super().__init__(parent)
         self.setObjectName("updateStatusCard")
         self._is_checking = False
+
+        self._tokens = get_theme_tokens()
+        self._error_hex = "#e74c3c"
+        self._applying_theme_styles = False
         
         self._build_ui()
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            if self._applying_theme_styles:
+                return super().changeEvent(event)
+            try:
+                self._apply_theme()
+            except Exception:
+                pass
+        super().changeEvent(event)
         
     def _build_ui(self):
-        self.setStyleSheet("""
-            QFrame#updateStatusCard {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
-            }
-        """)
+        # Card QSS is token-driven in _apply_theme().
+        self.setStyleSheet("")
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -293,23 +336,13 @@ class UpdateStatusCard(QFrame):
         text_layout.setSpacing(4)
         
         self.title_label = QLabel("Проверка обновлений")
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 15px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-        """)
+        self.title_label.setProperty("tone", "primary")
+        self.title_label.setStyleSheet("font-size: 15px; font-weight: 600;")
         text_layout.addWidget(self.title_label)
         
         self.subtitle_label = QLabel("Нажмите для проверки доступных обновлений")
-        self.subtitle_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.5);
-                font-size: 12px;
-            }
-        """)
+        self.subtitle_label.setProperty("tone", "muted")
+        self.subtitle_label.setStyleSheet("font-size: 12px;")
         text_layout.addWidget(self.subtitle_label)
         
         content_layout.addLayout(text_layout, 1)
@@ -319,29 +352,6 @@ class UpdateStatusCard(QFrame):
         self.check_btn.setFixedHeight(32)
         self.check_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check_btn.clicked.connect(self._on_check_clicked)
-        self.check_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            QPushButton:hover:enabled {
-                background: rgba(255, 255, 255, 0.1);
-                border-color: rgba(255, 255, 255, 0.12);
-            }
-            QPushButton:pressed:enabled {
-                background: rgba(255, 255, 255, 0.04);
-            }
-            QPushButton:disabled {
-                background: rgba(255, 255, 255, 0.02);
-                border-color: rgba(255, 255, 255, 0.04);
-                color: rgba(255, 255, 255, 0.25);
-            }
-        """)
         content_layout.addWidget(self.check_btn)
         
         main_layout.addWidget(content)
@@ -357,12 +367,66 @@ class UpdateStatusCard(QFrame):
         self._rotation_speed = 0.0  # Начинаем с 0
         self._rotation_tick = 0
         self._rotation_stopping = False  # Флаг плавного завершения
+
+        self._apply_theme()
+
+    def _apply_theme(self, theme_name: str | None = None) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            self._tokens = get_theme_tokens(theme_name)
+            tokens = self._tokens
+
+            self.setStyleSheet(
+                "QFrame#updateStatusCard {"
+                f" background: {tokens.surface_bg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 8px;"
+                " }"
+            )
+
+            self.check_btn.setStyleSheet(
+                "QPushButton {"
+                f" background: {tokens.surface_bg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 4px;"
+                f" color: {tokens.fg};"
+                " padding: 0 16px;"
+                " font-size: 12px;"
+                " font-weight: 500;"
+                " }"
+                "QPushButton:hover:enabled {"
+                f" background: {tokens.surface_bg_hover};"
+                f" border-color: {tokens.surface_border_hover};"
+                " }"
+                "QPushButton:pressed:enabled {"
+                f" background: {tokens.surface_bg_pressed};"
+                " }"
+                "QPushButton:disabled {"
+                f" background: {tokens.surface_bg_disabled};"
+                f" border-color: {tokens.surface_border_disabled};"
+                f" color: {tokens.fg_faint};"
+                " }"
+            )
+
+            self._error_hex = "#dc2626" if tokens.is_light else "#f87171"
+
+            # Keep current icon state, but make sure idle icon uses current accent.
+            if not self._is_checking and not self._rotation_timer.isActive():
+                try:
+                    self._set_icon_idle()
+                except Exception:
+                    pass
+        finally:
+            self._applying_theme_styles = False
         
     def _set_icon_idle(self):
         """Устанавливает обычную иконку (центрируется в 64x64)"""
         from PyQt6.QtGui import QPixmap, QPainter
-        
-        base = qta.icon('fa5s.sync-alt', color='#60cdff').pixmap(48, 48)
+
+        base = qta.icon('fa5s.sync-alt', color=self._tokens.accent_hex).pixmap(48, 48)
         final = QPixmap(64, 64)
         final.fill(Qt.GlobalColor.transparent)
         
@@ -409,7 +473,7 @@ class UpdateStatusCard(QFrame):
         # Вращаем через QPainter (не через QPixmap.transformed - тот меняет размер)
         from PyQt6.QtGui import QPixmap, QPainter
 
-        base_pixmap = qta.icon('fa5s.sync-alt', color='#60cdff').pixmap(48, 48)
+        base_pixmap = qta.icon('fa5s.sync-alt', color=self._tokens.accent_hex).pixmap(48, 48)
 
         # Создаём целевой pixmap 64x64
         final = QPixmap(64, 64)
@@ -473,7 +537,7 @@ class UpdateStatusCard(QFrame):
         self._rotation_timer.stop()
         
         from PyQt6.QtGui import QPixmap, QPainter
-        base = qta.icon('fa5s.exclamation-triangle', color='#e74c3c').pixmap(48, 48)
+        base = qta.icon('fa5s.exclamation-triangle', color=self._error_hex).pixmap(48, 48)
         final = QPixmap(64, 64)
         final.fill(Qt.GlobalColor.transparent)
         painter = QPainter(final)
@@ -817,19 +881,31 @@ class ChangelogCard(QFrame):
         self._is_downloading = False
         self._download_start_time = 0
         self._last_bytes = 0
+
+        self._tokens = get_theme_tokens()
+        self._icon_kind = "update"  # "update" | "download"
+        self._raw_changelog = ""
+        self._raw_version = ""
+        self._applying_theme_styles = False
+
         self._speed_update_timer = QTimer(self)
         self._speed_update_timer.timeout.connect(self._update_speed)
         self._build_ui()
         self.hide()
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            if self._applying_theme_styles:
+                return super().changeEvent(event)
+            try:
+                self._apply_theme()
+            except Exception:
+                pass
+        super().changeEvent(event)
         
     def _build_ui(self):
-        self.setStyleSheet("""
-            QFrame#changelogCard {
-                background: rgba(96, 205, 255, 0.08);
-                border: 1px solid rgba(96, 205, 255, 0.2);
-                border-radius: 8px;
-            }
-        """)
+        # Card QSS is token-driven in _apply_theme().
+        self.setStyleSheet("")
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -839,12 +915,10 @@ class ChangelogCard(QFrame):
         header = QHBoxLayout()
         
         self.icon_label = QLabel()
-        icon = qta.icon('fa5s.arrow-circle-up', color='#60cdff')
-        self.icon_label.setPixmap(icon.pixmap(24, 24))
         header.addWidget(self.icon_label)
         
         self.title_label = QLabel("Доступно обновление")
-        self.title_label.setStyleSheet("color: #60cdff; font-size: 14px; font-weight: 600;")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
         header.addWidget(self.title_label)
         header.addStretch()
         
@@ -853,19 +927,14 @@ class ChangelogCard(QFrame):
         self.close_btn.setFixedSize(24, 24)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.clicked.connect(self._on_dismiss)
-        self.close_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; border-radius: 4px; }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.1); }
-        """)
-        close_icon = qta.icon('fa5s.times', color='#808080')
-        self.close_btn.setIcon(close_icon)
         header.addWidget(self.close_btn)
         
         layout.addLayout(header)
         
         # Версия / Статус
         self.version_label = QLabel()
-        self.version_label.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 13px;")
+        self.version_label.setProperty("tone", "primary")
+        self.version_label.setStyleSheet("font-size: 13px;")
         layout.addWidget(self.version_label)
         
         # Changelog текст (с кликабельными ссылками)
@@ -873,11 +942,6 @@ class ChangelogCard(QFrame):
         self.changelog_text.setWordWrap(True)
         self.changelog_text.setTextFormat(Qt.TextFormat.RichText)
         self.changelog_text.setOpenExternalLinks(True)  # Автооткрытие ссылок в браузере
-        self.changelog_text.setStyleSheet("""
-            color: rgba(255,255,255,0.6); 
-            font-size: 12px; 
-            padding: 4px 0;
-        """)
         self.changelog_text.linkActivated.connect(lambda url: __import__('webbrowser').open(url))
         layout.addWidget(self.changelog_text)
         
@@ -899,15 +963,18 @@ class ChangelogCard(QFrame):
         status_row.setSpacing(16)
         
         self.speed_label = QLabel("Скорость: —")
-        self.speed_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
+        self.speed_label.setProperty("tone", "faint")
+        self.speed_label.setStyleSheet("font-size: 11px;")
         status_row.addWidget(self.speed_label)
         
         self.progress_label = QLabel("0%")
-        self.progress_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 11px;")
+        self.progress_label.setProperty("tone", "muted")
+        self.progress_label.setStyleSheet("font-size: 11px;")
         status_row.addWidget(self.progress_label)
         
         self.eta_label = QLabel("Осталось: —")
-        self.eta_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
+        self.eta_label.setProperty("tone", "faint")
+        self.eta_label.setStyleSheet("font-size: 11px;")
         status_row.addWidget(self.eta_label)
         
         status_row.addStretch()
@@ -929,17 +996,6 @@ class ChangelogCard(QFrame):
         self.later_btn.setFixedHeight(32)
         self.later_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.later_btn.clicked.connect(self._on_dismiss)
-        self.later_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                color: rgba(255, 255, 255, 0.8);
-                padding: 0 20px;
-                font-size: 12px;
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.1); }
-        """)
         buttons_layout.addWidget(self.later_btn)
         
         self.install_btn = QPushButton("  Установить")
@@ -964,8 +1020,68 @@ class ChangelogCard(QFrame):
         buttons_layout.addWidget(self.install_btn)
         
         layout.addWidget(self.buttons_widget)
-        
-    def _make_links_clickable(self, text: str) -> str:
+
+        self._apply_theme()
+
+    def _apply_theme(self, theme_name: str | None = None) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            self._tokens = get_theme_tokens(theme_name)
+            tokens = self._tokens
+
+            self.setStyleSheet(
+                "QFrame#changelogCard {"
+                f" background: {tokens.accent_soft_bg};"
+                f" border: 1px solid rgba({tokens.accent_rgb_str}, 0.25);"
+                " border-radius: 8px;"
+                " }"
+            )
+
+            self.title_label.setStyleSheet(f"color: {tokens.accent_hex}; font-size: 14px; font-weight: 600;")
+            self.changelog_text.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px; padding: 4px 0;")
+
+            self.close_btn.setStyleSheet(
+                "QPushButton { background: transparent; border: none; border-radius: 4px; }"
+                "QPushButton:hover {"
+                f" background: {tokens.surface_bg_hover};"
+                " }"
+            )
+            self.close_btn.setIcon(qta.icon('fa5s.times', color=tokens.fg_faint))
+
+            self.later_btn.setStyleSheet(
+                "QPushButton {"
+                f" background: {tokens.surface_bg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 4px;"
+                f" color: {tokens.fg_muted};"
+                " padding: 0 20px;"
+                " font-size: 12px;"
+                " }"
+                "QPushButton:hover {"
+                f" background: {tokens.surface_bg_hover};"
+                f" border-color: {tokens.surface_border_hover};"
+                " }"
+                "QPushButton:pressed {"
+                f" background: {tokens.surface_bg_pressed};"
+                " }"
+            )
+
+            icon_name = 'fa5s.arrow-circle-up' if self._icon_kind == "update" else 'fa5s.download'
+            self.icon_label.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(24, 24))
+
+            # Re-render links with current accent.
+            if self._raw_changelog:
+                try:
+                    self.changelog_text.setText(self._make_links_clickable(self._raw_changelog, tokens.accent_hex))
+                except Exception:
+                    pass
+        finally:
+            self._applying_theme_styles = False
+
+    def _make_links_clickable(self, text: str, accent_hex: str) -> str:
         """Преобразует URL в кликабельные HTML ссылки"""
         import re
         # Regex для поиска URL
@@ -976,43 +1092,46 @@ class ChangelogCard(QFrame):
             # Убираем trailing punctuation
             while url and url[-1] in '.,;:!?)':
                 url = url[:-1]
-            return f'<a href="{url}" style="color: #60cdff;">{url}</a>'
+            return f'<a href="{url}" style="color: {accent_hex};">{url}</a>'
         
         return re.sub(url_pattern, replace_url, text)
     
     def show_update(self, version: str, changelog: str):
         """Показывает информацию об обновлении"""
         self._is_downloading = False
+        self._icon_kind = "update"
+        self._raw_version = str(version or "")
         self.version_label.setText(f"v{APP_VERSION}  →  v{version}")
         self.title_label.setText("Доступно обновление")
-        
-        icon = qta.icon('fa5s.arrow-circle-up', color='#60cdff')
-        self.icon_label.setPixmap(icon.pixmap(24, 24))
         
         if changelog:
             if len(changelog) > 200:
                 changelog = changelog[:200] + "..."
             # Делаем ссылки кликабельными
-            changelog_html = self._make_links_clickable(changelog)
-            self.changelog_text.setText(changelog_html)
+            self._raw_changelog = changelog
+            self.changelog_text.setText(self._make_links_clickable(changelog, self._tokens.accent_hex))
             self.changelog_text.show()
         else:
+            self._raw_changelog = ""
             self.changelog_text.hide()
         
         self.progress_widget.hide()
         self.buttons_widget.show()
         self.close_btn.show()
         self.show()
+
+        self._apply_theme()
         
     def start_download(self, version: str):
         """Переключает в режим скачивания"""
         self._is_downloading = True
+        self._icon_kind = "download"
+        self._raw_version = str(version or "")
         self._download_start_time = time.time()
         self._last_bytes = 0
         
         self.title_label.setText(f"Загрузка v{version}")
-        icon = qta.icon('fa5s.download', color='#60cdff')
-        self.icon_label.setPixmap(icon.pixmap(24, 24))
+        self._apply_theme()
         
         self.version_label.setText("Подготовка к загрузке...")
         self.changelog_text.hide()
@@ -1106,6 +1225,8 @@ class ServersPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__("Серверы", "Мониторинг серверов обновлений", parent)
+
+        self._tokens = get_theme_tokens()
         
         self.server_worker = None
         self.version_worker = None
@@ -1125,6 +1246,50 @@ class ServersPage(BasePage):
         self._has_cached_data = False
 
         self._build_ui()
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            try:
+                self._apply_theme()
+            except Exception:
+                pass
+        super().changeEvent(event)
+
+    def _apply_theme(self, theme_name: str | None = None) -> None:
+        self._tokens = get_theme_tokens(theme_name)
+        tokens = self._tokens
+
+        if hasattr(self, "servers_table"):
+            self.servers_table.setStyleSheet(
+                "QTableWidget {"
+                f" background-color: {tokens.surface_bg};"
+                f" border: 1px solid {tokens.surface_border};"
+                " border-radius: 6px;"
+                f" gridline-color: {tokens.divider};"
+                " }"
+                "QTableWidget::item { padding: 6px; }"
+                "QTableWidget::item:selected {"
+                f" background-color: {tokens.accent_soft_bg};"
+                " }"
+                "QHeaderView::section {"
+                f" background-color: {tokens.surface_bg};"
+                f" color: {tokens.fg_muted};"
+                " padding: 8px;"
+                " border: none;"
+                " font-weight: 600;"
+                " font-size: 11px;"
+                " }"
+            )
+
+            # Re-apply accent for cached rows marked as current.
+            try:
+                accent_qcolor = QColor(tokens.accent_hex)
+                for r in range(self.servers_table.rowCount()):
+                    item = self.servers_table.item(r, 0)
+                    if item and (item.text() or "").lstrip().startswith("⭐"):
+                        item.setForeground(accent_qcolor)
+            except Exception:
+                pass
         
     def _build_ui(self):
         # ═══════════════════════════════════════════════════════════
@@ -1147,12 +1312,14 @@ class ServersPage(BasePage):
         # ═══════════════════════════════════════════════════════════
         servers_header = QHBoxLayout()
         servers_title = QLabel("Серверы обновлений")
-        servers_title.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 13px; font-weight: 600;")
+        servers_title.setProperty("tone", "primary")
+        servers_title.setStyleSheet("font-size: 13px; font-weight: 600;")
         servers_header.addWidget(servers_title)
         servers_header.addStretch()
         
         legend_active = QLabel("⭐ активный")
-        legend_active.setStyleSheet("color: rgba(96, 205, 255, 0.5); font-size: 10px;")
+        legend_active.setProperty("tone", "faint")
+        legend_active.setStyleSheet("font-size: 10px;")
         servers_header.addWidget(legend_active)
         
         header_widget = QWidget()
@@ -1174,24 +1341,6 @@ class ServersPage(BasePage):
         self.servers_table.setAlternatingRowColors(True)
         self.servers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.servers_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.servers_table.setStyleSheet("""
-            QTableWidget {
-                background-color: rgba(255,255,255,0.02);
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 6px;
-                gridline-color: rgba(255,255,255,0.03);
-            }
-            QTableWidget::item { padding: 6px; }
-            QTableWidget::item:selected { background-color: rgba(96, 205, 255, 0.12); }
-            QHeaderView::section {
-                background-color: rgba(255,255,255,0.03);
-                color: rgba(255,255,255,0.6);
-                padding: 8px;
-                border: none;
-                font-weight: 600;
-                font-size: 11px;
-            }
-        """)
         self.add_widget(self.servers_table, stretch=1)  # stretch=1 для заполнения пространства
         
         # ═══════════════════════════════════════════════════════════
@@ -1211,13 +1360,15 @@ class ServersPage(BasePage):
         toggle_row.addWidget(self.auto_check_toggle)
         
         toggle_label = QLabel("Проверять обновления при открытии вкладки")
-        toggle_label.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px;")
+        toggle_label.setProperty("tone", "primary")
+        toggle_label.setStyleSheet("font-size: 13px;")
         toggle_row.addWidget(toggle_label)
         
         toggle_row.addStretch()
         
         version_info = QLabel(f"v{APP_VERSION} · {CHANNEL}")
-        version_info.setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px;")
+        version_info.setProperty("tone", "faint")
+        version_info.setStyleSheet("font-size: 11px;")
         toggle_row.addWidget(version_info)
         
         settings_layout.addLayout(toggle_row)
@@ -1237,7 +1388,8 @@ class ServersPage(BasePage):
             "все версии программы выкладываются в Telegram канале."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px;")
+        info_label.setProperty("tone", "muted")
+        info_label.setStyleSheet("font-size: 12px;")
         tg_layout.addWidget(info_label)
 
         # Кнопка открытия Telegram канала
@@ -1273,6 +1425,8 @@ class ServersPage(BasePage):
         tg_layout.addLayout(tg_btn_row)
         tg_card.add_layout(tg_layout)
         self.add_widget(tg_card)
+
+        self._apply_theme()
         
     def showEvent(self, event):
         super().showEvent(event)
@@ -1451,7 +1605,7 @@ class ServersPage(BasePage):
         name_item = QTableWidgetItem(server_name)
         if status.get('is_current'):
             name_item.setText(f"⭐ {server_name}")
-            name_item.setForeground(QColor(96, 205, 255))
+            name_item.setForeground(QColor(self._tokens.accent_hex))
         self.servers_table.setItem(row, 0, name_item)
         
         status_item = QTableWidgetItem()

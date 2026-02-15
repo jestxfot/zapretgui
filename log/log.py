@@ -155,7 +155,20 @@ class Logger:
     # --- redirect interface ---------------------------------------------------
     def write(self, message: str):
         if self.orig_stdout:
-            self.orig_stdout.write(message)
+            try:
+                self.orig_stdout.write(message)
+            except UnicodeEncodeError:
+                # Some Windows consoles use legacy encodings (e.g. cp1251) and
+                # crash on emoji / non-ASCII output. Keep logging functional.
+                enc = getattr(self.orig_stdout, "encoding", None) or "utf-8"
+                try:
+                    safe = message.encode(enc, errors="replace").decode(enc, errors="replace")
+                except Exception:
+                    safe = message.encode("ascii", errors="replace").decode("ascii", errors="replace")
+                try:
+                    self.orig_stdout.write(safe)
+                except Exception:
+                    pass
         with open(self.log_file, "a", encoding="utf-8-sig") as f:
             f.write(f"[{datetime.now():%H:%M:%S}] {message}")
 

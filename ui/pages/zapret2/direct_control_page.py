@@ -21,29 +21,41 @@ import qtawesome as qta
 from ui.pages.base_page import BasePage
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.sidebar import ActionButton, PulsingDot, SettingsCard, SettingsRow
+from ui.theme import get_theme_tokens
 
 
-# Стиль для индикатора загрузки (бегающая полоска)
-PROGRESS_STYLE = """
-QProgressBar {
-    background-color: rgba(255, 255, 255, 0.05);
-    border: none;
-    border-radius: 2px;
-    height: 4px;
-    text-align: center;
-}
-QProgressBar::chunk {
-    background: qlineargradient(
-        x1:0, y1:0, x2:1, y2:0,
-        stop:0 transparent,
-        stop:0.3 #60cdff,
-        stop:0.5 #60cdff,
-        stop:0.7 #60cdff,
-        stop:1 transparent
-    );
-    border-radius: 2px;
-}
-"""
+def _accent_fg_for_tokens(tokens) -> str:
+    try:
+        r, g, b = tokens.accent_rgb
+        yiq = (r * 299 + g * 587 + b * 114) / 1000
+        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+    except Exception:
+        return "rgba(0, 0, 0, 0.90)"
+
+
+def _build_progress_style() -> str:
+    tokens = get_theme_tokens()
+    accent = tokens.accent_hex
+    return f"""
+    QProgressBar {{
+        background-color: {tokens.surface_bg};
+        border: none;
+        border-radius: 2px;
+        height: 4px;
+        text-align: center;
+    }}
+    QProgressBar::chunk {{
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:0,
+            stop:0 transparent,
+            stop:0.3 {accent},
+            stop:0.5 {accent},
+            stop:0.7 {accent},
+            stop:1 transparent
+        );
+        border-radius: 2px;
+    }}
+    """
 
 
 _LIST_FILE_ARG_RE = re.compile(r"--(?:hostlist|ipset|hostlist-exclude|ipset-exclude)=([^\s]+)")
@@ -72,24 +84,38 @@ class BigActionButton(ActionButton):
         self.setIconSize(QSize(20, 20))
 
     def _update_style(self):
+        tokens = getattr(self, "_tokens", None) or get_theme_tokens()
         if self.accent:
-            bg = "rgba(96, 205, 255, 0.9)" if self._hovered else "#60cdff"
-            text_color = "#000000"
+            bg = tokens.accent_hover_hex if self._hovered else tokens.accent_hex
+            pressed_bg = tokens.accent_pressed_hex
+            text_color = _accent_fg_for_tokens(tokens)
+            border = f"1px solid {tokens.divider_strong}"
         else:
-            bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
-            text_color = "#ffffff"
+            bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+            pressed_bg = tokens.surface_bg_pressed
+            text_color = tokens.fg
+            border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
+
+        try:
+            if getattr(self, "_icon_name", None):
+                self.setIcon(qta.icon(self._icon_name, color=text_color))
+        except Exception:
+            pass
 
         self.setStyleSheet(
             f"""
             QPushButton {{
                 background: {bg};
-                border: none;
+                border: {border};
                 border-radius: 6px;
                 color: {text_color};
                 padding: 0 24px;
                 font-size: 14px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QPushButton:pressed {{
+                background: {pressed_bg};
             }}
             """
         )
@@ -99,21 +125,7 @@ class StopButton(BigActionButton):
     """Кнопка остановки (нейтральная)"""
 
     def _update_style(self):
-        bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
-        self.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: {bg};
-                border: none;
-                border-radius: 6px;
-                color: #ffffff;
-                padding: 0 24px;
-                font-size: 14px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-            """
-        )
+        super()._update_style()
 
 
 class Zapret2DirectControlPage(BasePage):
@@ -151,6 +163,21 @@ class Zapret2DirectControlPage(BasePage):
         except Exception:
             pass
 
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if hasattr(self, "progress_bar") and self.progress_bar is not None:
+                    self.progress_bar.setStyleSheet(_build_progress_style())
+                try:
+                    self._update_direct_launch_mode_styles()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        super().changeEvent(event)
+
     def _build_ui(self):
         # Быстрый доступ к документации
         docs_widget = QWidget()
@@ -184,10 +211,13 @@ class Zapret2DirectControlPage(BasePage):
         status_text.setSpacing(2)
 
         self.status_title = QLabel("Проверка...")
+        try:
+            self.status_title.setProperty("tone", "primary")
+        except Exception:
+            pass
         self.status_title.setStyleSheet(
             """
             QLabel {
-                color: #ffffff;
                 font-size: 15px;
                 font-weight: 600;
             }
@@ -196,10 +226,13 @@ class Zapret2DirectControlPage(BasePage):
         status_text.addWidget(self.status_title)
 
         self.status_desc = QLabel("Определение состояния процесса")
+        try:
+            self.status_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
         self.status_desc.setStyleSheet(
             """
             QLabel {
-                color: rgba(255, 255, 255, 0.6);
                 font-size: 12px;
             }
             """
@@ -219,7 +252,7 @@ class Zapret2DirectControlPage(BasePage):
 
         # Индикатор загрузки (бегающая полоска) - показываем рядом с кнопками управления
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(PROGRESS_STYLE)
+        self.progress_bar.setStyleSheet(_build_progress_style())
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setMinimum(0)
@@ -228,10 +261,13 @@ class Zapret2DirectControlPage(BasePage):
         control_card.add_widget(self.progress_bar)
 
         self.loading_label = QLabel("")
+        try:
+            self.loading_label.setProperty("tone", "muted")
+        except Exception:
+            pass
         self.loading_label.setStyleSheet(
             """
             QLabel {
-                color: rgba(255, 255, 255, 0.6);
                 font-size: 12px;
                 padding-top: 4px;
             }
@@ -272,7 +308,7 @@ class Zapret2DirectControlPage(BasePage):
 
             self.active_preset_icon.setPixmap(fluent_pixmap("fa5s.star", 20))
         except Exception:
-            self.active_preset_icon.setPixmap(qta.icon("fa5s.star", color="#60cdff").pixmap(20, 20))
+            self.active_preset_icon.setPixmap(qta.icon("fa5s.star", color=get_theme_tokens().accent_hex).pixmap(20, 20))
         self.active_preset_icon.setFixedSize(24, 24)
         active_preset_layout.addWidget(self.active_preset_icon)
 
@@ -283,10 +319,13 @@ class Zapret2DirectControlPage(BasePage):
         active_preset_text_layout.setSpacing(2)
 
         self.active_preset_label = QLabel("Не выбран")
+        try:
+            self.active_preset_label.setProperty("tone", "primary")
+        except Exception:
+            pass
         self.active_preset_label.setStyleSheet(
             """
             QLabel {
-                color: #ffffff;
                 font-size: 14px;
                 font-weight: 500;
             }
@@ -297,10 +336,13 @@ class Zapret2DirectControlPage(BasePage):
         active_preset_text_layout.addWidget(self.active_preset_label)
 
         self.active_preset_desc = QLabel("Выберите пресет в разделе «Активный пресет»")
+        try:
+            self.active_preset_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
         self.active_preset_desc.setStyleSheet(
             """
             QLabel {
-                color: rgba(255, 255, 255, 0.5);
                 font-size: 11px;
             }
             """
@@ -359,7 +401,7 @@ class Zapret2DirectControlPage(BasePage):
 
             self.strategy_icon.setPixmap(fluent_pixmap("fa5s.cog", 20))
         except Exception:
-            self.strategy_icon.setPixmap(qta.icon("fa5s.cog", color="#60cdff").pixmap(20, 20))
+            self.strategy_icon.setPixmap(qta.icon("fa5s.cog", color=get_theme_tokens().accent_hex).pixmap(20, 20))
         self.strategy_icon.setFixedSize(24, 24)
         strategy_layout.addWidget(self.strategy_icon)
 
@@ -370,10 +412,13 @@ class Zapret2DirectControlPage(BasePage):
         strategy_text_layout.setSpacing(2)
 
         self.strategy_label = QLabel("Не выбрана")
+        try:
+            self.strategy_label.setProperty("tone", "primary")
+        except Exception:
+            pass
         self.strategy_label.setStyleSheet(
             """
             QLabel {
-                color: #ffffff;
                 font-size: 14px;
                 font-weight: 500;
             }
@@ -384,10 +429,13 @@ class Zapret2DirectControlPage(BasePage):
         strategy_text_layout.addWidget(self.strategy_label)
 
         self.strategy_desc = QLabel("Выберите стратегию в разделе «Прямой запуск»")
+        try:
+            self.strategy_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
         self.strategy_desc.setStyleSheet(
             """
             QLabel {
-                color: rgba(255, 255, 255, 0.5);
                 font-size: 11px;
             }
             """
@@ -711,28 +759,43 @@ class Zapret2DirectControlPage(BasePage):
         if not hasattr(self, "_direct_launch_mode_basic_btn") or not hasattr(self, "_direct_launch_mode_advanced_btn"):
             return
 
+        tokens = get_theme_tokens()
         active_style = """
             QPushButton {
-                background: #60cdff;
+                background: %(accent)s;
                 border: none;
-                color: #000000;
+                color: %(accent_fg)s;
                 font-size: 11px;
                 font-weight: 600;
                 padding: 0 12px;
             }
+            QPushButton:hover {
+                background: %(accent_hover)s;
+            }
         """
         inactive_style = """
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
+                background: %(bg)s;
                 border: none;
-                color: rgba(255, 255, 255, 0.7);
+                color: %(fg_muted)s;
                 font-size: 11px;
                 padding: 0 12px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: %(bg_hover)s;
             }
         """
+
+        active_style = active_style % {
+            "accent": tokens.accent_hex,
+            "accent_hover": tokens.accent_hover_hex,
+            "accent_fg": _accent_fg_for_tokens(tokens),
+        }
+        inactive_style = inactive_style % {
+            "bg": tokens.surface_bg,
+            "bg_hover": tokens.surface_bg_hover,
+            "fg_muted": tokens.fg_muted,
+        }
 
         left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
         right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
@@ -1080,17 +1143,18 @@ class Zapret2DirectControlPage(BasePage):
         self.stop_and_exit_btn.setEnabled(not loading)
 
         if loading:
-            disabled_style = """
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.03);
-                    border: none;
+            tokens = get_theme_tokens()
+            disabled_style = f"""
+                QPushButton {{
+                    background: {tokens.surface_bg_disabled};
+                    border: 1px solid {tokens.surface_border_disabled};
                     border-radius: 6px;
-                    color: rgba(255, 255, 255, 0.3);
+                    color: {tokens.fg_faint};
                     padding: 0 24px;
                     font-size: 14px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
+                }}
             """
             self.start_btn.setStyleSheet(disabled_style)
             self.stop_winws_btn.setStyleSheet(disabled_style)

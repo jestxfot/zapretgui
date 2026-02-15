@@ -501,7 +501,34 @@ class PresetManager:
 
             # Atomic replace (works even if target exists)
             import os
-            os.replace(str(temp_path), str(active_path))
+            import time
+            try:
+                os.replace(str(temp_path), str(active_path))
+            except PermissionError as e:
+                # Windows: destination may be locked briefly (winws2 / watcher).
+                # Retry a bit, then fall back to non-atomic overwrite.
+                if os.name != "nt":
+                    raise
+
+                last_exc = e
+                delay = 0.03
+                for _attempt in range(15):
+                    time.sleep(delay)
+                    try:
+                        os.replace(str(temp_path), str(active_path))
+                        last_exc = None
+                        break
+                    except PermissionError as e2:
+                        last_exc = e2
+                        delay = min(delay * 1.6, 0.2)
+
+                if last_exc is not None:
+                    shutil.copyfile(temp_path, active_path)
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+                    log(f"Atomic replace blocked; wrote active preset file in-place: {active_path}", "DEBUG")
 
             # Persist active preset name
             set_active_preset_name(name)
@@ -1508,6 +1535,7 @@ class PresetManager:
             get_template_content,
             get_default_template_content,
             get_builtin_base_from_copy_name,
+            invalidate_templates_cache,
         )
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
@@ -1521,6 +1549,11 @@ class PresetManager:
         preset_name = get_active_preset_name() or "Current"
 
         try:
+            try:
+                invalidate_templates_cache()
+            except Exception:
+                pass
+
             # Try matching template for this preset name first
             template_content = get_template_content(preset_name)
             if not template_content:
@@ -1612,18 +1645,32 @@ class PresetManager:
             log(f"Error resetting active preset to built-in template: {e}", "ERROR")
             return False
 
-    def reset_preset_to_default_template(self, preset_name: str) -> bool:
+    def reset_preset_to_default_template(
+        self,
+        preset_name: str,
+        *,
+        make_active: bool = True,
+        sync_active_file: bool = True,
+        emit_switched: bool = True,
+        invalidate_templates: bool = True,
+    ) -> bool:
         """
-        Resets a preset to its matching template and activates it.
+        Resets a preset to its matching template.
+
+        By default, also activates it and rewrites preset-zapret2.txt.
 
         First tries to find a template matching the preset name in presets_template/,
         then falls back to the default template.
 
         Overwrites:
         - presets/{preset_name}.txt
-        - preset-zapret2.txt
+        - preset-zapret2.txt (if sync_active_file=True)
         """
-        from .preset_defaults import get_template_content, get_default_template_content
+        from .preset_defaults import (
+            get_template_content,
+            get_default_template_content,
+            invalidate_templates_cache,
+        )
         from .txt_preset_parser import parse_preset_content
         from .strategy_inference import infer_strategy_id_from_args
 
@@ -1646,6 +1693,12 @@ class PresetManager:
             if not existing:
                 log(f"Cannot reset: failed to load preset '{name}'", "ERROR")
                 return False
+
+            if invalidate_templates:
+                try:
+                    invalidate_templates_cache()
+                except Exception:
+                    pass
 
             # Try matching template first, then fall back to default
             template_content = get_template_content(name)
@@ -1716,18 +1769,47 @@ class PresetManager:
                     )
                 cat.strategy_id = inferred or "none"
 
-            # Make this preset active (so UI state and active file match).
-            set_active_preset_name(name)
-            self._invalidate_active_preset_cache()
+            # Persist reset into the preset file first.
+            preset.base_args = self._update_wf_out_ports_in_base_args(preset)
+            if not save_preset(preset):
+                return False
             self.invalidate_preset_cache(name)
-            self._get_store().notify_preset_switched(name)
-            if self.on_preset_switched:
-                try:
-                    self.on_preset_switched(name)
-                except Exception:
-                    pass
 
-            return self._save_and_sync_preset(preset)
+            # Avoid producing a mismatched active file header.
+            do_sync = bool(sync_active_file)
+            if do_sync and not make_active:
+                try:
+                    current_active = (get_active_preset_name() or "").strip().lower()
+                except Exception:
+                    current_active = ""
+                if current_active != name.lower():
+                    do_sync = False
+
+            if make_active:
+                set_active_preset_name(name)
+                self._invalidate_active_preset_cache()
+
+            # Sync runtime file before emitting preset_switched (DPI reload expects new file).
+            if do_sync:
+                if not self.sync_preset_to_active_file(preset):
+                    return False
+
+            if make_active:
+                if emit_switched:
+                    self._get_store().notify_preset_switched(name)
+                    if self.on_preset_switched:
+                        try:
+                            self.on_preset_switched(name)
+                        except Exception:
+                            pass
+                else:
+                    # Keep store active name in sync without emitting preset_switched.
+                    try:
+                        self._get_store().notify_active_name_changed()
+                    except Exception:
+                        pass
+
+            return True
 
         except Exception as e:
             log(f"Error resetting preset '{name}' to Default template: {e}", "ERROR")

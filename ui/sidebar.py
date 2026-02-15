@@ -119,6 +119,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self.icon_name = icon_name
         self._text = text
         self._collapsed = False
+        self._applying_theme_styles = False
         # Cache tokens to avoid registry reads on every hover.
         self._tokens = get_theme_tokens()
         
@@ -137,6 +138,8 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
                 # Refresh cached tokens and re-render styles/icons.
                 self._tokens = get_theme_tokens()
                 self._update_style()
@@ -154,40 +157,47 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._update_style()
         
     def _update_style(self):
-        tokens = self._tokens or get_theme_tokens("Темная синяя")
-        if self._selected:
-            bg_color = tokens.accent_soft_bg
-            border_left = f"3px solid {tokens.accent_hex}"
-            text_color = tokens.fg
-        elif self._hovered:
-            bg_color = tokens.surface_bg_hover
-            border_left = "3px solid transparent"
-            text_color = tokens.fg
-        else:
-            bg_color = "transparent"
-            border_left = "3px solid transparent"
-            text_color = tokens.fg_muted
-        
-        padding = "22px" if not self._collapsed else "0px"
-        text_align = "left" if not self._collapsed else "center"
-            
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg_color};
-                border: none;
-                border-left: {border_left};
-                border-radius: 4px;
-                color: {text_color};
-                text-align: {text_align};
-                padding-left: {padding};
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                font-size: 13px;
-                font-weight: {'600' if self._selected else '400'};
-            }}
-        """)
-        
-        # Обновляем иконку - объёмная с градиентом для выбранного, светло-серая для остальных
-        self._set_icon_with_brightness()
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+            if self._selected:
+                bg_color = tokens.accent_soft_bg
+                border_left = f"3px solid {tokens.accent_hex}"
+                text_color = tokens.fg
+            elif self._hovered:
+                bg_color = tokens.surface_bg_hover
+                border_left = "3px solid transparent"
+                text_color = tokens.fg
+            else:
+                bg_color = "transparent"
+                border_left = "3px solid transparent"
+                text_color = tokens.fg_muted
+
+            padding = "22px" if not self._collapsed else "0px"
+            text_align = "left" if not self._collapsed else "center"
+
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg_color};
+                    border: none;
+                    border-left: {border_left};
+                    border-radius: 4px;
+                    color: {text_color};
+                    text-align: {text_align};
+                    padding-left: {padding};
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    font-size: 13px;
+                    font-weight: {'600' if self._selected else '400'};
+                }}
+            """)
+
+            # Обновляем иконку - объёмная с градиентом для выбранного, светло-серая для остальных
+            self._set_icon_with_brightness()
+        finally:
+            self._applying_theme_styles = False
         
     def _set_icon_with_brightness(self):
         """Устанавливает иконку с учётом яркости (для эффекта свечения)"""
@@ -271,6 +281,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self.icon_name = icon_name
         self._text = text
         self._collapsed = False
+        self._applying_theme_styles = False
         self._tokens = get_theme_tokens()
         
         # Инициализация анимаций
@@ -288,6 +299,8 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
                 self._tokens = get_theme_tokens()
                 self._update_style()
         except Exception:
@@ -304,40 +317,47 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._update_style()
         
     def _update_style(self):
-        tokens = self._tokens or get_theme_tokens("Темная синяя")
-        if self._selected:
-            bg_color = tokens.accent_soft_bg
-            border_left = f"2px solid {tokens.accent_hex}"
-            text_color = tokens.accent_hex
-        elif self._hovered:
-            bg_color = tokens.surface_bg_hover
-            border_left = "2px solid transparent"
-            text_color = tokens.fg
-        else:
-            bg_color = "transparent"
-            border_left = "2px solid transparent"
-            text_color = tokens.fg_faint
-        
-        padding = "28px" if not self._collapsed else "0px"
-        text_align = "left" if not self._collapsed else "center"
-            
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg_color};
-                border: none;
-                border-left: {border_left};
-                border-radius: 3px;
-                color: {text_color};
-                text-align: {text_align};
-                padding-left: {padding};
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                font-size: 11px;
-                font-weight: {'500' if self._selected else '400'};
-            }}
-        """)
-        
-        # Иконка меньшего размера
-        self._set_icon_with_brightness()
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+            if self._selected:
+                bg_color = tokens.accent_soft_bg
+                border_left = f"2px solid {tokens.accent_hex}"
+                text_color = tokens.accent_hex
+            elif self._hovered:
+                bg_color = tokens.surface_bg_hover
+                border_left = "2px solid transparent"
+                text_color = tokens.fg
+            else:
+                bg_color = "transparent"
+                border_left = "2px solid transparent"
+                text_color = tokens.fg_faint
+
+            padding = "28px" if not self._collapsed else "0px"
+            text_align = "left" if not self._collapsed else "center"
+
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg_color};
+                    border: none;
+                    border-left: {border_left};
+                    border-radius: 3px;
+                    color: {text_color};
+                    text-align: {text_align};
+                    padding-left: {padding};
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    font-size: 11px;
+                    font-weight: {'500' if self._selected else '400'};
+                }}
+            """)
+
+            # Иконка меньшего размера
+            self._set_icon_with_brightness()
+        finally:
+            self._applying_theme_styles = False
         
     def _set_icon_with_brightness(self):
         """Устанавливает иконку с учётом яркости (для эффекта свечения)"""
@@ -416,6 +436,7 @@ class CollapsibleHeader(QPushButton):
         self._collapsed_sidebar = False
         self._base_text = text
         self._tokens = get_theme_tokens()
+        self._applying_theme_styles = False
         self.setText(f"  {text}")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(26)
@@ -425,6 +446,8 @@ class CollapsibleHeader(QPushButton):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
                 self._tokens = get_theme_tokens()
                 self._update_style()
         except Exception:
@@ -432,21 +455,28 @@ class CollapsibleHeader(QPushButton):
         return super().changeEvent(event)
 
     def _update_style(self):
-        tokens = self._tokens or get_theme_tokens("Темная синяя")
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                color: {tokens.fg_muted};
-                font-size: 10px;
-                font-weight: 600;
-                padding: 6px 12px 4px 24px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-        """)
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    color: {tokens.fg_muted};
+                    font-size: 10px;
+                    font-weight: 600;
+                    padding: 6px 12px 4px 24px;
+                    text-align: left;
+                }}
+                QPushButton:hover {{
+                    background: {tokens.surface_bg_hover};
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
 
     @property
     def is_expanded(self):
@@ -652,6 +682,7 @@ class SideNavBar(QWidget):
         self._width_value = self.EXPANDED_WIDTH
         self._parent_widget = parent
         self._loading_state = False  # Флаг, чтобы не сохранять при загрузке
+        self._applying_theme_styles = False
         # Ключи реестра для запоминания сворачивания групп
         # Используем SectionName для читаемости
         self._collapsible_registry_keys = {
@@ -928,7 +959,13 @@ class SideNavBar(QWidget):
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
                 # Update theme-colored pixmap icons (pin icon uses accent).
-                self._update_pin_button()
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._applying_theme_styles = True
+                try:
+                    self._update_pin_button()
+                finally:
+                    self._applying_theme_styles = False
         except Exception:
             pass
         return super().changeEvent(event)
@@ -1643,6 +1680,7 @@ class ActionButton(QPushButton):
         self.accent = accent
         self._hovered = False
         self._icon_name = icon_name
+        self._applying_theme_styles = False
         # Cache tokens to avoid registry reads on hover.
         self._tokens = get_theme_tokens()
 
@@ -1673,6 +1711,8 @@ class ActionButton(QPushButton):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
                 self._tokens = get_theme_tokens()
                 self._update_style()
         except Exception:
@@ -1680,42 +1720,49 @@ class ActionButton(QPushButton):
         return super().changeEvent(event)
 
     def _update_style(self):
-        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        if self._applying_theme_styles:
+            return
 
-        if self.accent:
-            bg = tokens.accent_hex if not self._hovered else tokens.accent_hover_hex
-            pressed_bg = tokens.accent_pressed_hex
-            border = "rgba(255, 255, 255, 0.18)" if not tokens.is_light else tokens.divider_strong
-            text_color = "#ffffff"
-        else:
-            if tokens.is_light:
-                bg = "rgba(0, 0, 0, 0.06)" if not self._hovered else "rgba(0, 0, 0, 0.10)"
-                pressed_bg = "rgba(0, 0, 0, 0.14)"
-                border = "rgba(0, 0, 0, 0.12)"
-                text_color = "#111111"
-            else:
-                bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
-                pressed_bg = "rgba(255, 255, 255, 0.22)"
-                border = "rgba(255, 255, 255, 0.12)"
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+
+            if self.accent:
+                bg = tokens.accent_hex if not self._hovered else tokens.accent_hover_hex
+                pressed_bg = tokens.accent_pressed_hex
+                border = "rgba(255, 255, 255, 0.18)" if not tokens.is_light else tokens.divider_strong
                 text_color = "#ffffff"
+            else:
+                if tokens.is_light:
+                    bg = "rgba(0, 0, 0, 0.06)" if not self._hovered else "rgba(0, 0, 0, 0.10)"
+                    pressed_bg = "rgba(0, 0, 0, 0.14)"
+                    border = "rgba(0, 0, 0, 0.12)"
+                    text_color = "#111111"
+                else:
+                    bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
+                    pressed_bg = "rgba(255, 255, 255, 0.22)"
+                    border = "rgba(255, 255, 255, 0.12)"
+                    text_color = "#ffffff"
 
-        self._refresh_icon()
+            self._refresh_icon()
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 8px;
-                color: {text_color};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-            QPushButton:pressed {{
-                background-color: {pressed_bg};
-            }}
-        """)
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: 1px solid {border};
+                    border-radius: 8px;
+                    color: {text_color};
+                    padding: 0 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QPushButton:pressed {{
+                    background-color: {pressed_bg};
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
 
     def enterEvent(self, event):
         self._hovered = True

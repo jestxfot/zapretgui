@@ -85,41 +85,94 @@ def setup_direct_autostart_task(
         # Строим командную строку
         cmd_line = _build_command_line(winws_exe, strategy_args, work_dir)
         
-        # Проверяем длину командной строки
-        if len(cmd_line) > 260:
-            log(f"Внимание: длина команды {len(cmd_line)} символов", "⚠ WARNING")
-            # Создаем .bat файл как fallback
-            return _create_task_with_bat_fallback(winws_exe, strategy_args, work_dir, DIRECT_TASK_NAME, "ONLOGON", ui_error_cb)
-        
         # Сохраняем конфигурацию
         _save_direct_strategy_config(strategy_args, strategy_name, cmd_line)
         
         # Удаляем старую задачу
         _delete_task(DIRECT_TASK_NAME)
         
-        # Создаем задачу с прямым запуском winws.exe
+        # Для Direct режима критично задать WorkingDirectory.
+        # schtasks /Create /TR не умеет задавать "Start in", поэтому создаём задачу через XML.
+        from launcher_common import apply_all_filters
+        from xml.sax.saxutils import escape as _xml_escape
+
+        resolved_args = _resolve_file_paths(strategy_args, work_dir)
+        lists_dir = os.path.join(work_dir, "lists")
+        resolved_args = apply_all_filters(resolved_args, lists_dir)
+        args_string = subprocess.list2cmdline(resolved_args)
+
+        xml_content = f"""<?xml version=\"1.0\" encoding=\"UTF-16\"?>
+<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">
+  <RegistrationInfo>
+    <Description>Zapret Direct Mode - User Logon</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT10S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id=\"Author\">
+      <UserId>S-1-5-18</UserId>
+      <LogonType>ServiceAccount</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context=\"Author\">
+    <Exec>
+      <Command>{_xml_escape(winws_exe)}</Command>
+      <Arguments>{_xml_escape(args_string)}</Arguments>
+      <WorkingDirectory>{_xml_escape(work_dir)}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"""
+
+        xml_path = os.path.join(work_dir, "zapret_logon_task.xml")
+        with open(xml_path, 'w', encoding='utf-16') as f:
+            f.write(xml_content)
+
         create_cmd = [
             get_system_exe("schtasks.exe"),
             "/Create",
             "/TN", DIRECT_TASK_NAME,
-            "/TR", cmd_line,
-            "/SC", "ONLOGON",
-            "/RU", "SYSTEM",
-            "/RL", "HIGHEST",
-            "/F"
+            "/XML", xml_path,
+            "/F",
         ]
-        
-        log(f"Создание задачи: {DIRECT_TASK_NAME}", "INFO")
-        log(f"Длина команды: {len(cmd_line)} символов", "DEBUG")
+
+        log(f"Создание задачи (XML): {DIRECT_TASK_NAME}", "INFO")
+        log(f"Длина args_string: {len(args_string)} символов", "DEBUG")
         log(f"Команда schtasks: {' '.join(create_cmd)}", "DEBUG")
-        
+
         result = run_hidden(
             create_cmd,
             capture_output=True,
             text=True,
             encoding="cp866",
-            errors="ignore"
+            errors="ignore",
         )
+
+        try:
+            os.remove(xml_path)
+        except Exception:
+            pass
         
         log(f"schtasks returncode: {result.returncode}", "DEBUG")
         log(f"schtasks stdout: {result.stdout}", "DEBUG")
@@ -127,15 +180,15 @@ def setup_direct_autostart_task(
         
         if result.returncode == 0:
             log(f"Задача {DIRECT_TASK_NAME} создана", "✅ SUCCESS")
-            # Обновляем статус в реестре
             set_autostart_enabled(True, "direct_task")
             return True
-        else:
-            error_msg = f"Ошибка создания задачи (код {result.returncode}):\n{result.stderr or result.stdout}"
-            log(error_msg, "❌ ERROR")
-            if ui_error_cb:
-                ui_error_cb(error_msg)
-            return False
+
+        # Fallback: используем .bat (на случай блокировок XML/политик)
+        log(
+            f"XML-задача не создалась (код {result.returncode}), пробуем fallback .bat...",
+            "WARNING",
+        )
+        return _create_task_with_bat_fallback(winws_exe, strategy_args, work_dir, DIRECT_TASK_NAME, "ONLOGON", ui_error_cb)
             
     except Exception as e:
         log(f"Ошибка: {e}", "❌ ERROR")
@@ -170,11 +223,6 @@ def setup_direct_autostart_service(
         # Строим командную строку
         cmd_line = _build_command_line(winws_exe, strategy_args, work_dir)
         
-        # Проверяем длину
-        if len(cmd_line) > 260:
-            log(f"Команда слишком длинная ({len(cmd_line)} символов), используем .bat файл", "⚠ WARNING")
-            return _create_task_with_bat_fallback(winws_exe, strategy_args, work_dir, DIRECT_BOOT_TASK_NAME, "ONSTART", ui_error_cb)
-        
         # Удаляем старую задачу
         _delete_task(DIRECT_BOOT_TASK_NAME)
         
@@ -184,9 +232,13 @@ def setup_direct_autostart_service(
         lists_dir = os.path.join(work_dir, "lists")
         resolved_args = apply_all_filters(resolved_args, lists_dir)
         
+        from xml.sax.saxutils import escape as _xml_escape
+
+        args_string = subprocess.list2cmdline(resolved_args)
+
         # Создаем XML для задачи с триггером при запуске системы
-        xml_content = f"""<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+        xml_content = f"""<?xml version=\"1.0\" encoding=\"UTF-16\"?>
+<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">
   <RegistrationInfo>
     <Description>Zapret Direct Mode - System Startup</Description>
   </RegistrationInfo>
@@ -197,8 +249,9 @@ def setup_direct_autostart_service(
     </BootTrigger>
   </Triggers>
   <Principals>
-    <Principal id="Author">
+    <Principal id=\"Author\">
       <UserId>S-1-5-18</UserId>
+      <LogonType>ServiceAccount</LogonType>
       <RunLevel>HighestAvailable</RunLevel>
     </Principal>
   </Principals>
@@ -219,11 +272,11 @@ def setup_direct_autostart_service(
       <Count>3</Count>
     </RestartOnFailure>
   </Settings>
-  <Actions Context="Author">
+  <Actions Context=\"Author\">
     <Exec>
-      <Command>{winws_exe}</Command>
-      <Arguments>{' '.join(resolved_args)}</Arguments>
-      <WorkingDirectory>{work_dir}</WorkingDirectory>
+      <Command>{_xml_escape(winws_exe)}</Command>
+      <Arguments>{_xml_escape(args_string)}</Arguments>
+      <WorkingDirectory>{_xml_escape(work_dir)}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>"""
@@ -310,13 +363,30 @@ def _create_task_with_bat_fallback(
         lists_dir = os.path.join(work_dir, "lists")
         resolved_args = apply_all_filters(resolved_args, lists_dir)
         
+        def _quote_cmd_arg(arg: str) -> str:
+            if arg is None:
+                return ""
+            arg = str(arg)
+            if arg == "":
+                return '""'
+            if any(c in arg for c in [' ', '\t', '&', '|', '>', '<', '^']):
+                # В cmd.exe для литеральной кавычки внутри аргумента используют "".
+                # Обычно аргументы winws не содержат кавычек, но подстрахуемся.
+                arg = arg.replace('"', '""')
+                return f'"{arg}"'
+            return arg
+
+        args_string = " ".join(_quote_cmd_arg(a) for a in resolved_args)
+
         # Создаем .bat содержимое
         bat_content = f"""@echo off
+chcp 65001 > nul
 cd /d "{work_dir}"
-"{winws_exe}" {' '.join(resolved_args)}
+"{winws_exe}" {args_string}
 """
-        
-        with open(bat_path, 'w', encoding='utf-8') as f:
+
+        # Пишем с BOM, чтобы cmd корректно читал UTF-8 пути
+        with open(bat_path, 'w', encoding='utf-8-sig') as f:
             f.write(bat_content)
         
         log(f"Создан fallback .bat файл: {bat_path}", "INFO")
@@ -387,7 +457,12 @@ def remove_direct_autostart() -> bool:
     
     # Удаляем .bat файлы
     from config import APP_CORE_PATH
-    for filename in ["zapret_autostart.bat", "zapret_direct.bat", "zapret_boot_task.xml"]:
+    for filename in [
+        "zapret_autostart.bat",
+        "zapret_direct.bat",
+        "zapret_boot_task.xml",
+        "zapret_logon_task.xml",
+    ]:
         try:
             for base_path in [Path.cwd(), Path(APP_CORE_PATH)]:
                 file_path = base_path / filename

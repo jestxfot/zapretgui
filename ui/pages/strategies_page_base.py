@@ -21,6 +21,8 @@ from strategy_menu.strategy_info import StrategyInfo
 from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
 
+from ui.theme import get_theme_tokens
+
 
 class ScrollBlockingScrollArea(QScrollArea):
     """QScrollArea который не пропускает прокрутку к родителю"""
@@ -82,7 +84,12 @@ class Win11Spinner(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Рисуем фоновое кольцо (серое)
-        pen = QPen(QColor(255, 255, 255, 30))
+        try:
+            tokens = get_theme_tokens()
+            ring = QColor(0, 0, 0, 30) if tokens.is_light else QColor(255, 255, 255, 30)
+        except Exception:
+            ring = QColor(255, 255, 255, 30)
+        pen = QPen(ring)
         pen.setWidth(2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
@@ -156,6 +163,7 @@ class ResetActionButton(QPushButton):
         self._pending = False
         self._hovered = False
         self._icon_offset = 0.0
+        self._applying_theme_styles = False
 
         # Иконка
         self._update_icon()
@@ -177,7 +185,14 @@ class ResetActionButton(QPushButton):
 
     def _update_icon(self, rotation: int = 0):
         """Обновляет иконку с опциональным углом поворота"""
-        color = '#4ade80' if self._pending else 'white'
+        if self._pending:
+            color = '#4ade80'
+        else:
+            try:
+                tokens = get_theme_tokens()
+                color = '#111111' if tokens.is_light else '#ffffff'
+            except Exception:
+                color = '#ffffff'
         icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.broom'
         if rotation != 0:
             self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
@@ -186,35 +201,58 @@ class ResetActionButton(QPushButton):
 
     def _update_style(self):
         """Обновляет стили кнопки"""
-        if self._pending:
-            # Состояние подтверждения - зеленоватый цвет
-            if self._hovered:
-                bg = "rgba(74, 222, 128, 0.35)"
-            else:
-                bg = "rgba(74, 222, 128, 0.25)"
-            text_color = "#4ade80"
-            border = "1px solid rgba(74, 222, 128, 0.5)"
-        else:
-            # Обычное состояние
-            if self._hovered:
-                bg = "rgba(255, 255, 255, 0.15)"
-            else:
-                bg = "rgba(255, 255, 255, 0.08)"
-            text_color = "#ffffff"
-            border = "none"
+        if self._applying_theme_styles:
+            return
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: {border};
-                border-radius: 4px;
-                color: {text_color};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-        """)
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self._pending:
+                # Состояние подтверждения - зеленоватый цвет
+                if self._hovered:
+                    bg = "rgba(74, 222, 128, 0.35)"
+                else:
+                    bg = "rgba(74, 222, 128, 0.25)"
+                text_color = "#4ade80"
+                border = "1px solid rgba(74, 222, 128, 0.5)"
+            else:
+                # Обычное состояние
+                if tokens.is_light:
+                    bg = "rgba(0, 0, 0, 0.06)" if not self._hovered else "rgba(0, 0, 0, 0.10)"
+                    text_color = "#111111"
+                    border = "1px solid rgba(0, 0, 0, 0.12)"
+                else:
+                    bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
+                    text_color = "#ffffff"
+                    border = "1px solid rgba(255, 255, 255, 0.12)"
+
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 4px;
+                    color: {text_color};
+                    padding: 0 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._update_icon()
+                self._update_style()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def _animate_shake(self):
         """Анимация качания иконки"""

@@ -8,16 +8,84 @@ even on a dark theme. We replace it with an explicit qtawesome icon.
 from __future__ import annotations
 
 import qtawesome as qta
-from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtCore import QObject, QSize, Qt, QTimer, QEvent
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QLineEdit, QToolButton
+
+from ui.theme import get_theme_tokens
+
+
+class _ClearButtonUpdater(QObject):
+    def __init__(
+        self,
+        line_edit: QLineEdit,
+        *,
+        icon_name: str,
+        color: str | None,
+        size: int,
+    ) -> None:
+        super().__init__(line_edit)
+        self._line_edit = line_edit
+        self._icon_name = icon_name
+        self._explicit_color = color
+        self._size = size
+
+    def update_params(self, *, icon_name: str, color: str | None, size: int) -> None:
+        self._icon_name = icon_name
+        self._explicit_color = color
+        self._size = size
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                QTimer.singleShot(0, self.apply)
+        except Exception:
+            pass
+        return False
+
+    def apply(self) -> None:
+        try:
+            btn = self._line_edit.findChild(QToolButton, "qt_clear_button")
+            if not btn:
+                return
+
+            tokens = get_theme_tokens()
+            if self._explicit_color is not None:
+                color = self._explicit_color
+            else:
+                color = "rgba(0,0,0,0.55)" if tokens.is_light else "rgba(255,255,255,0.75)"
+
+            hover_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.10)"
+            pressed_bg = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.16)"
+
+            pixmap = qta.icon(self._icon_name, color=color).pixmap(self._size, self._size)
+            btn.setIcon(QIcon(pixmap))
+            btn.setIconSize(QSize(self._size, self._size))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(f"""
+                QToolButton#qt_clear_button {{
+                    background: transparent;
+                    border: none;
+                    padding: 0px;
+                }}
+                QToolButton#qt_clear_button:hover {{
+                    background: {hover_bg};
+                    border-radius: 6px;
+                }}
+                QToolButton#qt_clear_button:pressed {{
+                    background: {pressed_bg};
+                    border-radius: 6px;
+                }}
+            """)
+        except Exception:
+            return
 
 
 def set_line_edit_clear_button_icon(
     line_edit: QLineEdit,
     *,
     icon_name: str = "mdi.close",
-    color: str = "rgba(255,255,255,0.75)",
+    color: str | None = None,
     size: int = 14,
 ) -> None:
     """
@@ -26,31 +94,21 @@ def set_line_edit_clear_button_icon(
     Must be called after `line_edit.setClearButtonEnabled(True)`.
     """
 
-    def _apply() -> None:
-        btn = line_edit.findChild(QToolButton, "qt_clear_button")
-        if not btn:
-            return
-
-        pixmap = qta.icon(icon_name, color=color).pixmap(size, size)
-        btn.setIcon(QIcon(pixmap))
-        btn.setIconSize(QSize(size, size))
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("""
-            QToolButton#qt_clear_button {
-                background: transparent;
-                border: none;
-                padding: 0px;
-            }
-            QToolButton#qt_clear_button:hover {
-                background: rgba(255, 255, 255, 0.10);
-                border-radius: 6px;
-            }
-            QToolButton#qt_clear_button:pressed {
-                background: rgba(255, 255, 255, 0.16);
-                border-radius: 6px;
-            }
-        """)
+    updater = getattr(line_edit, "_clear_button_updater", None)
+    if updater is None or not isinstance(updater, _ClearButtonUpdater):
+        updater = _ClearButtonUpdater(
+            line_edit,
+            icon_name=icon_name,
+            color=color,
+            size=size,
+        )
+        line_edit._clear_button_updater = updater  # type: ignore[attr-defined]
+        try:
+            line_edit.installEventFilter(updater)
+        except Exception:
+            pass
+    else:
+        updater.update_params(icon_name=icon_name, color=color, size=size)
 
     # The clear button can be created lazily by Qt; apply on next event loop tick.
-    QTimer.singleShot(0, _apply)
-
+    QTimer.singleShot(0, updater.apply)

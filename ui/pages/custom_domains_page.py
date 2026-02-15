@@ -15,6 +15,7 @@ import os
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from .strategies_page_base import ResetActionButton
+from ui.theme import get_theme_tokens
 from log import log
 
 def split_domains(text: str) -> list[str]:
@@ -116,27 +117,35 @@ class DangerConfirmActionButton(ResetActionButton):
 
     def _update_icon(self, rotation: int = 0):
         icon_name = "fa5s.trash-alt" if self._pending else self._default_icon_name
+        try:
+            tokens = get_theme_tokens()
+            color = "#ffffff" if self._pending else tokens.fg
+        except Exception:
+            color = "#ffffff"
         if rotation != 0:
-            self.setIcon(qta.icon(icon_name, color="#ffffff", rotated=rotation))
+            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
         else:
-            self.setIcon(qta.icon(icon_name, color="#ffffff"))
+            self.setIcon(qta.icon(icon_name, color=color))
 
     def _update_style(self):
+        tokens = get_theme_tokens()
         if self._pending:
             bg = "rgba(220, 53, 69, 1.0)" if self._hovered else "rgba(220, 53, 69, 0.92)"
             pressed_bg = "rgba(190, 39, 54, 1.0)"
             border = "1px solid rgba(255, 255, 255, 0.24)"
+            text_color = "#ffffff"
         else:
-            bg = "rgba(255, 255, 255, 0.15)" if self._hovered else "rgba(255, 255, 255, 0.08)"
-            pressed_bg = "rgba(255, 255, 255, 0.22)"
-            border = "1px solid rgba(255, 255, 255, 0.12)"
+            bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+            pressed_bg = tokens.surface_bg_pressed
+            border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
+            text_color = tokens.fg
 
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
                 border: {border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {text_color};
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
@@ -165,6 +174,7 @@ class CustomDomainsPage(BasePage):
         
     def _build_ui(self):
         """Строит UI страницы"""
+        tokens = get_theme_tokens()
         
         # Описание
         desc_card = SettingsCard()
@@ -174,7 +184,11 @@ class CustomDomainsPage(BasePage):
             "а общий other.txt собирается автоматически. URL автоматически преобразуются в домены. "
             "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
         )
-        desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
+        try:
+            desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        desc.setStyleSheet("font-size: 13px;")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -186,19 +200,28 @@ class CustomDomainsPage(BasePage):
         
         self.domain_input = QLineEdit()
         self.domain_input.setPlaceholderText("Введите домен или URL (например: example.com или https://site.com/page)")
-        self.domain_input.setStyleSheet("""
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.domain_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 10px 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+            }}
+            QLineEdit:hover {{
+                background: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
+            QLineEdit::placeholder {{
+                color: {tokens.fg_faint};
+            }}
+            """
+        )
         self.domain_input.returnPressed.connect(self._add_domain)
         add_layout.addWidget(self.domain_input, 1)
         
@@ -264,20 +287,26 @@ class CustomDomainsPage(BasePage):
             "subdomain.site.org\n\n"
             "Комментарии начинаются с #"
         )
-        self.text_edit.setStyleSheet("""
-            QPlainTextEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.text_edit.setStyleSheet(
+            f"""
+            QPlainTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
                 padding: 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 13px;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+            }}
+            QPlainTextEdit:hover {{
+                background: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPlainTextEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
+            """
+        )
         self.text_edit.setMinimumHeight(350)
         
         # Автосохранение
@@ -290,7 +319,11 @@ class CustomDomainsPage(BasePage):
         
         # Подсказка
         hint = QLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 11px;")
+        try:
+            hint.setProperty("tone", "faint")
+        except Exception:
+            pass
+        hint.setStyleSheet("font-size: 11px;")
         editor_layout.addWidget(hint)
         
         editor_card.add_layout(editor_layout)
@@ -298,8 +331,80 @@ class CustomDomainsPage(BasePage):
         
         # Статистика
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px;")
+        try:
+            self.status_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self.status_label.setStyleSheet("font-size: 11px;")
         self.layout.addWidget(self.status_label)
+
+        # Apply token-based styles (also used on theme change).
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+
+        try:
+            if hasattr(self, "domain_input") and self.domain_input is not None:
+                self.domain_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        padding: 10px 12px;
+                        color: {tokens.fg};
+                        font-size: 13px;
+                    }}
+                    QLineEdit:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border: 1px solid {tokens.surface_border_hover};
+                    }}
+                    QLineEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "text_edit") and self.text_edit is not None:
+                self.text_edit.setStyleSheet(
+                    f"""
+                    QPlainTextEdit {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        padding: 12px;
+                        color: {tokens.fg};
+                        font-family: Consolas, 'Courier New', monospace;
+                        font-size: 13px;
+                    }}
+                    QPlainTextEdit:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border: 1px solid {tokens.surface_border_hover};
+                    }}
+                    QPlainTextEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    """
+                )
+        except Exception:
+            pass
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
         
     def _load_domains(self):
         """Загружает домены из файла"""

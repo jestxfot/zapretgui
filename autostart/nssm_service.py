@@ -86,6 +86,7 @@ def create_service_with_nssm(
     display_name: str,
     exe_path: str,
     args: List[str],
+    work_dir: Optional[str] = None,
     description: Optional[str] = None,
     auto_start: bool = True
 ) -> bool:
@@ -115,11 +116,23 @@ def create_service_with_nssm(
             log(f"❌ Исполняемый файл не найден: {exe_path}", "ERROR")
             return False
         
+        exe_path = str(exe_path)
+        args = [str(a) for a in (args or [])]
+
         log(f"✅ Исполняемый файл: {exe_path}", "DEBUG")
         log(f"📊 Количество аргументов: {len(args)}", "DEBUG")
+
+        # Рабочая директория приложения (важно для winws2 @preset и относительных путей)
+        app_directory = work_dir or os.path.dirname(exe_path)
+        try:
+            if app_directory and not os.path.isdir(app_directory):
+                log(f"⚠️ AppDirectory не существует: {app_directory}", "WARNING")
+        except Exception:
+            pass
         
         # Проверяем длину командной строки
-        full_command = f"{exe_path} " + " ".join(args)
+        # Используем windows-совместимое экранирование (важно для пробелов в путях)
+        full_command = subprocess.list2cmdline([exe_path] + args)
         cmd_length = len(full_command)
         log(f"📏 Длина командной строки: {cmd_length} символов", "DEBUG")
         
@@ -218,10 +231,10 @@ def create_service_with_nssm(
                 
                 # Проверяем существующую службу
                 try:
-                    from autostart.service_api import get_service_status
-                    status = get_service_status(service_name)
-                    if status is not None:
-                        log(f"  ⚠️ Служба '{service_name}' еще существует (статус: {status})", "ERROR")
+                    from autostart.service_api import get_service_state
+                    state = get_service_state(service_name)
+                    if state is not None:
+                        log(f"  ⚠️ Служба '{service_name}' еще существует (state: {state})", "ERROR")
                         log("  💡 Служба не была полностью удалена перед созданием", "ERROR")
                 except Exception:
                     pass
@@ -247,8 +260,8 @@ def create_service_with_nssm(
         
         # 3. Устанавливаем параметры приложения (аргументы)
         if args:
-            # Объединяем аргументы в одну строку
-            args_string = " ".join(args)
+            # Объединяем аргументы в одну строку (с правильным quoting для Windows)
+            args_string = subprocess.list2cmdline(args)
             log(f"📝 Устанавливаем параметры приложения ({len(args)} аргументов, {len(args_string)} символов)", "DEBUG")
             
             set_params_cmd = [nssm_path, "set", service_name, "AppParameters", args_string]
@@ -281,7 +294,7 @@ def create_service_with_nssm(
         configs = [
             ("DisplayName", display_name),
             ("Start", "SERVICE_AUTO_START" if auto_start else "SERVICE_DEMAND_START"),
-            ("AppDirectory", os.path.dirname(exe_path)),
+            ("AppDirectory", app_directory),
         ]
         
         if description:
@@ -526,4 +539,3 @@ def service_exists_nssm(service_name: str) -> bool:
     except Exception as e:
         log(f"Ошибка проверки службы через NSSM: {e}", "ERROR")
         return False
-

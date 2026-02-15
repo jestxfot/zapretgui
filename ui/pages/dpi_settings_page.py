@@ -1,7 +1,7 @@
 # ui/pages/dpi_settings_page.py
 """Страница настроек DPI"""
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF, pyqtSignal, QTimer, QEvent
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QCheckBox, QSpinBox, QComboBox)
 from PyQt6.QtGui import QPainter, QColor, QPainterPath, QFont
@@ -9,7 +9,18 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
+
+
+def _accent_fg_for_tokens(tokens) -> str:
+    """Chooses readable foreground color for accent-filled badges."""
+    try:
+        r, g, b = tokens.accent_rgb
+        yiq = (r * 299 + g * 587 + b * 114) / 1000
+        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+    except Exception:
+        return "rgba(0, 0, 0, 0.90)"
 
 
 class Win11ToggleSwitch(QCheckBox):
@@ -62,19 +73,30 @@ class Win11ToggleSwitch(QCheckBox):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        tokens = get_theme_tokens()
         
         # Фон
         if self.isChecked():
-            bg_color = QColor("#60cdff")
+            bg_color = QColor(tokens.accent_hex)
         else:
-            bg_color = QColor(80, 80, 80)
+            if tokens.is_light:
+                bg_color = QColor(0, 0, 0, 26)  # ~0.10
+            else:
+                bg_color = QColor(255, 255, 255, 26)  # ~0.10
             
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 11, 11)
         painter.fillPath(path, bg_color)
         
         # Рамка
-        painter.setPen(QColor(100, 100, 100) if not self.isChecked() else Qt.GlobalColor.transparent)
+        if self.isChecked():
+            painter.setPen(Qt.GlobalColor.transparent)
+        else:
+            if tokens.is_light:
+                painter.setPen(QColor(0, 0, 0, 40))  # ~0.16
+            else:
+                painter.setPen(QColor(255, 255, 255, 51))  # ~0.20
         painter.drawPath(path)
         
         # Круг
@@ -97,16 +119,19 @@ class Win11ToggleRow(QWidget):
     def __init__(self, icon_name: str, title: str, description: str = "", 
                  icon_color: str = "#60cdff", parent=None):
         super().__init__(parent)
-        
+
+        self._icon_name = icon_name
+        self._icon_color = icon_color
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(12)
         
         # Иконка
-        icon_label = QLabel()
-        icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(18, 18))
-        icon_label.setFixedSize(22, 22)
-        layout.addWidget(icon_label)
+        self._icon_label = QLabel()
+        self._icon_label.setFixedSize(22, 22)
+        layout.addWidget(self._icon_label)
+        self._refresh_icon()
         
         # Текст
         text_layout = QVBoxLayout()
@@ -114,24 +139,21 @@ class Win11ToggleRow(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: 500;
-            }
-        """)
+        try:
+            title_label.setProperty("tone", "primary")
+        except Exception:
+            pass
+        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
         text_layout.addWidget(title_label)
         
         if description:
             desc_label = QLabel(description)
             desc_label.setWordWrap(True)
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.5);
-                    font-size: 11px;
-                }
-            """)
+            try:
+                desc_label.setProperty("tone", "muted")
+            except Exception:
+                pass
+            desc_label.setStyleSheet("font-size: 11px;")
             text_layout.addWidget(desc_label)
             
         layout.addLayout(text_layout, 1)
@@ -140,6 +162,30 @@ class Win11ToggleRow(QWidget):
         self.toggle = Win11ToggleSwitch()
         self.toggle.toggled.connect(self.toggled.emit)
         layout.addWidget(self.toggle)
+
+    def _resolved_icon_color(self) -> str:
+        tokens = get_theme_tokens()
+        c = str(self._icon_color or "").strip()
+        if not c:
+            return tokens.accent_hex
+        if c.lower() == "#60cdff":
+            return tokens.accent_hex
+        return c
+
+    def _refresh_icon(self) -> None:
+        try:
+            color = self._resolved_icon_color()
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=color).pixmap(18, 18))
+        except Exception:
+            return
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._refresh_icon()
+        except Exception:
+            pass
+        super().changeEvent(event)
         
     def setChecked(self, checked: bool, block_signals: bool = False):
         if block_signals:
@@ -168,6 +214,12 @@ class Win11RadioOption(QWidget):
         self._selected = False
         self._hover = False
         self._recommended = recommended
+
+        self._icon_name = icon_name
+        self._icon_color = icon_color
+        self._icon_label: QLabel | None = None
+        self._badge_label: QLabel | None = None
+        self._applying_theme_styles = False
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -180,10 +232,10 @@ class Win11RadioOption(QWidget):
         
         # Иконка (опционально)
         if icon_name:
-            icon_label = QLabel()
-            icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(24, 24))
-            icon_label.setFixedSize(28, 28)
-            layout.addWidget(icon_label)
+            self._icon_label = QLabel()
+            self._icon_label.setFixedSize(28, 28)
+            layout.addWidget(self._icon_label)
+            self._refresh_icon()
         
         # Текстовый блок
         text_layout = QVBoxLayout()
@@ -196,28 +248,17 @@ class Win11RadioOption(QWidget):
         title_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-            }
-        """)
+        try:
+            title_label.setProperty("tone", "primary")
+        except Exception:
+            pass
+        title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
         title_layout.addWidget(title_label)
         
         if recommended:
-            badge = QLabel("рекомендуется")
-            badge.setStyleSheet("""
-                QLabel {
-                    color: #000000;
-                    background-color: #60cdff;
-                    font-size: 10px;
-                    font-weight: 600;
-                    padding: 2px 6px;
-                    border-radius: 3px;
-                }
-            """)
-            title_layout.addWidget(badge)
+            self._badge_label = QLabel("рекомендуется")
+            self._refresh_badge()
+            title_layout.addWidget(self._badge_label)
         
         title_layout.addStretch()
         text_layout.addLayout(title_layout)
@@ -225,18 +266,62 @@ class Win11RadioOption(QWidget):
         # Описание
         desc_label = QLabel(description)
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.55);
-                font-size: 12px;
-                line-height: 1.3;
-            }
-        """)
+        try:
+            desc_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        desc_label.setStyleSheet("font-size: 12px; line-height: 1.3;")
         text_layout.addWidget(desc_label)
         
         layout.addLayout(text_layout, 1)
         
         self._update_style()
+
+    def _resolved_icon_color(self) -> str:
+        tokens = get_theme_tokens()
+        c = str(self._icon_color or "").strip()
+        if not c:
+            return tokens.accent_hex
+        if c.lower() == "#60cdff":
+            return tokens.accent_hex
+        return c
+
+    def _refresh_icon(self) -> None:
+        if self._icon_label is None or not self._icon_name:
+            return
+        try:
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color()).pixmap(24, 24))
+        except Exception:
+            return
+
+    def _refresh_badge(self) -> None:
+        if self._badge_label is None:
+            return
+        tokens = get_theme_tokens()
+        self._badge_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {_accent_fg_for_tokens(tokens)};
+                background-color: {tokens.accent_hex};
+                font-size: 10px;
+                font-weight: 600;
+                padding: 2px 6px;
+                border-radius: 3px;
+            }}
+            """
+        )
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._refresh_icon()
+                self._refresh_badge()
+                self._update_style()
+        except Exception:
+            pass
+        super().changeEvent(event)
         
     def setSelected(self, selected: bool):
         self._selected = selected
@@ -246,23 +331,33 @@ class Win11RadioOption(QWidget):
         return self._selected
         
     def _update_style(self):
-        if self._selected:
-            bg = "rgba(96, 205, 255, 0.15)"
-            border = "rgba(96, 205, 255, 0.6)"
-        elif self._hover:
-            bg = "rgba(255, 255, 255, 0.06)"
-            border = "rgba(255, 255, 255, 0.15)"
-        else:
-            bg = "rgba(255, 255, 255, 0.03)"
-            border = "rgba(255, 255, 255, 0.08)"
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if self._selected:
+                bg = tokens.accent_soft_bg
+                border = f"rgba({tokens.accent_rgb_str}, 0.60)"
+            elif self._hover:
+                bg = tokens.surface_bg_hover
+                border = tokens.surface_border_hover
+            else:
+                bg = tokens.surface_bg
+                border = tokens.surface_border
             
-        self.setStyleSheet(f"""
-            Win11RadioOption {{
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 8px;
-            }}
-        """)
+            self.setStyleSheet(f"""
+                Win11RadioOption {{
+                    background-color: {bg};
+                    border: 1px solid {border};
+                    border-radius: 8px;
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
+
         self.update()
         
     def enterEvent(self, event):
@@ -292,19 +387,19 @@ class Win11RadioOption(QWidget):
         circle_y = self.height() // 2
         
         # Внешний круг
+        tokens = get_theme_tokens()
         if self._selected:
-            painter.setPen(QColor("#60cdff"))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QColor(tokens.accent_hex))
         else:
-            painter.setPen(QColor(100, 100, 100))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QColor(0, 0, 0, 40) if tokens.is_light else QColor(255, 255, 255, 51))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
             
         painter.drawEllipse(circle_x - 8, circle_y - 8, 16, 16)
         
         # Внутренний круг (если выбран)
         if self._selected:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#60cdff"))
+            painter.setBrush(QColor(tokens.accent_hex))
             painter.drawEllipse(circle_x - 4, circle_y - 4, 8, 8)
             
         painter.end()
@@ -319,16 +414,20 @@ class Win11NumberRow(QWidget):
                  icon_color: str = "#60cdff", min_val: int = 0, max_val: int = 999,
                  default_val: int = 10, suffix: str = "", parent=None):
         super().__init__(parent)
+
+        self._icon_name = icon_name
+        self._icon_color = icon_color
+        self._applying_theme_styles = False
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(12)
         
         # Иконка
-        icon_label = QLabel()
-        icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(18, 18))
-        icon_label.setFixedSize(22, 22)
-        layout.addWidget(icon_label)
+        self._icon_label = QLabel()
+        self._icon_label.setFixedSize(22, 22)
+        layout.addWidget(self._icon_label)
+        self._refresh_icon()
         
         # Текст
         text_layout = QVBoxLayout()
@@ -336,24 +435,21 @@ class Win11NumberRow(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: 500;
-            }
-        """)
+        try:
+            title_label.setProperty("tone", "primary")
+        except Exception:
+            pass
+        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
         text_layout.addWidget(title_label)
         
         if description:
             desc_label = QLabel(description)
             desc_label.setWordWrap(True)
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.5);
-                    font-size: 11px;
-                }
-            """)
+            try:
+                desc_label.setProperty("tone", "muted")
+            except Exception:
+                pass
+            desc_label.setStyleSheet("font-size: 11px;")
             text_layout.addWidget(desc_label)
             
         layout.addLayout(text_layout, 1)
@@ -366,35 +462,71 @@ class Win11NumberRow(QWidget):
         self.spinbox.setSuffix(suffix)
         self.spinbox.setFixedWidth(80)
         self.spinbox.setFixedHeight(28)
-        self.spinbox.setStyleSheet("""
-            QSpinBox {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+        self._apply_theme_styles()
+        self.spinbox.valueChanged.connect(self.valueChanged.emit)
+        layout.addWidget(self.spinbox)
+
+    def _resolved_icon_color(self) -> str:
+        tokens = get_theme_tokens()
+        c = str(self._icon_color or "").strip()
+        if not c:
+            return tokens.accent_hex
+        if c.lower() == "#60cdff":
+            return tokens.accent_hex
+        return c
+
+    def _refresh_icon(self) -> None:
+        try:
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color()).pixmap(18, 18))
+        except Exception:
+            return
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+        self.spinbox.setStyleSheet(
+            f"""
+            QSpinBox {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
                 padding: 2px 10px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 12px;
-            }
-            QSpinBox:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QSpinBox:focus {
-                border: 1px solid #60cdff;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
+            }}
+            QSpinBox:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QSpinBox:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
                 width: 0px;
                 height: 0px;
                 border: none;
                 background: none;
-            }
-            QSpinBox::up-arrow, QSpinBox::down-arrow {
+            }}
+            QSpinBox::up-arrow, QSpinBox::down-arrow {{
                 width: 0px;
                 height: 0px;
-            }
-        """)
-        self.spinbox.valueChanged.connect(self.valueChanged.emit)
-        layout.addWidget(self.spinbox)
+            }}
+            """
+        )
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._applying_theme_styles = True
+                try:
+                    self._refresh_icon()
+                    self._apply_theme_styles()
+                finally:
+                    self._applying_theme_styles = False
+        except Exception:
+            pass
+        super().changeEvent(event)
         
     def setValue(self, value: int, block_signals: bool = False):
         if block_signals:
@@ -417,15 +549,19 @@ class Win11ComboRow(QWidget):
                  icon_color: str = "#60cdff", items: list = None, parent=None):
         super().__init__(parent)
 
+        self._icon_name = icon_name
+        self._icon_color = icon_color
+        self._applying_theme_styles = False
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(12)
 
         # Иконка
-        icon_label = QLabel()
-        icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(18, 18))
-        icon_label.setFixedSize(22, 22)
-        layout.addWidget(icon_label)
+        self._icon_label = QLabel()
+        self._icon_label.setFixedSize(22, 22)
+        layout.addWidget(self._icon_label)
+        self._refresh_icon()
 
         # Текст
         text_layout = QVBoxLayout()
@@ -433,24 +569,21 @@ class Win11ComboRow(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: 500;
-            }
-        """)
+        try:
+            title_label.setProperty("tone", "primary")
+        except Exception:
+            pass
+        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
         text_layout.addWidget(title_label)
 
         if description:
             desc_label = QLabel(description)
             desc_label.setWordWrap(True)
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.5);
-                    font-size: 11px;
-                }
-            """)
+            try:
+                desc_label.setProperty("tone", "muted")
+            except Exception:
+                pass
+            desc_label.setStyleSheet("font-size: 11px;")
             text_layout.addWidget(desc_label)
 
         layout.addLayout(text_layout, 1)
@@ -459,21 +592,52 @@ class Win11ComboRow(QWidget):
         self.combo = QComboBox()
         self.combo.setFixedWidth(160)
         self.combo.setFixedHeight(28)
-        self.combo.setStyleSheet(f"""
+        self._apply_theme_styles()
+
+        if items:
+            for text, data in items:
+                self.combo.addItem(text, data)
+
+        self.combo.currentIndexChanged.connect(self.currentIndexChanged.emit)
+        self.combo.currentTextChanged.connect(self.currentTextChanged.emit)
+        layout.addWidget(self.combo)
+
+    def _resolved_icon_color(self) -> str:
+        tokens = get_theme_tokens()
+        c = str(self._icon_color or "").strip()
+        if not c:
+            return tokens.accent_hex
+        if c.lower() == "#60cdff":
+            return tokens.accent_hex
+        return c
+
+    def _refresh_icon(self) -> None:
+        try:
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color()).pixmap(18, 18))
+        except Exception:
+            return
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+        # Avoid fixed dark-only popup colors: use theme-aware neutral surfaces.
+        popup_bg = "rgba(255, 255, 255, 0.98)" if tokens.is_light else "rgba(24, 24, 24, 0.96)"
+        popup_fg = tokens.fg
+        self.combo.setStyleSheet(
+            f"""
             QComboBox {{
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
                 padding: 2px 10px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 12px;
             }}
             QComboBox:hover {{
-                background-color: #33444E;
-                border: 1px solid rgba(51, 68, 78, 0.8);
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
             }}
             QComboBox:focus {{
-                border: 1px solid {icon_color};
+                border: 1px solid {tokens.accent_hex};
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -483,14 +647,14 @@ class Win11ComboRow(QWidget):
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
-                border-top: 5px solid #ffffff;
+                border-top: 5px solid {tokens.fg};
                 margin-right: 5px;
             }}
             QComboBox QAbstractItemView {{
-                background-color: #2d2d2d;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                selection-background-color: #33444E;
-                color: #ffffff;
+                background-color: {popup_bg};
+                border: 1px solid {tokens.surface_border};
+                selection-background-color: {tokens.accent_soft_bg};
+                color: {popup_fg};
                 outline: none;
             }}
             QComboBox QAbstractItemView::item {{
@@ -498,10 +662,10 @@ class Win11ComboRow(QWidget):
                 padding: 4px 8px;
             }}
             QComboBox QAbstractItemView::item:hover {{
-                background-color: #3d5058;
+                background-color: {tokens.surface_bg_hover};
             }}
             QComboBox QAbstractItemView::item:selected {{
-                background-color: #33444E;
+                background-color: {tokens.accent_soft_bg_hover};
             }}
             QScrollBar:vertical {{
                 width: 0px;
@@ -513,15 +677,23 @@ class Win11ComboRow(QWidget):
                 width: 0px;
                 height: 0px;
             }}
-        """)
+            """
+        )
 
-        if items:
-            for text, data in items:
-                self.combo.addItem(text, data)
-
-        self.combo.currentIndexChanged.connect(self.currentIndexChanged.emit)
-        self.combo.currentTextChanged.connect(self.currentTextChanged.emit)
-        layout.addWidget(self.combo)
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._applying_theme_styles = True
+                try:
+                    self._refresh_icon()
+                    self._apply_theme_styles()
+                finally:
+                    self._applying_theme_styles = False
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def setCurrentData(self, data, block_signals: bool = False):
         """Устанавливает текущий элемент по данным"""
@@ -556,8 +728,39 @@ class DpiSettingsPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__("Настройки DPI", "Параметры обхода блокировок", parent)
+        self._applying_theme_styles = False
         self._build_ui()
         self._load_settings()
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+        try:
+            if hasattr(self, "zapret2_header") and self.zapret2_header is not None:
+                self.zapret2_header.setStyleSheet(
+                    f"color: {tokens.accent_hex}; font-size: 13px; font-weight: 600; padding: 8px 0 4px 0;"
+                )
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "separator2") and self.separator2 is not None:
+                self.separator2.setStyleSheet(f"background-color: {tokens.divider_strong}; margin: 8px 0;")
+        except Exception:
+            pass
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._applying_theme_styles = True
+                try:
+                    self._apply_theme_styles()
+                finally:
+                    self._applying_theme_styles = False
+        except Exception:
+            pass
+        super().changeEvent(event)
         
     def _build_ui(self):
         """Строит UI страницы"""
@@ -568,22 +771,18 @@ class DpiSettingsPage(BasePage):
         method_layout.setSpacing(10)
         
         method_desc = QLabel("Выберите способ запуска обхода блокировок")
-        method_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
+        try:
+            method_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        method_desc.setStyleSheet("font-size: 12px;")
         method_layout.addWidget(method_desc)
 
         # ═══════════════════════════════════════
         # ZAPRET 2 (winws2.exe)
         # ═══════════════════════════════════════
-        zapret2_header = QLabel("Zapret 2 (winws2.exe)")
-        zapret2_header.setStyleSheet("""
-            QLabel {
-                color: #60cdff;
-                font-size: 13px;
-                font-weight: 600;
-                padding: 8px 0 4px 0;
-            }
-        """)
-        method_layout.addWidget(zapret2_header)
+        self.zapret2_header = QLabel("Zapret 2 (winws2.exe)")
+        method_layout.addWidget(self.zapret2_header)
 
         # Zapret 2 (direct) - рекомендуется
         self.method_direct = Win11RadioOption(
@@ -651,11 +850,10 @@ class DpiSettingsPage(BasePage):
         method_layout.addWidget(self.method_bat)
 
         # Разделитель 2
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.Shape.HLine)
-        separator2.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); margin: 8px 0;")
-        separator2.setFixedHeight(1)
-        method_layout.addWidget(separator2)
+        self.separator2 = QFrame()
+        self.separator2.setFrameShape(QFrame.Shape.HLine)
+        self.separator2.setFixedHeight(1)
+        method_layout.addWidget(self.separator2)
 
         # Перезапуск Discord (только для Zapret 1/2)
         self.discord_restart_container = QWidget()
@@ -750,6 +948,9 @@ class DpiSettingsPage(BasePage):
         self.layout.addWidget(self.advanced_card)
         
         self.layout.addStretch()
+
+        # Apply token-driven accents/dividers.
+        self._apply_theme_styles()
         
     def _load_settings(self):
         """Загружает настройки"""

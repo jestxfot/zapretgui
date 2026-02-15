@@ -9,8 +9,21 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QFileSystemWatcher, QAbstractListModel, QModelIndex, QRect, QEvent
-from PyQt6.QtGui import QColor, QPainter, QFontMetrics, QMouseEvent, QHelpEvent, QTransform
+from PyQt6.QtCore import (
+    Qt,
+    pyqtSignal,
+    QSize,
+    QTimer,
+    QFileSystemWatcher,
+    QAbstractListModel,
+    QModelIndex,
+    QRect,
+    QEvent,
+    QPoint,
+    QPropertyAnimation,
+    QEasingCurve,
+)
+from PyQt6.QtGui import QColor, QPainter, QFontMetrics, QMouseEvent, QHelpEvent, QTransform, QCursor, QGuiApplication
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -26,6 +39,9 @@ from PyQt6.QtWidgets import (
     QStyle,
     QToolTip,
     QSizePolicy,
+    QDialog,
+    QGraphicsDropShadowEffect,
+    QApplication,
 )
 import qtawesome as qta
 
@@ -34,6 +50,7 @@ from ui.pages.strategies_page_base import ResetActionButton
 from ui.sidebar import ActionButton, SettingsCard
 from ui.pages.presets_page import _RevealFrame, _SegmentedChoice
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -43,6 +60,16 @@ _HEX_COLOR_RGB_RE = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
 _HEX_COLOR_RGBA_RE = re.compile(r"^#(?:[0-9a-fA-F]{8})$")
 
 
+def _accent_fg_for_tokens(tokens) -> str:
+    """Chooses readable foreground for the current accent color."""
+    try:
+        r, g, b = tokens.accent_rgb
+        yiq = (r * 299 + g * 587 + b * 114) / 1000
+        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+    except Exception:
+        return "rgba(0, 0, 0, 0.90)"
+
+
 def _normalize_preset_icon_color(value: Optional[str]) -> str:
     raw = str(value or "").strip()
     if _HEX_COLOR_RGB_RE.fullmatch(raw):
@@ -50,7 +77,10 @@ def _normalize_preset_icon_color(value: Optional[str]) -> str:
     if _HEX_COLOR_RGBA_RE.fullmatch(raw):
         lowered = raw.lower()
         return f"#{lowered[1:7]}"
-    return _DEFAULT_PRESET_ICON_COLOR
+    try:
+        return get_theme_tokens().accent_hex
+    except Exception:
+        return _DEFAULT_PRESET_ICON_COLOR
 
 
 def _cached_icon(name: str, color: str):
@@ -342,8 +372,9 @@ class _PresetListDelegate(QStyledItemDelegate):
 
     def _paint_section_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
         painter.save()
+        tokens = get_theme_tokens()
         rect = option.rect
-        painter.fillRect(rect, QColor(255, 255, 255, 4))
+        painter.fillRect(rect, QColor(tokens.surface_bg_hover))
 
         text_rect = rect.adjusted(12, 0, -12, 0)
         font = painter.font()
@@ -354,21 +385,22 @@ class _PresetListDelegate(QStyledItemDelegate):
         metrics = QFontMetrics(font)
         text_width = metrics.horizontalAdvance(text)
 
-        painter.setPen(QColor(255, 255, 255, 140))
+        painter.setPen(QColor(tokens.fg_muted))
         painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
 
         # Draw a subtle separator line to the right of the label.
         line_x1 = text_rect.left() + text_width + 10
         line_x2 = rect.right() - 12
         if line_x2 > line_x1:
-            painter.setPen(QColor(255, 255, 255, 45))
+            painter.setPen(QColor(tokens.divider))
             y = rect.center().y()
             painter.drawLine(line_x1, y, line_x2, y)
         painter.restore()
 
     def _paint_empty_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
         painter.save()
-        painter.setPen(QColor(255, 255, 255, 128))
+        tokens = get_theme_tokens()
+        painter.setPen(QColor(tokens.fg_muted))
         font = painter.font()
         font.setPointSize(10)
         painter.setFont(font)
@@ -376,6 +408,7 @@ class _PresetListDelegate(QStyledItemDelegate):
         painter.restore()
 
     def _paint_preset_row(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        tokens = get_theme_tokens()
         name = str(index.data(_PresetListModel.NameRole) or "")
         date_text = str(index.data(_PresetListModel.DateRole) or "")
         is_active = bool(index.data(_PresetListModel.ActiveRole))
@@ -384,11 +417,11 @@ class _PresetListDelegate(QStyledItemDelegate):
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
         if is_active:
-            bg = QColor(96, 205, 255, 26)
+            bg = QColor(tokens.accent_soft_bg)
         elif hovered:
-            bg = QColor(255, 255, 255, 18)
+            bg = QColor(tokens.surface_bg_hover)
         else:
-            bg = QColor(255, 255, 255, 8)
+            bg = QColor(tokens.surface_bg)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -411,12 +444,12 @@ class _PresetListDelegate(QStyledItemDelegate):
             badge_width = badge_metrics.horizontalAdvance(badge_text) + 14
             badge_rect = QRect(right_cursor - badge_width, row_rect.center().y() - 9, badge_width, 18)
 
-            painter.setBrush(QColor(96, 205, 255))
+            painter.setBrush(QColor(tokens.accent_hex))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(badge_rect, 4, 4)
 
             painter.setFont(badge_font)
-            painter.setPen(QColor(0, 0, 0))
+            painter.setPen(QColor(_accent_fg_for_tokens(tokens)))
             painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), badge_text)
             right_cursor = badge_rect.left() - 10
 
@@ -428,7 +461,7 @@ class _PresetListDelegate(QStyledItemDelegate):
             date_metrics = QFontMetrics(date_font)
             date_width = date_metrics.horizontalAdvance(date_text)
             date_rect = QRect(max(row_rect.left() + 80, right_cursor - date_width), row_rect.top(), date_width, row_rect.height())
-            painter.setPen(QColor(255, 255, 255, 90))
+            painter.setPen(QColor(tokens.fg_faint))
             painter.drawText(date_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), date_text)
             right_cursor = date_rect.left() - 10
 
@@ -438,7 +471,7 @@ class _PresetListDelegate(QStyledItemDelegate):
         name_font.setPointSize(10)
         name_font.setBold(True)
         painter.setFont(name_font)
-        painter.setPen(QColor(255, 255, 255))
+        painter.setPen(QColor(tokens.fg))
         name_metrics = QFontMetrics(name_font)
         elided_name = name_metrics.elidedText(name, Qt.TextElideMode.ElideRight, name_rect.width())
         painter.drawText(name_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), elided_name)
@@ -449,8 +482,8 @@ class _PresetListDelegate(QStyledItemDelegate):
                 btn_bg = QColor(255, 107, 107, 50)
                 icon_col = "#ff6b6b"
             else:
-                btn_bg = QColor(255, 255, 255, 20)
-                icon_col = "#ffffff"
+                btn_bg = QColor(tokens.surface_bg_hover)
+                icon_col = str(tokens.fg_muted)
 
             painter.setBrush(btn_bg)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -467,6 +500,594 @@ class _PresetListDelegate(QStyledItemDelegate):
             )
 
         painter.restore()
+
+
+class _PresetActionPopover(QDialog):
+    """Win11-like popover for preset create/rename."""
+
+    submit_requested = pyqtSignal()
+    cancel_requested = pyqtSignal()
+
+    _WIDTH = 420
+    _BORDER_RADIUS = 14
+    _ANIM_MS = 170
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._mode = "create"  # create | rename
+        self._old_name = ""
+
+        self.setWindowFlags(
+            Qt.WindowType.Popup
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setModal(False)
+        self.setProperty("noDrag", True)
+
+        self._opacity_anim = QPropertyAnimation(self, b"windowOpacity", self)
+        self._opacity_anim.setDuration(self._ANIM_MS)
+        self._opacity_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._pos_anim = QPropertyAnimation(self, b"pos", self)
+        self._pos_anim.setDuration(self._ANIM_MS)
+        self._pos_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._build_ui()
+        self.setFixedWidth(self._WIDTH)
+        self.setWindowOpacity(0.0)
+
+    @staticmethod
+    def _detect_light_theme() -> bool:
+        try:
+            return bool(get_theme_tokens().is_light)
+        except Exception:
+            return False
+
+    def _build_ui(self) -> None:
+        tokens = get_theme_tokens()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(14, 14, 14, 14)  # space for shadow
+        root.setSpacing(0)
+
+        self._container = QWidget(self)
+        self._container.setObjectName("presetPopoverContainer")
+        self._container.setProperty("noDrag", True)
+
+        self._shadow = QGraphicsDropShadowEffect(self._container)
+        self._shadow.setBlurRadius(38)
+        self._shadow.setOffset(0, 8)
+        self._shadow.setColor(QColor(0, 0, 0, 96))
+        self._container.setGraphicsEffect(self._shadow)
+
+        root.addWidget(self._container)
+
+        layout = QVBoxLayout(self._container)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+
+        self._icon = QLabel()
+        self._icon.setFixedSize(22, 22)
+        header.addWidget(self._icon)
+
+        self._title = QLabel("")
+        try:
+            self._title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        self._title.setStyleSheet("font-size: 14px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;")
+        header.addWidget(self._title, 1)
+
+        self._close_btn = QPushButton()
+        self._close_btn.setFixedSize(28, 28)
+        self._close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._close_btn.setIcon(qta.icon("fa5s.times", color=get_theme_tokens().fg))
+        self._close_btn.setIconSize(QSize(12, 12))
+        self._close_btn.setStyleSheet(
+            """
+            QPushButton {
+                background: %(bg)s;
+                border: 1px solid %(border)s;
+                border-radius: 6px;
+            }
+            QPushButton:hover { background: %(bg_hover)s; }
+            QPushButton:pressed { background: %(bg_pressed)s; }
+            """
+            % {
+                "bg": tokens.surface_bg,
+                "bg_hover": tokens.surface_bg_hover,
+                "bg_pressed": tokens.surface_bg_pressed,
+                "border": tokens.surface_border,
+            }
+        )
+        self._close_btn.clicked.connect(self._on_cancel)
+        header.addWidget(self._close_btn)
+
+        layout.addLayout(header)
+
+        self._subtitle = QLabel("")
+        self._subtitle.setWordWrap(True)
+        try:
+            self._subtitle.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self._subtitle.setStyleSheet("font-size: 12px; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;")
+        layout.addWidget(self._subtitle)
+
+        self._rename_from = QLabel("")
+        self._rename_from.setWordWrap(True)
+        try:
+            self._rename_from.setProperty("tone", "faint")
+        except Exception:
+            pass
+        self._rename_from.setStyleSheet("font-size: 12px; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;")
+        self._rename_from.hide()
+        layout.addWidget(self._rename_from)
+
+        name_block = QVBoxLayout()
+        name_block.setContentsMargins(0, 0, 0, 0)
+        name_block.setSpacing(6)
+
+        self._name_label = QLabel("Название")
+        try:
+            self._name_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self._name_label.setStyleSheet("font-size: 12px;")
+        name_block.addWidget(self._name_label)
+
+        self._name_input = QLineEdit()
+        self._name_input.setFixedHeight(36)
+        self._name_input.setClearButtonEnabled(True)
+        set_line_edit_clear_button_icon(self._name_input)
+        self._name_input.setProperty("noDrag", True)
+        tokens = get_theme_tokens()
+        self._name_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 10px;
+                color: {tokens.fg};
+                padding: 0 12px;
+                font-size: 13px;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QLineEdit:hover {{ background: {tokens.surface_bg_hover}; }}
+            QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
+            QLineEdit::placeholder {{ color: {tokens.fg_faint}; }}
+            """
+        )
+        self._name_input.textChanged.connect(lambda: self.set_error(""))
+        self._name_input.returnPressed.connect(self._on_submit)
+        name_block.addWidget(self._name_input)
+
+        layout.addLayout(name_block)
+
+        self._source_row = QWidget(self._container)
+        src_layout = QHBoxLayout(self._source_row)
+        src_layout.setContentsMargins(0, 2, 0, 0)
+        src_layout.setSpacing(12)
+        self._source_label = QLabel("Создать на основе")
+        try:
+            self._source_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self._source_label.setStyleSheet("font-size: 12px;")
+        src_layout.addWidget(self._source_label)
+        src_layout.addStretch(1)
+        self._source_choice = _SegmentedChoice("Текущего активного", "current", "Пустого", "empty", self)
+        src_layout.addWidget(self._source_choice)
+        layout.addWidget(self._source_row)
+
+        self._error = QLabel("")
+        self._error.setWordWrap(True)
+        self._error.setStyleSheet("color: #ff6b6b; font-size: 12px;")
+        self._error.hide()
+        layout.addWidget(self._error)
+
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 6, 0, 0)
+        buttons.setSpacing(10)
+        buttons.addStretch(1)
+
+        self._cancel_btn = QPushButton("Отмена")
+        self._cancel_btn.setFixedHeight(34)
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cancel_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: %(bg)s;
+                border: 1px solid %(border)s;
+                border-radius: 10px;
+                color: %(fg)s;
+                padding: 0 18px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover { background-color: %(bg_hover)s; }
+            QPushButton:pressed { background-color: %(bg_pressed)s; }
+            """
+            % {
+                "bg": tokens.surface_bg,
+                "bg_hover": tokens.surface_bg_hover,
+                "bg_pressed": tokens.surface_bg_pressed,
+                "border": tokens.surface_border,
+                "fg": tokens.fg,
+            }
+        )
+        self._cancel_btn.clicked.connect(self._on_cancel)
+        buttons.addWidget(self._cancel_btn)
+
+        self._submit_btn = QPushButton("")
+        self._submit_btn.setFixedHeight(34)
+        self._submit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._submit_btn.setIconSize(QSize(16, 16))
+        accent_fg = _accent_fg_for_tokens(tokens)
+        self._submit_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {tokens.accent_hex};
+                border: none;
+                border-radius: 10px;
+                color: {accent_fg};
+                padding: 0 18px;
+                font-size: 12px;
+                font-weight: 700;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QPushButton:hover {{ background-color: {tokens.accent_hover_hex}; }}
+            QPushButton:pressed {{ background-color: {tokens.accent_pressed_hex}; }}
+            """
+        )
+        self._submit_btn.clicked.connect(self._on_submit)
+        buttons.addWidget(self._submit_btn)
+
+        layout.addLayout(buttons)
+
+        self._apply_styles()
+        self.configure_create()
+
+    def _apply_styles(self) -> None:
+        tokens = get_theme_tokens()
+        is_light = bool(tokens.is_light)
+        if is_light:
+            bg_top = "rgba(255, 255, 255, 246)"
+            bg_bottom = "rgba(243, 246, 251, 246)"
+            shadow_color = QColor(0, 0, 0, 66)
+            error_color = "#cf3d3d"
+        else:
+            bg_top = "rgba(45, 49, 55, 248)"
+            bg_bottom = "rgba(35, 39, 45, 248)"
+            shadow_color = QColor(0, 0, 0, 124)
+            error_color = "#ff6b6b"
+
+        self._shadow.setColor(shadow_color)
+        radius = self._BORDER_RADIUS
+        self._container.setStyleSheet(
+            f"""
+            QWidget#presetPopoverContainer {{
+                background-color: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {bg_top},
+                    stop:1 {bg_bottom}
+                );
+                border: 1px solid {tokens.surface_border};
+                border-radius: {radius}px;
+            }}
+            """
+        )
+
+        # Inner widgets (theme-aware colors).
+        try:
+            self._title.setStyleSheet(
+                f"color: {tokens.fg}; font-size: 14px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
+            )
+            self._subtitle.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 12px; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
+            )
+            self._rename_from.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 12px; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
+            )
+        except Exception:
+            pass
+
+        try:
+            self._name_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        except Exception:
+            pass
+
+        try:
+            self._source_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        except Exception:
+            pass
+
+        try:
+            self._name_input.setStyleSheet(
+                f"""
+                QLineEdit {{
+                    background: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 10px;
+                    color: {tokens.fg};
+                    padding: 0 12px;
+                    font-size: 13px;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QLineEdit:hover {{ background: {tokens.surface_bg_hover}; }}
+                QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
+                QLineEdit::placeholder {{ color: {tokens.fg_faint}; }}
+                """
+            )
+        except Exception:
+            pass
+
+        try:
+            set_line_edit_clear_button_icon(
+                self._name_input,
+                color=tokens.fg_muted,
+            )
+        except Exception:
+            pass
+
+        try:
+            self._close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
+            self._close_btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: {tokens.surface_bg};
+                    border: none;
+                    border-radius: 6px;
+                }}
+                QPushButton:hover {{ background: {tokens.surface_bg_hover}; }}
+                QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
+                """
+            )
+        except Exception:
+            pass
+
+        try:
+            self._cancel_btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 10px;
+                    color: {tokens.fg};
+                    padding: 0 18px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QPushButton:hover {{ background-color: {tokens.surface_bg_hover}; }}
+                QPushButton:pressed {{ background-color: {tokens.surface_bg_pressed}; }}
+                """
+            )
+        except Exception:
+            pass
+
+        try:
+            self._error.setStyleSheet(f"color: {error_color}; font-size: 12px;")
+        except Exception:
+            pass
+
+    def configure_create(self) -> None:
+        self._mode = "create"
+        self._old_name = ""
+        self._title.setText("Новый пресет")
+        self._subtitle.setText("Сохраните текущие настройки как отдельный пресет, чтобы быстро переключаться.")
+        self._icon.setPixmap(qta.icon("fa5s.plus", color=get_theme_tokens().accent_hex).pixmap(18, 18))
+        self._rename_from.hide()
+        self._source_row.show()
+        self._source_choice.set_value("current", emit=False)
+        self._name_input.clear()
+        self._name_input.setPlaceholderText("Например: Игры / YouTube / Дом")
+        self._submit_btn.setText("Создать")
+        self._submit_btn.setIcon(qta.icon("fa5s.check", color=_accent_fg_for_tokens(get_theme_tokens())))
+        self.set_error("")
+
+    def configure_rename(self, current_name: str) -> None:
+        self._mode = "rename"
+        self._old_name = str(current_name or "")
+        self._title.setText("Переименовать")
+        self._subtitle.setText("Имя пресета отображается в списке и используется для переключения.")
+        self._icon.setPixmap(qta.icon("fa5s.edit", color=get_theme_tokens().accent_hex).pixmap(18, 18))
+        if self._old_name:
+            self._rename_from.setText(f"Текущее имя: {self._old_name}")
+            self._rename_from.show()
+        else:
+            self._rename_from.hide()
+        self._source_row.hide()
+        self._name_input.setText(self._old_name)
+        self._name_input.setPlaceholderText("Новое имя...")
+        self._submit_btn.setText("Переименовать")
+        self._submit_btn.setIcon(qta.icon("fa5s.check", color=_accent_fg_for_tokens(get_theme_tokens())))
+        self.set_error("")
+
+    def set_error(self, text: str) -> None:
+        text = str(text or "")
+        self._error.setText(text)
+        self._error.setVisible(bool(text))
+
+    def name_text(self) -> str:
+        return self._name_input.text() if self._name_input else ""
+
+    def source_value(self) -> str:
+        try:
+            return str(self._source_choice.value() or "")
+        except Exception:
+            return ""
+
+    def focus_name(self, select_all: bool = False) -> None:
+        try:
+            self._name_input.setFocus()
+            if select_all:
+                self._name_input.selectAll()
+        except Exception:
+            pass
+
+    def _screen_geometry_for_point(self, p: QPoint):
+        try:
+            screen = QGuiApplication.screenAt(p)
+        except Exception:
+            screen = None
+        if not screen:
+            try:
+                screen = QApplication.primaryScreen()
+            except Exception:
+                screen = None
+        try:
+            return screen.availableGeometry() if screen else None
+        except Exception:
+            return None
+
+    def _clamp_to_screen(self, target: QPoint, *, anchor_top: int | None = None) -> QPoint:
+        self.adjustSize()
+        w = int(self.width() or self.sizeHint().width() or self._WIDTH)
+        h = int(self.height() or self.sizeHint().height() or 240)
+
+        screen_rect = self._screen_geometry_for_point(target)
+        if not screen_rect:
+            return target
+
+        margin = 8
+        x = max(screen_rect.left() + margin, min(target.x(), screen_rect.right() - w - margin))
+        y = target.y()
+
+        if y + h > screen_rect.bottom() - margin and anchor_top is not None:
+            y = anchor_top - h - 8
+
+        y = max(screen_rect.top() + margin, min(y, screen_rect.bottom() - h - margin))
+        return QPoint(x, y)
+
+    def _show_animated_at(self, target: QPoint) -> None:
+        self._apply_styles()
+        target = self._clamp_to_screen(target)
+
+        try:
+            self._opacity_anim.stop()
+            self._pos_anim.stop()
+        except Exception:
+            pass
+
+        start_pos = target + QPoint(0, 10)
+        self.move(start_pos)
+        self.setWindowOpacity(0.0)
+        self.show()
+        try:
+            self.raise_()
+        except Exception:
+            pass
+
+        self._opacity_anim.setStartValue(0.0)
+        self._opacity_anim.setEndValue(1.0)
+        self._pos_anim.setStartValue(start_pos)
+        self._pos_anim.setEndValue(target)
+        self._opacity_anim.start()
+        self._pos_anim.start()
+
+    def show_for_widget(self, widget: QWidget) -> None:
+        try:
+            top = widget.mapToGlobal(QPoint(0, 0)).y()
+            below = widget.mapToGlobal(QPoint(0, widget.height() + 8))
+        except Exception:
+            self.show_near_point(QCursor.pos())
+            return
+
+        self.adjustSize()
+        h = int(self.height() or self.sizeHint().height() or 240)
+        screen_rect = self._screen_geometry_for_point(below)
+        if screen_rect and below.y() + h > screen_rect.bottom() - 8:
+            above = widget.mapToGlobal(QPoint(0, 0))
+            target = QPoint(below.x(), above.y() - h - 8)
+        else:
+            target = QPoint(below.x(), below.y())
+
+        target = self._clamp_to_screen(target, anchor_top=top)
+        self._show_animated_at(target)
+
+    def show_near_point(self, point: QPoint) -> None:
+        p = QPoint(int(point.x()), int(point.y()))
+        target = p + QPoint(14, 14)
+        target = self._clamp_to_screen(target, anchor_top=p.y())
+        self._show_animated_at(target)
+
+    def hide_animated(self) -> None:
+        if not self.isVisible():
+            return
+
+        try:
+            self._opacity_anim.stop()
+            self._pos_anim.stop()
+        except Exception:
+            pass
+
+        start_opacity = 1.0
+        try:
+            start_opacity = float(self.windowOpacity())
+        except Exception:
+            start_opacity = 1.0
+
+        start_pos = self.pos()
+        end_pos = start_pos + QPoint(0, 10)
+
+        self._opacity_anim.setStartValue(start_opacity)
+        self._opacity_anim.setEndValue(0.0)
+        self._pos_anim.setStartValue(start_pos)
+        self._pos_anim.setEndValue(end_pos)
+
+        try:
+            self._opacity_anim.finished.disconnect(self._on_hide_finished)
+        except Exception:
+            pass
+        self._opacity_anim.finished.connect(self._on_hide_finished)
+
+        self._opacity_anim.start()
+        self._pos_anim.start()
+
+    def _on_hide_finished(self) -> None:
+        try:
+            self._opacity_anim.finished.disconnect(self._on_hide_finished)
+        except Exception:
+            pass
+        try:
+            self.hide()
+        except Exception:
+            pass
+
+    def _on_submit(self) -> None:
+        self.submit_requested.emit()
+
+    def _on_cancel(self) -> None:
+        self.cancel_requested.emit()
+
+    def keyPressEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.key() == Qt.Key.Key_Escape:
+                self._on_cancel()
+                return
+        except Exception:
+            pass
+        return super().keyPressEvent(event)
+
+    def closeEvent(self, event):  # noqa: N802 (Qt override)
+        # Click-outside on Qt.Popup triggers close. Route to page handler.
+        try:
+            if event:
+                event.ignore()
+        except Exception:
+            pass
+        try:
+            self._on_cancel()
+        except Exception:
+            pass
 
 
 class Zapret2UserPresetsPage(BasePage):
@@ -497,6 +1118,7 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._bulk_reset_running = False
         self._reset_all_confirm_pending = False
+        self._reset_all_result_token = None
         self._reset_all_confirm_timer = QTimer(self)
         self._reset_all_confirm_timer.setSingleShot(True)
         self._reset_all_confirm_timer.timeout.connect(self._clear_reset_all_confirmation)
@@ -512,7 +1134,13 @@ class Zapret2UserPresetsPage(BasePage):
         self._preset_search_timer.timeout.connect(self._apply_preset_search)
         self._preset_search_input: Optional[QLineEdit] = None
 
+        self._action_popover: Optional[_PresetActionPopover] = None
+
         self._build_ui()
+
+        self._action_popover = _PresetActionPopover(self)
+        self._action_popover.submit_requested.connect(self._submit_inline_action)
+        self._action_popover.cancel_requested.connect(self._hide_inline_action)
 
         # Subscribe to central store signals
         try:
@@ -563,6 +1191,10 @@ class Zapret2UserPresetsPage(BasePage):
         self._schedule_layout_resync()
 
     def hideEvent(self, event):
+        try:
+            self._hide_inline_action()
+        except Exception:
+            pass
         self._layout_resync_timer.stop()
         self._layout_resync_delayed_timer.stop()
         self._stop_watching_presets()
@@ -671,31 +1303,26 @@ class Zapret2UserPresetsPage(BasePage):
         self._update_watched_preset_files()
 
     def _build_ui(self):
+        tokens = get_theme_tokens()
+
         # Telegram configs link
         configs_card = SettingsCard()
         configs_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        configs_card.setStyleSheet(
-            """
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: none;
-            }
-            """
-        )
+        # SettingsCard background/border are theme-driven globally; avoid overriding them here.
+        configs_card.setStyleSheet("")
         configs_layout = QHBoxLayout()
         configs_layout.setSpacing(12)
         configs_icon = QLabel()
-        configs_icon.setPixmap(qta.icon("fa5b.telegram", color="#60cdff").pixmap(18, 18))
+        configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
         configs_layout.addWidget(configs_icon)
         configs_title = QLabel(
             "Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно"
         )
-        configs_title.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
+        try:
+            configs_title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        configs_title.setStyleSheet("font-size: 13px; font-weight: 600;")
         configs_title.setWordWrap(True)
         configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         configs_title.setMinimumWidth(0)
@@ -709,28 +1336,29 @@ class Zapret2UserPresetsPage(BasePage):
 
         # "Restore deleted presets" button
         self._restore_deleted_btn = QPushButton("Восстановить удалённые пресеты")
-        self._restore_deleted_btn.setIcon(qta.icon("fa5s.undo", color="white"))
+        self._restore_deleted_btn.setIcon(qta.icon("fa5s.undo", color=tokens.fg))
         self._restore_deleted_btn.setIconSize(QSize(14, 14))
         self._restore_deleted_btn.setFixedHeight(32)
         self._restore_deleted_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._restore_deleted_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+            f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.22);
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
             """
         )
         self._restore_deleted_btn.clicked.connect(self._on_restore_deleted)
@@ -792,33 +1420,25 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_reveal_layout.setSpacing(0)
 
         self._action_card = SettingsCard("")
-        self._action_card.setStyleSheet(
-            """
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-            }
-            """
-        )
+        # SettingsCard background/border are theme-driven globally; avoid overriding them here.
+        self._action_card.setStyleSheet("")
         self._action_card.main_layout.setSpacing(10)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(10)
         self._action_icon = QLabel()
-        self._action_icon.setPixmap(qta.icon("fa5s.plus", color="#60cdff").pixmap(18, 18))
+        self._action_icon.setPixmap(qta.icon("fa5s.plus", color=tokens.accent_hex).pixmap(18, 18))
         self._action_icon.setFixedSize(22, 22)
         header.addWidget(self._action_icon)
         self._action_title = QLabel("")
+        try:
+            self._action_title.setProperty("tone", "primary")
+        except Exception:
+            pass
         self._action_title.setStyleSheet(
             """
             QLabel {
-                color: #ffffff;
                 font-size: 14px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
@@ -828,20 +1448,20 @@ class Zapret2UserPresetsPage(BasePage):
         header.addWidget(self._action_title)
         header.addStretch(1)
         self._action_close_btn = QPushButton()
-        self._action_close_btn.setIcon(qta.icon("fa5s.times", color="#ffffff"))
+        self._action_close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
         self._action_close_btn.setIconSize(QSize(12, 12))
         self._action_close_btn.setFixedSize(28, 28)
         self._action_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._action_close_btn.setStyleSheet(
-            """
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: none;
+            f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255, 255, 255, 0.85);
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.10); }
-            QPushButton:pressed { background: rgba(255, 255, 255, 0.14); }
+                color: {tokens.fg};
+            }}
+            QPushButton:hover {{ background: {tokens.surface_bg_hover}; border: 1px solid {tokens.surface_border_hover}; }}
+            QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
             """
         )
         self._action_close_btn.clicked.connect(self._hide_inline_action)
@@ -849,26 +1469,20 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_card.add_layout(header)
 
         self._action_subtitle = QLabel("")
-        self._action_subtitle.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-            }
-            """
-        )
+        try:
+            self._action_subtitle.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self._action_subtitle.setStyleSheet("font-size: 12px;")
         self._action_subtitle.setWordWrap(True)
         self._action_card.add_widget(self._action_subtitle)
 
         self._rename_from_label = QLabel("")
-        self._rename_from_label.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.55);
-                font-size: 12px;
-            }
-            """
-        )
+        try:
+            self._rename_from_label.setProperty("tone", "faint")
+        except Exception:
+            pass
+        self._rename_from_label.setStyleSheet("font-size: 12px;")
         self._rename_from_label.setWordWrap(True)
         self._rename_from_label.hide()
         self._action_card.add_widget(self._rename_from_label)
@@ -876,24 +1490,27 @@ class Zapret2UserPresetsPage(BasePage):
         name_row = QVBoxLayout()
         name_row.setSpacing(6)
         name_label = QLabel("Название")
-        name_label.setStyleSheet("color: rgba(255, 255, 255, 0.75); font-size: 12px;")
+        try:
+            name_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        name_label.setStyleSheet("font-size: 12px;")
         name_row.addWidget(name_label)
         self._name_input = QLineEdit()
         self._name_input.setPlaceholderText("Введите название пресета…")
         self._name_input.setStyleSheet(
-            """
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: none;
+            f"""
+            QLineEdit {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 10px 12px;
                 font-size: 13px;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QLineEdit:focus {
-                background-color: rgba(255, 255, 255, 0.08);
-            }
+            }}
+            QLineEdit:hover {{ background-color: {tokens.surface_bg_hover}; }}
+            QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
             """
         )
         self._name_input.textChanged.connect(lambda: self._set_inline_error(""))
@@ -906,7 +1523,11 @@ class Zapret2UserPresetsPage(BasePage):
         source_row.setContentsMargins(0, 4, 0, 0)
         source_row.setSpacing(12)
         source_label = QLabel("Создать на основе")
-        source_label.setStyleSheet("color: rgba(255, 255, 255, 0.75); font-size: 12px;")
+        try:
+            source_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        source_label.setStyleSheet("font-size: 12px;")
         source_row.addWidget(source_label)
         source_row.addStretch(1)
         self._create_source = _SegmentedChoice("Текущего активного", "current", "Пустого", "empty", self)
@@ -951,22 +1572,21 @@ class Zapret2UserPresetsPage(BasePage):
         self._preset_search_input.setFixedHeight(34)
         self._preset_search_input.setProperty("noDrag", True)
         self._preset_search_input.setStyleSheet(
-            """
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.05);
-                border: none;
+            f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 12px;
                 font-size: 13px;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QLineEdit:focus {
-                background: rgba(255, 255, 255, 0.08);
-            }
-            QLineEdit::placeholder {
-                color: rgba(255, 255, 255, 0.4);
-            }
+            }}
+            QLineEdit:hover {{ background: {tokens.surface_bg_hover}; }}
+            QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
+            QLineEdit::placeholder {{
+                color: {tokens.fg_faint};
+            }}
             """
         )
         self._preset_search_input.textChanged.connect(self._on_preset_search_text_changed)
@@ -985,7 +1605,7 @@ class Zapret2UserPresetsPage(BasePage):
         self.presets_list.setProperty("noDrag", True)
         self.presets_list.viewport().setProperty("noDrag", True)
         self.presets_list.setStyleSheet(
-            """
+            f"""
             QListView#userPresetsList {
                 background: transparent;
                 border: none;
@@ -995,18 +1615,18 @@ class Zapret2UserPresetsPage(BasePage):
                 border: none;
             }
             QListView#userPresetsList QScrollBar:vertical {
-                background: rgba(255, 255, 255, 0.05);
+                background: {tokens.scrollbar_track};
                 width: 12px;
                 border-radius: 6px;
                 margin: 2px;
             }
             QListView#userPresetsList QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.2);
+                background: {tokens.scrollbar_handle};
                 border-radius: 6px;
                 min-height: 28px;
             }
             QListView#userPresetsList QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.3);
+                background: {tokens.scrollbar_handle_hover};
             }
             QListView#userPresetsList QScrollBar::add-line:vertical,
             QListView#userPresetsList QScrollBar::sub-line:vertical {
@@ -1030,7 +1650,9 @@ class Zapret2UserPresetsPage(BasePage):
     def _create_main_button(self, text: str, icon_name: str, accent: bool = False) -> QPushButton:
         btn = QPushButton(text)
 
-        icon_color = "white"
+        tokens = get_theme_tokens()
+        accent_fg = _accent_fg_for_tokens(tokens)
+        icon_color = accent_fg if accent else tokens.fg
         btn.setIcon(qta.icon(icon_name, color=icon_color))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(36)
@@ -1038,72 +1660,75 @@ class Zapret2UserPresetsPage(BasePage):
 
         if accent:
             btn.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: #60cdff;
-                    border: 1px solid rgba(255, 255, 255, 0.18);
+                f"""
+                QPushButton {{
+                    background-color: {tokens.accent_hex};
+                    border: none;
                     border-radius: 8px;
-                    color: #ffffff;
+                    color: {accent_fg};
                     padding: 0 20px;
                     font-size: 13px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: rgba(96, 205, 255, 0.9);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(96, 205, 255, 0.72);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.accent_hover_hex};
+                }}
+                QPushButton:pressed {{
+                    background-color: {tokens.accent_pressed_hex};
+                }}
                 """
             )
         else:
             btn.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: rgba(255, 255, 255, 0.08);
-                    border: 1px solid rgba(255, 255, 255, 0.12);
+                f"""
+                QPushButton {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
                     border-radius: 8px;
-                    color: #ffffff;
+                    color: {tokens.fg};
                     padding: 0 20px;
                     font-size: 13px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.15);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255, 255, 255, 0.22);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.surface_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+                QPushButton:pressed {{
+                    background-color: {tokens.surface_bg_pressed};
+                }}
                 """
             )
 
         return btn
 
     def _secondary_row_button_style(self) -> str:
-        return """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
+        tokens = get_theme_tokens()
+        return f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.22);
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
         """
 
     def _create_secondary_row_button(self, text: str, icon_name: str) -> QPushButton:
         btn = QPushButton(text)
-        btn.setIcon(qta.icon(icon_name, color="#ffffff"))
+        btn.setIcon(qta.icon(icon_name, color=get_theme_tokens().fg))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(32)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1199,6 +1824,8 @@ class Zapret2UserPresetsPage(BasePage):
         self.reset_all_btn.setStyleSheet(self._secondary_row_button_style())
 
     def _arm_reset_all_confirmation(self):
+        # Cancel any pending "result" restore timer.
+        self._reset_all_result_token = None
         self._reset_all_confirm_pending = True
         self.reset_all_btn.setText("Это сбросит ваши настройки")
         self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color="#ffffff"))
@@ -1211,11 +1838,51 @@ class Zapret2UserPresetsPage(BasePage):
         self._reset_all_confirm_pending = False
         self._reset_all_confirm_timer.stop()
         self.reset_all_btn.setText("Сбросить все пресеты")
-        self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
+        try:
+            self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color=get_theme_tokens().fg))
+        except Exception:
+            self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
         self._apply_reset_all_button_style(False)
         self._update_toolbar_buttons_layout()
         if self.isVisible():
             self._schedule_layout_resync()
+
+    def _restore_reset_all_button_from_result(self, token) -> None:
+        if getattr(self, "_reset_all_result_token", None) is not token:
+            return
+        if self._reset_all_confirm_pending:
+            return
+        self._reset_all_result_token = None
+        self._clear_reset_all_confirmation()
+
+    def _show_reset_all_result(self, success_count: int, total_count: int) -> None:
+        # Show short numeric stats directly on the button.
+        token = object()
+        self._reset_all_result_token = token
+
+        try:
+            self._reset_all_confirm_pending = False
+            self._reset_all_confirm_timer.stop()
+        except Exception:
+            pass
+
+        total = int(total_count or 0)
+        ok = int(success_count or 0)
+        self.reset_all_btn.setText(f"{ok}/{total}")
+
+        # Visual cue: green check on full success, warning otherwise.
+        try:
+            icon_name = "fa5s.check" if total > 0 and ok >= total else "fa5s.exclamation-triangle"
+            self.reset_all_btn.setIcon(qta.icon(icon_name, color=get_theme_tokens().fg))
+        except Exception:
+            pass
+
+        self._apply_reset_all_button_style(False)
+        self._update_toolbar_buttons_layout()
+        if self.isVisible():
+            self._schedule_layout_resync()
+
+        QTimer.singleShot(3000, lambda: self._restore_reset_all_button_from_result(token))
 
     def _is_game_filter_preset_name(self, name: str) -> bool:
         return "game filter" in name.lower()
@@ -1265,62 +1932,101 @@ class Zapret2UserPresetsPage(BasePage):
     def _hide_inline_action(self):
         self._action_mode = None
         self._rename_source_name = None
-        self._action_error.hide()
-        self._action_error.setText("")
-        self._action_reveal.set_open(False)
+
+        try:
+            pop = getattr(self, "_action_popover", None)
+            if pop and pop.isVisible():
+                pop.hide_animated()
+        except Exception:
+            pass
+
+        # Legacy inline panel (kept for backwards compatibility / safe fallback).
+        try:
+            self._action_error.hide()
+            self._action_error.setText("")
+            self._action_reveal.set_open(False)
+        except Exception:
+            pass
         self._schedule_layout_resync(include_delayed=True)
 
     def _set_inline_error(self, text: str):
-        self._action_error.setText(text)
-        self._action_error.setVisible(bool(text))
+        try:
+            pop = getattr(self, "_action_popover", None)
+            if pop and pop.isVisible():
+                pop.set_error(text)
+                return
+        except Exception:
+            pass
+
+        # Fallback (legacy inline panel).
+        try:
+            self._action_error.setText(text)
+            self._action_error.setVisible(bool(text))
+        except Exception:
+            pass
 
     def _show_inline_action_create(self):
         self._action_mode = "create"
         self._rename_source_name = None
         self._set_inline_error("")
-        self._action_icon.setPixmap(qta.icon("fa5s.plus", color="#60cdff").pixmap(18, 18))
-        self._action_title.setText("Создать новый пресет")
-        self._action_subtitle.setText(
-            "Сохраните текущие настройки как отдельный пресет, чтобы быстро переключаться между конфигурациями."
-        )
-        self._rename_from_label.hide()
-        self._source_container.show()
-        self._create_source.set_value("current", emit=False)
-        self._name_input.clear()
-        self._name_input.setPlaceholderText("Например: Игры / YouTube / Дом")
-        self._action_submit_btn.setText("Создать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
-        self._action_reveal.set_open(True)
-        self.ensureWidgetVisible(self._action_reveal)
-        self._name_input.setFocus()
-        self._schedule_layout_resync(include_delayed=True)
+
+        try:
+            # Ensure old inline panel stays closed.
+            self._action_reveal.set_open(False)
+        except Exception:
+            pass
+
+        pop = getattr(self, "_action_popover", None)
+        if not pop:
+            return
+        pop.configure_create()
+        try:
+            pop.show_for_widget(self.create_btn)
+        except Exception:
+            pop.show_near_point(QCursor.pos())
+        pop.focus_name()
 
     def _show_inline_action_rename(self, current_name: str):
         self._action_mode = "rename"
         self._rename_source_name = current_name
         self._set_inline_error("")
-        self._action_icon.setPixmap(qta.icon("fa5s.edit", color="#60cdff").pixmap(18, 18))
-        self._action_title.setText("Переименовать пресет")
-        self._action_subtitle.setText("Имя пресета отображается в списке и используется для переключения.")
-        self._rename_from_label.setText(f"Текущее имя: {current_name}")
-        self._rename_from_label.show()
-        self._source_container.hide()
-        self._name_input.setText(current_name)
-        self._name_input.selectAll()
-        self._name_input.setPlaceholderText("Новое имя…")
-        self._action_submit_btn.setText("Переименовать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
-        self._action_reveal.set_open(True)
-        self.ensureWidgetVisible(self._action_reveal)
-        self._name_input.setFocus()
-        self._schedule_layout_resync(include_delayed=True)
+
+        try:
+            # Ensure old inline panel stays closed.
+            self._action_reveal.set_open(False)
+        except Exception:
+            pass
+
+        pop = getattr(self, "_action_popover", None)
+        if not pop:
+            return
+        pop.configure_rename(current_name)
+        pop.show_near_point(QCursor.pos())
+        pop.focus_name(select_all=True)
 
     def _submit_inline_action(self):
         mode = self._action_mode
         if mode not in ("create", "rename"):
             return
 
-        name = self._name_input.text().strip()
+        name = ""
+        from_current = True
+        try:
+            pop = getattr(self, "_action_popover", None)
+            if pop and pop.isVisible():
+                name = pop.name_text().strip()
+                from_current = pop.source_value() == "current"
+        except Exception:
+            name = ""
+
+        if not name:
+            # Fallback to legacy inline panel.
+            try:
+                name = self._name_input.text().strip()
+                from_current = self._create_source.value() == "current"
+            except Exception:
+                name = ""
+
         if not name:
             self._set_inline_error("Введите название.")
             return
@@ -1333,7 +2039,6 @@ class Zapret2UserPresetsPage(BasePage):
                     self._set_inline_error(f"Пресет '{name}' уже существует.")
                     return
 
-                from_current = self._create_source.value() == "current"
                 preset = manager.create_preset(name, from_current=from_current)
                 if not preset:
                     self._set_inline_error("Не удалось создать пресет.")
@@ -1371,7 +2076,13 @@ class Zapret2UserPresetsPage(BasePage):
             QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
 
     def _on_create_clicked(self):
-        if self._action_mode == "create" and self._action_reveal.isVisible():
+        try:
+            pop = getattr(self, "_action_popover", None)
+            pop_visible = bool(pop and pop.isVisible())
+        except Exception:
+            pop_visible = False
+
+        if self._action_mode == "create" and pop_visible:
             self._hide_inline_action()
         else:
             self._show_inline_action_create()
@@ -1424,53 +2135,77 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._clear_reset_all_confirmation()
 
+        self._bulk_reset_running = True
         try:
             manager = self._get_manager()
+
+            # 1) Refresh templates and create any missing presets from templates.
+            try:
+                from preset_zapret2.preset_defaults import invalidate_templates_cache, ensure_templates_copied_to_presets
+                invalidate_templates_cache()
+                ensure_templates_copied_to_presets()
+            except Exception as e:
+                log(f"Ошибка обновления шаблонов пресетов: {e}", "DEBUG")
+
+            # 2) Reload store so newly created presets appear in manager.list_presets().
+            try:
+                manager.invalidate_preset_cache(None)
+            except Exception:
+                pass
+
             preset_names = manager.list_presets()
-            if not preset_names:
-                QMessageBox.information(self, "Сброс пресетов", "Нет пресетов для сброса.")
+            ordered_names = sorted(preset_names, key=lambda s: s.lower())
+            if not ordered_names:
+                self._show_reset_all_result(0, 0)
                 return
 
-            original_active = manager.get_active_preset_name()
-            ordered_names = sorted(preset_names, key=lambda s: s.lower())
+            original_active = (manager.get_active_preset_name() or "").strip()
+
+            # Reset the active preset last, then sync it once.
             if original_active and original_active in ordered_names:
                 ordered_names = [n for n in ordered_names if n != original_active] + [original_active]
 
             success_count = 0
             failed: list[str] = []
 
-            self._bulk_reset_running = True
-            try:
-                for name in ordered_names:
-                    if manager.reset_preset_to_default_template(name):
-                        success_count += 1
-                    else:
-                        failed.append(name)
-            finally:
-                self._bulk_reset_running = False
+            for name in ordered_names:
+                ok = manager.reset_preset_to_default_template(
+                    name,
+                    make_active=False,
+                    sync_active_file=False,
+                    emit_switched=False,
+                    invalidate_templates=False,
+                )
+                if ok:
+                    success_count += 1
+                else:
+                    failed.append(name)
 
-            final_active = manager.get_active_preset_name() or (original_active or "")
-            if final_active:
-                self.preset_switched.emit(final_active)
+            # 3) Apply active preset once (single write => single hot-reload).
+            active_name = (original_active or (manager.get_active_preset_name() or "")).strip()
+            if active_name:
+                preset = manager.load_preset(active_name)
+                if preset:
+                    if not manager.sync_preset_to_active_file(preset):
+                        log(f"Не удалось применить активный пресет после сброса: {active_name}", "WARNING")
+                else:
+                    log(f"Не удалось загрузить активный пресет после сброса: {active_name}", "WARNING")
 
             self._load_presets()
 
+            total = len(ordered_names)
             if failed:
                 log(f"Сброс пресетов завершён частично: успешно={success_count}, ошибки={len(failed)}", "WARNING")
-                QMessageBox.warning(
-                    self,
-                    "Сброс пресетов",
-                    f"Сброшено: {success_count}\nНе удалось: {len(failed)}",
-                )
-                return
+            else:
+                log(f"Сброшены все пресеты к шаблонам: {success_count}", "INFO")
 
-            log(f"Сброшены все пресеты к шаблонам: {success_count}", "INFO")
-            QMessageBox.information(self, "Сброс пресетов", f"Сброшено пресетов: {success_count}")
+            self._show_reset_all_result(success_count, total)
 
         except Exception as e:
-            self._bulk_reset_running = False
             log(f"Ошибка массового сброса пресетов: {e}", "ERROR")
             QMessageBox.critical(self, "Ошибка", f"Ошибка сброса пресетов: {e}")
+        finally:
+            self._bulk_reset_running = False
 
     def _on_disable_all_strategies(self):
         """Отключает стратегии для всех категорий в активном пресете."""
@@ -1647,7 +2382,13 @@ class Zapret2UserPresetsPage(BasePage):
             QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
 
     def _on_rename_preset(self, name: str):
-        if self._action_mode == "rename" and self._rename_source_name == name and self._action_reveal.isVisible():
+        try:
+            pop = getattr(self, "_action_popover", None)
+            pop_visible = bool(pop and pop.isVisible())
+        except Exception:
+            pop_visible = False
+
+        if self._action_mode == "rename" and self._rename_source_name == name and pop_visible:
             self._hide_inline_action()
         else:
             self._show_inline_action_rename(name)

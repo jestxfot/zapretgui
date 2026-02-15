@@ -934,6 +934,11 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
     except Exception:
         sidebar_bg = theme_bg
 
+    # Tooltip colors (centralized)
+    tooltip_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
+    tooltip_border = "rgba(0, 0, 0, 0.12)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
+    tooltip_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(255, 255, 255, 0.95)"
+
     return f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
 QWidget {{
@@ -1179,6 +1184,28 @@ QCheckBox#blurSwitch::indicator:checked {{
 }}
 QCheckBox#blurSwitch::indicator:checked:hover {{
     background-color: {tokens.accent_hover_hex};
+}}
+
+/* Strategy list items (Zapret2 strategies UI) */
+StrategyRadioItem {{
+    background-color: {tokens.surface_bg};
+    border: 1px solid {tokens.surface_border};
+    border-radius: 6px;
+}}
+StrategyRadioItem:hover {{
+    background-color: {tokens.surface_bg_hover};
+    border: 1px solid {tokens.surface_border_hover};
+}}
+
+/* Tooltips (global, theme-aware) */
+QToolTip {{
+    background-color: {tooltip_bg};
+    color: {tooltip_fg};
+    border: 1px solid {tooltip_border};
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-family: {tokens.font_family_qss};
 }}
 """
 

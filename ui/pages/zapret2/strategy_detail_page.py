@@ -25,6 +25,7 @@ from strategy_menu.args_preview_dialog import ArgsPreviewDialog
 from launcher_common.blobs import get_blobs_info
 from preset_zapret2 import PresetManager, SyndataSettings
 from ui.zapret2_strategy_marks import DirectZapret2MarksStore, DirectZapret2FavoritesStore
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -153,28 +154,42 @@ class FilterModeSelector(QWidget):
             self.mode_changed.emit(mode)
 
     def _update_styles(self):
+        tokens = get_theme_tokens()
         active_style = """
             QPushButton {
-                background: #60cdff;
+                background: %(accent)s;
                 border: none;
-                color: #000000;
+                color: rgba(0, 0, 0, 0.90);
                 font-size: 11px;
                 font-weight: 600;
                 padding: 0 12px;
             }
+            QPushButton:hover {
+                background: %(accent_hover)s;
+            }
         """
         inactive_style = """
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
+                background: %(bg)s;
                 border: none;
-                color: rgba(255, 255, 255, 0.7);
+                color: %(fg_muted)s;
                 font-size: 11px;
                 padding: 0 12px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: %(bg_hover)s;
             }
         """
+
+        active_style = active_style % {
+            "accent": tokens.accent_hex,
+            "accent_hover": tokens.accent_hover_hex,
+        }
+        inactive_style = inactive_style % {
+            "bg": tokens.surface_bg,
+            "bg_hover": tokens.surface_bg_hover,
+            "fg_muted": tokens.fg_muted,
+        }
 
         # Left button - rounded left corners only
         left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
@@ -191,6 +206,14 @@ class FilterModeSelector(QWidget):
             self._hostlist_btn.setChecked(False)
             self._ipset_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
             self._ipset_btn.setChecked(True)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._update_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def setCurrentMode(self, mode: str, block_signals: bool = False):
         """Set mode without emitting signal if block_signals=True"""
@@ -249,30 +272,44 @@ class TTLButtonSelector(QWidget):
             self.value_changed.emit(value)
 
     def _update_styles(self):
+        tokens = get_theme_tokens()
         active_style = """
             QPushButton {
-                background: #60cdff;
+                background: %(accent)s;
                 border: none;
-                color: #000000;
+                color: rgba(0, 0, 0, 0.90);
                 font-size: 12px;
                 font-weight: 600;
                 border-radius: 4px;
                 padding: 0 2px;
             }
+            QPushButton:hover {
+                background: %(accent_hover)s;
+            }
         """
         inactive_style = """
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
+                background: %(bg)s;
                 border: none;
-                color: rgba(255, 255, 255, 0.7);
+                color: %(fg_muted)s;
                 font-size: 12px;
                 border-radius: 4px;
                 padding: 0 2px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: %(bg_hover)s;
             }
         """
+
+        active_style = active_style % {
+            "accent": tokens.accent_hex,
+            "accent_hover": tokens.accent_hover_hex,
+        }
+        inactive_style = inactive_style % {
+            "bg": tokens.surface_bg,
+            "bg_hover": tokens.surface_bg_hover,
+            "fg_muted": tokens.fg_muted,
+        }
         for btn, value in self._buttons:
             if value == self._current_value:
                 btn.setStyleSheet(active_style)
@@ -280,6 +317,14 @@ class TTLButtonSelector(QWidget):
             else:
                 btn.setStyleSheet(inactive_style)
                 btn.setChecked(False)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._update_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def setValue(self, value: int, block_signals: bool = False):
         """Устанавливает значение программно"""
@@ -303,6 +348,7 @@ class ClickableLabel(QLabel):
 
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
+        self._applying_theme_styles = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._update_style(False)
         # Устанавливаем свойство для предотвращения перетаскивания окна
@@ -310,27 +356,36 @@ class ClickableLabel(QLabel):
         self.setProperty("noDrag", True)
 
     def _update_style(self, hovered):
-        if hovered:
-            self.setStyleSheet("""
-                QLabel {
-                    color: #7dd7ff;
-                    text-decoration: underline;
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            color = tokens.accent_hover_hex if hovered else tokens.accent_hex
+            deco = "text-decoration: underline;" if hovered else ""
+            self.setStyleSheet(f"""
+                QLabel {{
+                    color: {color};
+                    {deco}
                     font-size: 22px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
                     background: transparent;
-                }
+                }}
             """)
-        else:
-            self.setStyleSheet("""
-                QLabel {
-                    color: #60cdff;
-                    font-size: 22px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-                    background: transparent;
-                }
-            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._update_style(False)
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def enterEvent(self, event):
         self._update_style(True)
@@ -412,10 +467,13 @@ class ArgsPreview(QLabel):
         self.setWordWrap(True)
         self.setTextFormat(Qt.TextFormat.PlainText)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        try:
+            self.setProperty("tone", "faint")
+        except Exception:
+            pass
         self.setStyleSheet("""
             QLabel {
                 background: transparent;
-                color: rgba(255, 255, 255, 0.45);
                 padding: 0 4px;
                 font-size: 9px;
                 font-family: 'Consolas', monospace;
@@ -469,6 +527,7 @@ class StrategyRow(QFrame):
         self._selected = False  # Активная (применённая) стратегия
         self._favorite = False  # Избранная (звезда)
         self._is_working = None
+        self._applying_theme_styles = False
 
         self.setObjectName("strategyRow")
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -505,10 +564,13 @@ class StrategyRow(QFrame):
 
         # Название стратегии
         self._name_label = QLabel(self._name)
+        try:
+            self._name_label.setProperty("tone", "primary")
+        except Exception:
+            pass
         self._name_label.setStyleSheet("""
             QLabel {
                 background: transparent;
-                color: #ffffff;
                 font-size: 12px;
                 font-family: 'Segoe UI', sans-serif;
             }
@@ -596,25 +658,39 @@ class StrategyRow(QFrame):
         return self._favorite
 
     def _update_style(self):
-        if self._selected:
-            self.setStyleSheet("""
-                QFrame#strategyRow {
-                    background: rgba(96, 205, 255, 0.12);
-                    border: none;
-                    border-radius: 6px;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QFrame#strategyRow {
-                    background: transparent;
-                    border: none;
-                    border-radius: 6px;
-                }
-                QFrame#strategyRow:hover {
-                    background: rgba(255, 255, 255, 0.04);
-                }
-            """)
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self._selected:
+                self.setStyleSheet(
+                    """
+                    QFrame#strategyRow {
+                        background: %(accent_soft)s;
+                        border: none;
+                        border-radius: 6px;
+                    }
+                    """
+                    % {"accent_soft": tokens.accent_soft_bg}
+                )
+            else:
+                self.setStyleSheet(
+                    """
+                    QFrame#strategyRow {
+                        background: transparent;
+                        border: none;
+                        border-radius: 6px;
+                    }
+                    QFrame#strategyRow:hover {
+                        background: %(bg_hover)s;
+                    }
+                    """
+                    % {"bg_hover": tokens.surface_bg_hover}
+                )
+        finally:
+            self._applying_theme_styles = False
 
     def _update_star_icon(self):
         """Звезда зависит от избранного, не от выбора"""
@@ -627,14 +703,23 @@ class StrategyRow(QFrame):
     def _get_star_icon(active: bool):
         """Lazy-cache qtawesome icons to avoid per-row icon construction cost."""
         try:
+            tokens = get_theme_tokens()
             cache = getattr(StrategyRow, "_STAR_ICON_CACHE", None)
             if cache is None:
-                cache = {
-                    True: qta.icon("fa5s.star", color="#ffd700"),
-                    False: qta.icon("mdi.star-outline", color="#ffffff"),
-                }
+                cache = {}
                 setattr(StrategyRow, "_STAR_ICON_CACHE", cache)
-            return cache[bool(active)]
+
+            if bool(active):
+                key = (True, "#ffd700")
+                if key not in cache:
+                    cache[key] = qta.icon("fa5s.star", color="#ffd700")
+                return cache[key]
+
+            inactive_color = tokens.fg_muted
+            key = (False, str(inactive_color))
+            if key not in cache:
+                cache[key] = qta.icon("mdi.star-outline", color=inactive_color)
+            return cache[key]
         except Exception:
             return None
 
@@ -656,7 +741,11 @@ class StrategyRow(QFrame):
     def _animate_row_loading(self):
         """Анимация спиннера в строке"""
         # Используем qtawesome Spin animation
-        icon = qta.icon('fa5s.circle-notch', color='#60cdff', animation=qta.Spin(self._loading_label))
+        try:
+            accent = get_theme_tokens().accent_hex
+        except Exception:
+            accent = "#60cdff"
+        icon = qta.icon('fa5s.circle-notch', color=accent, animation=qta.Spin(self._loading_label))
         pixmap = icon.pixmap(14, 14)
         self._loading_label.setPixmap(pixmap)
 
@@ -682,22 +771,28 @@ class StrategyRow(QFrame):
             return  # Для "Отключено" меню не нужно
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #2d2d2d;
-                border: none;
-                border-radius: 8px;
-                padding: 4px;
-            }
-            QMenu::item {
-                padding: 8px 16px;
-                border-radius: 4px;
-                color: white;
-            }
-            QMenu::item:selected {
-                background: rgba(96, 205, 255, 0.2);
-            }
-        """)
+        try:
+            tokens = get_theme_tokens()
+            menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
+            menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+            menu.setStyleSheet(f"""
+                QMenu {{
+                    background: {menu_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 8px;
+                    padding: 4px;
+                }}
+                QMenu::item {{
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    color: {menu_fg};
+                }}
+                QMenu::item:selected {{
+                    background: {tokens.accent_soft_bg_hover};
+                }}
+            """)
+        except Exception:
+            pass
 
         mark_working = menu.addAction("✓ Пометить как рабочую")
         mark_not_working = menu.addAction("✗ Пометить как нерабочую")
@@ -714,6 +809,17 @@ class StrategyRow(QFrame):
             self._is_working = new_state
             self.marked_working.emit(self._strategy_id, new_state)
             self._update_working_indicator()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._update_style()
+                self._update_star_icon()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
 
 class FilterChip(QPushButton):
@@ -736,6 +842,7 @@ class FilterChip(QPushButton):
         self._base_radius = 14
         self._selected_radius = int(selected_radius) if selected_radius is not None else self._base_radius
         self._selected_style = str(selected_style or "active").strip().lower() or "active"
+        self._applying_theme_styles = False
         self.setCheckable(True)
         self.setFixedHeight(28)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -757,78 +864,96 @@ class FilterChip(QPushButton):
         self.toggled_filter.emit(self._technique, bool(checked))
 
     def _update_style(self):
-        is_selected = bool(self.isChecked())
-        radius = self._selected_radius if is_selected else self._base_radius
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            is_selected = bool(self.isChecked())
+            radius = self._selected_radius if is_selected else self._base_radius
 
         # "neutral" style is used for phase tabs:
         # - the *selected* (currently viewed) tab should NOT change color; only shape changes
         # - phases that "contribute args" are marked via `_active_marker` (blue), selected or not
-        if self._selected_style == "neutral":
-            if bool(self._active_marker):
-                self.setStyleSheet('''
-                    QPushButton {
-                        background: rgba(96, 205, 255, 0.2);
-                        border: 1px solid rgba(96, 205, 255, 0.5);
-                        border-radius: %dpx;
-                        color: #60cdff;
+            if self._selected_style == "neutral":
+                if bool(self._active_marker):
+                    self.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {tokens.accent_soft_bg};
+                        border: 1px solid {tokens.accent_hex};
+                        border-radius: {radius}px;
+                        color: {tokens.accent_hex};
                         padding: 0 12px;
                         font-size: 12px;
-                    }
-                    QPushButton:hover {
-                        background: rgba(96, 205, 255, 0.3);
-                    }
-                ''' % radius)
-                return
+                    }}
+                    QPushButton:hover {{
+                        background: {tokens.accent_soft_bg_hover};
+                    }}
+                """)
+                    return
 
             # Same visuals as "inactive", but with a different radius when selected.
-            self.setStyleSheet('''
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.05);
+                self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {tokens.surface_bg};
                     border: none;
-                    border-radius: %dpx;
-                    color: rgba(255, 255, 255, 0.7);
+                    border-radius: {radius}px;
+                    color: {tokens.fg_muted};
                     padding: 0 12px;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                }
-            ''' % radius)
-            return
+                }}
+                QPushButton:hover {{
+                    background: {tokens.surface_bg_hover};
+                }}
+            """)
+                return
 
-        if is_selected or bool(self._active_marker):
-            self.setStyleSheet('''
-                QPushButton {
-                    background: rgba(96, 205, 255, 0.2);
-                    border: 1px solid rgba(96, 205, 255, 0.5);
-                    border-radius: %dpx;
-                    color: #60cdff;
+            if is_selected or bool(self._active_marker):
+                self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {tokens.accent_soft_bg};
+                    border: 1px solid {tokens.accent_hex};
+                    border-radius: {radius}px;
+                    color: {tokens.accent_hex};
                     padding: 0 12px;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background: rgba(96, 205, 255, 0.3);
-                }
-            ''' % radius)
-        else:
-            self.setStyleSheet('''
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.05);
+                }}
+                QPushButton:hover {{
+                    background: {tokens.accent_soft_bg_hover};
+                }}
+            """)
+            else:
+                self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {tokens.surface_bg};
                     border: none;
-                    border-radius: %dpx;
-                    color: rgba(255, 255, 255, 0.7);
+                    border-radius: {radius}px;
+                    color: {tokens.fg_muted};
                     padding: 0 12px;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                }
-            ''' % radius)
+                }}
+                QPushButton:hover {{
+                    background: {tokens.surface_bg_hover};
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
 
     def reset(self):
         self._active_marker = False
         self.setChecked(False)
         self._update_style()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._update_style()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
 
 class PhaseTabBar(QTabBar):
@@ -841,11 +966,6 @@ class PhaseTabBar(QTabBar):
     - Inactive phases: white text
     - Horizontal scrolling when not fitting: QTabBar scroll buttons
     """
-
-    _ACCENT_CYAN = QColor("#60cdff")
-    _TEXT_PRIMARY = QColor(255, 255, 255)
-    _TEXT_SECONDARY = QColor(255, 255, 255)
-    _BG_HOVER = QColor(255, 255, 255, 15)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -901,6 +1021,14 @@ class PhaseTabBar(QTabBar):
                 pass
         super().mouseMoveEvent(event)
 
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self.update()
+        except Exception:
+            pass
+        super().changeEvent(event)
+
     def paintEvent(self, event):  # noqa: N802 (Qt override)
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -929,11 +1057,32 @@ class PhaseTabBar(QTabBar):
             key = self._tab_key(i)
             is_active = bool(key) and (key in (self._active_keys or set()))
 
+            try:
+                tokens = get_theme_tokens()
+                accent = QColor(tokens.accent_hex)
+            except Exception:
+                accent = QColor("#60cdff")
+
+            try:
+                text_primary = self.palette().color(self.foregroundRole())
+            except Exception:
+                text_primary = QColor(255, 255, 255)
+            text_secondary = QColor(text_primary)
+            try:
+                text_secondary.setAlphaF(0.70)
+            except Exception:
+                pass
+            hover_bg = QColor(text_primary)
+            try:
+                hover_bg.setAlphaF(0.06)
+            except Exception:
+                pass
+
             # Hover background (subtle)
             if is_hover:
                 try:
                     p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(self._BG_HOVER)
+                    p.setBrush(hover_bg)
                     p.drawRoundedRect(r.adjusted(0, 1, 0, -2), hover_radius, hover_radius)
                 except Exception:
                     pass
@@ -942,7 +1091,7 @@ class PhaseTabBar(QTabBar):
             if is_selected:
                 try:
                     p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(self._ACCENT_CYAN)
+                    p.setBrush(accent)
                     underline_y = float(r.bottom()) - underline_h + 1.0
                     p.drawRoundedRect(
                         QRectF(float(r.left()), float(underline_y), float(r.width()), float(underline_h)),
@@ -959,9 +1108,9 @@ class PhaseTabBar(QTabBar):
                 text = ""
 
             try:
-                color = self._ACCENT_CYAN if is_active else self._TEXT_SECONDARY
+                color = accent if is_active else text_secondary
                 if is_selected and not is_active:
-                    color = self._TEXT_PRIMARY
+                    color = text_primary
                 p.setPen(color)
             except Exception:
                 pass
@@ -1215,6 +1364,10 @@ class StrategyDetailPage(BasePage):
 
     def _build_content(self):
         """Строит содержимое страницы"""
+        tokens = get_theme_tokens()
+        menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
+        menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+
         # Скрываем стандартный заголовок BasePage
         self.title_label.hide()
         if hasattr(self, 'subtitle_label'):
@@ -1240,9 +1393,12 @@ class StrategyDetailPage(BasePage):
 
         # Разделитель ">"
         self._separator = QLabel("  >  ")
+        try:
+            self._separator.setProperty("tone", "faint")
+        except Exception:
+            pass
         self._separator.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 0.4);
                 font-size: 22px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
@@ -1253,9 +1409,12 @@ class StrategyDetailPage(BasePage):
 
         # Название категории (не кликабельное)
         self._title = QLabel("Выберите категорию")
+        try:
+            self._title.setProperty("tone", "primary")
+        except Exception:
+            pass
         self._title.setStyleSheet("""
             QLabel {
-                color: #ffffff;
                 font-size: 22px;
                 font-weight: 600;
                 font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
@@ -1273,7 +1432,7 @@ class StrategyDetailPage(BasePage):
         subtitle_row.setSpacing(6)
 
         # Спиннер загрузки
-        self._spinner = Win11Spinner(size=16, color="#60cdff")
+        self._spinner = Win11Spinner(size=16, color=tokens.accent_hex)
         self._spinner.hide()
         subtitle_row.addWidget(self._spinner)
 
@@ -1287,15 +1446,21 @@ class StrategyDetailPage(BasePage):
         # Подзаголовок (протокол | порты)
         self._subtitle = QLabel("")
         self._subtitle.setFont(QFont("Segoe UI", 11))
-        self._subtitle.setStyleSheet("color: rgba(255, 255, 255, 0.5); background: transparent;")
+        try:
+            self._subtitle.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self._subtitle.setStyleSheet("background: transparent;")
         subtitle_row.addWidget(self._subtitle)
 
         # Выбранная стратегия (мелким шрифтом, справа от портов)
         self._subtitle_strategy = ElidedLabel("")
         self._subtitle_strategy.setFont(QFont("Segoe UI", 11))
-        self._subtitle_strategy.setStyleSheet(
-            "color: rgba(255, 255, 255, 0.5); background: transparent; padding-left: 10px;"
-        )
+        try:
+            self._subtitle_strategy.setProperty("tone", "muted")
+        except Exception:
+            pass
+        self._subtitle_strategy.setStyleSheet("background: transparent; padding-left: 10px;")
         self._subtitle_strategy.hide()
         subtitle_row.addWidget(self._subtitle_strategy, 1)
 
@@ -1327,12 +1492,12 @@ class StrategyDetailPage(BasePage):
         self._toolbar_frame.setFrameShape(QFrame.Shape.NoFrame)
         self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._toolbar_frame.setVisible(False)
-        self._toolbar_frame.setStyleSheet("""
-            QFrame {
-                background: rgba(255, 255, 255, 0.03);
+        self._toolbar_frame.setStyleSheet(f"""
+            QFrame {{
+                background: {tokens.surface_bg};
                 border: none;
                 border-radius: 8px;
-            }
+            }}
         """)
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
@@ -1346,19 +1511,27 @@ class StrategyDetailPage(BasePage):
         filter_mode_layout.setSpacing(12)
 
         # Icon FIRST
-        filter_icon = QLabel()
-        filter_icon.setFixedSize(22, 22)  # Match Win11ToggleRow icon size
-        filter_icon.setPixmap(qta.icon("fa5s.filter", color="#60cdff").pixmap(18, 18))
-        filter_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        filter_mode_layout.addWidget(filter_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self._filter_icon = QLabel()
+        self._filter_icon.setFixedSize(22, 22)  # Match Win11ToggleRow icon size
+        self._filter_icon.setPixmap(qta.icon("fa5s.filter", color=tokens.accent_hex).pixmap(18, 18))
+        self._filter_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        filter_mode_layout.addWidget(self._filter_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         # Text
         filter_text_layout = QVBoxLayout()
         filter_text_layout.setSpacing(2)
         filter_title = QLabel("Режим фильтрации")
-        filter_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
+        try:
+            filter_title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        filter_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
         filter_desc = QLabel("Hostlist - по доменам, IPset - по IP")
-        filter_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        try:
+            filter_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        filter_desc.setStyleSheet("font-size: 11px; background: transparent;")
         filter_text_layout.addWidget(filter_title)
         filter_text_layout.addWidget(filter_desc)
         filter_mode_layout.addLayout(filter_text_layout)
@@ -1384,7 +1557,7 @@ class StrategyDetailPage(BasePage):
         # Icon
         out_range_icon = QLabel()
         out_range_icon.setFixedSize(22, 22)
-        out_range_icon.setPixmap(qta.icon("fa5s.filter", color="#60cdff").pixmap(18, 18))
+        out_range_icon.setPixmap(qta.icon("fa5s.filter", color=tokens.accent_hex).pixmap(18, 18))
         out_range_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         out_range_main_layout.addWidget(out_range_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
 
@@ -1392,9 +1565,17 @@ class StrategyDetailPage(BasePage):
         out_range_text_layout = QVBoxLayout()
         out_range_text_layout.setSpacing(2)
         out_range_title = QLabel("Out Range")
-        out_range_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
+        try:
+            out_range_title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        out_range_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
         out_range_desc = QLabel("Ограничение исходящих пакетов для обработки")
-        out_range_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        try:
+            out_range_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        out_range_desc.setStyleSheet("font-size: 11px; background: transparent;")
         out_range_text_layout.addWidget(out_range_title)
         out_range_text_layout.addWidget(out_range_desc)
         out_range_main_layout.addLayout(out_range_text_layout)
@@ -1403,7 +1584,11 @@ class StrategyDetailPage(BasePage):
 
         # Mode selector (n/d buttons)
         mode_label = QLabel("Режим:")
-        mode_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            mode_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        mode_label.setStyleSheet("font-size: 12px; background: transparent;")
         out_range_main_layout.addWidget(mode_label)
 
         self._out_range_mode_n = QPushButton("n")
@@ -1426,22 +1611,29 @@ class StrategyDetailPage(BasePage):
 
         # Value spinbox
         value_label = QLabel("Значение:")
-        value_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent; margin-left: 12px;")
+        try:
+            value_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        value_label.setStyleSheet("font-size: 12px; background: transparent; margin-left: 12px;")
         out_range_main_layout.addWidget(value_label)
 
         self._out_range_spin = QSpinBox()
         self._out_range_spin.setRange(1, 999)
         self._out_range_spin.setValue(8)
         self._out_range_spin.setToolTip("--out-range: ограничение количества исходящих пакетов (n) или задержки (d)")
-        self._out_range_spin.setStyleSheet("""
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
+        self._out_range_spin.setStyleSheet(f"""
+            QSpinBox {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
                 padding: 4px 8px;
-                color: white;
+                color: {tokens.fg};
                 min-width: 60px;
-            }
+            }}
+            QSpinBox:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
         """)
         self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
         out_range_main_layout.addWidget(self._out_range_spin)
@@ -1462,16 +1654,24 @@ class StrategyDetailPage(BasePage):
         send_header.setSpacing(12)
         send_icon = QLabel()
         send_icon.setFixedSize(22, 22)
-        send_icon.setPixmap(qta.icon("fa5s.paper-plane", color="#60cdff").pixmap(18, 18))
+        send_icon.setPixmap(qta.icon("fa5s.paper-plane", color=tokens.accent_hex).pixmap(18, 18))
         send_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         send_header.addWidget(send_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         send_title_layout = QVBoxLayout()
         send_title_layout.setSpacing(2)
         send_title = QLabel("Send параметры")
-        send_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
+        try:
+            send_title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        send_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
         send_desc = QLabel("Отправка копий пакетов")
-        send_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        try:
+            send_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        send_desc.setStyleSheet("font-size: 11px; background: transparent;")
         send_title_layout.addWidget(send_title)
         send_title_layout.addWidget(send_desc)
         send_header.addLayout(send_title_layout)
@@ -1483,15 +1683,19 @@ class StrategyDetailPage(BasePage):
         self._send_toggle.setFixedSize(44, 22)
         self._send_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._send_toggle.toggled.connect(self._on_send_toggled)
-        self._send_toggle.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.1);
+        self._send_toggle.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
                 border-radius: 11px;
+                border: 1px solid {tokens.surface_border};
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QPushButton:checked {{
+                background: {tokens.accent_hex};
                 border: none;
-            }
-            QPushButton:checked {
-                background: #60cdff;
-            }
+            }}
         """)
         send_header.addWidget(self._send_toggle)
 
@@ -1506,55 +1710,62 @@ class StrategyDetailPage(BasePage):
         send_settings_layout.setSpacing(8)
 
         # Combo style for Send section
-        send_combo_style = """
-            QComboBox {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
+        send_combo_style = f"""
+            QComboBox {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 4px 8px;
                 min-width: 140px;
                 font-size: 12px;
-            }
-            QComboBox:hover {
-                background: rgba(255, 255, 255, 0.12);
-            }
-            QComboBox::drop-down {
+            }}
+            QComboBox:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 20px;
-            }
-            QComboBox::down-arrow {
+            }}
+            QComboBox::down-arrow {{
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
-                border-top: 5px solid rgba(255, 255, 255, 0.7);
+                border-top: 5px solid {tokens.fg_muted};
                 margin-right: 8px;
-            }
-            QComboBox QAbstractItemView {
-                background: #2d2d2d;
-                border: none;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {menu_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: #ffffff;
-                selection-background-color: rgba(96, 205, 255, 0.3);
-            }
+                color: {menu_fg};
+                selection-background-color: {tokens.accent_soft_bg_hover};
+            }}
         """
 
         # SpinBox style for Send section
-        send_spinbox_style = """
-            QSpinBox {
-                background: rgba(255,255,255,0.06);
-                border: none;
+        send_spinbox_style = f"""
+            QSpinBox {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
                 padding: 4px 8px;
-                color: white;
-            }
+                color: {tokens.fg};
+            }}
+            QSpinBox:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
         """
 
         # send_repeats row
         repeats_row = QHBoxLayout()
         repeats_row.setSpacing(8)
         repeats_label = QLabel("repeats:")
-        repeats_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            repeats_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        repeats_label.setStyleSheet("font-size: 12px; background: transparent;")
         repeats_label.setFixedWidth(60)
         self._send_repeats_spin = QSpinBox()
         self._send_repeats_spin.setRange(0, 10)
@@ -1571,7 +1782,11 @@ class StrategyDetailPage(BasePage):
         send_ip_ttl_row = QHBoxLayout()
         send_ip_ttl_row.setSpacing(8)
         send_ip_ttl_label = QLabel("ip_ttl:")
-        send_ip_ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            send_ip_ttl_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        send_ip_ttl_label.setStyleSheet("font-size: 12px; background: transparent;")
         send_ip_ttl_label.setFixedWidth(60)
         self._send_ip_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -1588,7 +1803,11 @@ class StrategyDetailPage(BasePage):
         send_ip6_ttl_row = QHBoxLayout()
         send_ip6_ttl_row.setSpacing(8)
         send_ip6_ttl_label = QLabel("ip6_ttl:")
-        send_ip6_ttl_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            send_ip6_ttl_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        send_ip6_ttl_label.setStyleSheet("font-size: 12px; background: transparent;")
         send_ip6_ttl_label.setFixedWidth(60)
         self._send_ip6_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -1605,7 +1824,11 @@ class StrategyDetailPage(BasePage):
         send_ip_id_row = QHBoxLayout()
         send_ip_id_row.setSpacing(8)
         send_ip_id_label = QLabel("ip_id:")
-        send_ip_id_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            send_ip_id_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        send_ip_id_label.setStyleSheet("font-size: 12px; background: transparent;")
         send_ip_id_label.setFixedWidth(60)
         self._send_ip_id_combo = QComboBox()
         self._send_ip_id_combo.addItems(["none", "seq", "rnd", "zero"])
@@ -1621,27 +1844,33 @@ class StrategyDetailPage(BasePage):
         send_badsum_row = QHBoxLayout()
         send_badsum_row.setSpacing(8)
         send_badsum_label = QLabel("badsum:")
-        send_badsum_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            send_badsum_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        send_badsum_label.setStyleSheet("font-size: 12px; background: transparent;")
         send_badsum_label.setFixedWidth(60)
         self._send_badsum_check = QCheckBox()
         self._send_badsum_check.setToolTip("Отправлять пакеты с неправильной контрольной суммой")
-        self._send_badsum_check.setStyleSheet("""
-            QCheckBox {
-                color: white;
+        self._send_badsum_check.setStyleSheet(f"""
+            QCheckBox {{
+                color: {tokens.fg};
                 spacing: 8px;
-            }
-            QCheckBox::indicator {
+            }}
+            QCheckBox::indicator {{
                 width: 18px;
                 height: 18px;
                 border-radius: 4px;
-                background: rgba(255, 255, 255, 0.08);
-            }
-            QCheckBox::indicator:hover {
-                background: rgba(255, 255, 255, 0.12);
-            }
-            QCheckBox::indicator:checked {
-                background: #60cdff;
-            }
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+            }}
+            QCheckBox::indicator:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QCheckBox::indicator:checked {{
+                background: {tokens.accent_hex};
+                border: none;
+            }}
         """)
         self._send_badsum_check.stateChanged.connect(self._save_syndata_settings)
         send_badsum_row.addWidget(send_badsum_label)
@@ -1666,16 +1895,24 @@ class StrategyDetailPage(BasePage):
         syndata_header.setSpacing(12)
         syndata_icon = QLabel()
         syndata_icon.setFixedSize(22, 22)
-        syndata_icon.setPixmap(qta.icon("fa5s.cog", color="#60cdff").pixmap(18, 18))
+        syndata_icon.setPixmap(qta.icon("fa5s.cog", color=tokens.accent_hex).pixmap(18, 18))
         syndata_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         syndata_header.addWidget(syndata_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         syndata_title_layout = QVBoxLayout()
         syndata_title_layout.setSpacing(2)
         syndata_title = QLabel("Syndata параметры")
-        syndata_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500; background: transparent;")
+        try:
+            syndata_title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        syndata_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
         syndata_desc = QLabel("Дополнительные параметры обхода DPI")
-        syndata_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        try:
+            syndata_desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        syndata_desc.setStyleSheet("font-size: 11px; background: transparent;")
         syndata_title_layout.addWidget(syndata_title)
         syndata_title_layout.addWidget(syndata_desc)
         syndata_header.addLayout(syndata_title_layout)
@@ -1687,15 +1924,19 @@ class StrategyDetailPage(BasePage):
         self._syndata_toggle.setFixedSize(44, 22)
         self._syndata_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._syndata_toggle.toggled.connect(self._on_syndata_toggled)
-        self._syndata_toggle.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.1);
+        self._syndata_toggle.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
                 border-radius: 11px;
+                border: 1px solid {tokens.surface_border};
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QPushButton:checked {{
+                background: {tokens.accent_hex};
                 border: none;
-            }
-            QPushButton:checked {
-                background: #60cdff;
-            }
+            }}
         """)
         syndata_header.addWidget(self._syndata_toggle)
 
@@ -1710,44 +1951,48 @@ class StrategyDetailPage(BasePage):
         settings_layout.setSpacing(8)
 
         # Combo style
-        combo_style = """
-            QComboBox {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
+        combo_style = f"""
+            QComboBox {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 4px 8px;
                 min-width: 140px;
                 font-size: 12px;
-            }
-            QComboBox:hover {
-                background: rgba(255, 255, 255, 0.12);
-            }
-            QComboBox::drop-down {
+            }}
+            QComboBox:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 20px;
-            }
-            QComboBox::down-arrow {
+            }}
+            QComboBox::down-arrow {{
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
-                border-top: 5px solid rgba(255, 255, 255, 0.7);
+                border-top: 5px solid {tokens.fg_muted};
                 margin-right: 8px;
-            }
-            QComboBox QAbstractItemView {
-                background: #2d2d2d;
-                border: none;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {menu_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: #ffffff;
-                selection-background-color: rgba(96, 205, 255, 0.3);
-            }
+                color: {menu_fg};
+                selection-background-color: {tokens.accent_soft_bg_hover};
+            }}
         """
 
         # Blob selector row
         blob_row = QHBoxLayout()
         blob_row.setSpacing(8)
         blob_label = QLabel("blob:")
-        blob_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            blob_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        blob_label.setStyleSheet("font-size: 12px; background: transparent;")
         blob_label.setFixedWidth(60)
         self._blob_combo = QComboBox()
         # Get all available blobs (system + user)
@@ -1769,7 +2014,11 @@ class StrategyDetailPage(BasePage):
         tls_mod_row = QHBoxLayout()
         tls_mod_row.setSpacing(8)
         tls_mod_label = QLabel("tls_mod:")
-        tls_mod_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            tls_mod_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        tls_mod_label.setStyleSheet("font-size: 12px; background: transparent;")
         tls_mod_label.setFixedWidth(60)
         self._tls_mod_combo = QComboBox()
         self._tls_mod_combo.addItems(["none", "rnd", "rndsni", "sni=google.com"])
@@ -1784,7 +2033,11 @@ class StrategyDetailPage(BasePage):
         # AUTOTTL SETTINGS (три строки с кнопками)
         # ═══════════════════════════════════════════════════════════════
         autottl_header = QLabel("AutoTTL")
-        autottl_header.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; background: transparent;")
+        try:
+            autottl_header.setProperty("tone", "muted")
+        except Exception:
+            pass
+        autottl_header.setStyleSheet("font-size: 11px; background: transparent;")
         settings_layout.addWidget(autottl_header)
 
         # Контейнер для трёх строк autottl
@@ -1796,7 +2049,11 @@ class StrategyDetailPage(BasePage):
         delta_row = QHBoxLayout()
         delta_row.setSpacing(8)
         delta_label = QLabel("d:")
-        delta_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            delta_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        delta_label.setStyleSheet("font-size: 12px; background: transparent;")
         delta_label.setFixedWidth(30)
         self._autottl_delta_selector = TTLButtonSelector(
             values=[0, -1, -2, -3, -4, -5, -6, -7, -8, -9],
@@ -1813,7 +2070,11 @@ class StrategyDetailPage(BasePage):
         min_row = QHBoxLayout()
         min_row.setSpacing(8)
         min_label = QLabel("min:")
-        min_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            min_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        min_label.setStyleSheet("font-size: 12px; background: transparent;")
         min_label.setFixedWidth(30)
         self._autottl_min_selector = TTLButtonSelector(
             values=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -1830,7 +2091,11 @@ class StrategyDetailPage(BasePage):
         max_row = QHBoxLayout()
         max_row.setSpacing(8)
         max_label = QLabel("max:")
-        max_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            max_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        max_label.setStyleSheet("font-size: 12px; background: transparent;")
         max_label.setFixedWidth(30)
         self._autottl_max_selector = TTLButtonSelector(
             values=[15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
@@ -1849,7 +2114,11 @@ class StrategyDetailPage(BasePage):
         flags_row = QHBoxLayout()
         flags_row.setSpacing(8)
         flags_label = QLabel("tcp_flags_unset:")
-        flags_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        try:
+            flags_label.setProperty("tone", "muted")
+        except Exception:
+            pass
+        flags_label.setStyleSheet("font-size: 12px; background: transparent;")
         flags_label.setFixedWidth(100)
         self._tcp_flags_combo = QComboBox()
         self._tcp_flags_combo.addItems(["none", "ack", "psh", "ack,psh"])
@@ -1905,40 +2174,43 @@ class StrategyDetailPage(BasePage):
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Поиск по имени или args...")
         self._search_input.setFixedHeight(36)
-        self._search_input.setStyleSheet("""
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.05);
-                border: none;
+        self._search_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 12px;
                 font-size: 13px;
-            }
-            QLineEdit:focus {
-                background: rgba(255, 255, 255, 0.08);
-            }
-            QLineEdit::placeholder {
-                color: rgba(255, 255, 255, 0.4);
-            }
+            }}
+            QLineEdit:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
+            QLineEdit::placeholder {{
+                color: {tokens.fg_faint};
+            }}
         """)
         self._search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self._search_input)
 
         # Кнопка сортировки
         self._sort_btn = QPushButton()
-        self._sort_btn.setIcon(qta.icon('fa5s.sort-alpha-down', color='#999999'))
+        self._sort_btn.setIcon(qta.icon('fa5s.sort-alpha-down', color=tokens.fg_faint))
         self._sort_btn.setFixedSize(36, 36)
         self._sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._sort_btn.setToolTip("Сортировка")
-        self._sort_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.05);
-                border: none;
+        self._sort_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.08);
-            }
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
         """)
         self._sort_btn.clicked.connect(self._show_sort_menu)
         search_layout.addWidget(self._sort_btn)
@@ -1952,23 +2224,24 @@ class StrategyDetailPage(BasePage):
 
         # Кнопка редактирования args (лениво, отдельная панель)
         self._edit_args_btn = QPushButton()
-        self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color='#999999'))
+        self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color=tokens.fg_faint))
         self._edit_args_btn.setFixedSize(36, 36)
         self._edit_args_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._edit_args_btn.setToolTip("Аргументы стратегии (по выбранной категории)")
         self._edit_args_btn.setEnabled(False)
-        self._edit_args_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.05);
-                border: none;
+        self._edit_args_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.08);
-            }
-            QPushButton:disabled {
-                background: rgba(255, 255, 255, 0.02);
-            }
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QPushButton:disabled {{
+                background: transparent;
+                border: 1px solid {tokens.surface_border};
+            }}
         """)
         self._edit_args_btn.clicked.connect(self._toggle_args_editor)
         search_layout.addWidget(self._edit_args_btn)
@@ -1983,12 +2256,12 @@ class StrategyDetailPage(BasePage):
         self._args_editor_dirty = False
         self._args_editor_frame = QFrame()
         self._args_editor_frame.setVisible(False)
-        self._args_editor_frame.setStyleSheet("""
-            QFrame {
-                background: rgba(255, 255, 255, 0.03);
+        self._args_editor_frame.setStyleSheet(f"""
+            QFrame {{
+                background: {tokens.surface_bg};
                 border: none;
                 border-radius: 8px;
-            }
+            }}
         """)
         args_editor_layout = QVBoxLayout(self._args_editor_frame)
         args_editor_layout.setContentsMargins(12, 10, 12, 10)
@@ -1998,7 +2271,11 @@ class StrategyDetailPage(BasePage):
         args_header.setContentsMargins(0, 0, 0, 0)
         args_header.setSpacing(8)
         args_title = QLabel("Аргументы стратегии (один аргумент на строку)")
-        args_title.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 12px; background: transparent;")
+        try:
+            args_title.setProperty("tone", "muted")
+        except Exception:
+            pass
+        args_title.setStyleSheet("font-size: 12px; background: transparent;")
         args_header.addWidget(args_title)
         args_header.addStretch()
 
@@ -2006,35 +2283,35 @@ class StrategyDetailPage(BasePage):
         self._args_apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._args_apply_btn.setEnabled(False)
         self._args_apply_btn.clicked.connect(self._apply_args_editor)
-        self._args_apply_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(96, 205, 255, 0.18);
-                border: 1px solid rgba(96, 205, 255, 0.35);
+        self._args_apply_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.accent_soft_bg};
+                border: 1px solid {tokens.accent_hex};
                 border-radius: 6px;
-                color: #60cdff;
+                color: {tokens.accent_hex};
                 padding: 6px 12px;
                 font-size: 11px;
                 font-weight: 600;
-            }
-            QPushButton:hover { background: rgba(96, 205, 255, 0.25); }
-            QPushButton:disabled { background: rgba(255,255,255,0.04); border: none; color: rgba(255,255,255,0.35); }
+            }}
+            QPushButton:hover {{ background: {tokens.accent_soft_bg_hover}; }}
+            QPushButton:disabled {{ background: transparent; border: 1px solid {tokens.surface_border}; color: {tokens.fg_faint}; }}
         """)
         args_header.addWidget(self._args_apply_btn)
 
         self._args_cancel_btn = QPushButton("Скрыть")
         self._args_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._args_cancel_btn.clicked.connect(self._hide_args_editor)
-        self._args_cancel_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.05);
-                border: none;
+        self._args_cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255,255,255,0.8);
+                color: {tokens.fg};
                 padding: 6px 12px;
                 font-size: 11px;
                 font-weight: 600;
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.08); }
+            }}
+            QPushButton:hover {{ background: {tokens.surface_bg_hover}; }}
         """)
         args_header.addWidget(self._args_cancel_btn)
 
@@ -2044,19 +2321,22 @@ class StrategyDetailPage(BasePage):
         self._args_editor.setPlaceholderText("Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1")
         self._args_editor.setMinimumHeight(80)
         self._args_editor.setMaximumHeight(160)
-        self._args_editor.setStyleSheet("""
-            QPlainTextEdit {
-                background: rgba(0, 0, 0, 0.12);
-                border: 1px solid rgba(255,255,255,0.08);
+        self._args_editor.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255, 255, 255, 0.9);
+                color: {tokens.fg};
                 padding: 8px;
                 font-size: 11px;
                 font-family: 'Consolas', monospace;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid rgba(96, 205, 255, 0.35);
-            }
+            }}
+            QPlainTextEdit:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            QPlainTextEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
         """)
         self._args_editor.textChanged.connect(self._on_args_editor_changed)
         args_editor_layout.addWidget(self._args_editor)
@@ -2092,17 +2372,17 @@ class StrategyDetailPage(BasePage):
             pass
 
         # Keep scroll buttons aligned with the app style (tabs are custom-painted).
-        self._phase_tabbar.setStyleSheet("""
-            QTabBar { background: transparent; }
-            QTabBar QToolButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: none;
+        self._phase_tabbar.setStyleSheet(f"""
+            QTabBar {{ background: transparent; }}
+            QTabBar QToolButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 margin: 0 2px;
-            }
-            QTabBar QToolButton:hover {
-                background: rgba(255, 255, 255, 0.10);
-            }
+            }}
+            QTabBar QToolButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
         """)
 
         self._phase_tab_index_by_key = {}
@@ -3159,30 +3439,44 @@ class StrategyDetailPage(BasePage):
 
     def _update_out_range_mode_styles(self):
         """Обновляет стили кнопок режима out_range"""
+        tokens = get_theme_tokens()
         active_style = """
             QPushButton {
-                background: #60cdff;
+                background: %(accent)s;
                 border: none;
-                color: #000000;
+                color: rgba(0, 0, 0, 0.90);
                 font-size: 12px;
                 font-weight: 600;
                 border-radius: 4px;
                 padding: 0 4px;
             }
+            QPushButton:hover {
+                background: %(accent_hover)s;
+            }
         """
         inactive_style = """
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
+                background: %(bg)s;
                 border: none;
-                color: rgba(255, 255, 255, 0.7);
+                color: %(fg_muted)s;
                 font-size: 12px;
                 border-radius: 4px;
                 padding: 0 4px;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: %(bg_hover)s;
             }
         """
+
+        active_style = active_style % {
+            "accent": tokens.accent_hex,
+            "accent_hover": tokens.accent_hover_hex,
+        }
+        inactive_style = inactive_style % {
+            "bg": tokens.surface_bg,
+            "bg_hover": tokens.surface_bg_hover,
+            "fg_muted": tokens.fg_muted,
+        }
 
         if self._out_range_mode == "n":
             self._out_range_mode_n.setStyleSheet(active_style)
@@ -4142,7 +4436,8 @@ class StrategyDetailPage(BasePage):
         mode = str(self._sort_mode or "default").strip().lower() or "default"
         is_active = mode != "default"
         try:
-            color = "#60cdff" if is_active else "#999999"
+            tokens = get_theme_tokens()
+            color = tokens.accent_hex if is_active else tokens.fg_faint
             btn.setIcon(qta.icon('fa5s.sort-alpha-down', color=color))
         except Exception:
             pass
@@ -4168,7 +4463,8 @@ class StrategyDetailPage(BasePage):
             return
         is_active = bool(self._active_filters)
         try:
-            color = "#60cdff" if is_active else "#999999"
+            tokens = get_theme_tokens()
+            color = tokens.accent_hex if is_active else tokens.fg_faint
             btn.setIcon(qta.icon('fa5s.filter', color=color))
         except Exception:
             pass
@@ -4179,27 +4475,35 @@ class StrategyDetailPage(BasePage):
 
         # Match the visual language of other icon buttons, but highlight when active.
         if is_active:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: rgba(96, 205, 255, 0.16);
-                    border: 1px solid rgba(96, 205, 255, 0.35);
-                    border-radius: 8px;
-                }
-                QPushButton:hover {
-                    background: rgba(96, 205, 255, 0.22);
-                }
-            """)
+            try:
+                tokens = get_theme_tokens()
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {tokens.accent_soft_bg};
+                        border: 1px solid {tokens.accent_hex};
+                        border-radius: 8px;
+                    }}
+                    QPushButton:hover {{
+                        background: {tokens.accent_soft_bg_hover};
+                    }}
+                """)
+            except Exception:
+                pass
         else:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.05);
-                    border: none;
-                    border-radius: 8px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.08);
-                }
-            """)
+            try:
+                tokens = get_theme_tokens()
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                    }}
+                    QPushButton:hover {{
+                        background: {tokens.surface_bg_hover};
+                    }}
+                """)
+            except Exception:
+                pass
 
     def _show_technique_filter_menu(self) -> None:
         """Shows a compact popup with technique filters (checkboxes)."""
@@ -4209,13 +4513,16 @@ class StrategyDetailPage(BasePage):
             return
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #2d2d2d;
-                border: none;
+        tokens = get_theme_tokens()
+        menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
+        menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background: {menu_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 10px;
                 padding: 6px;
-            }
+            }}
         """)
 
         panel = QWidget(menu)
@@ -4227,7 +4534,11 @@ class StrategyDetailPage(BasePage):
         panel_layout.setSpacing(8)
 
         title = QLabel("Фильтр по техникам")
-        title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 600; background: transparent;")
+        try:
+            title.setProperty("tone", "primary")
+        except Exception:
+            pass
+        title.setStyleSheet("font-size: 13px; font-weight: 600; background: transparent;")
         panel_layout.addWidget(title)
 
         desc = QLabel(
@@ -4235,14 +4546,18 @@ class StrategyDetailPage(BasePage):
             "Техники определяются из args (--dpi-desync/--lua-desync) и не меняют настройки категории."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: rgba(255,255,255,0.65); font-size: 11px; background: transparent;")
+        try:
+            desc.setProperty("tone", "muted")
+        except Exception:
+            pass
+        desc.setStyleSheet("font-size: 11px; background: transparent;")
         panel_layout.addWidget(desc)
 
         # Checkboxes (keep menu open while toggling)
         checkboxes: dict[str, QCheckBox] = {}
         cb_style = """
             QCheckBox {
-                color: rgba(255, 255, 255, 0.88);
+                color: %(fg)s;
                 spacing: 8px;
                 font-size: 12px;
             }
@@ -4250,15 +4565,24 @@ class StrategyDetailPage(BasePage):
                 width: 16px;
                 height: 16px;
                 border-radius: 4px;
-                background: rgba(255, 255, 255, 0.08);
+                background: %(bg)s;
+                border: 1px solid %(border)s;
             }
             QCheckBox::indicator:hover {
-                background: rgba(255, 255, 255, 0.12);
+                background: %(bg_hover)s;
             }
             QCheckBox::indicator:checked {
-                background: #60cdff;
+                background: %(accent)s;
+                border: none;
             }
         """
+        cb_style = cb_style % {
+            "fg": menu_fg,
+            "bg": tokens.surface_bg,
+            "bg_hover": tokens.surface_bg_hover,
+            "border": tokens.surface_border,
+            "accent": tokens.accent_hex,
+        }
 
         active = {str(t or "").strip().lower() for t in (self._active_filters or set()) if str(t or "").strip()}
         for label, key in STRATEGY_TECHNIQUE_FILTERS:
@@ -4276,17 +4600,17 @@ class StrategyDetailPage(BasePage):
 
         clear_btn = QPushButton("Сбросить")
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: none;
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255,255,255,0.85);
+                color: {menu_fg};
                 padding: 6px 10px;
                 font-size: 11px;
                 font-weight: 600;
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.10); }
+            }}
+            QPushButton:hover {{ background: {tokens.surface_bg_hover}; }}
         """)
 
         def _clear() -> None:
@@ -4416,21 +4740,24 @@ class StrategyDetailPage(BasePage):
     def _show_sort_menu(self):
         """Показывает меню сортировки"""
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #2d2d2d;
-                border: none;
+        tokens = get_theme_tokens()
+        menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
+        menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background: {menu_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 8px 16px;
                 border-radius: 4px;
-                color: white;
-            }
-            QMenu::item:selected {
-                background: rgba(96, 205, 255, 0.2);
-            }
+                color: {menu_fg};
+            }}
+            QMenu::item:selected {{
+                background: {tokens.accent_soft_bg_hover};
+            }}
         """)
 
         default_action = menu.addAction("По умолчанию")

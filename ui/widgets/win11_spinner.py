@@ -4,6 +4,8 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
+from ui.theme import get_theme_tokens
+
 
 class Win11Spinner(QWidget):
     """Спиннер в стиле Windows 11 - кольцо с бегущей дугой"""
@@ -38,7 +40,12 @@ class Win11Spinner(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Фоновое кольцо (полупрозрачное)
-        pen = QPen(QColor(255, 255, 255, 30))
+        try:
+            tokens = get_theme_tokens()
+            ring = QColor(0, 0, 0, 30) if tokens.is_light else QColor(255, 255, 255, 30)
+        except Exception:
+            ring = QColor(255, 255, 255, 30)
+        pen = QPen(ring)
         pen.setWidth(2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)

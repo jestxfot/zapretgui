@@ -164,6 +164,14 @@ label = recommended
 description = Фейки с md5sig, без нарезки
 --lua-desync=fake:blob=fake_default_tls:repeats=6:tcp_md5:tls_mod=rnd,dupsid,sni=www.google.com
 
+[multisplit_pos_1_seqovl_740]
+name = multisplit pos 1 seqovl 740
+--lua-desync=multisplit:pos=1:seqovl=740:seqovl_pattern=stun_pat
+
+[multisplit_pos_4__midsld_2seqovl_740_seqovl_pattern]
+name = multisplit pos 4 midsld+2 seqovl 1
+--lua-desync=multisplit:pos=4,midsld+2:seqovl=1:seqovl_pattern=tls7
+
 [multisplit]
 name = multisplit
 --lua-desync=multisplit
@@ -179,7 +187,12 @@ name = Split cutoff
 
 [googlevideo_multidisorder]
 name = MultiDisorder Complex
-label = stable
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+[googlevideo_multidisorder_syndata]
+name = MultiDisorder Complex + syndata
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
 [googlevideo_multisplit_pattern]
@@ -908,6 +921,15 @@ label = recommended
 description = Потом опишу подробнее
 --lua-desync=pktmod:tcp_flags_unset=ack
 
+[pktmod_syndata]
+name = pktmod + syndata
+author = hz
+label = recommended
+description = Потом опишу подробнее
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=pktmod:tcp_flags_unset=ack
+
 [multisplit_datanoack]
 name = multisplit datanoack
 author = hz
@@ -1327,6 +1349,12 @@ name = 🔀 TLS MultiSplit SNI seqovl 652
 author = Custom
 description = Экстремальная нарезка вокруг SNI + seqovl 652
 blobs = tls_google
+--lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
+
+[tls_multisplit_sni_syndata]
+name = 🔀 TLS MultiSplit SNI seqovl 652 + syndata
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
 --lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
 
 [tls_fake_flood]

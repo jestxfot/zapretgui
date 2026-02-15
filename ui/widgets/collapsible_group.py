@@ -7,9 +7,11 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import pyqtSignal, Qt, QPropertyAnimation, QEasingCurve, QEvent
 from PyQt6.QtGui import QFont, QCursor
 import qtawesome as qta
+
+from ui.theme import get_theme_tokens
 
 
 class CollapsibleServiceHeader(QFrame):
@@ -33,6 +35,7 @@ class CollapsibleServiceHeader(QFrame):
         self._title = title
         self._expanded = True
         self._pressed = False
+        self._applying_theme_styles = False
         self._build_ui()
         self._apply_style()
 
@@ -64,42 +67,78 @@ class CollapsibleServiceHeader(QFrame):
         # Название группы
         self._title_label = QLabel(self._title)
         self._title_label.setFont(QFont("Segoe UI Semibold", 10))
+        self._title_label.setProperty("tone", "muted")
         layout.addWidget(self._title_label)
 
         # Линия-разделитель (растягивается)
         self._line = QFrame()
         self._line.setFrameShape(QFrame.Shape.HLine)
-        self._line.setStyleSheet("""
-            QFrame {
-                background: rgba(255, 255, 255, 0.1);
-                border: none;
-                max-height: 1px;
-            }
-        """)
+        # Theme-aware divider line
+        self._update_line_style()
         layout.addWidget(self._line, 1)
+
+    def _update_line_style(self) -> None:
+        try:
+            tokens = get_theme_tokens()
+            self._line.setStyleSheet(f"""
+                QFrame {{
+                    background: {tokens.divider_strong};
+                    border: none;
+                    max-height: 1px;
+                }}
+            """)
+        except Exception:
+            self._line.setStyleSheet("""
+                QFrame { background: rgba(255, 255, 255, 0.1); border: none; max-height: 1px; }
+            """)
 
     def _apply_style(self):
         """Применяет стили"""
-        self.setStyleSheet("""
-            CollapsibleServiceHeader {
-                background: transparent;
-                border: none;
-                border-radius: 4px;
-            }
-            CollapsibleServiceHeader:hover {
-                background: rgba(255, 255, 255, 0.04);
-            }
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                background: transparent;
-            }
-        """)
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            hover_bg = tokens.surface_bg_hover
+            self.setStyleSheet(f"""
+                CollapsibleServiceHeader {{
+                    background: transparent;
+                    border: none;
+                    border-radius: 4px;
+                }}
+                CollapsibleServiceHeader:hover {{
+                    background: {hover_bg};
+                }}
+                QLabel {{
+                    background: transparent;
+                }}
+            """)
+            self._update_line_style()
+        finally:
+            self._applying_theme_styles = False
 
     def _update_chevron(self):
         """Обновляет иконку chevron"""
         icon_name = "fa5s.chevron-down" if self._expanded else "fa5s.chevron-right"
-        icon = qta.icon(icon_name, color="#808080")
+        try:
+            tokens = get_theme_tokens()
+            color = "#666666" if tokens.is_light else "#808080"
+        except Exception:
+            color = "#808080"
+        icon = qta.icon(icon_name, color=color)
         self._chevron.setPixmap(icon.pixmap(12, 12))
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._apply_style()
+                self._update_chevron()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def mousePressEvent(self, event):
         """Track press; toggle on release (Qt-like behavior)."""

@@ -145,6 +145,7 @@ def setup_direct_service(
                     display_name=SERVICE_DISPLAY_NAME,
                     exe_path=winws_exe,
                     args=strategy_args,
+                    work_dir=MAIN_DIRECTORY,
                     description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
                     auto_start=True,
                 ):
@@ -204,6 +205,7 @@ def setup_direct_service(
                 display_name=SERVICE_DISPLAY_NAME,
                 exe_path=winws_exe,
                 args=resolved_args,
+                work_dir=MAIN_DIRECTORY,
                 description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
                 auto_start=True
             ):
@@ -300,24 +302,11 @@ def check_direct_service_exists() -> bool:
     ⚡ Проверяет существование службы Direct режима (NSSM или Windows API)
     """
     try:
-        result = run_hidden(
-            ["sc", "query", SERVICE_NAME],
-            capture_output=True,
-            text=True,
-            encoding="cp866",
-            errors="ignore"
-        )
-        return result.returncode == 0 and "STATE" in result.stdout
-    except:
+        # NSSM создаёт обычную Windows-службу с тем же именем. Поэтому достаточно
+        # проверить наличие службы через WinAPI.
+        return service_exists(SERVICE_NAME)
+    except Exception:
         return False
-    from .nssm_service import service_exists_nssm
-    
-    # Проверяем через NSSM сначала
-    if service_exists_nssm(SERVICE_NAME):
-        return True
-    
-    # Fallback на Windows API
-    return service_exists(SERVICE_NAME)
 
 
 def stop_direct_service() -> bool:

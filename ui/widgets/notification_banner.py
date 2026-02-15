@@ -6,9 +6,11 @@
 Поддерживает анимацию появления/исчезновения и автоматическое скрытие.
 """
 
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSize
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSize, QEvent
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QGraphicsOpacityEffect
 import qtawesome as qta
+
+from ui.theme import get_theme_tokens
 
 
 class NotificationBanner(QWidget):
@@ -52,8 +54,10 @@ class NotificationBanner(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._applying_theme_styles = False
         self._setup_ui()
         self._setup_animation()
+        self._refresh_theme()
         self.hide()  # Скрыт по умолчанию
 
     def _setup_ui(self):
@@ -73,37 +77,18 @@ class NotificationBanner(QWidget):
 
         # Текст сообщения
         self.message_label = QLabel()
-        self.message_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 13px;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                background: transparent;
-                border: none;
-            }
-        """)
+        self.message_label.setProperty("tone", "primary")
+        self.message_label.setStyleSheet(
+            "font-size: 13px; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif; background: transparent; border: none;"
+        )
         self.message_label.setWordWrap(True)
         layout.addWidget(self.message_label, 1)
 
         # Кнопка закрытия
         self.close_btn = QPushButton()
-        self.close_btn.setIcon(qta.icon("mdi.close", color="white"))
         self.close_btn.setIconSize(QSize(16, 16))
         self.close_btn.setFixedSize(28, 28)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
         self.close_btn.clicked.connect(self.hide_animated)
         layout.addWidget(self.close_btn)
 
@@ -111,6 +96,47 @@ class NotificationBanner(QWidget):
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.opacity_effect.setOpacity(1.0)
         self.setGraphicsEffect(self.opacity_effect)
+
+    def _refresh_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            try:
+                tokens = get_theme_tokens()
+                icon_color = "#111111" if tokens.is_light else "#ffffff"
+                hover_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.15)"
+                pressed_bg = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.20)"
+            except Exception:
+                icon_color = "#ffffff"
+                hover_bg = "rgba(255, 255, 255, 0.15)"
+                pressed_bg = "rgba(255, 255, 255, 0.20)"
+
+            self.close_btn.setIcon(qta.icon("mdi.close", color=icon_color))
+            self.close_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    border: none;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {hover_bg};
+                }}
+                QPushButton:pressed {{
+                    background-color: {pressed_bg};
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._refresh_theme()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def _setup_animation(self):
         """Настройка анимаций"""
@@ -136,7 +162,16 @@ class NotificationBanner(QWidget):
 
     def _apply_style(self, notification_type: str):
         """Применяет стиль в зависимости от типа уведомления"""
-        style = self.STYLES.get(notification_type, self.STYLES['info'])
+        style = dict(self.STYLES.get(notification_type, self.STYLES['info']))
+        try:
+            tokens = get_theme_tokens()
+            # For "info", track the active accent instead of the legacy fixed blue.
+            if notification_type == "info":
+                style["bg"] = f"rgba({tokens.accent_rgb_str}, 0.15)"
+                style["border"] = f"rgba({tokens.accent_rgb_str}, 0.40)"
+                style["icon_color"] = tokens.accent_hex
+        except Exception:
+            pass
 
         # Стиль контейнера
         self.setStyleSheet(f"""

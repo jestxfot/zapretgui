@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ui.theme import get_theme_tokens
+
 
 @dataclass(frozen=True)
 class StrategyTreeRow:
@@ -96,22 +98,9 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._row_height = 28
         self._section_height = 26
 
-        self.setStyleSheet("""
-            QTreeWidget {
-                background: rgba(255, 255, 255, 0.02);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
-                padding: 6px;
-                outline: none;
-            }
-            QTreeWidget::item {
-                padding: 4px 8px;
-                min-height: 28px;
-                color: rgba(255, 255, 255, 0.9);
-                border-radius: 6px;
-            }
-            /* Selection/marks are painted in drawRow() to avoid theme/QSS conflicts. */
-        """)
+        self._tokens = get_theme_tokens()
+        self._applying_theme_styles = False
+        self._apply_theme_styles()
 
         self._mono_font = QFont("Consolas", 9)
         self._name_font = QFont("Segoe UI", 10)
@@ -143,6 +132,43 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._all_root = self._add_section(self._all_root_default_title)
 
         self.itemClicked.connect(self._on_item_clicked)
+
+    def _apply_theme_styles(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+            self.setStyleSheet(f"""
+                QTreeWidget {{
+                    background: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 8px;
+                    padding: 6px;
+                    outline: none;
+                }}
+                QTreeWidget::item {{
+                    padding: 4px 8px;
+                    min-height: 28px;
+                    color: {tokens.fg};
+                    border-radius: 6px;
+                }}
+                /* Selection/marks are painted in drawRow() to avoid theme/QSS conflicts. */
+            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._tokens = get_theme_tokens()
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def set_all_strategies_phase(self, phase_key: Optional[str]) -> None:
         """
@@ -1023,18 +1049,21 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Аргументы стратегии")
         dlg.setModal(True)
-        dlg.setStyleSheet("""
-            QDialog { background: #2a2a2a; }
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+        tokens = get_theme_tokens()
+        dlg_bg = "#f6f7f9" if tokens.is_light else "#2a2a2a"
+        btn_text = "#111111" if tokens.is_light else "rgba(255,255,255,0.85)"
+        dlg.setStyleSheet(f"""
+            QDialog {{ background: {dlg_bg}; }}
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255,255,255,0.8);
+                color: {btn_text};
                 padding: 6px 12px;
                 font-size: 11px;
                 font-weight: 600;
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.1); }
+            }}
+            QPushButton:hover {{ background: {tokens.surface_bg_hover}; }}
         """)
 
         layout = QVBoxLayout(dlg)
@@ -1044,16 +1073,18 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         edit = QPlainTextEdit()
         edit.setReadOnly(True)
         edit.setPlainText(full)
-        edit.setStyleSheet("""
-            QPlainTextEdit {
-                background: rgba(0,0,0,0.25);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+        edit_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(0, 0, 0, 0.25)"
+        edit_text = "#111111" if tokens.is_light else "rgba(255,255,255,0.85)"
+        edit.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background: {edit_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: rgba(255,255,255,0.8);
+                color: {edit_text};
                 font-family: 'Consolas', monospace;
                 font-size: 10px;
                 padding: 10px;
-            }
+            }}
         """)
         edit.setMinimumHeight(200)
         layout.addWidget(edit, 1)

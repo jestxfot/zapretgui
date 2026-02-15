@@ -10,6 +10,8 @@ from PyQt6.QtGui import QFont, QCursor
 import qtawesome as qta
 from typing import Optional
 
+from ui.theme import get_theme_tokens
+
 
 class StrategyRadioItem(QFrame):
     """
@@ -76,6 +78,8 @@ class StrategyRadioItem(QFrame):
         self.setMinimumHeight(44)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        # Ensure background/border from global QSS is painted.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(12, 8, 12, 8)
@@ -96,14 +100,16 @@ class StrategyRadioItem(QFrame):
         name_font = QFont("Segoe UI", 10)
         name_font.setWeight(QFont.Weight.Medium)
         self._name_label.setFont(name_font)
-        self._name_label.setStyleSheet("color: #ffffff; background: transparent;")
+        self._name_label.setProperty("tone", "primary")
+        self._name_label.setStyleSheet("background: transparent;")
         self._layout.addWidget(self._name_label)
 
         # Описание (protocol | ports)
         if self._description:
             desc_label = QLabel(self._description)
             desc_label.setFont(QFont("Segoe UI", 9))
-            desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); background: transparent;")
+            desc_label.setProperty("tone", "muted")
+            desc_label.setStyleSheet("background: transparent;")
             self._layout.addWidget(desc_label)
 
         # Badge для hostlist/ipset
@@ -124,7 +130,8 @@ class StrategyRadioItem(QFrame):
         # Название стратегии
         self._strategy_label = QLabel("Отключено")
         self._strategy_label.setFont(QFont("Segoe UI", 9))
-        self._strategy_label.setStyleSheet("color: #ffffff; background: transparent;")
+        self._strategy_label.setProperty("tone", "primary")
+        self._strategy_label.setStyleSheet("background: transparent;")
         self._layout.addWidget(self._strategy_label)
 
     def _ensure_list_badge(self):
@@ -161,32 +168,20 @@ class StrategyRadioItem(QFrame):
 
     def _apply_style(self):
         """Применяет стили к кнопке"""
-        self.setStyleSheet("""
-            StrategyRadioItem {
-                background: rgba(255, 255, 255, 0.03);
-                border: none;
-                border-radius: 6px;
-            }
-            StrategyRadioItem:hover {
-                background: rgba(255, 255, 255, 0.06);
-            }
-            QToolTip {
-                background-color: #2d2d2d;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 12px;
-                font-size: 12px;
-                font-family: 'Segoe UI', sans-serif;
-            }
-        """)
+        # Colors/background are handled by global theme QSS.
+        self.setStyleSheet("")
 
     def _apply_icon_color(self):
         """Обновляет цвет иконки категории по активности."""
         if not self._icon_name or self._icon_label is None:
             return
         try:
-            color = self._icon_color if self.is_active() else "#BFC5CF"
+            tokens = get_theme_tokens()
+            if self.is_active():
+                color = self._icon_color
+            else:
+                # Inactive icons must stay visible in light theme.
+                color = "#808080" if tokens.is_light else "#BFC5CF"
             icon = qta.icon(self._icon_name, color=color)
             self._icon_label.setPixmap(icon.pixmap(18, 18))
         except Exception:

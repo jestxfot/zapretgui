@@ -5,8 +5,10 @@ Chip-кнопки для фильтрации стратегий в стиле W
 """
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QEvent
 from PyQt6.QtGui import QFont
+
+from ui.theme import get_theme_tokens
 
 
 class FilterChipButton(QPushButton):
@@ -22,6 +24,7 @@ class FilterChipButton(QPushButton):
     def __init__(self, text: str, filter_key: str, parent=None):
         super().__init__(text, parent)
         self._filter_key = filter_key
+        self._applying_theme_styles = False
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFont(QFont("Segoe UI", 9))
@@ -34,32 +37,56 @@ class FilterChipButton(QPushButton):
 
     def _apply_style(self):
         """Применяет стили Windows 11 Fluent Design"""
-        self.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 12px;
-                color: rgba(255, 255, 255, 0.7);
-                padding: 4px 12px;
-                min-height: 24px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:checked {
-                background: rgba(96, 205, 255, 0.15);
-                border: 1px solid rgba(96, 205, 255, 0.4);
-                color: #60cdff;
-            }
-            QPushButton:checked:hover {
-                background: rgba(96, 205, 255, 0.2);
-                border: 1px solid rgba(96, 205, 255, 0.5);
-            }
-            QPushButton:pressed {
-                background: rgba(96, 205, 255, 0.25);
-            }
-        """)
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            pressed_neutral = tokens.surface_bg_pressed
+            pressed_checked = f"rgba({tokens.accent_rgb_str}, 0.25)"
+
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 12px;
+                    color: {tokens.fg_muted};
+                    padding: 4px 12px;
+                    min-height: 24px;
+                }}
+                QPushButton:hover {{
+                    background: {tokens.surface_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+                QPushButton:checked {{
+                    background: {tokens.accent_soft_bg};
+                    border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
+                    color: {tokens.accent_hex};
+                }}
+                QPushButton:checked:hover {{
+                    background: {tokens.accent_soft_bg_hover};
+                    border: 1px solid rgba({tokens.accent_rgb_str}, 0.55);
+                }}
+                QPushButton:pressed {{
+                    background: {pressed_neutral};
+                }}
+                QPushButton:checked:pressed {{
+                    background: {pressed_checked};
+                }}
+            """)
+        finally:
+            self._applying_theme_styles = False
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._applying_theme_styles:
+                    return super().changeEvent(event)
+                self._apply_style()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
 
 class FilterButtonGroup(QWidget):
