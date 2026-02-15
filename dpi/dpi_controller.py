@@ -19,6 +19,8 @@ class DPIStartWorker(QObject):
         self.selected_mode = selected_mode
         self.launch_method = launch_method
         self.dpi_starter = app_instance.dpi_starter
+        # Filled when start_* returns False to provide meaningful UI error.
+        self._last_error_message: str = ""
 
     def _get_winws_exe(self) -> str:
         """Возвращает правильный путь к winws exe в зависимости от launch_method"""
@@ -29,70 +31,113 @@ class DPIStartWorker(QObject):
     def run(self):
         try:
             self.progress.emit("Подготовка к запуску...")
-            
-            # Проверяем, не запущен ли уже процесс
-            if self.dpi_starter.check_process_running_wmi(silent=True):
-                skip_stop = False
 
+            # Pre-calc preset start parameters (used for safe preflight validation).
+            skip_stop = False
+            mode_param = self.selected_mode
+            preset_path = ""
+            is_preset_file = False
+            try:
+                if (
+                    isinstance(mode_param, dict)
+                    and mode_param.get("is_preset_file")
+                    and self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
+                ):
+                    is_preset_file = True
+                    preset_path = (mode_param.get("preset_path") or "").strip()
+            except Exception:
+                is_preset_file = False
+                preset_path = ""
+
+            # Проверяем, не запущен ли уже процесс
+            process_running = self.dpi_starter.check_process_running_wmi(silent=True)
+            if process_running:
                 # direct_zapret2: если запущен ТОТ ЖЕ preset (@preset-zapret2.txt),
                 # не останавливаем и не перезапускаем — просто "подключаемся".
                 try:
-                    mode_param = self.selected_mode
                     if (
                         self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra")
-                        and isinstance(mode_param, dict)
-                        and mode_param.get("is_preset_file")
+                        and is_preset_file
+                        and preset_path
                     ):
-                        preset_path = (mode_param.get("preset_path") or "").strip()
-                        if preset_path:
-                            from launcher_common import get_strategy_runner
+                        from launcher_common import get_strategy_runner
 
-                            runner = get_strategy_runner(self._get_winws_exe())
-                            if hasattr(runner, "find_running_preset_pid"):
-                                pid = runner.find_running_preset_pid(preset_path)
-                                if pid:
-                                    log(
-                                        f"Preset уже запущен (PID: {pid}), пропускаем остановку",
-                                        "INFO",
-                                    )
-                                    skip_stop = True
+                        runner = get_strategy_runner(self._get_winws_exe())
+                        if hasattr(runner, "find_running_preset_pid"):
+                            pid = runner.find_running_preset_pid(preset_path)
+                            if pid:
+                                log(
+                                    f"Preset уже запущен (PID: {pid}), пропускаем остановку",
+                                    "INFO",
+                                )
+                                skip_stop = True
                 except Exception:
                     pass
 
-                if not skip_stop:
-                    self.progress.emit("Останавливаем предыдущий процесс...")
+            # ✅ Preflight validation: if preset references missing files,
+            # do NOT stop an already running process.
+            if is_preset_file and preset_path and (not skip_stop):
+                try:
+                    from launcher_common import get_strategy_runner
+
+                    runner = get_strategy_runner(self._get_winws_exe())
+                    if hasattr(runner, "validate_preset_file"):
+                        ok, report = runner.validate_preset_file(preset_path)
+                        if not ok:
+                            # Log detailed report (first line as ERROR, rest as INFO)
+                            lines = (report or "").splitlines()
+                            if lines:
+                                log(lines[0], "❌ ERROR")
+                                for extra in lines[1:]:
+                                    if extra.strip():
+                                        log(extra, "INFO")
+                                short = lines[0].strip()
+                            else:
+                                short = "Некорректный preset файл"
+
+                            self._last_error_message = short
+                            self.progress.emit(short)
+                            self.finished.emit(False, short)
+                            return
+                except Exception:
+                    pass
+
+            if process_running and (not skip_stop):
+                self.progress.emit("Останавливаем предыдущий процесс...")
 
                 # Останавливаем через соответствующий метод
-                if (not skip_stop) and self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+                if self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                     from launcher_common import get_strategy_runner
+
                     runner = get_strategy_runner(self._get_winws_exe())
                     runner.stop()
-                elif not skip_stop:
+                else:
                     from dpi.stop import stop_dpi
+
                     stop_dpi(self.app_instance)
 
                 # Ждём пока процесс действительно остановится (до 5 секунд)
-                if not skip_stop:
-                    max_wait = 10
-                    for attempt in range(max_wait):
-                        time.sleep(0.5)
-                        if not self.dpi_starter.check_process_running_wmi(silent=True):
-                            log(f"✅ Предыдущий процесс остановлен (попытка {attempt + 1})", "DEBUG")
-                            break
-                    else:
-                        log("⚠️ Процесс не остановился за 5 секунд, принудительное завершение...", "WARNING")
-                        import subprocess
-                        try:
-                            subprocess.run(['taskkill', '/F', '/IM', 'winws.exe'],
-                                           capture_output=True, timeout=3)
-                            subprocess.run(['taskkill', '/F', '/IM', 'winws2.exe'],
-                                           capture_output=True, timeout=3)
-                            time.sleep(1)
-                        except Exception as e:
-                            log(f"Ошибка taskkill: {e}", "DEBUG")
-
-                    # Дополнительная пауза для освобождения WinDivert
+                max_wait = 10
+                for attempt in range(max_wait):
                     time.sleep(0.5)
+                    if not self.dpi_starter.check_process_running_wmi(silent=True):
+                        log(f"✅ Предыдущий процесс остановлен (попытка {attempt + 1})", "DEBUG")
+                        break
+                else:
+                    log("⚠️ Процесс не остановился за 5 секунд, принудительное завершение...", "WARNING")
+                    import subprocess
+
+                    try:
+                        subprocess.run(['taskkill', '/F', '/IM', 'winws.exe'],
+                                       capture_output=True, timeout=3)
+                        subprocess.run(['taskkill', '/F', '/IM', 'winws2.exe'],
+                                       capture_output=True, timeout=3)
+                        time.sleep(1)
+                    except Exception as e:
+                        log(f"Ошибка taskkill: {e}", "DEBUG")
+
+                # Дополнительная пауза для освобождения WinDivert
+                time.sleep(0.5)
 
             self.progress.emit("Запуск DPI...")
             
@@ -135,14 +180,9 @@ class DPIStartWorker(QObject):
                 except Exception:
                     fatal_reason = ""
 
-                if fatal_reason:
-                    self.progress.emit(fatal_reason)
-                    self.finished.emit(False, fatal_reason)
-                else:
-                    # Не показываем ошибку на splash screen — ProcessMonitor обновит UI
-                    # когда процесс запустится или упадёт
-                    self.progress.emit("Ожидание запуска DPI...")
-                    self.finished.emit(True, "")  # Не блокируем splash screen ошибкой
+                error_msg = fatal_reason or (self._last_error_message or "Не удалось запустить DPI. Проверьте логи")
+                self.progress.emit(error_msg)
+                self.finished.emit(False, error_msg)
                 
         except Exception as e:
             # Диагностируем ошибку и выводим понятное сообщение
@@ -171,12 +211,14 @@ class DPIStartWorker(QObject):
 
                 if not preset_path:
                     log("Путь к preset файлу не указан", "❌ ERROR")
+                    self._last_error_message = "Не указан путь к preset файлу"
                     self.progress.emit("❌ Ошибка: не указан путь к preset файлу")
                     return False
 
                 import os
                 if not os.path.exists(preset_path):
                     log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
+                    self._last_error_message = f"Preset файл не найден: {preset_path}"
                     self.progress.emit("❌ Preset файл не найден")
                     return False
 
@@ -187,8 +229,20 @@ class DPIStartWorker(QObject):
                     log(f"Пресет '{strategy_name}' успешно запущен", "✅ SUCCESS")
                     return True
                 else:
-                    log("Не удалось запустить пресет", "❌ ERROR")
-                    self.progress.emit("❌ Ошибка запуска. Попробуйте перезапустить программу")
+                    details = ""
+                    try:
+                        details = str(getattr(runner, "last_error", "") or "").strip()
+                    except Exception:
+                        details = ""
+                    short = (details.splitlines()[0].strip() if details else "")
+                    if short:
+                        log(f"Не удалось запустить пресет: {short}", "❌ ERROR")
+                        self._last_error_message = short
+                        self.progress.emit(f"❌ {short}")
+                    else:
+                        log("Не удалось запустить пресет", "❌ ERROR")
+                        self._last_error_message = "Не удалось запустить пресет (см. логи)"
+                        self.progress.emit("❌ Не удалось запустить пресет. Проверьте логи")
                     return False
 
             # Обработка комбинированных стратегий
@@ -200,6 +254,7 @@ class DPIStartWorker(QObject):
                 
                 if not args_str:
                     log("Отсутствуют аргументы для комбинированной стратегии", "❌ ERROR")
+                    self._last_error_message = "Не заданы аргументы стратегии"
                     self.progress.emit("❌ Ошибка: не заданы аргументы стратегии")
                     return False
                 
@@ -216,6 +271,7 @@ class DPIStartWorker(QObject):
                     else:
                         log("Нет активных WinDivert фильтров (--wf-tcp-out, --wf-udp-out, --wf-raw-part)", "❌ ERROR")
                     self.progress.emit("⚠️ Выберите хотя бы одну категорию для запуска")
+                    self._last_error_message = "Выберите хотя бы одну категорию для запуска"
                     return False
                 
                 # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
@@ -234,17 +290,20 @@ class DPIStartWorker(QObject):
                     else:
                         # Даём понятную подсказку пользователю
                         log("Не удалось запустить комбинированную стратегию", "❌ ERROR")
+                        self._last_error_message = "Не удалось запустить комбинированную стратегию (см. логи)"
                         self.progress.emit("❌ Ошибка запуска. Попробуйте перезапустить программу или ПК")
                         return False
                         
                 except Exception as parse_error:
                     log(f"Ошибка парсинга аргументов: {parse_error}", "❌ ERROR")
+                    self._last_error_message = "Ошибка в параметрах стратегии"
                     self.progress.emit(f"❌ Ошибка в параметрах стратегии")
                     return False
             
             # Для Direct режима поддерживаются только комбинированные стратегии
             else:
                 log(f"Direct режим поддерживает только комбинированные стратегии, получен: {type(mode_param)}", "❌ ERROR")
+                self._last_error_message = "Неподдерживаемый тип стратегии"
                 self.progress.emit("❌ Неподдерживаемый тип стратегии")
                 return False
                 

@@ -128,8 +128,8 @@ def get_out_range_args(category_key: str, protocol: str = "tcp") -> str:
     а НЕ часть syndata.
 
     Режимы:
-        -n = packets count (количество пакетов)
-        -d = delay (задержка)
+        -n = количество пакетов с самого первого
+        -d = отсчитывать ТОЛЬКО количество пакетов с данными (исключая SYN-ACK-SYN рукопожатие)"
 
     Правильно:   --out-range=-n8 --lua-desync=syndata:blob=tls7
     Неправильно: --lua-desync=syndata:blob=tls7:out_range=10

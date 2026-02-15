@@ -2,7 +2,7 @@
 """
 Боковая панель навигации в стиле Windows 11 Settings
 """
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QSize, QTimer, pyqtProperty, QPoint, QRect
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QPropertyAnimation, QEasingCurve, QSize, QTimer, pyqtProperty, QPoint, QRect
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QScrollArea, QSizePolicy
@@ -11,6 +11,7 @@ from PyQt6.QtGui import QFont, QIcon, QColor, QPainter, QPainterPath, QTransform
 import qtawesome as qta
 
 from ui.page_names import PageName, SectionName, SECTION_TO_PAGE, SECTION_CHILDREN, ORCHESTRA_ONLY_SECTIONS
+from ui.theme import get_theme_tokens
 
 
 class ShimmerMixin:
@@ -118,6 +119,8 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self.icon_name = icon_name
         self._text = text
         self._collapsed = False
+        # Cache tokens to avoid registry reads on every hover.
+        self._tokens = get_theme_tokens()
         
         # Инициализация анимаций
         self.init_shimmer()
@@ -130,6 +133,16 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self.setIconSize(QSize(20, 20))
         
         self._update_style()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                # Refresh cached tokens and re-render styles/icons.
+                self._tokens = get_theme_tokens()
+                self._update_style()
+        except Exception:
+            pass
+        return super().changeEvent(event)
     
     def set_collapsed(self, collapsed: bool):
         """Устанавливает свёрнутый режим (только иконка)"""
@@ -141,18 +154,19 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._update_style()
         
     def _update_style(self):
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
         if self._selected:
-            bg_color = "rgba(255, 255, 255, 0.1)"
-            border_left = "3px solid #60cdff"
-            text_color = "#ffffff"
+            bg_color = tokens.accent_soft_bg
+            border_left = f"3px solid {tokens.accent_hex}"
+            text_color = tokens.fg
         elif self._hovered:
-            bg_color = "rgba(255, 255, 255, 0.05)"
+            bg_color = tokens.surface_bg_hover
             border_left = "3px solid transparent"
-            text_color = "#e0e0e0"
+            text_color = tokens.fg
         else:
             bg_color = "transparent"
             border_left = "3px solid transparent"
-            text_color = "#9e9e9e"  # Светло-серый для неактивных
+            text_color = tokens.fg_muted
         
         padding = "22px" if not self._collapsed else "0px"
         text_align = "left" if not self._collapsed else "center"
@@ -178,7 +192,9 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
     def _set_icon_with_brightness(self):
         """Устанавливает иконку с учётом яркости (для эффекта свечения)"""
         brightness = getattr(self, '_shimmer_brightness', 0.0)
-        
+
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+
         if self._selected:
             # Выбранная иконка - используем FluentIcon или яркий цвет
             try:
@@ -186,13 +202,13 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
                 self.setIcon(FluentIcon.create_icon(self.icon_name, 20))
                 return
             except:
-                base_color = QColor('#60cdff')
+                base_color = QColor(tokens.accent_hex)
         else:
-            base_color = QColor('#9e9e9e')
-        
+            base_color = QColor('#5c5c5c' if tokens.is_light else '#9e9e9e')
+
         # Интерполируем к белому при свечении
         if brightness > 0:
-            glow_color = QColor('#ffffff')
+            glow_color = QColor('#000000' if tokens.is_light else '#ffffff')
             r = int(base_color.red() + (glow_color.red() - base_color.red()) * brightness * 0.6)
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
@@ -255,6 +271,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self.icon_name = icon_name
         self._text = text
         self._collapsed = False
+        self._tokens = get_theme_tokens()
         
         # Инициализация анимаций
         self.init_shimmer()
@@ -267,6 +284,15 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self.setIconSize(QSize(14, 14))
         
         self._update_style()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._tokens = get_theme_tokens()
+                self._update_style()
+        except Exception:
+            pass
+        return super().changeEvent(event)
     
     def set_collapsed(self, collapsed: bool):
         """Устанавливает свёрнутый режим (только иконка)"""
@@ -278,18 +304,19 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._update_style()
         
     def _update_style(self):
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
         if self._selected:
-            bg_color = "rgba(255, 255, 255, 0.08)"
-            border_left = "2px solid #60cdff"
-            text_color = "#60cdff"
+            bg_color = tokens.accent_soft_bg
+            border_left = f"2px solid {tokens.accent_hex}"
+            text_color = tokens.accent_hex
         elif self._hovered:
-            bg_color = "rgba(255, 255, 255, 0.04)"
+            bg_color = tokens.surface_bg_hover
             border_left = "2px solid transparent"
-            text_color = "#c0c0c0"
+            text_color = tokens.fg
         else:
             bg_color = "transparent"
             border_left = "2px solid transparent"
-            text_color = "#808080"  # Более тёмный серый для подпунктов
+            text_color = tokens.fg_faint
         
         padding = "28px" if not self._collapsed else "0px"
         text_align = "left" if not self._collapsed else "center"
@@ -315,15 +342,17 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
     def _set_icon_with_brightness(self):
         """Устанавливает иконку с учётом яркости (для эффекта свечения)"""
         brightness = getattr(self, '_shimmer_brightness', 0.0)
-        
+
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+
         if self._selected:
-            base_color = QColor('#60cdff')
+            base_color = QColor(tokens.accent_hex)
         else:
-            base_color = QColor('#707070')
-        
+            base_color = QColor('#6a6a6a' if tokens.is_light else '#707070')
+
         # Интерполируем к белому при свечении
         if brightness > 0:
-            glow_color = QColor('#ffffff')
+            glow_color = QColor('#000000' if tokens.is_light else '#ffffff')
             r = int(base_color.red() + (glow_color.red() - base_color.red()) * brightness * 0.6)
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
@@ -386,26 +415,37 @@ class CollapsibleHeader(QPushButton):
         self._expanded = True
         self._collapsed_sidebar = False
         self._base_text = text
+        self._tokens = get_theme_tokens()
         self.setText(f"  {text}")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(26)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._update_style()
 
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._tokens = get_theme_tokens()
+                self._update_style()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
     def _update_style(self):
-        self.setStyleSheet("""
-            QPushButton {
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        self.setStyleSheet(f"""
+            QPushButton {{
                 background: transparent;
                 border: none;
-                color: rgba(255, 255, 255, 0.6);
+                color: {tokens.fg_muted};
                 font-size: 10px;
                 font-weight: 600;
                 padding: 6px 12px 4px 24px;
                 text-align: left;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.06);
-            }
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
         """)
 
     @property
@@ -450,7 +490,8 @@ class CollapsibleHeader(QPushButton):
 
         chevron_x = self.width() - 18
         chevron_y = self.height() // 2
-        color = QColor('#a0a0a0')
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        color = QColor('#606060' if tokens.is_light else '#a0a0a0')
         painter.setPen(color)
         painter.setBrush(color)
 
@@ -552,11 +593,12 @@ class CollapsibleNavButton(NavButton):
         chevron_x = self.width() - 22
         chevron_y = self.height() // 2
         
+        tokens = getattr(self, "_tokens", None) or get_theme_tokens("Темная синяя")
         # Цвет шеврона
         if self._selected:
-            color = QColor('#60cdff')
+            color = QColor(tokens.accent_hex)
         else:
-            color = QColor('#707070')
+            color = QColor('#6a6a6a' if tokens.is_light else '#707070')
         
         painter.setPen(color)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -631,6 +673,7 @@ class SideNavBar(QWidget):
         
         self.setFixedWidth(self.EXPANDED_WIDTH)
         self.setObjectName("sideNavBar")
+        self.setProperty("floating", False)
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)  # Включаем hover события
         
@@ -649,16 +692,17 @@ class SideNavBar(QWidget):
         self.header_label = QLabel("Zapret")
         self.header_label.setStyleSheet("""
             QLabel {
-                color: #ffffff;
                 font-size: 22px;
                 font-weight: 700;
                 font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
             }
         """)
+        self.header_label.setProperty("tone", "primary")
         header_layout.addWidget(self.header_label, 1)
         
         # Кнопка закрепления
         self.pin_btn = QPushButton()
+        self.pin_btn.setObjectName("sideNavPinButton")
         self.pin_btn.setFixedSize(28, 28)
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pin_btn.clicked.connect(self._toggle_pin)
@@ -681,25 +725,6 @@ class SideNavBar(QWidget):
                 border: none;
             }
             QScrollArea > QWidget > QWidget {
-                background: transparent;
-            }
-            QScrollBar:vertical {
-                background: transparent;
-                width: 6px;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.15);
-                border-radius: 3px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.25);
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 background: transparent;
             }
         """)
@@ -895,22 +920,18 @@ class SideNavBar(QWidget):
         # Версия внизу (вне прокрутки)
         from config import APP_VERSION
         self.version_label = QLabel(f"v{APP_VERSION}")
-        self.version_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 11px;
-                padding: 4px 12px;
-            }
-        """)
+        self.version_label.setProperty("tone", "faint")
+        self.version_label.setStyleSheet("font-size: 11px; padding: 4px 12px;")
         layout.addWidget(self.version_label)
-        
-        # Стиль панели
-        self.setStyleSheet("""
-            QWidget#sideNavBar {
-                background-color: rgba(28, 28, 28, 0.85);
-                border-right: 1px solid rgba(255, 255, 255, 0.06);
-            }
-        """)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                # Update theme-colored pixmap icons (pin icon uses accent).
+                self._update_pin_button()
+        except Exception:
+            pass
+        return super().changeEvent(event)
     
     # Property для анимации ширины
     def _get_panel_width(self):
@@ -926,8 +947,12 @@ class SideNavBar(QWidget):
             self.setMaximumWidth(w)
         else:
             self.setFixedWidth(w)
-        
-        # Обновляем видимость текста (только для обычного режима)
+
+        # В плавающем режиме "collapsed" не используется (там отдельная логика скрытия).
+        if self._is_floating:
+            return
+
+        # Обновляем состояние сворачивания (только для обычного режима)
         collapsed = width < (self.EXPANDED_WIDTH + self.COLLAPSED_WIDTH) / 2
         if collapsed != self._is_collapsed:
             self._is_collapsed = collapsed
@@ -943,7 +968,10 @@ class SideNavBar(QWidget):
         
         # Обновляем основные кнопки (пропускаем None - заголовки секций)
         for btn in self.buttons:
-            if btn is not None:
+            if btn is None:
+                continue
+            # Не все виджеты в сайдбаре поддерживают set_collapsed() (например, CollapsibleHeader).
+            if hasattr(btn, "set_collapsed"):
                 btn.set_collapsed(self._is_collapsed)
         
         # Скрываем/показываем заголовки секций и подпункты
@@ -966,8 +994,9 @@ class SideNavBar(QWidget):
     
     def _update_pin_button(self):
         """Обновляет иконку кнопки закрепления"""
+        tokens = get_theme_tokens()
         if self._is_pinned:
-            icon = qta.icon('fa5s.thumbtack', color='#60cdff')
+            icon = qta.icon('fa5s.thumbtack', color=tokens.accent_hex)
             tooltip = "Открепить панель (плавающий режим)"
         else:
             icon = qta.icon('fa5s.thumbtack', color='#666666', rotated=45)
@@ -975,16 +1004,6 @@ class SideNavBar(QWidget):
         
         self.pin_btn.setIcon(icon)
         self.pin_btn.setToolTip(tooltip)
-        self.pin_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-        """)
     
     def _load_collapsible_state(self):
         """Читает из реестра состояния свернутых групп"""
@@ -1050,19 +1069,36 @@ class SideNavBar(QWidget):
         """Включает плавающий режим - панель поверх контента"""
         from log import log
         log("SideNav: enabling floating mode", "DEBUG")
-        
+
+        # Плавающий режим: когда панель показана, она всегда в развёрнутом виде.
+        # Не переносим docked-состояние "collapsed" (только иконки) в floating.
+        self._is_collapsed = False
+        try:
+            for btn in self.buttons:
+                if btn is not None and hasattr(btn, "set_collapsed"):
+                    btn.set_collapsed(False)
+        except Exception:
+            pass
+
+        # На всякий случай восстанавливаем заголовок из предыдущего collapsed-состояния.
+        try:
+            self._update_header_title()
+        except Exception:
+            pass
+
         self._is_floating = True
+        self.setProperty("floating", True)
+        try:
+            self.style().unpolish(self)
+            self.style().polish(self)
+        except Exception:
+            pass
+        self.update()
         
         # Поднимаем виджет наверх (поверх остальных)
         self.raise_()
         
-        # Добавляем тень для визуального отделения
-        self.setStyleSheet("""
-            QWidget#sideNavBar {
-                background-color: rgba(28, 28, 28, 0.98);
-                border-right: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
+        # Colors are theme-driven by global QSS (#sideNavBar[floating="true"]).
         
         # Сразу скрываем после небольшой задержки
         log("Starting collapse timer (400ms)", "DEBUG")
@@ -1071,15 +1107,14 @@ class SideNavBar(QWidget):
     def _disable_floating_mode(self):
         """Выключает плавающий режим - панель часть layout"""
         self._is_floating = False
+        self.setProperty("floating", False)
+        try:
+            self.style().unpolish(self)
+            self.style().polish(self)
+        except Exception:
+            pass
+        self.update()
         self._collapse_timer.stop()
-        
-        # Возвращаем обычный стиль
-        self.setStyleSheet("""
-            QWidget#sideNavBar {
-                background-color: rgba(28, 28, 28, 0.85);
-                border-right: 1px solid rgba(255, 255, 255, 0.06);
-            }
-        """)
         
         # Разворачиваем панель
         self._animate_width(self.EXPANDED_WIDTH)
@@ -1132,18 +1167,24 @@ class SideNavBar(QWidget):
         # Скрываем содержимое, но оставляем scroll_area видимым для hover событий
         self.nav_container.setVisible(False)
         
-        # Показываем тонкую линию-индикатор с градиентом
-        self.setStyleSheet("""
-            QWidget#sideNavBar {
+        # Показываем тонкую линию-индикатор с градиентом (theme-aware)
+        tokens = get_theme_tokens()
+        end_bg = "rgba(245, 246, 248, 0.98)" if tokens.is_light else "rgba(50, 50, 50, 0.95)"
+        self.setStyleSheet(f"""
+            QWidget#sideNavBar {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(96, 205, 255, 0.2),
-                    stop:1 rgba(50, 50, 50, 0.95));
-                border-right: 2px solid rgba(96, 205, 255, 0.6);
-            }
+                    stop:0 rgba({tokens.accent_rgb_str}, 0.20),
+                    stop:1 {end_bg});
+                border-right: 2px solid rgba({tokens.accent_rgb_str}, 0.60);
+            }}
         """)
     
     def _show_all_elements(self):
         """Показывает все элементы панели"""
+        # В floating-режиме не используем docked-вариант "collapsed" (только иконки).
+        if self._is_floating and self._is_collapsed:
+            self._is_collapsed = False
+
         self.header_widget.setVisible(True)
         self.header_label.setVisible(True)
         self._update_header_title()
@@ -1154,28 +1195,20 @@ class SideNavBar(QWidget):
         from config import APP_VERSION
         self.version_label.setVisible(True)
         self.version_label.setText(f"v{APP_VERSION}")
-        
-        # Показываем заголовки и подпункты
+
+        # Заголовки групп показываем/скрываем по состоянию collapsed
+        # (подпункты контролируются группами/режимом).
         for header in self._header_labels:
-            header.setVisible(True)
-        for sub_btn in self._sub_buttons:
-            sub_btn.setVisible(True)
+            header.setVisible(not self._is_collapsed)
+
+        # После показа пере-применяем правила сворачивания групп и режимные скрытия.
+        try:
+            self._apply_all_groups_visibility()
+        except Exception:
+            pass
         
-        # Возвращаем стиль
-        if self._is_floating:
-            self.setStyleSheet("""
-                QWidget#sideNavBar {
-                    background-color: rgba(28, 28, 28, 0.98);
-                    border-right: 1px solid rgba(255, 255, 255, 0.1);
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QWidget#sideNavBar {
-                    background-color: rgba(28, 28, 28, 0.85);
-                    border-right: 1px solid rgba(255, 255, 255, 0.06);
-                }
-            """)
+        # Clear trigger-only override styles; global theme QSS applies panel visuals.
+        self.setStyleSheet("")
     
     def _animate_width(self, target_width):
         """Анимирует изменение ширины"""
@@ -1294,7 +1327,7 @@ class SideNavBar(QWidget):
         return "Zapret2" if method == "direct_zapret2" else "Zapret"
 
     def _update_header_title(self, method: str | None = None) -> None:
-        if self._is_collapsed:
+        if self._is_collapsed and not self._is_floating:
             self.header_label.setText("Z")
             return
 
@@ -1539,28 +1572,15 @@ class SettingsCard(QFrame):
         # Заголовок карточки
         if title:
             title_label = QLabel(title)
+            title_label.setProperty("tone", "primary")
             title_label.setStyleSheet("""
                 QLabel {
-                    color: #ffffff;
                     font-size: 14px;
                     font-weight: 600;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 }
             """)
             self.main_layout.addWidget(title_label)
-        
-        # Стиль карточки (Acrylic стиль с blur)
-        self.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
         
     def add_widget(self, widget: QWidget):
         """Добавляет виджет в карточку"""
@@ -1592,23 +1612,14 @@ class SettingsRow(QWidget):
         text_layout.setSpacing(2)
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 13px;
-                font-weight: 500;
-            }
-        """)
+        title_label.setProperty("tone", "primary")
+        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
         text_layout.addWidget(title_label)
         
         if description:
             desc_label = QLabel(description)
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.6);
-                    font-size: 11px;
-                }
-            """)
+            desc_label.setProperty("tone", "muted")
+            desc_label.setStyleSheet("font-size: 11px;")
             desc_label.setWordWrap(True)
             text_layout.addWidget(desc_label)
             
@@ -1631,33 +1642,71 @@ class ActionButton(QPushButton):
         super().__init__(text, parent)
         self.accent = accent
         self._hovered = False
+        self._icon_name = icon_name
+        # Cache tokens to avoid registry reads on hover.
+        self._tokens = get_theme_tokens()
+
+        # (Optional) expose for future global QSS targeting.
+        self.setProperty("uiRole", "actionButton")
+        self.setProperty("accent", bool(accent))
         
         if icon_name:
-            self.setIcon(qta.icon(icon_name, color='white'))
             self.setIconSize(QSize(16, 16))
             
         self.setFixedHeight(32)
         # ✅ Кнопка не растягивается бесконечно - подстраивается под текст
         self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self._update_style()
-        
-    def _update_style(self):
+
+    def _refresh_icon(self) -> None:
+        if not self._icon_name:
+            return
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
         if self.accent:
-            bg = "#49B3FF" if not self._hovered else "rgba(96, 205, 255, 0.9)"
-            pressed_bg = "rgba(96, 205, 255, 0.72)"
-            border = "1px solid rgba(255, 255, 255, 0.18)"
+            color = "#ffffff"
         else:
-            bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
-            pressed_bg = "rgba(255, 255, 255, 0.22)"
-            border = "1px solid rgba(255, 255, 255, 0.12)"
+            color = "#111111" if tokens.is_light else "#ffffff"
+        self.setIcon(qta.icon(self._icon_name, color=color))
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._tokens = get_theme_tokens()
+                self._update_style()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _update_style(self):
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+
+        if self.accent:
+            bg = tokens.accent_hex if not self._hovered else tokens.accent_hover_hex
+            pressed_bg = tokens.accent_pressed_hex
+            border = "rgba(255, 255, 255, 0.18)" if not tokens.is_light else tokens.divider_strong
+            text_color = "#ffffff"
+        else:
+            if tokens.is_light:
+                bg = "rgba(0, 0, 0, 0.06)" if not self._hovered else "rgba(0, 0, 0, 0.10)"
+                pressed_bg = "rgba(0, 0, 0, 0.14)"
+                border = "rgba(0, 0, 0, 0.12)"
+                text_color = "#111111"
+            else:
+                bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
+                pressed_bg = "rgba(255, 255, 255, 0.22)"
+                border = "rgba(255, 255, 255, 0.12)"
+                text_color = "#ffffff"
+
+        self._refresh_icon()
 
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
-                border: {border};
+                border: 1px solid {border};
                 border-radius: 8px;
-                color: #ffffff;
+                color: {text_color};
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
@@ -1667,16 +1716,16 @@ class ActionButton(QPushButton):
                 background-color: {pressed_bg};
             }}
         """)
-        
+
     def enterEvent(self, event):
         self._hovered = True
         self._update_style()
-        super().enterEvent(event)
-        
+        return super().enterEvent(event)
+
     def leaveEvent(self, event):
         self._hovered = False
         self._update_style()
-        super().leaveEvent(event)
+        return super().leaveEvent(event)
 
 
 class PulsingDot(QWidget):
@@ -1808,12 +1857,8 @@ class StatusIndicator(QWidget):
 
         # Текст статуса
         self.text = QLabel("Проверка...")
-        self.text.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 13px;
-            }
-        """)
+        self.text.setProperty("tone", "muted")
+        self.text.setStyleSheet("font-size: 13px;")
         layout.addWidget(self.text)
         layout.addStretch()
 

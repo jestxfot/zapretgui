@@ -66,6 +66,24 @@ def get_zapret_lists_template_dir() -> str:
     return os.path.join(get_zapret_userdata_dir(), "lists_template")
 
 
+def get_zapret_lists_backup_dir() -> str:
+    """Returns lists backup directory: <userdata>/zapret/lists_backup.
+
+    Used to persist user-edited list files across app updates.
+    """
+    return os.path.join(get_zapret_userdata_dir(), "lists_backup")
+
+
+def get_other_backup_path() -> str:
+    """Returns backup path for user-edited other.txt."""
+    return os.path.join(get_zapret_lists_backup_dir(), "other.txt")
+
+
+def get_other_user_backup_path() -> str:
+    """Returns backup path for user-edited other.user.txt."""
+    return os.path.join(get_zapret_lists_backup_dir(), "other.user.txt")
+
+
 def get_other_template_path() -> str:
     """Returns path to canonical other.txt template in user data."""
     return os.path.join(get_zapret_lists_template_dir(), "other.txt")
@@ -184,6 +202,8 @@ ICON_PATH = os.path.join(ICO_FOLDER, "Zapret2.ico")
 ICON_TEST_PATH = os.path.join(ICO_FOLDER, "ZapretDevLogo4.ico")
 
 OTHER_PATH = os.path.join(LISTS_FOLDER, "other.txt")
+OTHER_BASE_PATH = os.path.join(LISTS_FOLDER, "other.base.txt")
+OTHER_USER_PATH = os.path.join(LISTS_FOLDER, "other.user.txt")
 NETROGAT_PATH = os.path.join(LISTS_FOLDER, "netrogat.txt")
 NETROGAT2_PATH = os.path.join(LISTS_FOLDER, "netrogat2.txt")
 

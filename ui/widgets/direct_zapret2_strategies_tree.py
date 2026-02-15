@@ -59,6 +59,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
     _ROLE_IS_WORKING = int(Qt.ItemDataRole.UserRole) + 4
     _ROLE_INSERT_INDEX = int(Qt.ItemDataRole.UserRole) + 5
     _ROLE_PHASE_KEYS = int(Qt.ItemDataRole.UserRole) + 7
+    _ROLE_TECHNIQUES = int(Qt.ItemDataRole.UserRole) + 8
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -206,6 +207,14 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             if not self.viewport().rect().contains(vp_pos):
                 return None, gp
 
+            # Do not show hover preview when cursor is over the favorite star column.
+            # The popup covers the list and gets in the way when users try to click the star.
+            try:
+                if self.columnAt(vp_pos.x()) == 0:
+                    return None, gp
+            except Exception:
+                pass
+
             item = self.itemAt(vp_pos)
             return self._extract_strategy_id(item), gp
         except Exception:
@@ -254,6 +263,14 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._hover_strategy_id = sid
         self._hover_global_pos = gp
 
+        # Ensure a repaint even if the Qt style does not provide State_MouseOver
+        # for the hovered index (we also use _hover_strategy_id in drawRow()).
+        if changed:
+            try:
+                self.viewport().update()
+            except Exception:
+                pass
+
         if immediate:
             # Immediate refresh when scrolling: show correct strategy without waiting.
             now = time.monotonic()
@@ -281,7 +298,9 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         sid = item.data(0, self._ROLE_STRATEGY_ID)
         sid = str(sid) if sid else ""
         is_active = bool(sid) and sid == (self._active_strategy_id or "none")
-        is_hover = bool(options.state & QStyle.StateFlag.State_MouseOver)
+        is_hover = bool(options.state & QStyle.StateFlag.State_MouseOver) or (
+            bool(sid) and sid == (self._hover_strategy_id or "")
+        )
         is_working = item.data(0, self._ROLE_IS_WORKING)
         if is_working not in (True, False, None):
             is_working = None
@@ -295,8 +314,9 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         elif is_working is False:
             base_bg = QColor(248, 113, 113, 64)  # light red
 
-        # Hover tint (only if not selected)
-        hover_bg = QColor(255, 255, 255, 18) if is_hover and not is_active else None
+        # Hover tint: show a light accent even for non-active rows.
+        # Keep it noticeably lighter than the active selection fill (alpha 34).
+        hover_bg = QColor(96, 205, 255, 18) if is_hover and not is_active else None
 
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing, True)
@@ -623,9 +643,18 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         item.setToolTip(1, "Наведение — показать args")
         if row.strategy_id != "none":
             techniques = self._infer_techniques(row.strategy_id, args_joined.lower())
+            try:
+                item.setData(0, self._ROLE_TECHNIQUES, techniques)
+            except Exception:
+                pass
             icon = self._get_tech_icon(techniques[:2])
             if icon:
                 item.setIcon(1, icon)
+        else:
+            try:
+                item.setData(0, self._ROLE_TECHNIQUES, [])
+            except Exception:
+                pass
 
         self._apply_star(item, row.is_favorite, allow=(row.strategy_id != "none"))
         self._apply_working_style(item, row.is_working)
@@ -705,7 +734,11 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             if search:
                 visible = (search in args_text) or (search in (item.text(1) or "").lower())
             if visible and tech:
-                visible = any(t in args_text for t in tech)
+                inferred = item.data(0, self._ROLE_TECHNIQUES) or []
+                try:
+                    visible = bool(tech.intersection({str(t or "").strip().lower() for t in inferred if str(t or "").strip()}))
+                except Exception:
+                    visible = any(t in args_text for t in tech)
             item.setHidden(not visible)
 
         self._refresh_sections_visibility()
@@ -941,6 +974,11 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._hover_timer.stop()
         self._hover_strategy_id = None
         self._hover_global_pos = None
+        if had:
+            try:
+                self.viewport().update()
+            except Exception:
+                pass
         if had:
             try:
                 self.preview_hide_requested.emit()

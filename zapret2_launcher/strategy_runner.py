@@ -10,6 +10,7 @@ This version:
 """
 
 import os
+import re
 import subprocess
 import time
 import threading
@@ -28,6 +29,23 @@ from dpi.process_health_check import (
     get_conflicting_processes_report,
     diagnose_startup_error
 )
+
+
+_WINDOWS_ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _is_windows_abs(path: str) -> bool:
+    try:
+        return bool(_WINDOWS_ABS_RE.match(str(path or "")))
+    except Exception:
+        return False
+
+
+def _strip_outer_quotes(value: str) -> str:
+    v = str(value or "").strip()
+    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+        v = v[1:-1]
+    return v.strip()
 
 
 class ConfigFileWatcher:
@@ -129,6 +147,8 @@ class StrategyRunnerV2(StrategyRunnerBase):
         super().__init__(winws_exe_path)
         self._config_watcher: Optional[ConfigFileWatcher] = None
         self._preset_file_path: Optional[str] = None
+        # Human-readable last start error (for UI/status).
+        self.last_error: Optional[str] = None
 
         log(f"StrategyRunnerV2 initialized with hot-reload support", "INFO")
 
@@ -142,6 +162,223 @@ class StrategyRunnerV2(StrategyRunnerBase):
         except Exception:
             pass
         return "preset-zapret2.txt"
+
+    def _set_last_error(self, message: Optional[str]) -> None:
+        try:
+            text = str(message or "").strip()
+        except Exception:
+            text = ""
+        self.last_error = text or None
+
+    def validate_preset_file(self, preset_path: str) -> tuple[bool, str]:
+        """Validates that preset references point to existing files.
+
+        Returns:
+            (ok, message)
+              - ok=True if everything looks good
+              - message contains a human-readable report on failure
+        """
+        p = str(preset_path or "").strip()
+        if not p:
+            return False, "Не указан путь к preset файлу"
+        if not os.path.exists(p):
+            return False, f"Preset файл не найден: {p}"
+
+        missing = self._collect_missing_preset_references(p)
+        if not missing:
+            return True, ""
+
+        max_show = 15
+        shown = missing[:max_show]
+        hidden = len(missing) - len(shown)
+
+        example = shown[0][0] if shown else ""
+        if example:
+            header = f"Preset содержит ссылки на отсутствующие файлы ({len(missing)}), например: {example}"
+        else:
+            header = f"Preset содержит ссылки на отсутствующие файлы ({len(missing)}):"
+
+        lines: list[str] = [header]
+        for ref, expected in shown:
+            if expected:
+                lines.append(f"- {ref}  (ожидается: {expected})")
+            else:
+                lines.append(f"- {ref}")
+        if hidden > 0:
+            lines.append(f"... и еще {hidden} файл(ов)")
+
+        return False, "\n".join(lines)
+
+    def _collect_missing_preset_references(self, preset_path: str) -> list[tuple[str, str]]:
+        """Returns list of (ref, expected_abs_path) for missing referenced files."""
+
+        def _norm_slashes(s: str) -> str:
+            return str(s or "").replace("\\", "/")
+
+        def _resolve_candidates(raw_value: str, default_dir: Optional[str] = None) -> list[str]:
+            v = str(raw_value or "").strip()
+            if not v:
+                return []
+
+            # Some options allow @file values.
+            if v.startswith("@"):
+                v = v[1:].strip()
+
+            v = _strip_outer_quotes(v)
+            if not v:
+                return []
+
+            # Windows absolute should be detected even in non-Windows dev.
+            if os.path.isabs(v) or _is_windows_abs(v):
+                return [os.path.normpath(v)]
+
+            # Relative with folders.
+            if "/" in v or "\\" in v:
+                return [os.path.normpath(os.path.join(self.work_dir, v))]
+
+            # Bare filename: try default_dir first (lists/bin/lua), then work_dir.
+            out: list[str] = []
+            if default_dir:
+                out.append(os.path.normpath(os.path.join(default_dir, v)))
+            out.append(os.path.normpath(os.path.join(self.work_dir, v)))
+            return out
+
+        def _exists_any(paths: list[str]) -> bool:
+            for p in paths:
+                try:
+                    if p and os.path.exists(p):
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        missing: list[tuple[str, str]] = []
+        seen: set[str] = set()
+
+        lists_dir = self.lists_dir
+        bin_dir = self.bin_dir
+        lua_dir = os.path.join(self.work_dir, "lua")
+        filter_dir = os.path.join(self.work_dir, "windivert.filter")
+
+        try:
+            with open(preset_path, "r", encoding="utf-8", errors="ignore") as f:
+                iterator = f
+                for raw in iterator:
+                    line = (raw or "").strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+
+                    key, _sep, value = line.partition("=")
+                    key_l = key.strip().lower()
+                    value_s = value.strip()
+
+                    # lists/*.txt
+                    if key_l in ("--hostlist", "--ipset", "--hostlist-exclude", "--ipset-exclude"):
+                        candidates = _resolve_candidates(value_s, default_dir=lists_dir)
+                        if candidates and (not _exists_any(candidates)):
+                            ref = f"{key.strip()}={_norm_slashes(_strip_outer_quotes(value_s).lstrip('@'))}"
+                            expected = candidates[0] if candidates else ""
+                            k = ref.lower()
+                            if k not in seen:
+                                seen.add(k)
+                                missing.append((ref, expected))
+                        continue
+
+                    # lua/*.lua
+                    if key_l == "--lua-init":
+                        candidates = _resolve_candidates(value_s, default_dir=lua_dir)
+                        if candidates and (not _exists_any(candidates)):
+                            ref = f"{key.strip()}={_norm_slashes(_strip_outer_quotes(value_s).lstrip('@'))}"
+                            expected = candidates[0] if candidates else ""
+                            k = ref.lower()
+                            if k not in seen:
+                                seen.add(k)
+                                missing.append((ref, expected))
+                        continue
+
+                    # windivert.filter/*
+                    if key_l == "--wf-raw-part":
+                        candidates = _resolve_candidates(value_s, default_dir=filter_dir)
+                        if candidates and (not _exists_any(candidates)):
+                            ref = f"{key.strip()}={_norm_slashes(_strip_outer_quotes(value_s).lstrip('@'))}"
+                            expected = candidates[0] if candidates else ""
+                            k = ref.lower()
+                            if k not in seen:
+                                seen.add(k)
+                                missing.append((ref, expected))
+                        continue
+
+                    # Various bin-backed fake payload args (winws/winws2).
+                    if key_l in (
+                        "--dpi-desync-fake-syndata",
+                        "--dpi-desync-fake-tls",
+                        "--dpi-desync-fake-quic",
+                        "--dpi-desync-fake-unknown-udp",
+                        "--dpi-desync-split-seqovl-pattern",
+                        "--dpi-desync-fake-http",
+                        "--dpi-desync-fake-unknown",
+                        "--dpi-desync-fakedsplit-pattern",
+                        "--dpi-desync-fake-discord",
+                        "--dpi-desync-fake-stun",
+                        "--dpi-desync-fake-dht",
+                        "--dpi-desync-fake-wireguard",
+                    ):
+                        special = value_s.strip().lower()
+                        if special.startswith("0x") or special.startswith("!") or special.startswith("^"):
+                            continue
+
+                        candidates = _resolve_candidates(value_s, default_dir=bin_dir)
+                        if candidates and (not _exists_any(candidates)):
+                            ref = f"{key.strip()}={_norm_slashes(_strip_outer_quotes(value_s).lstrip('@'))}"
+                            expected = candidates[0] if candidates else ""
+                            k = ref.lower()
+                            if k not in seen:
+                                seen.add(k)
+                                missing.append((ref, expected))
+                        continue
+
+                    # --blob=name:@path or --blob=name:+offset@path
+                    if key_l == "--blob":
+                        blob_value = _strip_outer_quotes(value_s)
+                        if not blob_value or ":" not in blob_value:
+                            continue
+
+                        _name, _colon, tail = blob_value.partition(":")
+                        tail = tail.strip()
+                        if not tail:
+                            continue
+
+                        # Hex blobs / inline values.
+                        if tail.lower().startswith("0x"):
+                            continue
+
+                        file_part = ""
+                        if tail.startswith("@"):
+                            file_part = tail[1:].strip()
+                        elif tail.startswith("+"):
+                            at_idx = tail.find("@")
+                            if at_idx > 0 and at_idx < len(tail) - 1:
+                                file_part = tail[at_idx + 1 :].strip()
+
+                        if not file_part:
+                            continue
+
+                        candidates = _resolve_candidates(file_part, default_dir=bin_dir)
+                        if candidates and (not _exists_any(candidates)):
+                            ref = f"{key.strip()}={_norm_slashes(blob_value)}"
+                            expected = candidates[0] if candidates else ""
+                            k = ref.lower()
+                            if k not in seen:
+                                seen.add(k)
+                                missing.append((ref, expected))
+                        continue
+
+        except Exception:
+            return []
+
+        return missing
 
     def _on_config_changed(self):
         """
@@ -277,9 +514,11 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
         if not os.path.exists(preset_path):
             log(f"Preset file not found: {preset_path}", "ERROR")
+            self._set_last_error(f"Preset файл не найден: {preset_path}")
             return False
 
         try:
+            self._set_last_error(None)
             # If the exact preset is already running, do NOT restart it.
             # Just attach watcher + update runner state.
             pid = self.find_running_preset_pid(preset_path)
@@ -290,6 +529,18 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 log(f"Preset already running (PID: {pid}), attaching without restart", "INFO")
                 self._start_config_watcher()
                 return True
+
+            # Preflight: validate referenced files before stopping/killing anything.
+            ok, report = self.validate_preset_file(preset_path)
+            if not ok:
+                for line in (report or "").splitlines():
+                    if line.strip():
+                        log(line, "ERROR")
+                try:
+                    self._set_last_error((report or "").splitlines()[0].strip())
+                except Exception:
+                    self._set_last_error("Preset содержит ссылки на отсутствующие файлы")
+                return False
 
             # Stop previous process and watcher
             cleanup_required = bool(_force_cleanup)
@@ -375,6 +626,17 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 except:
                     pass
 
+                # Store last error for UI (single line).
+                first_line = ""
+                try:
+                    first_line = (stderr_output or "").strip().splitlines()[0].strip()
+                except Exception:
+                    first_line = ""
+                if first_line:
+                    self._set_last_error(f"winws2 завершился сразу (код {exit_code}): {first_line[:200]}")
+                else:
+                    self._set_last_error(f"winws2 завершился сразу (код {exit_code})")
+
                 self.running_process = None
                 self.current_strategy_name = None
                 self.current_strategy_args = None
@@ -401,6 +663,11 @@ class StrategyRunnerV2(StrategyRunnerBase):
             diagnosis = diagnose_startup_error(e, self.winws_exe)
             for line in diagnosis.split('\n'):
                 log(line, "ERROR")
+
+            try:
+                self._set_last_error(diagnosis.split("\n")[0].strip())
+            except Exception:
+                self._set_last_error(None)
 
             import traceback
             log(traceback.format_exc(), "DEBUG")

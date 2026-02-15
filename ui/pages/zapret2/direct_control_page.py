@@ -321,7 +321,7 @@ class Zapret2DirectControlPage(BasePage):
         mode_row = SettingsRow(
             "fa5s.sliders-h",
             "Режим прямого запуска",
-            "Basic — без UI; send/syndata можно прописать в args стратегии. Advanced — Send/Syndata/фазы в UI",
+            "Basic — нет понятия фаз, предоставляется простая готовая таблица со стратегиями которые можно перетыкивать. Собирать свои стратегии нельзя\nAdvanced — каждая функция настраивается индивидуально, можно выбрать несколько фаз и смешивать их друг с другом",
         )
 
         mode_control = QWidget()

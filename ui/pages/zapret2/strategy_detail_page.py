@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent, QRectF
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QPlainTextEdit, QSizePolicy, QTabBar
+    QCheckBox, QPlainTextEdit, QSizePolicy, QTabBar, QWidgetAction
 )
 from PyQt6.QtGui import QFont, QFontMetrics, QColor, QPainter, QFontMetricsF
 import qtawesome as qta
@@ -53,6 +53,16 @@ TCP_EMBEDDED_FAKE_TECHNIQUES: set[str] = {
     "fakeddisorder",
     "hostfakesplit",
 }
+
+
+STRATEGY_TECHNIQUE_FILTERS: list[tuple[str, str]] = [
+    ("FAKE", "fake"),
+    ("SPLIT", "split"),
+    ("MULTISPLIT", "multisplit"),
+    ("DISORDER", "disorder"),
+    ("OOB", "oob"),
+    ("SYNDATA", "syndata"),
+]
 
 TCP_FAKE_DISABLED_STRATEGY_ID = "__phase_fake_disabled__"
 CUSTOM_STRATEGY_ID = "custom"
@@ -1189,6 +1199,12 @@ class StrategyDetailPage(BasePage):
 
     def _on_dpi_reload_needed(self):
         """Callback for PresetManager when DPI reload is needed."""
+        # Any preset sync may restart / hot-reload winws2 via the config watcher.
+        # Flip the header indicator to spinner so UI matches the real behavior.
+        try:
+            self.show_loading()
+        except Exception:
+            pass
         from dpi.zapret2_core_restart import trigger_dpi_reload
         if self.parent_app:
             trigger_dpi_reload(
@@ -1882,10 +1898,12 @@ class StrategyDetailPage(BasePage):
         self._search_bar_widget.setStyleSheet("background: transparent;")
         search_layout = QHBoxLayout(self._search_bar_widget)
         search_layout.setContentsMargins(0, 0, 0, 8)
-        search_layout.setSpacing(0)
+        # Add explicit spacing between the search input and icon buttons.
+        # Previously it was 0, which made icons stick together visually.
+        search_layout.setSpacing(6)
 
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Поиск по args...")
+        self._search_input.setPlaceholderText("Поиск по имени или args...")
         self._search_input.setFixedHeight(36)
         self._search_input.setStyleSheet("""
             QLineEdit {
@@ -1925,6 +1943,13 @@ class StrategyDetailPage(BasePage):
         self._sort_btn.clicked.connect(self._show_sort_menu)
         search_layout.addWidget(self._sort_btn)
 
+        # Кнопка фильтра по техникам (фильтрует только список стратегий)
+        self._filter_btn = QPushButton()
+        self._filter_btn.setFixedSize(36, 36)
+        self._filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_btn.clicked.connect(self._show_technique_filter_menu)
+        search_layout.addWidget(self._filter_btn)
+
         # Кнопка редактирования args (лениво, отдельная панель)
         self._edit_args_btn = QPushButton()
         self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color='#999999'))
@@ -1947,6 +1972,10 @@ class StrategyDetailPage(BasePage):
         """)
         self._edit_args_btn.clicked.connect(self._toggle_args_editor)
         search_layout.addWidget(self._edit_args_btn)
+
+        # Initialize dynamic visuals/tooltips (sort/filter buttons).
+        self._update_sort_button_ui()
+        self._update_technique_filter_ui()
 
         strategies_layout.addWidget(self._search_bar_widget)
 
@@ -2033,33 +2062,6 @@ class StrategyDetailPage(BasePage):
         args_editor_layout.addWidget(self._args_editor)
 
         strategies_layout.addWidget(self._args_editor_frame)
-
-        # Фильтры по типу стратегии
-        self._filters_bar_widget = QWidget()
-        self._filters_bar_widget.setStyleSheet("background: transparent;")
-        filters_layout = QHBoxLayout(self._filters_bar_widget)
-        filters_layout.setContentsMargins(0, 0, 0, 8)
-        filters_layout.setSpacing(6)
-
-        self._filter_chips = {}
-        techniques = [
-            ("Fake", "fake"),
-            ("Split", "split"),
-            ("Multisplit", "multisplit"),
-            ("Disorder", "disorder"),
-            ("OOB", "oob"),
-            ("Syndata", "syndata"),
-        ]
-
-        for label, technique in techniques:
-            chip = FilterChip(label, technique)
-            chip.toggled_filter.connect(self._on_filter_toggled)
-            self._filter_chips[technique] = chip
-            filters_layout.addWidget(chip)
-
-        filters_layout.addStretch()
-
-        strategies_layout.addWidget(self._filters_bar_widget)
 
         # TCP multi-phase "tabs" (shown only for tcp categories in direct_zapret2)
         self._phases_bar_widget = QWidget()
@@ -2254,8 +2256,8 @@ class StrategyDetailPage(BasePage):
 
         self._tcp_phase_mode = bool(want_tcp_phase_mode)
         try:
-            if hasattr(self, "_filters_bar_widget") and self._filters_bar_widget is not None:
-                self._filters_bar_widget.setVisible(not self._tcp_phase_mode)
+            if hasattr(self, "_filter_btn") and self._filter_btn is not None:
+                self._filter_btn.setVisible(not self._tcp_phase_mode)
         except Exception:
             pass
         try:
@@ -2321,8 +2323,7 @@ class StrategyDetailPage(BasePage):
 
         # Сбрасываем фильтры по технике
         self._active_filters.clear()
-        for chip in self._filter_chips.values():
-            chip.reset()
+        self._update_technique_filter_ui()
 
         # TCP multi-phase state
         if self._tcp_phase_mode:
@@ -3375,13 +3376,12 @@ class StrategyDetailPage(BasePage):
 
             if self._selected_strategy_id != "none":
                 self._enable_toggle.setChecked(True, block_signals=True)
-                # Consider this as "applied"
-                self._stop_loading()
-                self.show_success()
             else:
                 self._enable_toggle.setChecked(False, block_signals=True)
-                self._stop_loading()
-                self._success_icon.hide()
+
+            # Reset writes the preset to disk and triggers the same hot-reload/restart
+            # path as any other setting change, so show the spinner.
+            self.show_loading()
             self._update_selected_strategy_header(self._selected_strategy_id)
             self._refresh_args_editor_state()
             self._set_category_enabled_ui((self._selected_strategy_id or "none") != "none")
@@ -4122,7 +4122,202 @@ class StrategyDetailPage(BasePage):
             self._active_filters.add(technique)
         else:
             self._active_filters.discard(technique)
+        self._update_technique_filter_ui()
         self._apply_filters()
+
+    def _build_sort_tooltip(self) -> str:
+        mode = str(self._sort_mode or "default").strip().lower() or "default"
+        if mode == "name_asc":
+            label = "По имени (А-Я)"
+        elif mode == "name_desc":
+            label = "По имени (Я-А)"
+        else:
+            label = "По умолчанию"
+        return f"Сортировка: {label}"
+
+    def _update_sort_button_ui(self) -> None:
+        btn = getattr(self, "_sort_btn", None)
+        if not btn:
+            return
+        mode = str(self._sort_mode or "default").strip().lower() or "default"
+        is_active = mode != "default"
+        try:
+            color = "#60cdff" if is_active else "#999999"
+            btn.setIcon(qta.icon('fa5s.sort-alpha-down', color=color))
+        except Exception:
+            pass
+        try:
+            btn.setToolTip(self._build_sort_tooltip())
+        except Exception:
+            pass
+
+    def _build_technique_filter_tooltip(self) -> str:
+        active = sorted({str(t or "").strip().lower() for t in (self._active_filters or set()) if str(t or "").strip()})
+        active_str = ", ".join(t.upper() for t in active) if active else "нет"
+        return (
+            "Фильтр по техникам (только список)\n"
+            "Фильтрует список по технике стратегии (по args: --dpi-desync/--lua-desync).\n"
+            "Не меняет настройки категории и не влияет на запуск DPI.\n\n"
+            f"Активно: {active_str}\n"
+            "Подсказка: поиск сверху ищет по имени и args."
+        )
+
+    def _update_technique_filter_ui(self) -> None:
+        btn = getattr(self, "_filter_btn", None)
+        if not btn:
+            return
+        is_active = bool(self._active_filters)
+        try:
+            color = "#60cdff" if is_active else "#999999"
+            btn.setIcon(qta.icon('fa5s.filter', color=color))
+        except Exception:
+            pass
+        try:
+            btn.setToolTip(self._build_technique_filter_tooltip())
+        except Exception:
+            pass
+
+        # Match the visual language of other icon buttons, but highlight when active.
+        if is_active:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(96, 205, 255, 0.16);
+                    border: 1px solid rgba(96, 205, 255, 0.35);
+                    border-radius: 8px;
+                }
+                QPushButton:hover {
+                    background: rgba(96, 205, 255, 0.22);
+                }
+            """)
+        else:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.05);
+                    border: none;
+                    border-radius: 8px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.08);
+                }
+            """)
+
+    def _show_technique_filter_menu(self) -> None:
+        """Shows a compact popup with technique filters (checkboxes)."""
+        if not getattr(self, "_filter_btn", None):
+            return
+        if self._tcp_phase_mode:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #2d2d2d;
+                border: none;
+                border-radius: 10px;
+                padding: 6px;
+            }
+        """)
+
+        panel = QWidget(menu)
+        panel.setStyleSheet("background: transparent;")
+        panel.setMinimumWidth(280)
+
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(10, 8, 10, 8)
+        panel_layout.setSpacing(8)
+
+        title = QLabel("Фильтр по техникам")
+        title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 600; background: transparent;")
+        panel_layout.addWidget(title)
+
+        desc = QLabel(
+            "Ограничивает список стратегий по выбранным техникам. "
+            "Техники определяются из args (--dpi-desync/--lua-desync) и не меняют настройки категории."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: rgba(255,255,255,0.65); font-size: 11px; background: transparent;")
+        panel_layout.addWidget(desc)
+
+        # Checkboxes (keep menu open while toggling)
+        checkboxes: dict[str, QCheckBox] = {}
+        cb_style = """
+            QCheckBox {
+                color: rgba(255, 255, 255, 0.88);
+                spacing: 8px;
+                font-size: 12px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.08);
+            }
+            QCheckBox::indicator:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QCheckBox::indicator:checked {
+                background: #60cdff;
+            }
+        """
+
+        active = {str(t or "").strip().lower() for t in (self._active_filters or set()) if str(t or "").strip()}
+        for label, key in STRATEGY_TECHNIQUE_FILTERS:
+            cb = QCheckBox(label)
+            cb.setStyleSheet(cb_style)
+            cb.setChecked(key in active)
+            cb.toggled.connect(lambda checked, t=key: self._on_filter_toggled(t, checked))
+            panel_layout.addWidget(cb)
+            checkboxes[key] = cb
+
+        # Footer row
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(8)
+
+        clear_btn = QPushButton("Сбросить")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 6px;
+                color: rgba(255,255,255,0.85);
+                padding: 6px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background: rgba(255, 255, 255, 0.10); }
+        """)
+
+        def _clear() -> None:
+            self._active_filters.clear()
+            for c in (checkboxes or {}).values():
+                try:
+                    c.blockSignals(True)
+                    c.setChecked(False)
+                    c.blockSignals(False)
+                except Exception:
+                    pass
+            self._update_technique_filter_ui()
+            self._apply_filters()
+
+        clear_btn.clicked.connect(_clear)
+        footer.addWidget(clear_btn)
+        footer.addStretch(1)
+
+        panel_layout.addLayout(footer)
+
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(panel)
+        menu.addAction(wa)
+
+        try:
+            pos = self._filter_btn.mapToGlobal(self._filter_btn.rect().bottomLeft())
+        except Exception:
+            pos = None
+        if pos is None:
+            return
+        menu.exec(pos)
 
     def _on_phase_tab_changed(self, index: int) -> None:
         """TCP multi-phase: handler for phase tab selection (QTabBar)."""
@@ -4263,6 +4458,7 @@ class StrategyDetailPage(BasePage):
             return
         self._strategies_tree.set_sort_mode(self._sort_mode)
         self._strategies_tree.apply_sort()
+        self._update_sort_button_ui()
         # Sorting (takeChildren/addChild) may reset selection in Qt; restore it.
         sid = self._selected_strategy_id or self._current_strategy_id or "none"
         if sid and self._strategies_tree.has_strategy(sid):

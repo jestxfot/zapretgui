@@ -12,6 +12,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 
 
 class PreciseSlider(QSlider):
@@ -88,6 +89,7 @@ class AcrylicSlider(PreciseSlider):
         self.setFixedHeight(22)
         self._track_height = 6.0
         self._handle_diameter = 12.0
+        self._tokens = None
         # Делаем максимально контрастным для тёмных тем (включая "Темная синяя")
         # и для полупрозрачного окна/карточек.
         self.setStyleSheet(
@@ -131,6 +133,10 @@ class AcrylicSlider(PreciseSlider):
             """
         )
 
+    def set_theme_tokens(self, tokens) -> None:
+        self._tokens = tokens
+        self.update()
+
     def paintEvent(self, event):  # noqa: N802 (Qt override)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -148,14 +154,22 @@ class AcrylicSlider(PreciseSlider):
         track_radius = track_h / 2.0
 
         enabled = self.isEnabled()
-        accent = QColor("#60cdff")
-        accent_hover = QColor("#7dd8ff")
+        tokens = self._tokens
+        if tokens is None:
+            tokens = get_theme_tokens("Темная синяя")
+
+        accent = QColor(tokens.accent_hex)
+        accent_hover = QColor(tokens.accent_hover_hex)
         if not enabled:
             accent.setAlphaF(0.45)
             accent_hover.setAlphaF(0.45)
 
-        track_bg = QColor(255, 255, 255, int(255 * 0.20))
-        track_remaining = QColor(255, 255, 255, int(255 * 0.12))
+        if tokens.is_light:
+            track_bg = QColor(0, 0, 0, int(255 * 0.14))
+            track_remaining = QColor(0, 0, 0, int(255 * 0.06))
+        else:
+            track_bg = QColor(255, 255, 255, int(255 * 0.20))
+            track_remaining = QColor(255, 255, 255, int(255 * 0.12))
         if not enabled:
             track_bg.setAlphaF(0.12)
             track_remaining.setAlphaF(0.08)
@@ -193,23 +207,14 @@ class AcrylicSlider(PreciseSlider):
         painter.setBrush(accent_hover if (self.underMouse() or self.isSliderDown()) else accent)
         painter.drawEllipse(handle_rect)
 
-
-# Цвета для превью тем
-THEME_COLORS = {
-    "Темная синяя": "#4c8ee7",
-    "Темная бирюзовая": "#38b2cd",
-    "Темная янтарная": "#eaa23e",
-    "Темная розовая": "#e879b2",
-    "Светлая синяя": "#4488d9",
-    "Светлая бирюзовая": "#30b9ce",
-    "РКН Тян": "#6375c6",
-    "РКН Тян 2": "#ba7dba",
-    "AMOLED Синяя": "#3e94ff",
-    "AMOLED Зеленая": "#4cd993",
-    "AMOLED Фиолетовая": "#b28ef6",
-    "AMOLED Красная": "#eb6c6c",
-    "Полностью черная": "#0a0a0a",
-}
+def _theme_preview_color(theme_name: str) -> str:
+    # "Полностью черная" лучше показывать как чёрную (а не button_color).
+    if theme_name == "Полностью черная":
+        return "#0a0a0a"
+    try:
+        return get_theme_tokens(theme_name).accent_hex
+    except Exception:
+        return "#333333"
 
 
 class ThemeCard(QFrame):
@@ -256,10 +261,7 @@ class ThemeCard(QFrame):
             display_name = name[:11] + "…"
         
         self.name_label = QLabel(display_name)
-        self.name_label.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 10px;
-        """)
+        self.name_label.setObjectName("themeCardName")
         self.name_label.setToolTip(name)
         name_layout.addWidget(self.name_label)
         
@@ -288,34 +290,17 @@ class ThemeCard(QFrame):
         self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, painter, self)
         
     def _update_style(self):
-        if not self._enabled:
-            # Disabled состояние - затемнённый вид
-            border = "1px solid rgba(255, 255, 255, 0.05)"
-            bg = "rgba(255, 255, 255, 0.02)"
-            text_color = "rgba(255, 255, 255, 0.3)"
-        elif self._selected:
-            border = "2px solid #60cdff"
-            bg = "rgba(96, 205, 255, 0.15)"
-            text_color = "rgba(255, 255, 255, 0.9)"
-        elif self._hovered:
-            border = "1px solid rgba(255, 255, 255, 0.3)"
-            bg = "rgba(255, 255, 255, 0.1)"
-            text_color = "rgba(255, 255, 255, 0.9)"
-        else:
-            border = "1px solid rgba(255, 255, 255, 0.1)"
-            bg = "rgba(255, 255, 255, 0.04)"
-            text_color = "rgba(255, 255, 255, 0.9)"
-            
-        self.setStyleSheet(f"""
-            QFrame#themeCard {{
-                background-color: {bg};
-                border: {border};
-                border-radius: 6px;
-            }}
-        """)
-        
-        # Обновляем цвет текста
-        self.name_label.setStyleSheet(f"color: {text_color}; font-size: 10px;")
+        # All visuals are controlled by the global theme QSS. We only expose state.
+        self.setProperty("selected", bool(self._selected))
+        self.setProperty("hovered", bool(self._hovered))
+
+        # Ensure style sheet re-evaluates dynamic properties.
+        try:
+            self.style().unpolish(self)
+            self.style().polish(self)
+        except Exception:
+            pass
+        self.update()
         
         # Затемняем превью цвета если disabled
         if hasattr(self, 'color_widget'):
@@ -337,6 +322,7 @@ class ThemeCard(QFrame):
         
     def set_enabled(self, enabled: bool):
         self._enabled = enabled
+        self.setEnabled(enabled)
         self.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ForbiddenCursor)
         self._update_style()
         
@@ -351,7 +337,7 @@ class ThemeCard(QFrame):
         super().leaveEvent(event)
         
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._enabled:
+        if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
             self.clicked.emit(self.name)
         super().mousePressEvent(event)
 
@@ -381,6 +367,8 @@ class AppearancePage(BasePage):
         self._blur_effect_checkbox = None
         self._opacity_slider = None
         self._opacity_label = None
+        self._blur_icon_label = None
+        self._opacity_icon_label = None
 
         self._build_ui()
         
@@ -397,7 +385,8 @@ class AppearancePage(BasePage):
         
         # Описание
         desc = QLabel("Выберите тему оформления для приложения.")
-        desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 12px;")
+        desc.setProperty("tone", "muted")
+        desc.setStyleSheet("font-size: 12px;")
         desc.setWordWrap(True)
         standard_layout.addWidget(desc)
         
@@ -415,7 +404,7 @@ class AppearancePage(BasePage):
         ]
         
         for i, (name, is_premium) in enumerate(standard_themes):
-            color = THEME_COLORS.get(name, "#333333")
+            color = _theme_preview_color(name)
             card = ThemeCard(name, color, is_premium=is_premium)
             card.clicked.connect(self._on_theme_clicked)
             row = i // 4
@@ -444,7 +433,8 @@ class AppearancePage(BasePage):
             "Дополнительные темы доступны подписчикам Zapret Premium. "
             "Включая AMOLED темы и уникальные стили."
         )
-        premium_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        premium_desc.setProperty("tone", "muted")
+        premium_desc.setStyleSheet("font-size: 11px;")
         premium_desc.setWordWrap(True)
         premium_layout.addWidget(premium_desc)
         
@@ -463,7 +453,7 @@ class AppearancePage(BasePage):
         ]
         
         for i, (name, is_premium) in enumerate(premium_themes):
-            color = THEME_COLORS.get(name, "#333333")
+            color = _theme_preview_color(name)
             card = ThemeCard(name, color, is_premium=is_premium)
             card.clicked.connect(self._on_theme_clicked)
             card.set_enabled(False)  # По умолчанию заблокированы до проверки премиума
@@ -505,7 +495,8 @@ class AppearancePage(BasePage):
             "Праздничная гирлянда с мерцающими огоньками в верхней части окна. "
             "Доступно только для подписчиков Premium."
         )
-        garland_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        garland_desc.setProperty("tone", "muted")
+        garland_desc.setStyleSheet("font-size: 11px;")
         garland_desc.setWordWrap(True)
         garland_layout.addWidget(garland_desc)
         
@@ -518,7 +509,8 @@ class AppearancePage(BasePage):
         garland_row.addWidget(garland_icon)
         
         garland_label = QLabel("Новогодняя гирлянда")
-        garland_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        garland_label.setProperty("tone", "primary")
+        garland_label.setStyleSheet("font-size: 13px;")
         garland_row.addWidget(garland_label)
         
         premium_badge = QLabel("⭐ Premium")
@@ -536,32 +528,7 @@ class AppearancePage(BasePage):
         
         self._garland_checkbox = QCheckBox()
         self._garland_checkbox.setEnabled(False)  # Включается только при премиуме
-        self._garland_checkbox.setStyleSheet("""
-            QCheckBox {
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 40px;
-                height: 20px;
-                border-radius: 10px;
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
-            QCheckBox::indicator:checked {
-                background-color: #4cd964;
-                border-color: #4cd964;
-            }
-            QCheckBox::indicator:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QCheckBox::indicator:checked:hover {
-                background-color: #5ce06e;
-            }
-            QCheckBox::indicator:disabled {
-                background-color: rgba(255, 255, 255, 0.05);
-                border-color: rgba(255, 255, 255, 0.1);
-            }
-        """)
+        self._garland_checkbox.setObjectName("garlandSwitch")
         self._garland_checkbox.stateChanged.connect(self._on_garland_changed)
         garland_row.addWidget(self._garland_checkbox)
         
@@ -583,7 +550,8 @@ class AppearancePage(BasePage):
             "Мягко падающие снежинки по всему окну. "
             "Создаёт уютную зимнюю атмосферу."
         )
-        snowflakes_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        snowflakes_desc.setProperty("tone", "muted")
+        snowflakes_desc.setStyleSheet("font-size: 11px;")
         snowflakes_desc.setWordWrap(True)
         snowflakes_layout.addWidget(snowflakes_desc)
         
@@ -596,7 +564,8 @@ class AppearancePage(BasePage):
         snowflakes_row.addWidget(snowflakes_icon)
         
         snowflakes_label = QLabel("Снежинки")
-        snowflakes_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        snowflakes_label.setProperty("tone", "primary")
+        snowflakes_label.setStyleSheet("font-size: 13px;")
         snowflakes_row.addWidget(snowflakes_label)
         
         snowflakes_badge = QLabel("⭐ Premium")
@@ -614,32 +583,7 @@ class AppearancePage(BasePage):
         
         self._snowflakes_checkbox = QCheckBox()
         self._snowflakes_checkbox.setEnabled(False)  # Включается только при премиуме
-        self._snowflakes_checkbox.setStyleSheet("""
-            QCheckBox {
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 40px;
-                height: 20px;
-                border-radius: 10px;
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
-            QCheckBox::indicator:checked {
-                background-color: #87ceeb;
-                border-color: #87ceeb;
-            }
-            QCheckBox::indicator:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QCheckBox::indicator:checked:hover {
-                background-color: #9dd5f0;
-            }
-            QCheckBox::indicator:disabled {
-                background-color: rgba(255, 255, 255, 0.05);
-                border-color: rgba(255, 255, 255, 0.1);
-            }
-        """)
+        self._snowflakes_checkbox.setObjectName("snowflakesSwitch")
         self._snowflakes_checkbox.stateChanged.connect(self._on_snowflakes_changed)
         snowflakes_row.addWidget(self._snowflakes_checkbox)
         
@@ -666,7 +610,8 @@ class AppearancePage(BasePage):
             "Позволяет видеть размытое содержимое за окном. "
             "Требует Windows 10 1803+ или Windows 11."
         )
-        blur_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        blur_desc.setProperty("tone", "muted")
+        blur_desc.setStyleSheet("font-size: 11px;")
         blur_desc.setWordWrap(True)
         blur_layout.addWidget(blur_desc)
 
@@ -675,42 +620,19 @@ class AppearancePage(BasePage):
         blur_row.setSpacing(12)
 
         blur_icon = QLabel()
-        blur_icon.setPixmap(qta.icon('fa5s.magic', color='#60cdff').pixmap(20, 20))
+        self._blur_icon_label = blur_icon
+        blur_icon.setPixmap(qta.icon('fa5s.magic', color=get_theme_tokens().accent_hex).pixmap(20, 20))
         blur_row.addWidget(blur_icon)
 
         blur_label = QLabel("Размытие фона (Acrylic)")
-        blur_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+        blur_label.setProperty("tone", "primary")
+        blur_label.setStyleSheet("font-size: 13px;")
         blur_row.addWidget(blur_label)
 
         blur_row.addStretch()
 
         self._blur_effect_checkbox = QCheckBox()
-        self._blur_effect_checkbox.setStyleSheet("""
-            QCheckBox {
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 40px;
-                height: 20px;
-                border-radius: 10px;
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-            }
-            QCheckBox::indicator:checked {
-                background-color: #60cdff;
-                border-color: #60cdff;
-            }
-            QCheckBox::indicator:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QCheckBox::indicator:checked:hover {
-                background-color: #7dd8ff;
-            }
-            QCheckBox::indicator:disabled {
-                background-color: rgba(255, 255, 255, 0.05);
-                border-color: rgba(255, 255, 255, 0.1);
-            }
-        """)
+        self._blur_effect_checkbox.setObjectName("blurSwitch")
         self._blur_effect_checkbox.stateChanged.connect(self._on_blur_effect_changed)
         blur_row.addWidget(self._blur_effect_checkbox)
 
@@ -740,7 +662,8 @@ class AppearancePage(BasePage):
             "Настройка прозрачности всего окна приложения. "
             "При 0% окно полностью прозрачное, при 100% — непрозрачное."
         )
-        opacity_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        opacity_desc.setProperty("tone", "muted")
+        opacity_desc.setStyleSheet("font-size: 11px;")
         opacity_desc.setWordWrap(True)
         opacity_layout.addWidget(opacity_desc)
 
@@ -749,17 +672,20 @@ class AppearancePage(BasePage):
         opacity_row.setSpacing(12)
 
         opacity_icon = QLabel()
-        opacity_icon.setPixmap(qta.icon('fa5s.adjust', color='#60cdff').pixmap(20, 20))
+        self._opacity_icon_label = opacity_icon
+        opacity_icon.setPixmap(qta.icon('fa5s.adjust', color=get_theme_tokens().accent_hex).pixmap(20, 20))
         opacity_row.addWidget(opacity_icon)
 
         opacity_title = QLabel("Прозрачность окна")
-        opacity_title.setStyleSheet("color: #ffffff; font-size: 13px;")
+        opacity_title.setProperty("tone", "primary")
+        opacity_title.setStyleSheet("font-size: 13px;")
         opacity_row.addWidget(opacity_title)
 
         opacity_row.addStretch()
 
         self._opacity_label = QLabel("100%")
-        self._opacity_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); font-size: 12px; min-width: 40px;")
+        self._opacity_label.setProperty("tone", "muted")
+        self._opacity_label.setStyleSheet("font-size: 12px; min-width: 40px;")
         self._opacity_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         opacity_row.addWidget(self._opacity_label)
 
@@ -767,6 +693,7 @@ class AppearancePage(BasePage):
 
         # Слайдер
         self._opacity_slider = AcrylicSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider.set_theme_tokens(get_theme_tokens())
         self._opacity_slider.setMinimum(0)
         self._opacity_slider.setMaximum(100)
         self._opacity_slider.setValue(100)
@@ -780,6 +707,22 @@ class AppearancePage(BasePage):
         self.add_widget(opacity_card)
 
         self.add_spacing(16)
+
+    def _apply_theme_tokens(self, theme_name: str) -> None:
+        """Refresh local, non-QSS parts (pixmap icons, custom painted widgets)."""
+        try:
+            tokens = get_theme_tokens(theme_name)
+        except Exception:
+            tokens = get_theme_tokens("Темная синяя")
+
+        if self._opacity_slider is not None:
+            self._opacity_slider.set_theme_tokens(tokens)
+
+        if self._blur_icon_label is not None:
+            self._blur_icon_label.setPixmap(qta.icon('fa5s.magic', color=tokens.accent_hex).pixmap(20, 20))
+
+        if self._opacity_icon_label is not None:
+            self._opacity_icon_label.setPixmap(qta.icon('fa5s.adjust', color=tokens.accent_hex).pixmap(20, 20))
 
     def _on_blur_effect_changed(self, state):
         """Обработчик изменения состояния эффекта размытия"""
@@ -867,6 +810,7 @@ class AppearancePage(BasePage):
             clean_name = clean_name.replace(suffix, "")
             
         self._select_theme(clean_name)
+        self._apply_theme_tokens(clean_name)
         
     def set_premium_status(self, is_premium: bool):
         """Устанавливает статус премиум-подписки"""

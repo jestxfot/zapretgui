@@ -1,5 +1,5 @@
 # ui/pages/custom_domains_page.py
-"""Страница управления доменами в other.txt."""
+"""Страница управления пользовательскими доменами (other.user.txt)."""
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -169,8 +169,9 @@ class CustomDomainsPage(BasePage):
         # Описание
         desc_card = SettingsCard()
         desc = QLabel(
-            "Здесь редактируется файл other.txt. Системные домены берутся из встроенного шаблона, "
-            "пользовательские домены добавляйте ниже. URL автоматически преобразуются в домены. "
+            "Здесь редактируется файл other.user.txt (только ваши домены). "
+            "Системная база берётся из шаблона и отдельно хранится в other.base.txt, "
+            "а общий other.txt собирается автоматически. URL автоматически преобразуются в домены. "
             "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
         )
         desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
@@ -217,7 +218,7 @@ class CustomDomainsPage(BasePage):
         # Открыть файл
         self.open_file_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
         self.open_file_btn.setFixedHeight(36)
-        self.open_file_btn.setToolTip("Сохраняет изменения и открывает other.txt в проводнике")
+        self.open_file_btn.setToolTip("Сохраняет изменения и открывает other.user.txt в проводнике")
         self.open_file_btn.clicked.connect(self._open_file)
         actions_layout.addWidget(self.open_file_btn)
 
@@ -229,7 +230,7 @@ class CustomDomainsPage(BasePage):
         )
         self.reset_btn.setFixedHeight(36)
         self.reset_btn.set_confirm_tooltips(
-            "Сбрасывает other.txt к встроенному шаблону. Все ваши изменения будут удалены"
+            "Очищает other.user.txt (мои домены) и пересобирает other.txt из системной базы"
         )
         self.reset_btn.reset_confirmed.connect(self._reset_file)
         actions_layout.addWidget(self.reset_btn)
@@ -252,7 +253,7 @@ class CustomDomainsPage(BasePage):
         self.layout.addWidget(actions_card)
         
         # Текстовый редактор (вместо списка)
-        editor_card = SettingsCard("other.txt (редактор)")
+        editor_card = SettingsCard("other.user.txt (редактор)")
         editor_layout = QVBoxLayout()
         editor_layout.setSpacing(8)
         
@@ -303,15 +304,15 @@ class CustomDomainsPage(BasePage):
     def _load_domains(self):
         """Загружает домены из файла"""
         try:
-            from config import OTHER_PATH
+            from config import OTHER_USER_PATH
             from utils.hostlists_manager import ensure_hostlists_exist
 
             ensure_hostlists_exist()
             
             domains = []
             
-            if os.path.exists(OTHER_PATH):
-                with open(OTHER_PATH, 'r', encoding='utf-8') as f:
+            if os.path.exists(OTHER_USER_PATH):
+                with open(OTHER_USER_PATH, 'r', encoding='utf-8') as f:
                     for line in f:
                         line = line.strip()
                         if line:
@@ -323,7 +324,7 @@ class CustomDomainsPage(BasePage):
             self.text_edit.blockSignals(False)
             
             self._update_status()
-            log(f"Загружено {len(domains)} строк из other.txt", "INFO")
+            log(f"Загружено {len(domains)} строк из other.user.txt", "INFO")
             
         except Exception as e:
             log(f"Ошибка загрузки доменов: {e}", "ERROR")
@@ -342,8 +343,8 @@ class CustomDomainsPage(BasePage):
     def _save_domains(self):
         """Сохраняет домены в файл"""
         try:
-            from config import OTHER_PATH
-            os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
+            from config import OTHER_USER_PATH
+            os.makedirs(os.path.dirname(OTHER_USER_PATH), exist_ok=True)
             
             text = self.text_edit.toPlainText()
             domains = []
@@ -373,9 +374,17 @@ class CustomDomainsPage(BasePage):
                         # Невалидная строка - оставляем как есть
                         normalized_lines.append(item)
             
-            with open(OTHER_PATH, 'w', encoding='utf-8') as f:
+            with open(OTHER_USER_PATH, 'w', encoding='utf-8') as f:
                 for domain in domains:
                     f.write(f"{domain}\n")
+
+            # Rebuild combined other.txt from base + user.
+            try:
+                from utils.hostlists_manager import rebuild_other_files
+
+                rebuild_other_files()
+            except Exception:
+                pass
             
             # Обновляем UI - заменяем URL на домены
             new_text = '\n'.join(normalized_lines)
@@ -392,7 +401,7 @@ class CustomDomainsPage(BasePage):
                 self.text_edit.setTextCursor(cursor)
                 self.text_edit.blockSignals(False)
             
-            log(f"Сохранено {len(domains)} строк в other.txt", "SUCCESS")
+            log(f"Сохранено {len(domains)} строк в other.user.txt", "SUCCESS")
             self.domains_changed.emit()
             
         except Exception as e:
@@ -410,10 +419,12 @@ class CustomDomainsPage(BasePage):
             if domain:
                 valid_domains.append(domain)
 
-        user_count = sum(1 for d in valid_domains if d not in base_set)
-        base_count = len(valid_domains) - user_count
+        user_set = {d for d in valid_domains if d}
+        user_count = len({d for d in user_set if d not in base_set})
+        base_count = len(base_set)
+        total_count = len(base_set.union(user_set))
         self.status_label.setText(
-            f"📊 Доменов: {len(valid_domains)} (база: {base_count}, пользовательские: {user_count})"
+            f"📊 Доменов: {total_count} (база: {base_count}, пользовательские: {user_count})"
         )
 
     def _get_base_domains_set(self) -> set[str]:
@@ -428,6 +439,14 @@ class CustomDomainsPage(BasePage):
     def _extract_domain(self, text: str) -> Optional[str]:
         """Извлекает домен из URL или текста"""
         text = text.strip()
+
+        # Маркер "не учитывать субдомены" (поддерживается в hostlist как ^domain)
+        marker = ""
+        if text.startswith('^'):
+            marker = '^'
+            text = text[1:].strip()
+            if not text:
+                return None
         
         # Убираем точку в начале (.com -> com)
         if text.startswith('.'):
@@ -445,7 +464,8 @@ class CustomDomainsPage(BasePage):
                 domain = domain.split(':')[0]
                 if domain.startswith('.'):
                     domain = domain[1:]
-                return domain.lower()
+                domain = domain.lower()
+                return f"{marker}{domain}" if marker else domain
             except:
                 pass
         
@@ -458,12 +478,12 @@ class CustomDomainsPage(BasePage):
         
         # Одиночные TLD (com, ru, org) - валидны
         if re.match(r'^[a-z]{2,10}$', domain):
-            return domain
+            return f"{marker}{domain}" if marker else domain
         
         # Домен с точкой (example.com)
         if '.' in domain and len(domain) > 3:
             if re.match(r'^[a-z0-9][a-z0-9\-\.]*[a-z0-9]$', domain):
-                return domain
+                return f"{marker}{domain}" if marker else domain
         
         return None
         
@@ -507,46 +527,13 @@ class CustomDomainsPage(BasePage):
         log(f"Добавлен домен: {domain}", "SUCCESS")
                 
     def _clear_all(self):
-        """Очищает только пользовательские домены, базовые оставляет."""
-        text = self.text_edit.toPlainText().strip()
-        if not text:
-            return
-
-        base_set = self._get_base_domains_set()
-        if not base_set:
-            QMessageBox.warning(
-                self.window(),
-                "Ошибка",
-                "Не удалось загрузить базовые домены из кода."
-            )
-            return
-        
-        current_text = self.text_edit.toPlainText()
-        kept_lines = []
-        seen_domains = set()
-
-        for raw_line in current_text.split('\n'):
-            line = raw_line.strip()
-            if not line:
-                continue
-
-            if line.startswith('#'):
-                kept_lines.append(line)
-                continue
-
-            for item in split_domains(line):
-                domain = self._extract_domain(item)
-                if not domain:
-                    continue
-                if domain in base_set and domain not in seen_domains:
-                    kept_lines.append(domain)
-                    seen_domains.add(domain)
-
-        self.text_edit.setPlainText('\n'.join(kept_lines))
-        log("Пользовательские домены удалены (база сохранена)", "INFO")
+        """Очищает только пользовательские домены."""
+        self.text_edit.setPlainText("")
+        self._save_domains()
+        log("Пользовательские домены удалены", "INFO")
 
     def _reset_file(self):
-        """Сбрасывает other.txt до шаблона из кода."""
+        """Очищает other.user.txt и пересобирает other.txt из базы."""
         try:
             from utils.hostlists_manager import reset_other_file_from_template
 
@@ -554,15 +541,15 @@ class CustomDomainsPage(BasePage):
                 self._load_domains()
                 self.status_label.setText(self.status_label.text() + " • ✅ Сброшено")
             else:
-                QMessageBox.warning(self.window(), "Ошибка", "Не удалось сбросить other.txt")
+                QMessageBox.warning(self.window(), "Ошибка", "Не удалось сбросить my hostlist")
         except Exception as e:
-            log(f"Ошибка сброса other.txt: {e}", "ERROR")
+            log(f"Ошибка сброса my hostlist: {e}", "ERROR")
             QMessageBox.warning(self.window(), "Ошибка", f"Не удалось сбросить:\n{e}")
                 
     def _open_file(self):
         """Открывает файл в проводнике"""
         try:
-            from config import OTHER_PATH
+            from config import OTHER_USER_PATH
             import subprocess
             from utils.hostlists_manager import ensure_hostlists_exist
             
@@ -570,13 +557,13 @@ class CustomDomainsPage(BasePage):
             self._save_domains()
             ensure_hostlists_exist()
             
-            if os.path.exists(OTHER_PATH):
-                subprocess.run(['explorer', '/select,', OTHER_PATH])
+            if os.path.exists(OTHER_USER_PATH):
+                subprocess.run(['explorer', '/select,', OTHER_USER_PATH])
             else:
-                os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
-                with open(OTHER_PATH, 'w', encoding='utf-8') as f:
+                os.makedirs(os.path.dirname(OTHER_USER_PATH), exist_ok=True)
+                with open(OTHER_USER_PATH, 'w', encoding='utf-8') as f:
                     pass
-                subprocess.run(['explorer', os.path.dirname(OTHER_PATH)])
+                subprocess.run(['explorer', os.path.dirname(OTHER_USER_PATH)])
                 
         except Exception as e:
             log(f"Ошибка открытия файла: {e}", "ERROR")

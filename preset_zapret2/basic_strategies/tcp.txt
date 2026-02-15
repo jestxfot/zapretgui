@@ -257,6 +257,8 @@ author = loop-uh
 label = recommended
 description = Моя стратегия с паттерном Google TLS ClientHello + Syndata
 blobs = tls_google
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
 --lua-desync=multidisorder:pos=1,midsld:seqovl=680:seqovl_pattern=tls_google:tls_mod=rnd,rndsni,dupsid:tcp_ack=-66000:ip_ttl=-1,3-20:ip6_ttl=-1,3-20
 
 [alt11]
@@ -271,7 +273,8 @@ name = general (alt v11) 1.9.1 + syndata
 author = hz
 label = recommended
 blobs = tls_max
---lua-desync=fake:blob=tls_max:badsum:repeats=8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
 --lua-desync=multidisorder:pos=1:seqovl=681:seqovl_pattern=tls_max
 
 [multidisorder_legacy_seqovl_211]

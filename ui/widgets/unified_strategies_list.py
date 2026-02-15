@@ -100,8 +100,8 @@ class UnifiedStrategiesList(QWidget):
     def build_list(
         self,
         categories: Dict,
-        selections: Dict[str, str] = None,
-        filter_modes: Dict[str, str] = None,
+        selections: Optional[Dict[str, str]] = None,
+        filter_modes: Optional[Dict[str, str]] = None,
     ):
         """
         Строит список категорий один раз.
@@ -361,14 +361,33 @@ class UnifiedStrategiesList(QWidget):
         """Возвращает текущие выборы"""
         return self._selections.copy()
 
-    def set_selections(self, selections: Dict[str, str]):
+    def set_selections(self, selections: Optional[Dict[str, str]]):
         """Устанавливает выборы для всех категорий"""
-        self._selections = selections.copy()
-        for cat_key, strategy_id in selections.items():
+        selections = selections or {}
+
+        # IMPORTANT:
+        # PresetManager.get_strategy_selections() can return a sparse dict
+        # (only categories present in the preset file). If we only update
+        # provided keys, categories missing in the new preset keep the old
+        # UI state (stale "enabled" labels). Always sync every visible item.
+
+        new_selections: Dict[str, str] = {}
+        for cat_key in (self._items or {}).keys():
+            strategy_id = (selections.get(cat_key) or "none")
+            new_selections[cat_key] = strategy_id
+
             item = self._items.get(cat_key)
             if item:
                 strategy_name = self._get_strategy_name(cat_key, strategy_id)
                 item.set_strategy(strategy_id, strategy_name)
+
+        # Preserve extra keys (if any) for completeness (e.g. custom categories
+        # not yet present in the current registry UI).
+        for cat_key, strategy_id in selections.items():
+            if cat_key not in new_selections:
+                new_selections[cat_key] = strategy_id
+
+        self._selections = new_selections
 
     def reset_filters(self):
         """Сбрасывает фильтры"""

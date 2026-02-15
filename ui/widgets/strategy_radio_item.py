@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QCursor
 import qtawesome as qta
+from typing import Optional
 
 
 class StrategyRadioItem(QFrame):
@@ -32,10 +33,10 @@ class StrategyRadioItem(QFrame):
         category_key: str,
         name: str,
         description: str = "",
-        icon_name: str = None,
+        icon_name: Optional[str] = None,
         icon_color: str = "#2196F3",
         tooltip: str = "",
-        list_type: str = None,
+        list_type: Optional[str] = None,
         parent=None
     ):
         super().__init__(parent)

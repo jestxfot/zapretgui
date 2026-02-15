@@ -1,7 +1,7 @@
-# Preset: Preset X v2 (game filter)
-# Created: 2026-02-15T15:36:04.305281
-# Modified: 2026-02-15T15:36:04.307055
-# IconColor: #60cdff
+# Preset: Preset XY (game filter)
+# Created: 2026-02-12T21:07:19.651846
+# Modified: 2026-02-12T21:07:19.655680
+# IconColor: #ff6666
 # Description: 
 
 --lua-init=@lua/zapret-lib.lua
@@ -109,7 +109,7 @@
 --filter-l7=stun,discord
 --payload=stun,discord_ip_discovery
 --out-range=-n8
---lua-desync=fake:blob=fake_default_udp
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
 
 --new
 
@@ -122,47 +122,12 @@
 
 --new
 
---filter-tcp=80,443
---hostlist=lists/roblox.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google
---lua-desync=multisplit
-
---new
-
---filter-udp=443,49152-65535
---ipset=lists/ipset-roblox.txt
---out-range=-n8
---payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
-
---new
-
---filter-tcp=443,853
---ipset=lists/ipset-warp.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google
---lua-desync=fakedsplit:pos=1:tcp_ack=-66000:repeats=10:ip_ttl=4:ip6_ttl=4
-
---new
-
 --filter-tcp=443
 --hostlist-exclude=lists/netrogat.txt
 --hostlist=lists/other.txt
 --hostlist=lists/russia-blacklist.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
-
---new
-
---filter-tcp=80,443
---ipset=lists/ipset-porn.txt
---out-range=-n8
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google
---lua-desync=multisplit:pos=midsld
 
 --new
 
@@ -176,6 +141,15 @@
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google
 --lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+
+--new
+
+--filter-tcp=443,853
+--ipset=lists/ipset-warp.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=multidisorder_legacy:pos=sniext+1,midsld:seqovl=652
 
 --new
 

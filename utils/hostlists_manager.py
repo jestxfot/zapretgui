@@ -1,9 +1,18 @@
 # utils/hostlists_manager.py
-"""
-Менеджер hostlist-файлов.
+"""Менеджер hostlist-файлов.
 
-- other.txt: рабочий файл пользователя (в пространстве приложения)
-- %APPDATA%/zapret/lists_template/other.txt: системный шаблон
+Файлы в папке приложения (рядом с Zapret.exe):
+- `lists/other.base.txt` : база (системный шаблон; пересоздаётся автоматически)
+- `lists/other.user.txt` : пользовательский файл (редактируется пользователем)
+- `lists/other.txt`      : итоговый файл для движка (base + user), генерируется автоматически
+
+Шаблон базы хранится в `%APPDATA%/zapret/lists_template/other.txt`.
+Для защиты от обновлений/portable-сценариев пользовательский файл дополнительно
+копируется в `%APPDATA%/zapret/lists_backup/other.user.txt`.
+
+Примечание:
+В более старых версиях мог существовать backup `%APPDATA%/zapret/lists_backup/other.txt`.
+Он воспринимается как legacy (слитый base+user) и используется только для миграции.
 """
 
 from __future__ import annotations
@@ -12,7 +21,15 @@ import os
 import sys
 
 from log import log
-from config import MAIN_DIRECTORY, OTHER_PATH, get_other_template_path
+from config import (
+    MAIN_DIRECTORY,
+    OTHER_PATH,
+    OTHER_BASE_PATH,
+    OTHER_USER_PATH,
+    get_other_backup_path,
+    get_other_template_path,
+    get_other_user_backup_path,
+)
 
 
 def _fallback_base_domains() -> list[str]:
@@ -20,7 +37,7 @@ def _fallback_base_domains() -> list[str]:
 
 
 def _normalize_newlines(text: str) -> str:
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     if normalized and not normalized.endswith("\n"):
         normalized += "\n"
     return normalized
@@ -31,22 +48,50 @@ def _read_text_file(path: str) -> str:
         return f.read()
 
 
-def _read_effective_domains(path: str) -> list[str]:
-    """Читает домены без комментариев/пустых строк."""
+def _read_text_file_safe(path: str) -> str | None:
+    try:
+        return _read_text_file(path)
+    except Exception:
+        return None
+
+
+def _write_text_file(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_normalize_newlines(content))
+
+
+def _read_effective_entries(path: str) -> list[str]:
+    """Reads non-empty lines excluding comments (#), lowercased."""
     if not os.path.exists(path):
         return []
 
     result: list[str] = []
     try:
         with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip().lower()
+            for raw in f:
+                line = raw.strip().lower()
                 if not line or line.startswith("#"):
                     continue
                 result.append(line)
     except Exception:
         return []
     return result
+
+
+def _count_effective_entries(path: str) -> int:
+    return len(_read_effective_entries(path))
+
+
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in items:
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
 
 
 def _candidate_source_paths() -> list[str]:
@@ -61,7 +106,6 @@ def _candidate_source_paths() -> list[str]:
     if not bool(getattr(sys, "frozen", False)):
         candidates.append(os.path.join(MAIN_DIRECTORY, "lists", "other.txt"))
 
-    # уникализируем, сохраняя порядок
     unique: list[str] = []
     for path in candidates:
         if path not in unique:
@@ -71,65 +115,9 @@ def _candidate_source_paths() -> list[str]:
 
 def _find_valid_source_path() -> str | None:
     for path in _candidate_source_paths():
-        if _read_effective_domains(path):
+        if _read_effective_entries(path):
             return path
     return None
-
-
-def get_base_domains() -> list[str]:
-    """Возвращает системные базовые домены для other.txt."""
-    # Источник №1: системный шаблон
-    template_domains = _read_effective_domains(get_other_template_path())
-    if template_domains:
-        return template_domains
-
-    # Источник №2: source-файл (dev/build)
-    source_path = _find_valid_source_path()
-    if source_path:
-        source_domains = _read_effective_domains(source_path)
-        if source_domains:
-            return source_domains
-
-    # Аварийный минимум
-    log("WARNING: Не найден валидный source other.txt, использую аварийный минимум", "WARNING")
-    return _fallback_base_domains()
-
-
-def get_base_domains_set() -> set[str]:
-    """Возвращает set базовых доменов (lowercase)."""
-    return {d.strip().lower() for d in get_base_domains() if d and d.strip()}
-
-
-def build_other_template_content() -> str:
-    """Формирует содержимое системного шаблона other.txt."""
-    source_path = _find_valid_source_path()
-    if source_path:
-        try:
-            return _normalize_newlines(_read_text_file(source_path))
-        except Exception:
-            pass
-
-    template_path = get_other_template_path()
-    if os.path.exists(template_path):
-        try:
-            content = _read_text_file(template_path)
-            if _read_effective_domains(template_path):
-                return _normalize_newlines(content)
-        except Exception:
-            pass
-
-    domains = sorted(set(_fallback_base_domains()))
-    return "\n".join(domains) + "\n"
-
-
-def _write_text_file(path: str, content: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(_normalize_newlines(content))
-
-
-def _count_effective_domains(path: str) -> int:
-    return len(_read_effective_domains(path))
 
 
 def ensure_other_template_updated() -> bool:
@@ -149,56 +137,218 @@ def ensure_other_template_updated() -> bool:
                 log(f"Обновлен шаблон other.txt из source: {source_path}", "DEBUG")
             return True
 
-        if _count_effective_domains(template_path) > 0:
+        if _count_effective_entries(template_path) > 0:
             return True
 
-        # Если source-файл недоступен, создаём аварийный минимум.
         fallback_content = "\n".join(sorted(set(_fallback_base_domains()))) + "\n"
         _write_text_file(template_path, fallback_content)
         log("Создан аварийный шаблон other.txt (source не найден)", "WARNING")
         return True
+
     except Exception as e:
         log(f"Ошибка обновления шаблона other.txt: {e}", "ERROR")
         return False
 
 
-def reset_other_file_from_template() -> bool:
-    """Сбрасывает рабочий lists/other.txt из системного шаблона."""
+def get_base_domains() -> list[str]:
+    """Возвращает базовые домены (по шаблону/источнику)."""
+    template_domains = _read_effective_entries(get_other_template_path())
+    if template_domains:
+        return template_domains
+
+    source_path = _find_valid_source_path()
+    if source_path:
+        source_domains = _read_effective_entries(source_path)
+        if source_domains:
+            return source_domains
+
+    log("WARNING: Не найден валидный source other.txt, использую аварийный минимум", "WARNING")
+    return _fallback_base_domains()
+
+
+def get_base_domains_set() -> set[str]:
+    """Возвращает set базовых доменов (lowercase)."""
+    return {d.strip().lower() for d in get_base_domains() if d and d.strip()}
+
+
+def get_user_domains() -> list[str]:
+    """Возвращает effective-строки (без комментариев) из other.user.txt."""
+    return _read_effective_entries(OTHER_USER_PATH)
+
+
+def build_other_template_content() -> str:
+    """Формирует содержимое системного шаблона other.txt."""
+    source_path = _find_valid_source_path()
+    if source_path:
+        try:
+            return _normalize_newlines(_read_text_file(source_path))
+        except Exception:
+            pass
+
+    template_path = get_other_template_path()
+    if os.path.exists(template_path):
+        try:
+            content = _read_text_file(template_path)
+            if _read_effective_entries(template_path):
+                return _normalize_newlines(content)
+        except Exception:
+            pass
+
+    domains = sorted(set(_fallback_base_domains()))
+    return "\n".join(domains) + "\n"
+
+
+def _extract_user_entries_from_combined(path: str) -> list[str]:
+    base_set = get_base_domains_set()
+    entries = _read_effective_entries(path)
+
+    user: list[str] = []
+    seen: set[str] = set()
+    for e in entries:
+        if e in base_set:
+            continue
+        if e in seen:
+            continue
+        seen.add(e)
+        user.append(e)
+    return user
+
+
+def _ensure_user_file_exists() -> bool:
+    """Ensures OTHER_USER_PATH exists; restores/migrates only if missing."""
+    try:
+        os.makedirs(os.path.dirname(OTHER_USER_PATH), exist_ok=True)
+
+        if os.path.exists(OTHER_USER_PATH):
+            return True
+
+        # 1) New backup (raw user file).
+        new_bkp = get_other_user_backup_path()
+        if os.path.exists(new_bkp):
+            content = _read_text_file_safe(new_bkp)
+            if content is not None:
+                _write_text_file(OTHER_USER_PATH, content)
+                log("other.user.txt восстановлен из backup", "SUCCESS")
+                return True
+
+        # 2) Legacy backup (combined base+user).
+        legacy_bkp = get_other_backup_path()
+        if _count_effective_entries(legacy_bkp) > 0:
+            user_entries = _extract_user_entries_from_combined(legacy_bkp)
+            if user_entries:
+                _write_text_file(OTHER_USER_PATH, "\n".join(user_entries) + "\n")
+                log("other.user.txt восстановлен из legacy backup", "SUCCESS")
+                return True
+
+        # 3) Legacy work file (combined base+user).
+        if _count_effective_entries(OTHER_PATH) > 0:
+            user_entries = _extract_user_entries_from_combined(OTHER_PATH)
+            if user_entries:
+                _write_text_file(OTHER_USER_PATH, "\n".join(user_entries) + "\n")
+                log("other.user.txt создан из существующего other.txt", "INFO")
+                return True
+
+        # Nothing to restore: create empty user file.
+        _write_text_file(OTHER_USER_PATH, "")
+        return True
+
+    except Exception as e:
+        log(f"Ошибка подготовки other.user.txt: {e}", "ERROR")
+        return False
+
+
+def _write_base_file_from_template() -> bool:
+    """Writes OTHER_BASE_PATH from the current template (raw)."""
     try:
         if not ensure_other_template_updated():
             return False
 
-        template_path = get_other_template_path()
-        content = _read_text_file(template_path)
-
-        _write_text_file(OTHER_PATH, content)
-        log("other.txt сброшен из шаблона", "SUCCESS")
+        template_content = _read_text_file_safe(get_other_template_path())
+        if template_content is None:
+            template_content = "\n".join(get_base_domains()) + "\n"
+        _write_text_file(OTHER_BASE_PATH, template_content)
         return True
+
     except Exception as e:
-        log(f"Ошибка сброса other.txt из шаблона: {e}", "ERROR")
+        log(f"Ошибка обновления other.base.txt: {e}", "ERROR")
+        return False
+
+
+def _write_combined_other_file() -> bool:
+    """Generates OTHER_PATH = base + user (dedup)."""
+    try:
+        base_entries = get_base_domains()
+        base_set = set(base_entries)
+        user_entries = _read_effective_entries(OTHER_USER_PATH)
+
+        combined: list[str] = list(base_entries)
+        for e in user_entries:
+            if e not in base_set:
+                combined.append(e)
+
+        combined = _dedup_preserve_order(combined)
+        content = "\n".join(combined) + ("\n" if combined else "")
+        _write_text_file(OTHER_PATH, content)
+        return True
+
+    except Exception as e:
+        log(f"Ошибка генерации other.txt: {e}", "ERROR")
+        return False
+
+
+def _sync_user_backup() -> None:
+    """Saves raw user file to the new backup path."""
+    try:
+        content = _read_text_file_safe(OTHER_USER_PATH)
+        if content is None:
+            return
+        _write_text_file(get_other_user_backup_path(), content)
+    except Exception:
+        pass
+
+
+def rebuild_other_files() -> bool:
+    """Пересобирает other.base.txt, other.user.txt (если отсутствует) и other.txt."""
+    try:
+        if not ensure_other_template_updated():
+            return False
+        if not _ensure_user_file_exists():
+            return False
+        if not _write_base_file_from_template():
+            return False
+        if not _write_combined_other_file():
+            return False
+
+        _sync_user_backup()
+        return _count_effective_entries(OTHER_PATH) > 0
+
+    except Exception as e:
+        log(f"Ошибка rebuild_other_files: {e}", "ERROR")
+        return False
+
+
+def reset_other_file_from_template() -> bool:
+    """Очищает other.user.txt и пересобирает other.txt из базы."""
+    try:
+        if not ensure_other_template_updated():
+            return False
+
+        _write_text_file(OTHER_USER_PATH, "")
+        _sync_user_backup()
+
+        ok = rebuild_other_files()
+        if ok:
+            log("other.user.txt очищен, other.txt пересобран из шаблона", "SUCCESS")
+        return ok
+
+    except Exception as e:
+        log(f"Ошибка сброса my hostlist: {e}", "ERROR")
         return False
 
 
 def ensure_hostlists_exist() -> bool:
-    """Проверяет hostlist-файлы и создаёт other.txt при необходимости."""
-    try:
-        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
-
-        if not ensure_other_template_updated():
-            return False
-
-        if not os.path.exists(OTHER_PATH):
-            log("Создание other.txt из шаблона...", "INFO")
-            return reset_other_file_from_template()
-
-        if _count_effective_domains(OTHER_PATH) == 0:
-            log("other.txt не содержит доменов, пересоздаем из шаблона", "WARNING")
-            return reset_other_file_from_template()
-
-        return True
-    except Exception as e:
-        log(f"Ошибка создания файлов хостлистов: {e}", "ERROR")
-        return False
+    """Проверяет hostlist-файлы и создает other.txt при необходимости."""
+    return rebuild_other_files()
 
 
 def startup_hostlists_check() -> bool:
@@ -206,26 +356,16 @@ def startup_hostlists_check() -> bool:
     try:
         log("=== Проверка хостлистов при запуске ===", "HOSTLISTS")
 
-        os.makedirs(os.path.dirname(OTHER_PATH), exist_ok=True)
-
-        if not ensure_other_template_updated():
-            return False
-
-        if not os.path.exists(OTHER_PATH):
-            log("Создаем other.txt из шаблона", "WARNING")
-            if not reset_other_file_from_template():
-                return False
+        ok = rebuild_other_files()
+        if ok:
+            total = _count_effective_entries(OTHER_PATH)
+            user = _count_effective_entries(OTHER_USER_PATH)
+            log(f"other.txt: {total} строк, user: {user}", "INFO")
         else:
-            lines_count = _count_effective_domains(OTHER_PATH)
+            log("Хостлисты не готовы", "WARNING")
 
-            if lines_count == 0:
-                log("other.txt пуст, пересоздаем из шаблона", "WARNING")
-                if not reset_other_file_from_template():
-                    return False
-            else:
-                log(f"other.txt: {lines_count} доменов", "INFO")
+        return ok
 
-        return True
     except Exception as e:
         log(f"Ошибка при проверке хостлистов: {e}", "ERROR")
         return False

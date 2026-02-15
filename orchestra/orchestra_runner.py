@@ -711,15 +711,27 @@ class OrchestraRunner:
 
                     # === UNLOCK ===
                     if event.event_type == EventType.UNLOCK:
-                        host = event.hostname
-                        proto = event.l7proto or "tls"
+                        host = (event.hostname or "").strip().lower()
+                        proto = (event.l7proto or "tls").strip().lower()
                         askey = PROTO_TO_ASKEY.get(proto, proto if proto in ASKEY_ALL else "tls")
                         removed = False
 
-                        # Ищем хост во всех askey профилях и удаляем
+                        if not host:
+                            continue
+
+                        # Ищем хост во всех askey профилях и удаляем.
+                        # IMPORTANT: do NOT auto-unlock user-locked entries.
                         for ak in ASKEY_ALL:
                             target_dict = self.locked_manager.locked_by_askey[ak]
                             if host in target_dict:
+                                try:
+                                    if self.locked_manager.is_user_locked(host, ak):
+                                        # User explicitly pinned this domain; ignore AUTO-UNLOCK/UNLOCK from Lua.
+                                        log(f"SKIP auto-unlock: {host} has user lock [{ak.upper()}]", "INFO")
+                                        continue
+                                except Exception:
+                                    pass
+
                                 del target_dict[host]
                                 removed = True
                                 proto_tag = f"[{ak.upper()}]"

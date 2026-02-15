@@ -33,6 +33,7 @@ from ui.pages.base_page import BasePage
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.sidebar import ActionButton, SettingsCard
 from ui.pages.presets_page import _RevealFrame, _SegmentedChoice
+from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 from log import log
 
 
@@ -137,8 +138,8 @@ class _LinkedWheelListView(QListView):
 class _PresetListDelegate(QStyledItemDelegate):
     action_triggered = pyqtSignal(str, str)
 
-    _ROW_HEIGHT = 56
-    _SECTION_HEIGHT = 28
+    _ROW_HEIGHT = 44
+    _SECTION_HEIGHT = 24
     _EMPTY_HEIGHT = 64
     _ACTION_SIZE = 28
     _ACTION_SPACING = 6
@@ -318,8 +319,7 @@ class _PresetListDelegate(QStyledItemDelegate):
         return rects
 
     def _action_at(self, option_rect: QRect, is_active: bool, pos) -> Optional[str]:
-        card_rect = option_rect.adjusted(0, 2, 0, -2)
-        for action, rect in self._action_rects(card_rect, is_active):
+        for action, rect in self._action_rects(option_rect, is_active):
             if rect.contains(pos):
                 return action
         return None
@@ -342,13 +342,28 @@ class _PresetListDelegate(QStyledItemDelegate):
 
     def _paint_section_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
         painter.save()
-        text_rect = option.rect.adjusted(4, 6, -4, -2)
+        rect = option.rect
+        painter.fillRect(rect, QColor(255, 255, 255, 4))
+
+        text_rect = rect.adjusted(12, 0, -12, 0)
         font = painter.font()
-        font.setPointSize(10)
+        font.setPointSize(9)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor(255, 255, 255, 204))
+
+        metrics = QFontMetrics(font)
+        text_width = metrics.horizontalAdvance(text)
+
+        painter.setPen(QColor(255, 255, 255, 140))
         painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
+
+        # Draw a subtle separator line to the right of the label.
+        line_x1 = text_rect.left() + text_width + 10
+        line_x2 = rect.right() - 12
+        if line_x2 > line_x1:
+            painter.setPen(QColor(255, 255, 255, 45))
+            y = rect.center().y()
+            painter.drawLine(line_x1, y, line_x2, y)
         painter.restore()
 
     def _paint_empty_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
@@ -365,29 +380,27 @@ class _PresetListDelegate(QStyledItemDelegate):
         date_text = str(index.data(_PresetListModel.DateRole) or "")
         is_active = bool(index.data(_PresetListModel.ActiveRole))
 
-        card_rect = option.rect.adjusted(0, 2, 0, -2)
+        row_rect = option.rect
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
         if is_active:
-            bg = QColor(96, 205, 255, 22)
+            bg = QColor(96, 205, 255, 26)
         elif hovered:
-            bg = QColor(255, 255, 255, 20)
+            bg = QColor(255, 255, 255, 18)
         else:
-            bg = QColor(255, 255, 255, 12)
+            bg = QColor(255, 255, 255, 8)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(bg)
-        painter.drawRoundedRect(card_rect, 8, 8)
+        painter.fillRect(row_rect, bg)
 
-        icon_rect = QRect(card_rect.left() + 14, card_rect.center().y() - 10, 20, 20)
+        icon_rect = QRect(row_rect.left() + 12, row_rect.center().y() - 10, 20, 20)
         icon_name = "fa5s.star" if is_active else "fa5s.file-alt"
         icon_color = _normalize_preset_icon_color(str(index.data(_PresetListModel.IconColorRole) or ""))
         _cached_icon(icon_name, icon_color).paint(painter, icon_rect)
 
-        action_rects = self._action_rects(card_rect, is_active)
-        right_cursor = action_rects[0][1].left() - 10 if action_rects else card_rect.right() - 12
+        action_rects = self._action_rects(row_rect, is_active)
+        right_cursor = action_rects[0][1].left() - 10 if action_rects else row_rect.right() - 12
 
         if is_active:
             badge_text = "Активен"
@@ -396,7 +409,7 @@ class _PresetListDelegate(QStyledItemDelegate):
             badge_font.setBold(True)
             badge_metrics = QFontMetrics(badge_font)
             badge_width = badge_metrics.horizontalAdvance(badge_text) + 14
-            badge_rect = QRect(right_cursor - badge_width, card_rect.center().y() - 9, badge_width, 18)
+            badge_rect = QRect(right_cursor - badge_width, row_rect.center().y() - 9, badge_width, 18)
 
             painter.setBrush(QColor(96, 205, 255))
             painter.setPen(Qt.PenStyle.NoPen)
@@ -414,15 +427,15 @@ class _PresetListDelegate(QStyledItemDelegate):
             painter.setFont(date_font)
             date_metrics = QFontMetrics(date_font)
             date_width = date_metrics.horizontalAdvance(date_text)
-            date_rect = QRect(max(card_rect.left() + 80, right_cursor - date_width), card_rect.top(), date_width, card_rect.height())
+            date_rect = QRect(max(row_rect.left() + 80, right_cursor - date_width), row_rect.top(), date_width, row_rect.height())
             painter.setPen(QColor(255, 255, 255, 90))
             painter.drawText(date_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), date_text)
             right_cursor = date_rect.left() - 10
 
         name_left = icon_rect.right() + 10
-        name_rect = QRect(name_left, card_rect.top(), max(40, right_cursor - name_left), card_rect.height())
+        name_rect = QRect(name_left, row_rect.top(), max(40, right_cursor - name_left), row_rect.height())
         name_font = painter.font()
-        name_font.setPointSize(11)
+        name_font.setPointSize(10)
         name_font.setBold(True)
         painter.setFont(name_font)
         painter.setPen(QColor(255, 255, 255))
@@ -464,7 +477,7 @@ class Zapret2UserPresetsPage(BasePage):
     def __init__(self, parent=None):
         super().__init__(
             "Мои пресеты",
-            'Здесь кнопка для нубов - "хочу чтобы нажал и всё работает". Выбираете любой пресет - тыкаете - перезагружаете вкладку и смотрите что ресурс открывается (или не открывается). Если не открываете - тыкаете на следующий пресет. Также здесь можно создавать, импортировать, экспортировать и переключать пользовательские пресеты. ',
+            'Здесь кнопка для нубов - "хочу чтобы нажал и всё работает". Выбираете любой пресет - тыкаете - перезагружаете вкладку и смотрите что ресурс открывается (или не открывается). Если не открывается - тыкаете на следующий пресет. Также здесь можно создавать, импортировать, экспортировать и переключать пользовательские пресеты. ',
             parent,
         )
 
@@ -493,6 +506,11 @@ class Zapret2UserPresetsPage(BasePage):
         self._layout_resync_delayed_timer = QTimer(self)
         self._layout_resync_delayed_timer.setSingleShot(True)
         self._layout_resync_delayed_timer.timeout.connect(self._resync_layout_metrics)
+
+        self._preset_search_timer = QTimer(self)
+        self._preset_search_timer.setSingleShot(True)
+        self._preset_search_timer.timeout.connect(self._apply_preset_search)
+        self._preset_search_input: Optional[QLineEdit] = None
 
         self._build_ui()
 
@@ -689,46 +707,6 @@ class Zapret2UserPresetsPage(BasePage):
         configs_card.add_layout(configs_layout)
         self.add_widget(configs_card)
 
-        self.add_spacing(12)
-
-        # Active preset card
-        self.active_card = SettingsCard("Активный пресет")
-        self.active_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.active_card.setStyleSheet(
-            """
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-            QFrame#settingsCard:hover {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-            }
-            """
-        )
-        active_layout = QHBoxLayout()
-        active_layout.setSpacing(12)
-        self.active_icon_label = QLabel()
-        self.active_icon_label.setPixmap(qta.icon("fa5s.star", color=_DEFAULT_PRESET_ICON_COLOR).pixmap(20, 20))
-        active_layout.addWidget(self.active_icon_label)
-        self.active_preset_label = QLabel("Загрузка...")
-        self.active_preset_label.setStyleSheet(
-            """
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            """
-        )
-        active_layout.addWidget(self.active_preset_label)
-        active_layout.addStretch(1)
-        self.active_card.add_layout(active_layout)
-        self.add_widget(self.active_card)
-
-        self.add_spacing(8)
-
         # "Restore deleted presets" button
         self._restore_deleted_btn = QPushButton("Восстановить удалённые пресеты")
         self._restore_deleted_btn.setIcon(qta.icon("fa5s.undo", color="white"))
@@ -804,7 +782,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._update_toolbar_buttons_layout()
         self.add_widget(self._buttons_container)
 
-        self.add_spacing(8)
+        self.add_spacing(4)
 
         # Inline create/rename panel
         self._action_reveal = _RevealFrame(self)
@@ -964,6 +942,35 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._action_reveal_layout.addWidget(self._action_card)
         self.add_widget(self._action_reveal)
+
+        # Search presets by name (filters the list).
+        self._preset_search_input = QLineEdit()
+        self._preset_search_input.setPlaceholderText("Поиск пресетов по имени...")
+        self._preset_search_input.setClearButtonEnabled(True)
+        set_line_edit_clear_button_icon(self._preset_search_input)
+        self._preset_search_input.setFixedHeight(34)
+        self._preset_search_input.setProperty("noDrag", True)
+        self._preset_search_input.setStyleSheet(
+            """
+            QLineEdit {
+                background: rgba(255, 255, 255, 0.05);
+                border: none;
+                border-radius: 8px;
+                color: #ffffff;
+                padding: 0 12px;
+                font-size: 13px;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }
+            QLineEdit:focus {
+                background: rgba(255, 255, 255, 0.08);
+            }
+            QLineEdit::placeholder {
+                color: rgba(255, 255, 255, 0.4);
+            }
+            """
+        )
+        self._preset_search_input.textChanged.connect(self._on_preset_search_text_changed)
+        self.add_widget(self._preset_search_input)
 
         self.presets_list = _LinkedWheelListView(self)
         self.presets_list.setObjectName("userPresetsList")
@@ -1224,6 +1231,19 @@ class Zapret2UserPresetsPage(BasePage):
             return dt.strftime("%d.%m.%Y %H:%M")
         except Exception:
             return modified
+
+    def _on_preset_search_text_changed(self, _text: str) -> None:
+        # Debounce to avoid reloading on every keystroke.
+        try:
+            self._preset_search_timer.start(180)
+        except Exception:
+            self._load_presets()
+
+    def _apply_preset_search(self) -> None:
+        if not self.isVisible():
+            self._ui_dirty = True
+            return
+        self._load_presets()
 
     def _update_presets_view_height(self):
         if not self._presets_model or not hasattr(self, "presets_list"):
@@ -1513,6 +1533,19 @@ class Zapret2UserPresetsPage(BasePage):
             all_presets = store.get_all_presets()       # {name: Preset}
             active_name = store.get_active_preset_name()
             sorted_names = sorted(all_presets.keys(), key=lambda s: s.lower())
+
+            query = ""
+            try:
+                if self._preset_search_input is not None:
+                    query = (self._preset_search_input.text() or "").strip().lower()
+            except Exception:
+                query = ""
+
+            def matches(name: str) -> bool:
+                if not query:
+                    return True
+                return query in name.lower()
+
             all_tcp_names = [name for name in sorted_names if self._is_all_tcp_udp_preset_name(name)]
             regular_names = [
                 name
@@ -1525,10 +1558,10 @@ class Zapret2UserPresetsPage(BasePage):
                 if self._is_game_filter_preset_name(name) and not self._is_all_tcp_udp_preset_name(name)
             ]
 
-            self.active_preset_label.setText(active_name or "Не выбран")
-            active_preset = all_presets.get(active_name) if active_name else None
-            active_icon_color = _normalize_preset_icon_color(getattr(active_preset, "icon_color", None))
-            self.active_icon_label.setPixmap(qta.icon("fa5s.star", color=active_icon_color).pixmap(20, 20))
+            # Apply search filter per group to keep the existing ordering.
+            regular_names = [name for name in regular_names if matches(name)]
+            game_filter_names = [name for name in game_filter_names if matches(name)]
+            all_tcp_names = [name for name in all_tcp_names if matches(name)]
 
             rows: list[dict[str, object]] = []
 
@@ -1551,23 +1584,20 @@ class Zapret2UserPresetsPage(BasePage):
                 add_preset_row(name)
 
             if game_filter_names:
-                if rows:
-                    rows.append({"kind": "section", "text": "Пресеты которые позволяют играть в игры (Game filter для UDP портов от 444 до 65535)"})
+                rows.append({"kind": "section", "text": "Игры (game filter)"})
                 for name in game_filter_names:
                     add_preset_row(name)
 
             if all_tcp_names:
-                rows.append(
-                    {
-                        "kind": "section",
-                        "text": "Хотите чтобы Zapret работал на все сайты? Вам сюда! (ALL TCP & UDP по всем портам!)",
-                    }
-                )
+                rows.append({"kind": "section", "text": "Все сайты (ALL TCP/UDP)"})
                 for name in all_tcp_names:
                     add_preset_row(name)
 
             if not rows:
-                rows.append({"kind": "empty", "text": "Нет пресетов. Создайте новый или импортируйте из файла."})
+                if query:
+                    rows.append({"kind": "empty", "text": "Ничего не найдено."})
+                else:
+                    rows.append({"kind": "empty", "text": "Нет пресетов. Создайте новый или импортируйте из файла."})
 
             if self._presets_delegate:
                 self._presets_delegate.reset_interaction_state()

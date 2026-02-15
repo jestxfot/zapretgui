@@ -1,5 +1,6 @@
 # ui/theme.py
 import os
+from dataclasses import dataclass
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty, QThread, QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
 from PyQt6.QtWidgets import QPushButton, QMessageBox, QApplication, QMenu, QWidget
@@ -605,12 +606,13 @@ QFrame[frameShape="4"] {
 }
 """
 
-def get_selected_theme(default: str | None = None) -> str | None:
-    """Возвращает сохранённую тему или default"""
+def get_selected_theme(default: str | None = None, *, log_read: bool = True) -> str | None:
+    """Возвращает сохранённую тему или default."""
     from config import REGISTRY_PATH
-    from log import log
     saved = reg(REGISTRY_PATH, "SelectedTheme")
-    log(f"📦 Чтение темы из реестра [{REGISTRY_PATH}]: '{saved}' (default: '{default}')", "DEBUG")
+    if log_read:
+        from log import log
+        log(f"📦 Чтение темы из реестра [{REGISTRY_PATH}]: '{saved}' (default: '{default}')", "DEBUG")
     return saved or default
 
 def set_selected_theme(theme_name: str) -> bool:
@@ -696,6 +698,198 @@ def get_theme_content_bg_color(theme_name: str) -> str:
         return "39, 39, 39"
 
 
+def _parse_rgb(rgb: str, *, default: tuple[int, int, int] = (0, 0, 0)) -> tuple[int, int, int]:
+    try:
+        parts = [int(x.strip()) for x in rgb.split(",")]
+        if len(parts) != 3:
+            return default
+        r, g, b = parts
+        r = max(0, min(255, r))
+        g = max(0, min(255, g))
+        b = max(0, min(255, b))
+        return (r, g, b)
+    except Exception:
+        return default
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    r, g, b = rgb
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _mix_rgb(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    """Linear mix between a and b. t in [0..1]."""
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    ar, ag, ab = a
+    br, bg, bb = b
+    r = int(round(ar + (br - ar) * t))
+    g = int(round(ag + (bg - ag) * t))
+    b2 = int(round(ab + (bb - ab) * t))
+    return (
+        max(0, min(255, r)),
+        max(0, min(255, g)),
+        max(0, min(255, b2)),
+    )
+
+
+@dataclass(frozen=True)
+class ThemeTokens:
+    """Small set of QSS-ready tokens derived from theme_name.
+
+    Keep this minimal and semantic: callers should use tokens instead of hard-coded
+    rgba(255,255,255,...) that breaks light themes.
+    """
+
+    theme_name: str
+    is_light: bool
+    accent_rgb: tuple[int, int, int]
+    accent_rgb_str: str
+    accent_hex: str
+    accent_hover_hex: str
+    accent_pressed_hex: str
+
+    fg: str
+    fg_muted: str
+    fg_faint: str
+
+    divider: str
+    divider_strong: str
+
+    surface_bg: str
+    surface_bg_hover: str
+    surface_bg_pressed: str
+    surface_bg_disabled: str
+
+    surface_border: str
+    surface_border_hover: str
+    surface_border_disabled: str
+
+    accent_soft_bg: str
+    accent_soft_bg_hover: str
+
+    scrollbar_track: str
+    scrollbar_handle: str
+    scrollbar_handle_hover: str
+
+    toggle_off_bg: str
+    toggle_off_bg_hover: str
+    toggle_off_border: str
+    toggle_off_disabled_bg: str
+    toggle_off_disabled_border: str
+
+    font_family_qss: str
+
+
+def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
+    """Returns QSS tokens for theme-aware custom widgets.
+
+    Note: this is intentionally independent from qt_material internals.
+    """
+    if theme_name is None:
+        theme_name = get_selected_theme("Темная синяя", log_read=False) or "Темная синяя"
+
+    clean = theme_name if theme_name in THEMES else "Темная синяя"
+    is_light = clean.startswith("Светлая")
+
+    info = THEMES.get(clean, {})
+    accent_rgb = _parse_rgb(info.get("button_color", "96, 205, 255"), default=(96, 205, 255))
+    accent_rgb_str = f"{accent_rgb[0]}, {accent_rgb[1]}, {accent_rgb[2]}"
+    accent_hex = _rgb_to_hex(accent_rgb)
+
+    # Accent hover/pressed: keep consistent across themes.
+    accent_hover_hex = _rgb_to_hex(_mix_rgb(accent_rgb, (255, 255, 255), 0.12))
+    accent_pressed_hex = _rgb_to_hex(_mix_rgb(accent_rgb, (0, 0, 0), 0.12))
+
+    if is_light:
+        fg = "rgba(0, 0, 0, 0.90)"
+        fg_muted = "rgba(0, 0, 0, 0.65)"
+        fg_faint = "rgba(0, 0, 0, 0.40)"
+
+        divider = "rgba(0, 0, 0, 0.08)"
+        divider_strong = "rgba(0, 0, 0, 0.14)"
+
+        surface_bg = "rgba(0, 0, 0, 0.035)"
+        surface_bg_hover = "rgba(0, 0, 0, 0.055)"
+        surface_bg_pressed = "rgba(0, 0, 0, 0.075)"
+        surface_bg_disabled = "rgba(0, 0, 0, 0.020)"
+
+        surface_border = "rgba(0, 0, 0, 0.10)"
+        surface_border_hover = "rgba(0, 0, 0, 0.16)"
+        surface_border_disabled = "rgba(0, 0, 0, 0.06)"
+
+        scrollbar_track = "rgba(0, 0, 0, 0.04)"
+        scrollbar_handle = "rgba(0, 0, 0, 0.18)"
+        scrollbar_handle_hover = "rgba(0, 0, 0, 0.28)"
+
+        toggle_off_bg = "rgba(0, 0, 0, 0.08)"
+        toggle_off_bg_hover = "rgba(0, 0, 0, 0.11)"
+        toggle_off_border = "rgba(0, 0, 0, 0.16)"
+        toggle_off_disabled_bg = "rgba(0, 0, 0, 0.04)"
+        toggle_off_disabled_border = "rgba(0, 0, 0, 0.08)"
+    else:
+        fg = "rgba(255, 255, 255, 0.92)"
+        fg_muted = "rgba(255, 255, 255, 0.65)"
+        fg_faint = "rgba(255, 255, 255, 0.35)"
+
+        divider = "rgba(255, 255, 255, 0.06)"
+        divider_strong = "rgba(255, 255, 255, 0.10)"
+
+        surface_bg = "rgba(255, 255, 255, 0.04)"
+        surface_bg_hover = "rgba(255, 255, 255, 0.07)"
+        surface_bg_pressed = "rgba(255, 255, 255, 0.10)"
+        surface_bg_disabled = "rgba(255, 255, 255, 0.02)"
+
+        surface_border = "rgba(255, 255, 255, 0.12)"
+        surface_border_hover = "rgba(255, 255, 255, 0.20)"
+        surface_border_disabled = "rgba(255, 255, 255, 0.06)"
+
+        scrollbar_track = "rgba(255, 255, 255, 0.03)"
+        scrollbar_handle = "rgba(255, 255, 255, 0.15)"
+        scrollbar_handle_hover = "rgba(255, 255, 255, 0.25)"
+
+        toggle_off_bg = "rgba(255, 255, 255, 0.10)"
+        toggle_off_bg_hover = "rgba(255, 255, 255, 0.15)"
+        toggle_off_border = "rgba(255, 255, 255, 0.20)"
+        toggle_off_disabled_bg = "rgba(255, 255, 255, 0.05)"
+        toggle_off_disabled_border = "rgba(255, 255, 255, 0.10)"
+
+    accent_soft_bg = f"rgba({accent_rgb_str}, 0.15)"
+    accent_soft_bg_hover = f"rgba({accent_rgb_str}, 0.20)"
+
+    return ThemeTokens(
+        theme_name=clean,
+        is_light=is_light,
+        accent_rgb=accent_rgb,
+        accent_rgb_str=accent_rgb_str,
+        accent_hex=accent_hex,
+        accent_hover_hex=accent_hover_hex,
+        accent_pressed_hex=accent_pressed_hex,
+        fg=fg,
+        fg_muted=fg_muted,
+        fg_faint=fg_faint,
+        divider=divider,
+        divider_strong=divider_strong,
+        surface_bg=surface_bg,
+        surface_bg_hover=surface_bg_hover,
+        surface_bg_pressed=surface_bg_pressed,
+        surface_bg_disabled=surface_bg_disabled,
+        surface_border=surface_border,
+        surface_border_hover=surface_border_hover,
+        surface_border_disabled=surface_border_disabled,
+        accent_soft_bg=accent_soft_bg,
+        accent_soft_bg_hover=accent_soft_bg_hover,
+        scrollbar_track=scrollbar_track,
+        scrollbar_handle=scrollbar_handle,
+        scrollbar_handle_hover=scrollbar_handle_hover,
+        toggle_off_bg=toggle_off_bg,
+        toggle_off_bg_hover=toggle_off_bg_hover,
+        toggle_off_border=toggle_off_border,
+        toggle_off_disabled_bg=toggle_off_disabled_bg,
+        toggle_off_disabled_border=toggle_off_disabled_border,
+        font_family_qss="'Segoe UI Variable', 'Segoe UI', Arial, sans-serif",
+    )
+
+
 def _build_dynamic_style_sheet(theme_name: str) -> str:
     """Строит динамические оверлеи CSS для темы.
 
@@ -703,7 +897,8 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
     """
     theme_bg = get_theme_bg_color(theme_name)
     content_bg = get_theme_content_bg_color(theme_name)
-    is_light = "Светлая" in theme_name
+    tokens = get_theme_tokens(theme_name)
+    is_light = tokens.is_light
     text_color = "#000000" if is_light else "#ffffff"
     border_color = "200, 200, 200" if is_light else "80, 80, 80"
     titlebar_bg_adjust = 10 if is_light else -4  # Светлее/темнее для titlebar
@@ -729,11 +924,32 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
     except Exception:
         titlebar_bg = theme_bg
 
+    # Sidebar bg is a slightly darker version of theme bg.
+    try:
+        r0, g0, b0 = [int(x.strip()) for x in theme_bg.split(',')]
+        sr = max(0, r0 - 4)
+        sg = max(0, g0 - 4)
+        sb = max(0, b0 - 4)
+        sidebar_bg = f"{sr}, {sg}, {sb}"
+    except Exception:
+        sidebar_bg = theme_bg
+
     return f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
 QWidget {{
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: {tokens.font_family_qss};
     background-color: transparent !important;
+}}
+
+/* Semantic text tones (opt-in via dynamic property) */
+QWidget[tone="primary"] {{
+    color: {tokens.fg} !important;
+}}
+QWidget[tone="muted"] {{
+    color: {tokens.fg_muted} !important;
+}}
+QWidget[tone="faint"] {{
+    color: {tokens.fg_faint} !important;
 }}
 
 QMainWindow {{
@@ -785,20 +1001,20 @@ QFrame {{
 
 /* Скроллбары в стиле Windows 11 */
 QScrollBar:vertical {{
-    background: rgba(255, 255, 255, 0.03);
+    background: {tokens.scrollbar_track};
     width: 8px;
     border-radius: 4px;
     margin: 0;
 }}
 
 QScrollBar::handle:vertical {{
-    background: rgba(255, 255, 255, 0.15);
+    background: {tokens.scrollbar_handle};
     border-radius: 4px;
     min-height: 30px;
 }}
 
 QScrollBar::handle:vertical:hover {{
-    background: rgba(255, 255, 255, 0.25);
+    background: {tokens.scrollbar_handle_hover};
 }}
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
@@ -806,24 +1022,163 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
 }}
 
 QScrollBar:horizontal {{
-    background: rgba(255, 255, 255, 0.03);
+    background: {tokens.scrollbar_track};
     height: 8px;
     border-radius: 4px;
     margin: 0;
 }}
 
 QScrollBar::handle:horizontal {{
-    background: rgba(255, 255, 255, 0.15);
+    background: {tokens.scrollbar_handle};
     border-radius: 4px;
     min-width: 30px;
 }}
 
 QScrollBar::handle:horizontal:hover {{
-    background: rgba(255, 255, 255, 0.25);
+    background: {tokens.scrollbar_handle_hover};
 }}
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0;
+}}
+
+/* Side navigation panel container (theme-aware, no per-widget setStyleSheet) */
+QWidget#sideNavBar {{
+    background-color: rgba({sidebar_bg}, 0.85);
+    border-right: 1px solid {tokens.divider};
+}}
+QWidget#sideNavBar[floating="true"] {{
+    background-color: rgba({sidebar_bg}, 0.98);
+    border-right: 1px solid {tokens.divider_strong};
+}}
+
+/* Pin button in sidebar header */
+QPushButton#sideNavPinButton {{
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+}}
+QPushButton#sideNavPinButton:hover {{
+    background: {tokens.surface_bg_hover};
+}}
+QPushButton#sideNavPinButton:pressed {{
+    background: {tokens.surface_bg_pressed};
+}}
+
+/* SettingsCard (used across pages) */
+QFrame#settingsCard {{
+    background-color: {tokens.surface_bg} !important;
+    border: 1px solid {tokens.surface_border} !important;
+    border-radius: 8px !important;
+}}
+QFrame#settingsCard:hover {{
+    background-color: {tokens.surface_bg_hover} !important;
+    border: 1px solid {tokens.surface_border_hover} !important;
+}}
+
+/* ActionButton (ui.sidebar.ActionButton) */
+QPushButton[uiRole="actionButton"] {{
+    background-color: {tokens.surface_bg};
+    border: 1px solid {tokens.surface_border};
+    border-radius: 8px;
+    color: {tokens.fg};
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: {tokens.font_family_qss};
+    min-height: 32px;
+}}
+QPushButton[uiRole="actionButton"]:hover {{
+    background-color: {tokens.surface_bg_hover};
+    border: 1px solid {tokens.surface_border_hover};
+}}
+QPushButton[uiRole="actionButton"]:pressed {{
+    background-color: {tokens.surface_bg_pressed};
+}}
+
+QPushButton[uiRole="actionButton"][accent="true"] {{
+    background-color: {tokens.accent_hex};
+    border: 1px solid {tokens.divider_strong};
+    color: #ffffff;
+}}
+QPushButton[uiRole="actionButton"][accent="true"]:hover {{
+    background-color: {tokens.accent_hover_hex};
+}}
+QPushButton[uiRole="actionButton"][accent="true"]:pressed {{
+    background-color: {tokens.accent_pressed_hex};
+}}
+
+/* Appearance page: theme cards */
+QFrame#themeCard {{
+    background-color: {tokens.surface_bg};
+    border: 1px solid {tokens.surface_border};
+    border-radius: 6px;
+}}
+QFrame#themeCard[hovered="true"] {{
+    background-color: {tokens.surface_bg_hover};
+    border: 1px solid {tokens.surface_border_hover};
+}}
+QFrame#themeCard[selected="true"] {{
+    background-color: {tokens.accent_soft_bg};
+    border: 2px solid {tokens.accent_hex};
+}}
+QFrame#themeCard:disabled {{
+    background-color: {tokens.surface_bg_disabled};
+    border: 1px solid {tokens.surface_border_disabled};
+}}
+
+QLabel#themeCardName {{
+    color: {tokens.fg};
+    font-size: 10px;
+}}
+QFrame#themeCard:disabled QLabel#themeCardName {{
+    color: {tokens.fg_faint};
+}}
+
+/* Appearance page: switch-style checkboxes */
+QCheckBox#garlandSwitch::indicator,
+QCheckBox#snowflakesSwitch::indicator,
+QCheckBox#blurSwitch::indicator {{
+    width: 40px;
+    height: 20px;
+    border-radius: 10px;
+    background-color: {tokens.toggle_off_bg};
+    border: 1px solid {tokens.toggle_off_border};
+}}
+QCheckBox#garlandSwitch::indicator:hover,
+QCheckBox#snowflakesSwitch::indicator:hover,
+QCheckBox#blurSwitch::indicator:hover {{
+    background-color: {tokens.toggle_off_bg_hover};
+}}
+QCheckBox#garlandSwitch::indicator:disabled,
+QCheckBox#snowflakesSwitch::indicator:disabled,
+QCheckBox#blurSwitch::indicator:disabled {{
+    background-color: {tokens.toggle_off_disabled_bg};
+    border-color: {tokens.toggle_off_disabled_border};
+}}
+
+QCheckBox#garlandSwitch::indicator:checked {{
+    background-color: #4cd964;
+    border-color: #4cd964;
+}}
+QCheckBox#garlandSwitch::indicator:checked:hover {{
+    background-color: #5ce06e;
+}}
+
+QCheckBox#snowflakesSwitch::indicator:checked {{
+    background-color: #87ceeb;
+    border-color: #87ceeb;
+}}
+QCheckBox#snowflakesSwitch::indicator:checked:hover {{
+    background-color: #9dd5f0;
+}}
+
+QCheckBox#blurSwitch::indicator:checked {{
+    background-color: {tokens.accent_hex};
+    border-color: {tokens.accent_hex};
+}}
+QCheckBox#blurSwitch::indicator:checked:hover {{
+    background-color: {tokens.accent_hover_hex};
 }}
 """
 
@@ -2208,6 +2563,9 @@ class ThemeHandler:
             
             clean_name = self.theme_manager.get_clean_theme_name(theme_name) if self.theme_manager else theme_name
 
+            # Centralized tokens (colors + typography)
+            tokens = get_theme_tokens(clean_name)
+
             # Получаем цвет фона из конфигурации темы
             theme_bg = get_theme_bg_color(clean_name)
             theme_content_bg = get_theme_content_bg_color(clean_name)
@@ -2293,26 +2651,6 @@ class ThemeHandler:
                             border-bottom-right-radius: 10px;
                         }}
                     """)
-                
-                # Обновляем боковую панель (sidebar)
-                side_nav = self.app_window.main_widget.findChild(QWidget, "sideNavBar")
-                if side_nav:
-                    # Делаем фон чуть темнее основного
-                    try:
-                        r, g, b = [int(x.strip()) for x in theme_bg.split(',')]
-                        sidebar_r = max(0, r - 4)
-                        sidebar_g = max(0, g - 4)
-                        sidebar_b = max(0, b - 4)
-                        sidebar_bg = f"{sidebar_r}, {sidebar_g}, {sidebar_b}"
-                    except:
-                        sidebar_bg = theme_bg
-                    
-                    side_nav.setStyleSheet(f"""
-                        QWidget#sideNavBar {{
-                            background-color: rgba({sidebar_bg}, 0.85);
-                            border-right: 1px solid rgba(255, 255, 255, 0.06);
-                }}
-            """)
             
             # Обновляем стиль menubar если есть
             if hasattr(self.app_window, 'menubar_widget'):
@@ -2331,7 +2669,7 @@ class ThemeHandler:
                             color: {menu_text};
                             border: none;
                             font-size: 11px;
-                            font-family: 'Segoe UI', Arial, sans-serif;
+                            font-family: {tokens.font_family_qss};
                         }}
                         QMenuBar::item {{
                             background-color: transparent;

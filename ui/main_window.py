@@ -447,7 +447,7 @@ class MainWindowUI:
 
         # Presets: subscribe to central PresetStore for all preset events.
         # This replaces per-page signal connections — all preset switches
-        # (from any page, backend, or external file change) trigger the same handler.
+        # (from any page/backend) trigger the same handler.
         try:
             from preset_zapret2.preset_store import get_preset_store
             store = get_preset_store()
@@ -455,9 +455,91 @@ class MainWindowUI:
         except Exception:
             pass
 
+        # Also watch the active preset file itself (preset-zapret2.txt).
+        # This covers cases where the file changes WITHOUT a preset switch signal:
+        # - editing strategies (rewrites preset-zapret2.txt)
+        # - editing the active preset text in the GUI/notepad
+        try:
+            self._setup_active_preset_file_watcher()
+        except Exception:
+            pass
+
         # NOTE: zapret2_user_presets_page.preset_switched is no longer connected here.
         # The store.preset_switched signal above is the single source of truth;
         # the page signal was causing double DPI restarts.
+
+    def _setup_active_preset_file_watcher(self) -> None:
+        """Watches preset-zapret2.txt and refreshes dependent pages on change."""
+        try:
+            import os
+            from PyQt6.QtCore import QFileSystemWatcher, QTimer
+            from preset_zapret2 import get_active_preset_path
+
+            watched_path = os.fspath(get_active_preset_path())
+            if not watched_path:
+                return
+
+            watcher = getattr(self, "_active_preset_file_watcher", None)
+            if watcher is None:
+                watcher = QFileSystemWatcher(self)
+                watcher.fileChanged.connect(self._on_active_preset_file_changed)
+                self._active_preset_file_watcher = watcher
+
+            timer = getattr(self, "_active_preset_file_refresh_timer", None)
+            if timer is None:
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(self._schedule_refresh_after_preset_switch)
+                self._active_preset_file_refresh_timer = timer
+
+            # Keep the canonical path so we can re-arm after atomic replaces.
+            self._active_preset_file_path = watched_path
+
+            # Ensure exactly this path is being watched.
+            try:
+                current = set(watcher.files() or [])
+                desired = {watched_path}
+                for p in (current - desired):
+                    watcher.removePath(p)
+                for p in (desired - current):
+                    watcher.addPath(p)
+            except Exception:
+                try:
+                    if watched_path not in (watcher.files() or []):
+                        watcher.addPath(watched_path)
+                except Exception:
+                    pass
+        except Exception:
+            # Never break UI init due to watcher failures.
+            return
+
+    def _on_active_preset_file_changed(self, path: str) -> None:
+        """Debounced handler for active preset file changes."""
+        # QFileSystemWatcher can drop a file from watch list when it is replaced
+        # atomically (temp file + os.replace). Re-add the path on every event.
+        try:
+            watcher = getattr(self, "_active_preset_file_watcher", None)
+            desired = getattr(self, "_active_preset_file_path", None)
+            if watcher is not None:
+                rearm = (desired or path)
+                if rearm and rearm not in (watcher.files() or []):
+                    watcher.addPath(rearm)
+        except Exception:
+            pass
+
+        try:
+            timer = getattr(self, "_active_preset_file_refresh_timer", None)
+            if timer is not None:
+                # Debounce rapid writes (strategy editor / text editor saves).
+                timer.start(200)
+            else:
+                self._schedule_refresh_after_preset_switch()
+        except Exception:
+            try:
+                self._schedule_refresh_after_preset_switch()
+            except Exception:
+                pass
+
     def _on_preset_switched(self, preset_name: str):
         """Обработчик переключения пресета - перезапускает DPI если запущен"""
         from log import log
