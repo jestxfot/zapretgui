@@ -5,11 +5,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, 
     QProgressBar, QFrame, QWidget
 )
-from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QTimer, QEvent
 from PyQt6.QtGui import QFont, QTextCursor
 
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 
 class DNSCheckWorker(QObject):
@@ -40,10 +42,18 @@ class DNSCheckPage(BasePage):
         )
         self.worker = None
         self.thread = None
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._status_tone = "muted"
+        self._status_bold = False
+        self._info_icon_labels = []
+        self._info_text_labels = []
         self._build_ui()
+        self._apply_theme()
     
     def _build_ui(self):
         """Создаёт интерфейс страницы."""
+        tokens = get_theme_tokens()
         # Информационная карточка
         info_card = SettingsCard("Что проверяем")
         info_layout = QVBoxLayout()
@@ -62,14 +72,17 @@ class DNSCheckPage(BasePage):
             try:
                 import qtawesome as qta
                 icon_label = QLabel()
-                icon_label.setPixmap(qta.icon(icon_name, color='#60cdff').pixmap(16, 16))
+                icon_label.setProperty("dnsIconName", icon_name)
+                icon_label.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(16, 16))
                 icon_label.setFixedWidth(20)
+                self._info_icon_labels.append(icon_label)
                 row.addWidget(icon_label)
             except:
                 pass
             
             text_label = QLabel(text)
-            text_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); font-size: 13px;")
+            text_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+            self._info_text_labels.append(text_label)
             row.addWidget(text_label, 1)
             
             info_layout.addLayout(row)
@@ -108,22 +121,24 @@ class DNSCheckPage(BasePage):
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: rgba(255, 255, 255, 0.1);
+        self.progress_bar.setStyleSheet(
+            f"""
+            QProgressBar {{
+                background-color: {tokens.surface_bg_hover};
                 border: none;
                 border-radius: 3px;
-            }
-            QProgressBar::chunk {
-                background-color: #60cdff;
+            }}
+            QProgressBar::chunk {{
+                background-color: {tokens.accent_hex};
                 border-radius: 3px;
-            }
-        """)
+            }}
+            """
+        )
         control_card.add_widget(self.progress_bar)
         
         # Статус
         self.status_label = QLabel("Готово к проверке")
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px; padding: 4px 0;")
+        self._set_status("Готово к проверке", tone="muted", bold=False)
         control_card.add_widget(self.status_label)
         
         self.layout.addWidget(control_card)
@@ -135,21 +150,125 @@ class DNSCheckPage(BasePage):
         self.result_text.setReadOnly(True)
         self.result_text.setFont(QFont("Consolas", 10))
         self.result_text.setMinimumHeight(300)
-        self.result_text.setStyleSheet("""
-            QTextEdit {
-                background-color: rgba(0, 0, 0, 0.3);
-                color: #d4d4d4;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.result_text.setStyleSheet(
+            f"""
+            QTextEdit {{
+                background-color: {tokens.surface_bg};
+                color: {tokens.fg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 12px;
-            }
-        """)
+            }}
+            """
+        )
         results_card.add_widget(self.result_text)
         
         self.layout.addWidget(results_card)
         
         # Stretch в конце
         self.layout.addStretch()
+
+    def _set_status(self, text: str, *, tone: str, bold: bool) -> None:
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette()
+        tone_map = {
+            "muted": tokens.fg_muted,
+            "accent": tokens.accent_hex,
+            "success": semantic.success,
+            "warning": semantic.warning,
+            "error": semantic.error,
+        }
+        color = tone_map.get(tone, tokens.fg_muted)
+        weight = "600" if bold else "500"
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(
+            f"color: {color}; font-size: 12px; font-weight: {weight}; padding: 4px 0;"
+        )
+        self._status_tone = tone
+        self._status_bold = bold
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            for label in list(self._info_text_labels):
+                try:
+                    label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+                except Exception:
+                    pass
+
+            try:
+                import qtawesome as qta
+
+                for icon_label in list(self._info_icon_labels):
+                    try:
+                        icon_name = (icon_label.property("dnsIconName") or "fa5s.search").strip()
+                        icon_label.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(16, 16))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            try:
+                self.progress_bar.setStyleSheet(
+                    f"""
+                    QProgressBar {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: none;
+                        border-radius: 3px;
+                    }}
+                    QProgressBar::chunk {{
+                        background-color: {tokens.accent_hex};
+                        border-radius: 3px;
+                    }}
+                    """
+                )
+            except Exception:
+                pass
+
+            try:
+                self.result_text.setStyleSheet(
+                    f"""
+                    QTextEdit {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        padding: 12px;
+                    }}
+                    """
+                )
+            except Exception:
+                pass
+
+            try:
+                self._set_status(self.status_label.text(), tone=self._status_tone, bold=self._status_bold)
+            except Exception:
+                pass
+        finally:
+            self._applying_theme_styles = False
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
     
     def start_check(self):
         """Начинает полную проверку DNS."""
@@ -164,8 +283,7 @@ class DNSCheckPage(BasePage):
         # Показываем прогресс
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Неопределённый прогресс
-        self.status_label.setText("🔄 Выполняется проверка DNS...")
-        self.status_label.setStyleSheet("color: #60cdff; font-size: 12px; padding: 4px 0;")
+        self._set_status("🔄 Выполняется проверка DNS...", tone="accent", bold=False)
         
         # Создаём поток и worker
         self.thread = QThread()
@@ -182,21 +300,23 @@ class DNSCheckPage(BasePage):
     
     def append_result(self, text):
         """Добавляет текст в результаты с форматированием."""
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette()
         # Применяем цветовое форматирование
         if "✅" in text:
-            color = "#6ccb5f"
+            color = semantic.success
         elif "❌" in text:
-            color = "#ff6b6b"
+            color = semantic.error
         elif "⚠️" in text:
-            color = "#ffc107"
+            color = semantic.warning
         elif "🚫" in text:
             color = "#e91e63"
         elif "🔍" in text or "📊" in text:
-            color = "#60cdff"
+            color = tokens.accent_hex
         elif "=" in text and len(text) > 20:
-            color = "rgba(255, 255, 255, 0.4)"
+            color = tokens.fg_faint
         else:
-            color = "#d4d4d4"
+            color = tokens.fg
         
         # Форматируем текст
         formatted_text = f'<span style="color: {color};">{text}</span>'
@@ -220,11 +340,9 @@ class DNSCheckPage(BasePage):
         
         # Обновляем статус
         if results and results.get('summary', {}).get('dns_poisoning_detected'):
-            self.status_label.setText("⚠️ Обнаружена DNS подмена!")
-            self.status_label.setStyleSheet("color: #ff6b6b; font-size: 12px; font-weight: bold; padding: 4px 0;")
+            self._set_status("⚠️ Обнаружена DNS подмена!", tone="error", bold=True)
         else:
-            self.status_label.setText("✅ Проверка завершена")
-            self.status_label.setStyleSheet("color: #6ccb5f; font-size: 12px; font-weight: bold; padding: 4px 0;")
+            self._set_status("✅ Проверка завершена", tone="success", bold=True)
         
         # Очистка потока
         if self.thread:
@@ -328,4 +446,3 @@ class DNSCheckPage(BasePage):
                         pass
         except Exception as e:
             log(f"Ошибка при очистке dns_check_page: {e}", "DEBUG")
-

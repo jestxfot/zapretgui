@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
 from log import log
 from ui.pages.base_page import BasePage
 from ui.sidebar import ActionButton, SettingsCard
+from ui.theme import get_theme_tokens
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 
 
@@ -98,47 +99,49 @@ def _find_editor_command(file_path: str) -> tuple[list[str], str] | tuple[None, 
 
 
 def _list_style() -> str:
-    return """
-        QListWidget {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.06);
+    tokens = get_theme_tokens()
+    return f"""
+        QListWidget {{
+            background: {tokens.surface_bg};
+            border: 1px solid {tokens.divider};
             border-radius: 8px;
             padding: 6px;
-            color: rgba(255,255,255,0.9);
-        }
-        QListWidget::item { padding: 8px 10px; border-radius: 6px; }
-        QListWidget::item:selected { background: rgba(96,205,255,0.18); color: #60cdff; }
-        QListWidget::item:hover { background: rgba(255,255,255,0.06); }
+            color: {tokens.fg};
+        }}
+        QListWidget::item {{ padding: 8px 10px; border-radius: 6px; }}
+        QListWidget::item:selected {{ background: {tokens.accent_soft_bg}; color: {tokens.accent_hex}; }}
+        QListWidget::item:hover {{ background: {tokens.surface_bg_hover}; }}
     """
 
 
 def _input_style() -> str:
-    return """
-        QLineEdit, QPlainTextEdit {
-            background-color: rgba(255, 255, 255, 0.06);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.08);
+    tokens = get_theme_tokens()
+    return f"""
+        QLineEdit, QPlainTextEdit {{
+            background-color: {tokens.surface_bg};
+            color: {tokens.fg};
+            border: 1px solid {tokens.surface_border};
             border-radius: 6px;
             padding: 8px 10px;
             font-size: 12px;
-        }
-        QPlainTextEdit {
+        }}
+        QPlainTextEdit {{
             font-family: 'Consolas', monospace;
             font-size: 11px;
-        }
-        QLineEdit:hover, QPlainTextEdit:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(96, 205, 255, 0.3);
-        }
-        QLineEdit:focus, QPlainTextEdit:focus {
-            border: 1px solid #60cdff;
-        }
+        }}
+        QLineEdit:hover, QPlainTextEdit:hover {{
+            background-color: {tokens.surface_bg_hover};
+            border: 1px solid {tokens.surface_border_hover};
+        }}
+        QLineEdit:focus, QPlainTextEdit:focus {{
+            border: 1px solid {tokens.accent_hex};
+        }}
 
         /* Error highlight: thin red-pastel border */
-        QLineEdit[hasError="true"], QPlainTextEdit[hasError="true"] {
+        QLineEdit[hasError="true"], QPlainTextEdit[hasError="true"] {{
             border: 1px solid rgba(255, 107, 107, 0.55);
             background-color: rgba(255, 107, 107, 0.08);
-        }
+        }}
     """
 
 
@@ -156,8 +159,9 @@ def _error_banner_style() -> str:
 
 
 def _row_frame_style(*, is_dirty: bool) -> str:
-    border = "rgba(96,205,255,0.35)" if is_dirty else "rgba(255,255,255,0.06)"
-    bg = "rgba(255,255,255,0.055)" if is_dirty else "rgba(255,255,255,0.04)"
+    tokens = get_theme_tokens()
+    border = f"rgba({tokens.accent_rgb_str}, 0.35)" if is_dirty else tokens.divider
+    bg = f"rgba({tokens.accent_rgb_str}, 0.10)" if is_dirty else tokens.surface_bg
     return f"""
         QFrame {{
             background-color: {bg};
@@ -165,8 +169,8 @@ def _row_frame_style(*, is_dirty: bool) -> str:
             border-radius: 8px;
         }}
         QFrame:hover {{
-            background-color: rgba(255, 255, 255, 0.07);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            background-color: {tokens.surface_bg_hover};
+            border: 1px solid {tokens.surface_border_hover};
         }}
     """
 
@@ -227,10 +231,11 @@ def _is_user_category_key(key: str) -> bool:
 
 
 class _IconButton(QPushButton):
-    def __init__(self, icon_name: str, *, tooltip: str, color: str = "white", parent=None):
+    def __init__(self, icon_name: str, *, tooltip: str, color: str | None = None, parent=None):
         super().__init__(parent)
+        tokens = get_theme_tokens()
         self._icon_name = icon_name
-        self._default_color = color
+        self._default_color = color or tokens.fg
         self.setIcon(qta.icon(icon_name, color=self._default_color))
         self.setIconSize(QSize(18, 18))
         self.setFixedSize(32, 32)
@@ -250,41 +255,43 @@ class _IconButton(QPushButton):
             self._apply_style("default")
 
     def _apply_style(self, kind: str) -> None:
+        tokens = get_theme_tokens()
         if kind == "accent":
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(96, 205, 255, 0.18);
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {tokens.accent_soft_bg};
                     border: none;
                     border-radius: 6px;
-                }
-                QPushButton:hover { background-color: rgba(96, 205, 255, 0.26); }
-                QPushButton:pressed { background-color: rgba(96, 205, 255, 0.32); }
-                QPushButton:disabled { background-color: rgba(255, 255, 255, 0.04); }
+                }}
+                QPushButton:hover {{ background-color: {tokens.accent_soft_bg_hover}; }}
+                QPushButton:pressed {{ background-color: {tokens.accent_soft_bg_hover}; }}
+                QPushButton:disabled {{ background-color: {tokens.surface_bg}; }}
             """)
             return
 
         if kind == "danger":
-            self.setStyleSheet("""
-                QPushButton {
+            tokens = get_theme_tokens()
+            self.setStyleSheet(f"""
+                QPushButton {{
                     background-color: rgba(255, 107, 107, 0.75);
                     border: none;
                     border-radius: 6px;
-                }
-                QPushButton:hover { background-color: rgba(255, 107, 107, 0.85); }
-                QPushButton:pressed { background-color: rgba(255, 107, 107, 0.92); }
-                QPushButton:disabled { background-color: rgba(255, 255, 255, 0.04); }
+                }}
+                QPushButton:hover {{ background-color: rgba(255, 107, 107, 0.85); }}
+                QPushButton:pressed {{ background-color: rgba(255, 107, 107, 0.92); }}
+                QPushButton:disabled {{ background-color: {tokens.surface_bg}; }}
             """)
             return
 
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {tokens.toggle_off_bg};
                 border: none;
                 border-radius: 6px;
-            }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 0.14); }
-            QPushButton:pressed { background-color: rgba(255, 255, 255, 0.18); }
-            QPushButton:disabled { background-color: rgba(255, 255, 255, 0.04); }
+            }}
+            QPushButton:hover {{ background-color: {tokens.toggle_off_bg_hover}; }}
+            QPushButton:pressed {{ background-color: {tokens.toggle_off_bg_hover}; }}
+            QPushButton:disabled {{ background-color: {tokens.surface_bg}; }}
         """)
 
 
@@ -325,7 +332,7 @@ class UserCategoryRow(QFrame):
         top.setSpacing(8)
 
         self.key_label = QLabel(self._key)
-        self.key_label.setStyleSheet("color: rgba(255,255,255,0.45); font-size: 11px;")
+        self.key_label.setStyleSheet(f"color: {get_theme_tokens().fg_faint}; font-size: 11px;")
         self.key_label.setFixedWidth(140)
         top.addWidget(self.key_label, 0)
 
@@ -451,7 +458,7 @@ class MyCategoriesPage(BasePage):
         info_layout.setSpacing(8)
 
         info = QLabel(f"Файл пользовательских категорий: {path}")
-        info.setStyleSheet("color: rgba(255,255,255,0.55); font-size: 12px;")
+        info.setStyleSheet(f"color: {get_theme_tokens().fg_muted}; font-size: 12px;")
         info_layout.addWidget(info, 1)
 
         self._open_config_btn = ActionButton("Открыть в редакторе", "mdi.open-in-new", accent=False)
@@ -590,7 +597,7 @@ class MyCategoriesPage(BasePage):
         top_row.addWidget(self.refresh_btn, 0)
 
         self.count_label = QLabel("")
-        self.count_label.setStyleSheet("color: rgba(255,255,255,0.55); font-size: 12px;")
+        self.count_label.setStyleSheet(f"color: {get_theme_tokens().fg_muted}; font-size: 12px;")
         self.count_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.count_label.setText("0")

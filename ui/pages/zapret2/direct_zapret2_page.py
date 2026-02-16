@@ -4,7 +4,7 @@
 При клике на категорию открывается отдельная страница StrategyDetailPage.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QSizePolicy
@@ -14,6 +14,7 @@ import qtawesome as qta
 from ui.pages.base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from ui.widgets import UnifiedStrategiesList
+from ui.theme import get_theme_tokens
 from log import log
 
 class Zapret2StrategiesPageNew(BasePage):
@@ -49,6 +50,10 @@ class Zapret2StrategiesPageNew(BasePage):
         self._built = False
         self._build_scheduled = False
         self._strategy_set_snapshot = None
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._telegram_hint_label = None
+        self._telegram_btn = None
 
         # Совместимость со старым кодом
         self.content_layout = self.layout
@@ -59,17 +64,92 @@ class Zapret2StrategiesPageNew(BasePage):
         self.select_strategy_btn.hide()
 
         self.current_strategy_label = QLabel("Не выбрана")
-        self.current_strategy_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
+        self.current_strategy_label.setStyleSheet(
+            f"color: {get_theme_tokens().fg}; font-size: 14px; font-weight: 500;"
+        )
+
+    def _telegram_button_qss(self, tokens) -> str:
+        return f"""
+            QPushButton {{
+                background-color: {tokens.toggle_off_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 6px;
+                color: {tokens.fg};
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: {tokens.font_family_qss};
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.toggle_off_bg_hover};
+                border-color: {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
+        """
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            try:
+                self.current_strategy_label.setStyleSheet(
+                    f"color: {tokens.fg}; font-size: 14px; font-weight: 500;"
+                )
+            except Exception:
+                pass
+
+            if self._telegram_hint_label is not None:
+                try:
+                    self._telegram_hint_label.setStyleSheet(
+                        f"""
+                        QLabel {{
+                            background: transparent;
+                            color: {tokens.fg_muted};
+                            font-size: 13px;
+                            font-family: {tokens.font_family_qss};
+                        }}
+                        """
+                    )
+                except Exception:
+                    pass
+
+            if self._telegram_btn is not None:
+                try:
+                    self._telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color=tokens.fg))
+                    self._telegram_btn.setStyleSheet(self._telegram_button_qss(tokens))
+                except Exception:
+                    pass
+        finally:
+            self._applying_theme_styles = False
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def showEvent(self, event):
         """При показе страницы загружаем/обновляем контент"""
         super().showEvent(event)
+        self._schedule_theme_refresh()
 
         # If the global direct_zapret2 mode (Basic/Advanced) changed elsewhere
         # (e.g. on the management page), rebuild this list on next show.
@@ -124,47 +204,34 @@ class Zapret2StrategiesPageNew(BasePage):
             telegram_hint = QLabel(
                 "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
             )
+            self._telegram_hint_label = telegram_hint
             telegram_hint.setWordWrap(True)
             telegram_hint.setContentsMargins(12, 0, 0, 0)
-            telegram_hint.setStyleSheet("""
-                QLabel {
+            tokens = get_theme_tokens()
+            telegram_hint.setStyleSheet(
+                f"""
+                QLabel {{
                     background: transparent;
-                    color: rgba(255, 255, 255, 0.6);
+                    color: {tokens.fg_muted};
                     font-size: 13px;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-            """)
+                    font-family: {tokens.font_family_qss};
+                }}
+                """
+            )
             telegram_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             telegram_hint.setMinimumWidth(0)
             telegram_layout.addWidget(telegram_hint, 1)
 
             # Кнопка Telegram - тёмная
             telegram_btn = QPushButton("  ОТКРЫТЬ TELEGRAM БОТА")
-            telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color="#ffffff"))
+            self._telegram_btn = telegram_btn
+            telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color=tokens.fg))
             telegram_btn.setIconSize(QSize(18, 18))
             telegram_btn.setFixedHeight(36)
             telegram_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             telegram_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             telegram_btn.clicked.connect(self._open_custom_domains)
-            telegram_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #2d2d2d;
-                    border: 1px solid #3d3d3d;
-                    border-radius: 6px;
-                    color: #ffffff;
-                    padding: 0 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: #3a3a3a;
-                    border-color: #4a4a4a;
-                }
-                QPushButton:pressed {
-                    background-color: #252525;
-                }
-            """)
+            telegram_btn.setStyleSheet(self._telegram_button_qss(tokens))
             telegram_layout.addWidget(telegram_btn, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             telegram_card.add_layout(telegram_layout)
@@ -213,6 +280,7 @@ class Zapret2StrategiesPageNew(BasePage):
                 self._strategy_set_snapshot = None
 
             self._built = True
+            self._apply_theme()
             log("Zapret2StrategiesPageNew построена", "INFO")
 
         except Exception as e:

@@ -3,7 +3,7 @@
 Страница управления белым списком оркестратора (whitelist)
 Домены из этого списка НЕ обрабатываются оркестратором.
 """
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QWidget,
@@ -14,6 +14,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -24,33 +25,20 @@ class WhitelistDomainRow(QFrame):
         super().__init__(parent)
         self.domain = domain
         self.is_default = is_default
+
+        self._tokens = get_theme_tokens()
+        self._current_qss = ""
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+
+        self._lock_icon_label = None
+        self._domain_label = None
+        self._delete_btn = None
+
         self._setup_ui(domain, is_default)
 
     def _setup_ui(self, domain: str, is_default: bool):
         self.setFixedHeight(40)
-
-        if is_default:
-            # Системные домены - тёмный стиль, без hover
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: rgba(255, 255, 255, 0.02);
-                    border: 1px solid rgba(255, 255, 255, 0.04);
-                    border-radius: 6px;
-                }
-            """)
-        else:
-            # Пользовательские - интерактивные
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: rgba(255, 255, 255, 0.04);
-                    border: 1px solid rgba(255, 255, 255, 0.06);
-                    border-radius: 6px;
-                }
-                QFrame:hover {
-                    background-color: rgba(255, 255, 255, 0.06);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                }
-            """)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 0, 8, 0)
@@ -59,23 +47,20 @@ class WhitelistDomainRow(QFrame):
         # Иконка замка для системных
         if is_default:
             lock_icon = QLabel()
-            lock_icon.setPixmap(qta.icon("mdi.lock", color="#666666").pixmap(14, 14))
+            self._lock_icon_label = lock_icon
             lock_icon.setToolTip("Системный домен (нельзя удалить)")
             lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)
 
         # Домен
         domain_label = QLabel(domain)
-        if is_default:
-            domain_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px; border: none; background: transparent;")
-        else:
-            domain_label.setStyleSheet("color: white; font-size: 13px; border: none; background: transparent;")
+        self._domain_label = domain_label
         layout.addWidget(domain_label, 1)
 
         # Кнопка удаления (только для пользовательских)
         if not is_default:
             delete_btn = QPushButton()
-            delete_btn.setIcon(qta.icon("mdi.close-circle-outline", color="white"))
+            self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
             delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -96,6 +81,83 @@ class WhitelistDomainRow(QFrame):
             delete_btn.clicked.connect(self._on_delete_clicked)
             layout.addWidget(delete_btn)
 
+        self._apply_theme()
+
+    def refresh_theme(self) -> None:
+        self._tokens = get_theme_tokens()
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self.refresh_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+
+            if self.is_default:
+                qss = f"""
+                    WhitelistDomainRow {{
+                        background-color: {tokens.surface_bg_disabled};
+                        border: 1px solid {tokens.surface_border_disabled};
+                        border-radius: 6px;
+                    }}
+                """
+            else:
+                qss = f"""
+                    WhitelistDomainRow {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                    }}
+                    WhitelistDomainRow:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid {tokens.surface_border_hover};
+                    }}
+                """
+
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+
+            if self._lock_icon_label is not None:
+                self._lock_icon_label.setPixmap(
+                    qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
+                )
+
+            if self._domain_label is not None:
+                domain_color = tokens.fg_muted if self.is_default else tokens.fg
+                self._domain_label.setStyleSheet(
+                    f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
+                )
+
+            if self._delete_btn is not None:
+                self._delete_btn.setIcon(qta.icon("mdi.close-circle-outline", color=tokens.fg))
+        finally:
+            self._applying_theme_styles = False
+
     def _on_delete_clicked(self):
         """При клике на удаление - уведомляем родителя"""
         parent = self.parent()
@@ -115,9 +177,13 @@ class OrchestraWhitelistPage(BasePage):
             parent
         )
         self.setObjectName("orchestraWhitelistPage")
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
         self._runner_cache = None  # Кэш для runner когда оркестратор не запущен
         self._all_whitelist_data = []  # Кэш данных для фильтрации
         self._setup_ui()
+
+        self._apply_theme()
 
     def _setup_ui(self):
         # === Предупреждение о рестарте ===
@@ -146,27 +212,12 @@ class OrchestraWhitelistPage(BasePage):
         self.domain_input = QLineEdit()
         self.domain_input.setPlaceholderText("example.com")
         self.domain_input.returnPressed.connect(self._add_domain)
-        self.domain_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 8px 12px;
-            }
-            QLineEdit:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QLineEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+        # Styled in _apply_theme()
         add_layout.addWidget(self.domain_input, 1)
 
         # Кнопка добавления (зелёная иконка +)
         self.add_btn = QPushButton()
-        self.add_btn.setIcon(qta.icon("mdi.plus", color="white"))
+        # Icon styled in _apply_theme()
         self.add_btn.setIconSize(QSize(18, 18))
         self.add_btn.setFixedSize(36, 36)
         self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -205,50 +256,18 @@ class OrchestraWhitelistPage(BasePage):
         self.search_input.setClearButtonEnabled(True)
         set_line_edit_clear_button_icon(self.search_input)
         self.search_input.textChanged.connect(self._filter_list)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 6px 12px;
-                min-width: 200px;
-            }
-            QLineEdit:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QLineEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+        # Styled in _apply_theme()
         top_row.addWidget(self.search_input)
 
         # Кнопка очистки пользовательских
         self.clear_user_btn = QPushButton("Очистить пользовательские")
-        self.clear_user_btn.setIcon(qta.icon("mdi.delete-sweep", color="white"))
+        # Icon styled in _apply_theme()
         self.clear_user_btn.setIconSize(QSize(16, 16))
         self.clear_user_btn.setFixedHeight(32)
         self.clear_user_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_user_btn.setToolTip("Удалить все пользовательские домены (системные останутся)")
         self.clear_user_btn.clicked.connect(self._clear_user_domains)
-        self.clear_user_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
+        # Styled in _apply_theme()
         top_row.addWidget(self.clear_user_btn)
         top_row.addStretch()
 
@@ -256,7 +275,6 @@ class OrchestraWhitelistPage(BasePage):
 
         # Счётчик
         self.count_label = QLabel()
-        self.count_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
         domains_layout.addWidget(self.count_label)
 
         # Контейнер для рядов (без скролла - страница сама прокручивается)
@@ -272,6 +290,145 @@ class OrchestraWhitelistPage(BasePage):
 
         domains_card.add_layout(domains_layout)
         self.layout.addWidget(domains_card, 1)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if hasattr(self, "domain_input") and self.domain_input is not None:
+                self.domain_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                    }}
+                    QLineEdit:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QLineEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+
+            if hasattr(self, "add_btn") and self.add_btn is not None:
+                self.add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
+
+            if hasattr(self, "search_input") and self.search_input is not None:
+                set_line_edit_clear_button_icon(self.search_input)
+                self.search_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 6px 12px;
+                        min-width: 200px;
+                    }}
+                    QLineEdit:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QLineEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+
+            if hasattr(self, "clear_user_btn") and self.clear_user_btn is not None:
+                self.clear_user_btn.setIcon(qta.icon("mdi.delete-sweep", color=tokens.fg))
+                self.clear_user_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        color: {tokens.fg};
+                        padding: 0 16px;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {tokens.surface_bg_pressed};
+                    }}
+                    """
+                )
+
+            if hasattr(self, "count_label") and self.count_label is not None:
+                self.count_label.setStyleSheet(
+                    f"color: {tokens.fg_faint}; font-size: 11px;"
+                )
+
+            # Section headers inside the list.
+            try:
+                if hasattr(self, "rows_layout") and self.rows_layout is not None:
+                    for i in range(self.rows_layout.count()):
+                        item = self.rows_layout.itemAt(i)
+                        w = item.widget() if item else None
+                        if not isinstance(w, QLabel):
+                            continue
+                        section = w.property("whitelistSection")
+                        if section == "user":
+                            w.setStyleSheet(
+                                f"color: {tokens.accent_hex}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+                            )
+                        elif section == "system":
+                            w.setStyleSheet(
+                                f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+                            )
+            except Exception:
+                pass
+
+            # Refresh row widgets.
+            try:
+                for row in list(getattr(self, "_domain_rows", [])):
+                    if hasattr(row, "refresh_theme"):
+                        row.refresh_theme()
+            except Exception:
+                pass
+        finally:
+            self._applying_theme_styles = False
 
     def showEvent(self, event):
         """При показе страницы обновляем данные"""
@@ -347,7 +504,7 @@ class OrchestraWhitelistPage(BasePage):
         # Добавляем заголовок и ряды для пользовательских (если есть)
         if user_domains:
             user_header = QLabel(f"Пользовательские ({user_count})")
-            user_header.setStyleSheet("color: #60cdff; font-size: 11px; font-weight: 600; padding: 4px 0;")
+            user_header.setProperty("whitelistSection", "user")
             self.rows_layout.addWidget(user_header)
 
             for domain in user_domains:
@@ -365,7 +522,7 @@ class OrchestraWhitelistPage(BasePage):
         # Добавляем заголовок и ряды для системных (если есть)
         if system_domains:
             system_header = QLabel(f"🔒 Системные ({system_count}) — нельзя удалить")
-            system_header.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; font-weight: 600; padding: 4px 0;")
+            system_header.setProperty("whitelistSection", "system")
             self.rows_layout.addWidget(system_header)
 
             for domain in system_domains:
@@ -375,6 +532,8 @@ class OrchestraWhitelistPage(BasePage):
 
         self.count_label.setText(f"Всего: {len(whitelist)} ({system_count} системных + {user_count} пользовательских)")
         self._apply_filter()
+
+        self._apply_theme()
 
     def _filter_list(self, text: str):
         """Фильтрует список по введённому тексту"""

@@ -11,6 +11,7 @@ import os
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
 import re
 
@@ -77,6 +78,7 @@ class CustomIpSetPage(BasePage):
             return None
 
     def _build_ui(self):
+        tokens = get_theme_tokens()
         desc_card = SettingsCard()
         desc = QLabel(
             "Добавляйте свои IP/подсети. Поддерживаются форматы:\n"
@@ -84,7 +86,7 @@ class CustomIpSetPage(BasePage):
             "• Подсеть: 10.0.0.0/8\n"
             "Диапазоны (a-b) не поддерживаются. Поддерживается Ctrl+Z."
         )
-        desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
+        desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -95,18 +97,18 @@ class CustomIpSetPage(BasePage):
 
         self.input = QLineEdit()
         self.input.setPlaceholderText("Например: 1.2.3.4 или 10.0.0.0/8")
-        self.input.setStyleSheet("""
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 10px 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #60cdff;
-            }
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
         """)
         self.input.returnPressed.connect(self._add_entry)
         add_layout.addWidget(self.input, 1)
@@ -149,20 +151,21 @@ class CustomIpSetPage(BasePage):
             "10.0.0.0/8\n\n"
             "Комментарии начинаются с #"
         )
-        self.text_edit.setStyleSheet("""
-            QPlainTextEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        base_editor_style = f"""
+            QPlainTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
                 padding: 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 13px;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+            }}
+            QPlainTextEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
+        """
+        self.text_edit.setStyleSheet(base_editor_style)
         self.text_edit.setMinimumHeight(350)
 
         # Автосохранение
@@ -174,7 +177,7 @@ class CustomIpSetPage(BasePage):
         editor_layout.addWidget(self.text_edit)
 
         hint = QLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 11px;")
+        hint.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         editor_layout.addWidget(hint)
 
         # Метка ошибок валидации
@@ -188,34 +191,21 @@ class CustomIpSetPage(BasePage):
         self.layout.addWidget(editor_card)
 
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         self.layout.addWidget(self.status_label)
         
         # Стили для валидации
-        self._normal_style = """
-            QPlainTextEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 12px;
-                color: #ffffff;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 13px;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """
-        self._error_style = """
-            QPlainTextEdit {
+        self._normal_style = base_editor_style
+        self._error_style = f"""
+            QPlainTextEdit {{
                 background: rgba(255, 100, 100, 0.08);
                 border: 2px solid #ff6b6b;
                 border-radius: 8px;
                 padding: 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 13px;
-            }
+            }}
         """
 
     def _load_entries(self):

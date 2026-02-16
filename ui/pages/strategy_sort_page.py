@@ -20,6 +20,7 @@ from ui.pages.base_page import BasePage
 from strategy_menu.filter_engine import SearchQuery
 from config.reg import reg
 from config import REGISTRY_PATH_GUI
+from ui.theme import get_theme_tokens
 
 
 class ToggleButton(QPushButton):
@@ -29,45 +30,50 @@ class ToggleButton(QPushButton):
     Supports active/inactive states with distinct visual styles.
     """
 
-    # Style for inactive button
-    STYLE_INACTIVE = """
-        QPushButton {
-            background-color: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            color: rgba(255, 255, 255, 0.8);
-            padding: 8px 16px;
-            font-size: 12px;
-            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-        }
-        QPushButton:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-        QPushButton:pressed {
-            background-color: rgba(255, 255, 255, 0.08);
-        }
-    """
+    @staticmethod
+    def _style_inactive() -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 6px;
+                color: {tokens.fg_muted};
+                padding: 8px 16px;
+                font-size: 12px;
+                font-family: {tokens.font_family_qss};
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
+        """
 
-    # Style for active button
-    STYLE_ACTIVE = """
-        QPushButton {
-            background-color: rgba(96, 205, 255, 0.15);
-            border: 1px solid rgba(96, 205, 255, 0.4);
-            border-radius: 6px;
-            color: #60cdff;
-            padding: 8px 16px;
-            font-size: 12px;
-            font-weight: 600;
-            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-        }
-        QPushButton:hover {
-            background-color: rgba(96, 205, 255, 0.2);
-            border: 1px solid rgba(96, 205, 255, 0.5);
-        }
-        QPushButton:pressed {
-            background-color: rgba(96, 205, 255, 0.25);
-        }
-    """
+    @staticmethod
+    def _style_active() -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            QPushButton {{
+                background-color: {tokens.accent_soft_bg};
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
+                border-radius: 6px;
+                color: {tokens.accent_hex};
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: {tokens.font_family_qss};
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.accent_soft_bg_hover};
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.50);
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.accent_soft_bg_hover};
+            }}
+        """
 
     def __init__(self, text: str, value: str, parent: QWidget = None):
         """
@@ -104,7 +110,7 @@ class ToggleButton(QPushButton):
 
     def _update_style(self):
         """Update button style based on active state."""
-        self.setStyleSheet(self.STYLE_ACTIVE if self._active else self.STYLE_INACTIVE)
+        self.setStyleSheet(self._style_active() if self._active else self._style_inactive())
 
 
 class ToggleButtonGroup(QWidget):
@@ -347,28 +353,29 @@ class StrategySortPage(BasePage):
             description: Optional description text
         """
         # Section title
+        tokens = get_theme_tokens()
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.9);
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {tokens.fg};
                 font-size: 14px;
                 font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                font-family: {tokens.font_family_qss};
                 padding-top: 4px;
-            }
+            }}
         """)
         self.add_widget(title_label)
 
         # Section description
         if description:
             desc_label = QLabel(description)
-            desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.5);
+            desc_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {tokens.fg_faint};
                     font-size: 12px;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    font-family: {tokens.font_family_qss};
                     padding-bottom: 8px;
-                }
+                }}
             """)
             desc_label.setWordWrap(True)
             self.add_widget(desc_label)

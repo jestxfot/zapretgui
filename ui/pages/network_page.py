@@ -17,68 +17,57 @@ from .base_page import BasePage
 from .dpi_settings_page import Win11ToggleRow
 from ui.sidebar import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
+from ui.theme import get_theme_tokens
 from log import log
 from dns import DNS_PROVIDERS
 
 if TYPE_CHECKING:
     from main import LupiDPIApp
 
-# Стиль для красивого индикатора выбора
-RADIO_STYLE = """
-    QRadioButton {
-        spacing: 0px;
-    }
-    QRadioButton::indicator {
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
-    }
-    QRadioButton::indicator:unchecked {
-        background-color: rgba(255, 255, 255, 0.08);
-        border: 2px solid rgba(255, 255, 255, 0.25);
-    }
-    QRadioButton::indicator:unchecked:hover {
-        border-color: rgba(255, 255, 255, 0.4);
-    }
-    QRadioButton::indicator:checked {
-        background-color: #4fc3f7;
-        border: 2px solid #4fc3f7;
-    }
-    QRadioButton::indicator:checked::after {
-        background-color: white;
-    }
-"""
-
-
 class DNSProviderCard(SettingsCard):
     """Компактная карточка DNS провайдера"""
     
     selected = pyqtSignal(str, dict)  # name, data
     
-    STYLE_DEFAULT = """
-        #dnsCard {
-            background-color: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 10px;
-        }
-    """
-    STYLE_SELECTED = """
-        #dnsCard {
-            background-color: rgba(79, 195, 247, 0.12);
-            border: 1px solid rgba(79, 195, 247, 0.4);
-            border-radius: 10px;
-        }
-    """
-    INDICATOR_OFF = """
-        background-color: rgba(255, 255, 255, 0.08);
-        border: 2px solid rgba(255, 255, 255, 0.25);
-        border-radius: 8px;
-    """
-    INDICATOR_ON = """
-        background-color: #4fc3f7;
-        border: 2px solid #4fc3f7;
-        border-radius: 8px;
-    """
+    @staticmethod
+    def _style_default() -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            #dnsCard {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.divider};
+                border-radius: 10px;
+            }}
+        """
+
+    @staticmethod
+    def _style_selected() -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            #dnsCard {{
+                background-color: {tokens.accent_soft_bg};
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
+                border-radius: 10px;
+            }}
+        """
+
+    @staticmethod
+    def _indicator_off() -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            background-color: {tokens.toggle_off_bg};
+            border: 2px solid {tokens.toggle_off_border};
+            border-radius: 8px;
+        """
+
+    @staticmethod
+    def _indicator_on() -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            background-color: {tokens.accent_hex};
+            border: 2px solid {tokens.accent_hex};
+            border-radius: 8px;
+        """
     
     def __init__(self, name: str, data: dict, is_current: bool = False, parent=None):
         super().__init__(parent)
@@ -89,9 +78,10 @@ class DNSProviderCard(SettingsCard):
         self.setObjectName("dnsCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._setup_ui()
-        self.setStyleSheet(self.STYLE_DEFAULT)
+        self.setStyleSheet(self._style_default())
         
     def _setup_ui(self):
+        tokens = get_theme_tokens()
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 6, 12, 6)
         layout.setSpacing(10)
@@ -99,11 +89,11 @@ class DNSProviderCard(SettingsCard):
         # Индикатор выбора
         self.indicator = QFrame()
         self.indicator.setFixedSize(16, 16)
-        self.indicator.setStyleSheet(self.INDICATOR_OFF)
+        self.indicator.setStyleSheet(self._indicator_off())
         layout.addWidget(self.indicator)
         
         # Иконка провайдера
-        icon_color = self.data.get('color', '#4fc3f7')
+        icon_color = self.data.get('color') or tokens.accent_hex
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon(
             self.data.get('icon', 'fa5s.server'), 
@@ -114,19 +104,19 @@ class DNSProviderCard(SettingsCard):
         
         # Название
         name_label = QLabel(self.name)
-        name_label.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 500;")
+        name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
         layout.addWidget(name_label)
         
         # Описание
         desc_label = QLabel(f"· {self.data.get('desc', '')}")
-        desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 11px;")
+        desc_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         layout.addWidget(desc_label)
         
         layout.addStretch()
         
         # IP адрес
         ip_label = QLabel(self.data['ipv4'][0])
-        ip_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px; font-family: monospace;")
+        ip_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px; font-family: monospace;")
         layout.addWidget(ip_label)
         
         self.add_layout(layout)
@@ -135,11 +125,11 @@ class DNSProviderCard(SettingsCard):
         """Устанавливает визуальное состояние выбора"""
         self._is_selected = selected
         if selected:
-            self.indicator.setStyleSheet(self.INDICATOR_ON)
-            self.setStyleSheet(self.STYLE_SELECTED)
+            self.indicator.setStyleSheet(self._indicator_on())
+            self.setStyleSheet(self._style_selected())
         else:
-            self.indicator.setStyleSheet(self.INDICATOR_OFF)
-            self.setStyleSheet(self.STYLE_DEFAULT)
+            self.indicator.setStyleSheet(self._indicator_off())
+            self.setStyleSheet(self._style_default())
     
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -158,6 +148,7 @@ class AdapterCard(SettingsCard):
         self._setup_ui()
     
     def _setup_ui(self):
+        tokens = get_theme_tokens()
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 6, 12, 6)
         layout.setSpacing(10)
@@ -180,12 +171,12 @@ class AdapterCard(SettingsCard):
         
         # Иконка
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon('fa5s.network-wired', color='#4fc3f7').pixmap(16, 16))
+        icon_label.setPixmap(qta.icon('fa5s.network-wired', color=tokens.accent_hex).pixmap(16, 16))
         layout.addWidget(icon_label)
         
         # Название
         name_label = QLabel(self.adapter_name)
-        name_label.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 500;")
+        name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
         layout.addWidget(name_label)
         
         layout.addStretch()
@@ -203,7 +194,7 @@ class AdapterCard(SettingsCard):
             dns_text = "DHCP"
         
         self.dns_label = QLabel(dns_text)
-        self.dns_label.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 11px; font-family: monospace;")
+        self.dns_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px; font-family: monospace;")
         layout.addWidget(self.dns_label)
         
         self.add_layout(layout)
@@ -249,10 +240,11 @@ class AdapterCard(SettingsCard):
     
     def _update_check_icon(self, state=None):
         """Обновляет иконку чекбокса"""
+        tokens = get_theme_tokens()
         if self.checkbox.isChecked():
-            self.check_icon.setPixmap(qta.icon('mdi.checkbox-marked', color='#4fc3f7').pixmap(18, 18))
+            self.check_icon.setPixmap(qta.icon('mdi.checkbox-marked', color=tokens.accent_hex).pixmap(18, 18))
         else:
-            self.check_icon.setPixmap(qta.icon('mdi.checkbox-blank-outline', color='#4d4d4d').pixmap(18, 18))
+            self.check_icon.setPixmap(qta.icon('mdi.checkbox-blank-outline', color=tokens.fg_faint).pixmap(18, 18))
 
 
 class NetworkPage(BasePage):
@@ -281,6 +273,7 @@ class NetworkPage(BasePage):
         
     def _build_ui(self):
         """Строит интерфейс страницы"""
+        tokens = get_theme_tokens()
         
         # ═══════════════════════════════════════════════════════════════
         # ПРИНУДИТЕЛЬНЫЙ DNS
@@ -300,7 +293,7 @@ class NetworkPage(BasePage):
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.loading_label = QLabel("⏳ Загрузка...")
-        self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
+        self.loading_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         loading_layout.addWidget(self.loading_label)
         
@@ -309,9 +302,9 @@ class NetworkPage(BasePage):
         self.loading_bar.setFixedHeight(2)
         self.loading_bar.setMaximumWidth(150)
         self.loading_bar.setTextVisible(False)
-        self.loading_bar.setStyleSheet("""
-            QProgressBar { background-color: rgba(255, 255, 255, 0.1); border: none; border-radius: 1px; }
-            QProgressBar::chunk { background-color: #4fc3f7; border-radius: 1px; }
+        self.loading_bar.setStyleSheet(f"""
+            QProgressBar {{ background-color: {tokens.surface_bg_hover}; border: none; border-radius: 1px; }}
+            QProgressBar::chunk {{ background-color: {tokens.accent_hex}; border-radius: 1px; }}
         """)
         loading_layout.addWidget(self.loading_bar, alignment=Qt.AlignmentFlag.AlignCenter)
         
@@ -331,7 +324,7 @@ class NetworkPage(BasePage):
         # Пользовательский DNS
         self.custom_card = SettingsCard()
         self.custom_card.setObjectName("dnsCard")
-        self.custom_card.setStyleSheet(DNSProviderCard.STYLE_DEFAULT)
+        self.custom_card.setStyleSheet(DNSProviderCard._style_default())
         custom_layout = QHBoxLayout()
         custom_layout.setContentsMargins(10, 6, 12, 6)
         custom_layout.setSpacing(8)
@@ -339,27 +332,27 @@ class NetworkPage(BasePage):
         # Индикатор
         self.custom_indicator = QFrame()
         self.custom_indicator.setFixedSize(16, 16)
-        self.custom_indicator.setStyleSheet(DNSProviderCard.INDICATOR_OFF)
+        self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_off())
         custom_layout.addWidget(self.custom_indicator)
         
         custom_label = QLabel("Свой:")
-        custom_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 12px;")
+        custom_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         custom_layout.addWidget(custom_label)
         
         self.custom_primary = QLineEdit()
         self.custom_primary.setPlaceholderText("8.8.8.8")
         self.custom_primary.setFixedWidth(110)
-        self.custom_primary.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.custom_primary.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 5px;
                 padding: 4px 8px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 11px;
                 font-family: monospace;
-            }
-            QLineEdit:focus { border-color: #4fc3f7; }
+            }}
+            QLineEdit:focus {{ border-color: {tokens.accent_hex}; }}
         """)
         self.custom_primary.returnPressed.connect(self._apply_custom_dns_quick)
         custom_layout.addWidget(self.custom_primary)
@@ -478,6 +471,7 @@ class NetworkPage(BasePage):
         if self._ui_built:
             return
         self._ui_built = True
+        tokens = get_theme_tokens()
         
         from dns.dns_core import _normalize_alias
         
@@ -499,22 +493,22 @@ class NetworkPage(BasePage):
         auto_card = SettingsCard()
         auto_card.setObjectName("dnsCard")
         auto_card.setCursor(Qt.CursorShape.PointingHandCursor)
-        auto_card.setStyleSheet(DNSProviderCard.STYLE_DEFAULT)
+        auto_card.setStyleSheet(DNSProviderCard._style_default())
         auto_layout = QHBoxLayout()
         auto_layout.setContentsMargins(10, 6, 12, 6)
         auto_layout.setSpacing(10)
         
         self.auto_indicator = QFrame()
         self.auto_indicator.setFixedSize(16, 16)
-        self.auto_indicator.setStyleSheet(DNSProviderCard.INDICATOR_OFF)
+        self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_off())
         auto_layout.addWidget(self.auto_indicator)
         
         auto_icon = QLabel()
-        auto_icon.setPixmap(qta.icon('fa5s.sync', color='#78909c').pixmap(16, 16))
+        auto_icon.setPixmap(qta.icon('fa5s.sync', color=tokens.fg_faint).pixmap(16, 16))
         auto_layout.addWidget(auto_icon)
         
         auto_label = QLabel("Автоматически (DHCP)")
-        auto_label.setStyleSheet("color: #ffffff; font-size: 12px; font-weight: 500;")
+        auto_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
         auto_layout.addWidget(auto_label)
         
         auto_layout.addStretch()
@@ -527,8 +521,8 @@ class NetworkPage(BasePage):
         # Добавляем провайдеров
         for category, providers in DNS_PROVIDERS.items():
             cat_label = QLabel(category)
-            cat_label.setStyleSheet("""
-                color: rgba(255, 255, 255, 0.35);
+            cat_label.setStyleSheet(f"""
+                color: {tokens.fg_faint};
                 font-size: 10px;
                 font-weight: 600;
                 text-transform: uppercase;
@@ -569,12 +563,12 @@ class NetworkPage(BasePage):
             card.set_selected(False)
         
         if hasattr(self, 'auto_indicator'):
-            self.auto_indicator.setStyleSheet(DNSProviderCard.INDICATOR_OFF)
+            self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_off())
             if hasattr(self, 'auto_card'):
-                self.auto_card.setStyleSheet(DNSProviderCard.STYLE_DEFAULT)
+                self.auto_card.setStyleSheet(DNSProviderCard._style_default())
         
-        self.custom_indicator.setStyleSheet(DNSProviderCard.INDICATOR_OFF)
-        self.custom_card.setStyleSheet(DNSProviderCard.STYLE_DEFAULT)
+        self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_off())
+        self.custom_card.setStyleSheet(DNSProviderCard._style_default())
     
     def _on_dns_selected(self, name: str, data: dict):
         """Обработчик выбора DNS - сразу применяем"""
@@ -598,8 +592,8 @@ class NetworkPage(BasePage):
             return
         
         self._clear_selection()
-        self.auto_indicator.setStyleSheet(DNSProviderCard.INDICATOR_ON)
-        self.auto_card.setStyleSheet(DNSProviderCard.STYLE_SELECTED)
+        self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_on())
+        self.auto_card.setStyleSheet(DNSProviderCard._style_selected())
         self._selected_provider = None
         
         # Применяем
@@ -681,8 +675,8 @@ class NetworkPage(BasePage):
         secondary = self.custom_secondary.text().strip() or None
         
         self._clear_selection()
-        self.custom_indicator.setStyleSheet(DNSProviderCard.INDICATOR_ON)
-        self.custom_card.setStyleSheet(DNSProviderCard.STYLE_SELECTED)
+        self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_on())
+        self.custom_card.setStyleSheet(DNSProviderCard._style_selected())
         
         adapters = self._get_selected_adapters()
         if not adapters:
@@ -737,6 +731,7 @@ class NetworkPage(BasePage):
     def _build_force_dns_card(self):
         """Строит виджет принудительного DNS в стиле DPI страницы"""
         from dns import DNSForceManager, ensure_default_force_dns
+        tokens = get_theme_tokens()
         
         ensure_default_force_dns()
         manager = DNSForceManager()
@@ -755,7 +750,7 @@ class NetworkPage(BasePage):
             "fa5s.shield-alt",
             "Принудительный DNS",
             "Устанавливает Google DNS на активные адаптеры",
-            "#60cdff"
+            tokens.accent_hex
         )
         self.force_dns_toggle.setChecked(self._force_dns_active)
         self.force_dns_toggle.toggled.connect(self._on_force_dns_toggled)
@@ -763,7 +758,7 @@ class NetworkPage(BasePage):
         
         # Статус
         self.force_dns_status_label = QLabel("")
-        self.force_dns_status_label.setStyleSheet("color: rgba(255, 255, 255, 0.55); font-size: 11px;")
+        self.force_dns_status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
         dns_layout.addWidget(self.force_dns_status_label)
         
         self.force_dns_card.add_layout(dns_layout)
@@ -859,14 +854,15 @@ class NetworkPage(BasePage):
             return
         
         from PyQt6.QtCore import QTimer
+        tokens = get_theme_tokens()
         
         # Применяем яркий стиль
-        highlight_style = """
-            SettingsCard {
-                background-color: rgba(96, 205, 255, 0.2);
-                border: 2px solid #60cdff;
+        highlight_style = f"""
+            SettingsCard {{
+                background-color: {tokens.accent_soft_bg_hover};
+                border: 2px solid {tokens.accent_hex};
                 border-radius: 10px;
-            }
+            }}
         """
         original_style = self.force_dns_card.styleSheet()
         self.force_dns_card.setStyleSheet(highlight_style)

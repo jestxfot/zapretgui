@@ -8,6 +8,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -21,25 +22,27 @@ class AboutPage(BasePage):
         
     def _build_ui(self):
         from config import APP_VERSION
+        tokens = get_theme_tokens()
+        card_style = f"""
+            QFrame#settingsCard {{
+                background-color: {tokens.surface_bg};
+                border: none;
+                border-radius: 8px;
+            }}
+        """
         
         # Информация о версии
         self.add_section_title("Версия")
         
         version_card = SettingsCard()
-        version_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-        """)
+        version_card.setStyleSheet(card_style)
         
         version_layout = QHBoxLayout()
         version_layout.setSpacing(16)
         
         # Иконка
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon('fa5s.shield-alt', color='#60cdff').pixmap(40, 40))
+        icon_label.setPixmap(qta.icon('fa5s.shield-alt', color=tokens.accent_hex).pixmap(40, 40))
         icon_label.setFixedSize(48, 48)
         version_layout.addWidget(icon_label)
         
@@ -48,21 +51,21 @@ class AboutPage(BasePage):
         text_layout.setSpacing(2)
         
         name_label = QLabel("Zapret 2 GUI")
-        name_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
+        name_label.setStyleSheet(f"""
+            QLabel {{
+                color: {tokens.fg};
                 font-size: 16px;
                 font-weight: 600;
-            }
+            }}
         """)
         text_layout.addWidget(name_label)
         
         version_label = QLabel(f"Версия {APP_VERSION}")
-        version_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
+        version_label.setStyleSheet(f"""
+            QLabel {{
+                color: {tokens.fg_muted};
                 font-size: 12px;
-            }
+            }}
         """)
         text_layout.addWidget(version_label)
         
@@ -82,19 +85,13 @@ class AboutPage(BasePage):
         self.add_section_title("Устройство")
 
         device_card = SettingsCard()
-        device_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-        """)
+        device_card.setStyleSheet(card_style)
 
         device_layout = QHBoxLayout()
         device_layout.setSpacing(16)
 
         device_icon = QLabel()
-        device_icon.setPixmap(qta.icon('fa5s.key', color='#60cdff').pixmap(20, 20))
+        device_icon.setPixmap(qta.icon('fa5s.key', color=tokens.accent_hex).pixmap(20, 20))
         device_icon.setFixedSize(24, 24)
         device_layout.addWidget(device_icon)
 
@@ -109,11 +106,11 @@ class AboutPage(BasePage):
         device_text_layout.setSpacing(2)
 
         device_title = QLabel("ID устройства")
-        device_title.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;")
+        device_title.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 500;")
         device_text_layout.addWidget(device_title)
 
         self.client_id_label = QLabel(client_id or "—")
-        self.client_id_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
+        self.client_id_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.client_id_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         device_text_layout.addWidget(self.client_id_label)
 
@@ -133,13 +130,7 @@ class AboutPage(BasePage):
         self.add_section_title("Подписка")
         
         sub_card = SettingsCard()
-        sub_card.setStyleSheet("""
-            QFrame#settingsCard {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: none;
-                border-radius: 8px;
-            }
-        """)
+        sub_card.setStyleSheet(card_style)
         
         sub_layout = QVBoxLayout()
         sub_layout.setSpacing(12)
@@ -149,12 +140,12 @@ class AboutPage(BasePage):
         sub_status_layout.setSpacing(8)
         
         self.sub_status_icon = QLabel()
-        self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color='#888888').pixmap(18, 18))
+        self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color=tokens.fg_faint).pixmap(18, 18))
         self.sub_status_icon.setFixedSize(22, 22)
         sub_status_layout.addWidget(self.sub_status_icon)
         
         self.sub_status_label = QLabel("Free версия")
-        self.sub_status_label.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;")
+        self.sub_status_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 500;")
         sub_status_layout.addWidget(self.sub_status_label, 1)
         
         sub_layout.addLayout(sub_status_layout)
@@ -163,7 +154,7 @@ class AboutPage(BasePage):
             "Подписка Zapret Premium открывает доступ к дополнительным темам, "
             "приоритетной поддержке и VPN-сервису."
         )
-        sub_desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        sub_desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
         sub_desc.setWordWrap(True)
         sub_layout.addWidget(sub_desc)
         
@@ -197,8 +188,9 @@ class AboutPage(BasePage):
         except Exception as e:
             log(f"Ошибка копирования ID: {e}", "DEBUG")
         
-    def update_subscription_status(self, is_premium: bool, days: int = None):
+    def update_subscription_status(self, is_premium: bool, days: int | None = None):
         """Обновляет отображение статуса подписки"""
+        tokens = get_theme_tokens()
         if is_premium:
             self.sub_status_icon.setPixmap(qta.icon('fa5s.star', color='#ffc107').pixmap(18, 18))
             if days:
@@ -206,8 +198,6 @@ class AboutPage(BasePage):
             else:
                 self.sub_status_label.setText("Premium активен")
         else:
-            self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color='#888888').pixmap(18, 18))
+            self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color=tokens.fg_faint).pixmap(18, 18))
             self.sub_status_label.setText("Free версия")
     
-
-

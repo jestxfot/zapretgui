@@ -5,11 +5,10 @@
 """
 
 from typing import Optional
-from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QWidget
 from log import log
 from config import APP_VERSION
-from ui.theme import COMMON_STYLE
+from ui.theme import get_theme_tokens
 
 def apply_initial_theme(app):
     """
@@ -73,98 +72,54 @@ class ThemeSubscriptionManager:
         else:
             self.setWindowTitle(base_title)
             log(f"Заголовок окна: FREE режим (source: {source})", "DEBUG")
-        
-        # Обновляем title_label с цветным статусом
-        base_label_title = "Zapret 2 GUI"
-        
-        # Определяем текущую тему
-        actual_current_theme = current_theme
-        if not actual_current_theme and hasattr(self, 'theme_manager'):
-            actual_current_theme = getattr(self.theme_manager, 'current_theme', None)
-        
+
         # ✅ title_label больше не используется в новом интерфейсе
         # Статус отображается только в заголовке окна (setWindowTitle выше)
-        pass
+
+
+    def _resolve_theme_name(self, current_theme: str = None) -> Optional[str]:
+        """Возвращает текущее имя темы из аргумента или theme_manager."""
+        theme_name = current_theme
+        if not theme_name and hasattr(self, 'theme_manager'):
+            theme_name = getattr(self.theme_manager, 'current_theme', None)
+        if not theme_name:
+            return None
+        return str(theme_name)
     
     def _get_free_indicator_color(self, current_theme: str = None) -> str:
         """
-        Возвращает цвет для индикатора [FREE] на основе текущей темы.
+        Возвращает цвет FREE-индикатора в QSS-совместимом формате.
         
         Args:
             current_theme: Название текущей темы
             
         Returns:
-            str: Цвет в формате hex
+            str: QSS-цвет (rgba/hex)
         """
         try:
-            theme_name = current_theme
-            if not theme_name and hasattr(self, 'theme_manager'):
-                theme_name = getattr(self.theme_manager, 'current_theme', None)
-            
-            if not theme_name:
-                return "#000000"
-            
-            # Специальная обработка для полностью черной темы
-            if theme_name == "Полностью черная":
-                return "#ffffff"  # Белый цвет для полностью черной темы
-            
-            # Определяем цвет на основе названия темы
-            if (theme_name.startswith("Темная") or 
-                theme_name == "РКН Тян" or 
-                theme_name.startswith("AMOLED")):
-                return "#BBBBBB"
-            elif theme_name.startswith("Светлая"):
-                return "#000000"
-            else:
-                return "#000000"
+            tokens = get_theme_tokens(self._resolve_theme_name(current_theme))
+            return tokens.fg_muted
                 
         except Exception as e:
             log(f"Ошибка определения цвета FREE индикатора: {e}", "❌ ERROR")
-            return "#000000"
+            try:
+                return get_theme_tokens().fg_muted
+            except Exception:
+                return "rgba(220, 220, 220, 0.65)"
     
     def _get_premium_indicator_color(self, current_theme: str = None) -> str:
         """
-        Возвращает цвет для индикатора премиум статуса.
+        Возвращает цвет PREMIUM-индикатора в QSS-совместимом формате.
         
         Args:
             current_theme: Название текущей темы
             
         Returns:
-            str: Цвет в формате hex
+            str: QSS-цвет (rgba/hex)
         """
         try:
-            theme_name = current_theme
-            if not theme_name and hasattr(self, 'theme_manager'):
-                theme_name = getattr(self.theme_manager, 'current_theme', None)
-            
-            if not theme_name:
-                return "#FFD700"
-            
-            # Специальная обработка для полностью черной темы
-            if theme_name == "Полностью черная":
-                log("Применяем золотой цвет для PREMIUM в полностью черной теме", "DEBUG")
-                return "#FFD700"
-            
-            # Для остальных тем определяем цвет на основе button_color
-            try:
-                from ui.theme import THEMES
-                if theme_name in THEMES:
-                    theme_info = THEMES[theme_name]
-                    button_color = theme_info.get("button_color", "0, 119, 255")
-                    
-                    # Преобразуем RGB в hex
-                    if ',' in button_color:
-                        try:
-                            rgb_values = [int(x.strip()) for x in button_color.split(',')]
-                            hex_color = f"#{rgb_values[0]:02x}{rgb_values[1]:02x}{rgb_values[2]:02x}"
-                            log(f"Цвет PREMIUM индикатора для темы {theme_name}: {hex_color}", "DEBUG")
-                            return hex_color
-                        except (ValueError, IndexError):
-                            return "#4CAF50"
-            except ImportError:
-                pass
-            
-            return "#4CAF50"
+            tokens = get_theme_tokens(self._resolve_theme_name(current_theme))
+            return tokens.accent_hex
             
         except Exception as e:
             log(f"Ошибка определения цвета PREMIUM индикатора: {e}", "❌ ERROR")

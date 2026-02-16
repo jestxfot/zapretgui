@@ -24,6 +24,7 @@ from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
 from strategy_menu.strategy_info import StrategyInfo
 from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
+from ui.theme import get_theme_tokens
 
 
 class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
@@ -75,26 +76,10 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
         # Заголовок страницы (фиксированный, не прокручивается)
         self.title_label = QLabel("Сменить стратегию для обхода блокировок (Zapret 2)")
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 28px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-                padding-bottom: 4px;
-            }
-        """)
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
         self.subtitle_label = QLabel("Здесь для каждой категории Вы можете выбрать свою стратегию для обхода блокировок. Существует несколько фаз (фейки, мультинарезка, нарезка в обратном порядке и т.д.), которые можно совмещать друг с другом. Дополнительные настройки (отправка syn пакета с фейковыми данными черед SYN-ACK + send настройка количества отправка этих пакетов) настраивается сверху дополнительно. Эти опции можно включать и выключать и комбинировать как угодно. Порядок фуллинга (дурилок) важен, но он определяется автоматически программой.")
-        self.subtitle_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 13px;
-                padding-bottom: 8px;
-            }
-        """)
         self.subtitle_label.setWordWrap(True)
         self.main_layout.addWidget(self.subtitle_label)
 
@@ -108,7 +93,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         current_layout.addWidget(self.status_indicator)
         
         current_prefix = QLabel("Текущая:")
-        current_prefix.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 14px;")
+        self._current_prefix_label = current_prefix
         current_layout.addWidget(current_prefix)
         
         # Контейнер для иконок активных стратегий
@@ -128,13 +113,6 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         
         # Текстовый лейбл (для fallback и BAT режима)
         self.current_strategy_label = QLabel("Не выбрана")
-        self.current_strategy_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
         current_layout.addWidget(self.current_strategy_label)
         
         current_layout.addStretch()
@@ -161,23 +139,6 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical { 
-                background: rgba(255,255,255,0.03); 
-                width: 8px; 
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical { 
-                background: rgba(255,255,255,0.15); 
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover { 
-                background: rgba(255,255,255,0.25); 
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
         
         # Контейнер для контента (меняется в зависимости от режима)
         self.content_container = QWidget()
@@ -188,7 +149,6 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
         # Плейсхолдер загрузки
         self.loading_label = QLabel("⏳ Загрузка...")
-        self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
         
@@ -531,6 +491,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
     def _create_cmd_preview_widget(self) -> QWidget:
         """Создаёт виджет для превью командной строки"""
+        tokens = get_theme_tokens()
+
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(widget)
@@ -542,29 +504,28 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         header_layout.setSpacing(8)
 
         label = QLabel("Командная строка:")
-        label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 12px;
-                font-weight: 500;
-            }
-        """)
+        label.setStyleSheet(
+            f"color: {tokens.fg_muted}; font-size: 12px; font-weight: 500;"
+        )
         header_layout.addWidget(label)
 
         # Кнопка копирования
         copy_btn = QPushButton()
-        copy_btn.setIcon(qta.icon('fa5s.copy', color='#60cdff'))
+        copy_btn.setIcon(qta.icon('fa5s.copy', color=tokens.accent_hex))
         copy_btn.setFixedSize(24, 24)
-        copy_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.05);
-                border: none;
+        copy_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+                border-color: {tokens.surface_border_hover};
+            }}
+            """
+        )
         copy_btn.setToolTip("Копировать команду")
         copy_btn.clicked.connect(self._copy_cmd_to_clipboard)
         header_layout.addWidget(copy_btn)
@@ -577,17 +538,19 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self._cmd_preview_text.setReadOnly(True)
         self._cmd_preview_text.setMinimumHeight(80)
         self._cmd_preview_text.setMaximumHeight(150)
-        self._cmd_preview_text.setStyleSheet("""
-            QTextEdit {
-                background: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255,255,255,0.1);
+        self._cmd_preview_text.setStyleSheet(
+            f"""
+            QTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #b0b0b0;
+                color: {tokens.fg_muted};
                 font-family: 'Cascadia Code', 'Consolas', monospace;
                 font-size: 11px;
                 padding: 8px;
-            }
-        """)
+            }}
+            """
+        )
         self._cmd_preview_text.setPlaceholderText("Выберите стратегию для просмотра команды...")
         self._cmd_preview_text.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         layout.addWidget(self._cmd_preview_text)
@@ -988,7 +951,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
         # Добавляем плейсхолдер
         self.loading_label = QLabel("⏳ Загрузка...")
-        self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
+        tokens = get_theme_tokens()
+        self.loading_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
 
@@ -1062,6 +1026,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
     def _show_loading_indicator(self, widget):
         """Показывает спиннер загрузки на вкладке"""
+        tokens = get_theme_tokens()
+
         # Очищаем существующий контент
         old_layout = widget.layout()
         if old_layout:
@@ -1081,7 +1047,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         container_layout = QVBoxLayout(container)
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        spinner = Win11Spinner(size=24, color="#60cdff")
+        spinner = Win11Spinner(size=24, color=tokens.accent_hex)
         container_layout.addWidget(spinner, alignment=Qt.AlignmentFlag.AlignCenter)
 
         old_layout.addWidget(container)
@@ -1182,7 +1148,13 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            scroll.setStyleSheet("QScrollArea{background:transparent;border:none}QScrollBar:vertical{background:rgba(255,255,255,0.05);width:6px}QScrollBar::handle:vertical{background:rgba(255,255,255,0.2);border-radius:3px}")
+            tokens = get_theme_tokens()
+            scroll.setStyleSheet(
+                "QScrollArea{background:transparent;border:none}"
+                f"QScrollBar:vertical{{background:{tokens.scrollbar_track};width:6px}}"
+                f"QScrollBar::handle:vertical{{background:{tokens.scrollbar_handle};border-radius:3px}}"
+                f"QScrollBar::handle:vertical:hover{{background:{tokens.scrollbar_handle_hover}}}"
+            )
 
             content = QWidget()
             content.setStyleSheet("background:transparent")
@@ -1217,7 +1189,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             if disabled_strategies and (favorite_strategies or regular_strategies):
                 separator = QWidget()
                 separator.setFixedHeight(1)
-                separator.setStyleSheet("background: rgba(255, 255, 255, 0.08); margin: 8px 0;")
+                separator.setStyleSheet(f"background: {tokens.divider_strong}; margin: 8px 0;")
                 content_layout.addWidget(separator)
 
             # === ИЗБРАННЫЕ (вверху) ===
@@ -1258,7 +1230,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                     # Разделитель
                     separator = QWidget()
                     separator.setFixedHeight(1)
-                    separator.setStyleSheet("background: rgba(255, 255, 255, 0.08); margin: 8px 0;")
+                    separator.setStyleSheet(f"background: {tokens.divider_strong}; margin: 8px 0;")
                     content_layout.addWidget(separator)
 
                 for strategy_id, strategy_data in regular_strategies.items():
@@ -1579,7 +1551,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             self._clear_content()
 
             self.loading_label = QLabel("⏳ Перезагрузка...")
-            self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6);")
+            tokens = get_theme_tokens()
+            self.loading_label.setStyleSheet(f"color: {tokens.fg_muted};")
             self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.content_layout.addWidget(self.loading_label)
 
@@ -1850,7 +1823,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                     
                     strategy_name = registry.get_strategy_name_safe(cat_key, strat_id)
                     icon_name = cat_info.icon_name or 'fa5s.globe'
-                    icon_color = cat_info.icon_color or '#60cdff'
+                    icon_color = cat_info.icon_color or get_theme_tokens().accent_hex
                     cat_full = cat_info.full_name
                     
                     icons_data.append((icon_name, icon_color, strategy_name))
@@ -1877,7 +1850,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                         pixmap = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
                         icon_label.setPixmap(pixmap)
                     except:
-                        pixmap = qta.icon('fa5s.globe', color='#60cdff').pixmap(16, 16)
+                        pixmap = qta.icon('fa5s.globe', color=get_theme_tokens().accent_hex).pixmap(16, 16)
                         icon_label.setPixmap(pixmap)
                     icon_label.setFixedSize(18, 18)
                     icon_label.setToolTip(f"{strat_name}")

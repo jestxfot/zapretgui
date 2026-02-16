@@ -7,6 +7,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -19,13 +20,14 @@ class HostlistPage(BasePage):
 
     def _build_ui(self):
         """Строит UI страницы."""
+        tokens = get_theme_tokens()
         intro_card = SettingsCard()
         intro = QLabel(
             "На этой странице собраны оба типа списков:\n"
             "• Hostlist — домены\n"
             "• IPset — IP-адреса и подсети"
         )
-        intro.setStyleSheet("color: rgba(255, 255, 255, 0.72); font-size: 13px;")
+        intro.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
         intro.setWordWrap(True)
         intro_card.add_widget(intro)
         self.layout.addWidget(intro_card)
@@ -34,13 +36,13 @@ class HostlistPage(BasePage):
         hostlist_desc = QLabel(
             "Используется для обхода блокировок по доменам."
         )
-        hostlist_desc.setStyleSheet("color: rgba(255, 255, 255, 0.68); font-size: 12px;")
+        hostlist_desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         hostlist_card.add_widget(hostlist_desc)
         hostlist_card.add_widget(
             self._build_action_row(
                 title="Открыть папку хостлистов",
                 icon_name="fa5s.folder-open",
-                icon_color="#60cdff",
+                icon_color=tokens.accent_hex,
                 button_text="Открыть",
                 button_icon="fa5s.external-link-alt",
                 callback=self._open_lists_folder,
@@ -58,7 +60,7 @@ class HostlistPage(BasePage):
             )
         )
         self.hostlist_info_label = QLabel("Загрузка информации...")
-        self.hostlist_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.72); font-size: 12px;")
+        self.hostlist_info_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.hostlist_info_label.setWordWrap(True)
         hostlist_card.add_widget(self.hostlist_info_label)
         self.layout.addWidget(hostlist_card)
@@ -67,20 +69,20 @@ class HostlistPage(BasePage):
         ipset_desc = QLabel(
             "Используется для обхода блокировок по IP-адресам и подсетям."
         )
-        ipset_desc.setStyleSheet("color: rgba(255, 255, 255, 0.68); font-size: 12px;")
+        ipset_desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         ipset_card.add_widget(ipset_desc)
         ipset_card.add_widget(
             self._build_action_row(
                 title="Открыть папку IP-сетов",
                 icon_name="fa5s.folder-open",
-                icon_color="#60cdff",
+                icon_color=tokens.accent_hex,
                 button_text="Открыть",
                 button_icon="fa5s.external-link-alt",
                 callback=self._open_lists_folder,
             )
         )
         self.ipset_info_label = QLabel("Загрузка информации...")
-        self.ipset_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.72); font-size: 12px;")
+        self.ipset_info_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.ipset_info_label.setWordWrap(True)
         ipset_card.add_widget(self.ipset_info_label)
         self.layout.addWidget(ipset_card)
@@ -99,6 +101,7 @@ class HostlistPage(BasePage):
         callback,
         subtitle: str = "",
     ) -> QWidget:
+        tokens = get_theme_tokens()
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -112,17 +115,17 @@ class HostlistPage(BasePage):
             text_layout.setSpacing(2)
 
             title_label = QLabel(title)
-            title_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+            title_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px;")
             text_layout.addWidget(title_label)
 
             subtitle_label = QLabel(subtitle)
-            subtitle_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px;")
+            subtitle_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
             text_layout.addWidget(subtitle_label)
 
             row_layout.addLayout(text_layout, 1)
         else:
             title_label = QLabel(title)
-            title_label.setStyleSheet("color: #ffffff; font-size: 13px;")
+            title_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px;")
             row_layout.addWidget(title_label, 1)
 
         action_btn = ActionButton(button_text, button_icon)

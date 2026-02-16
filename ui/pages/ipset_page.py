@@ -1,7 +1,7 @@
 # ui/pages/ipset_page.py
 """Страница управления IP-сетами"""
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QEvent
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QFrame, QMessageBox)
 from PyQt6.QtGui import QFont
@@ -9,6 +9,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -17,10 +18,17 @@ class IpsetPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__("IPset", "Управление IP-адресами и подсетями", parent)
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._desc_label = None
+        self._open_icon_label = None
+        self._open_text_label = None
         self._build_ui()
+        self._apply_theme()
         
     def _build_ui(self):
         """Строит UI страницы"""
+        tokens = get_theme_tokens()
         
         # Описание
         desc_card = SettingsCard()
@@ -28,7 +36,8 @@ class IpsetPage(BasePage):
             "IP-сеты содержат IP-адреса и подсети для обхода блокировок по IP.\n"
             "Используются когда блокировка происходит на уровне IP-адресов."
         )
-        desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
+        self._desc_label = desc
+        desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -44,11 +53,13 @@ class IpsetPage(BasePage):
         open_layout.setContentsMargins(0, 0, 0, 0)
         
         open_icon = QLabel()
-        open_icon.setPixmap(qta.icon('fa5s.folder-open', color='#60cdff').pixmap(18, 18))
+        self._open_icon_label = open_icon
+        open_icon.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
         open_layout.addWidget(open_icon)
         
         open_text = QLabel("Открыть папку IP-сетов")
-        open_text.setStyleSheet("color: #ffffff; font-size: 13px;")
+        self._open_text_label = open_text
+        open_text.setStyleSheet(f"color: {tokens.fg}; font-size: 13px;")
         open_layout.addWidget(open_text, 1)
         
         self.open_ipset_btn = ActionButton("Открыть", "fa5s.external-link-alt")
@@ -67,7 +78,7 @@ class IpsetPage(BasePage):
         info_layout.setSpacing(8)
         
         self.files_info_label = QLabel("Загрузка информации...")
-        self.files_info_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 12px;")
+        self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.files_info_label.setWordWrap(True)
         info_layout.addWidget(self.files_info_label)
         
@@ -78,6 +89,43 @@ class IpsetPage(BasePage):
         QTimer.singleShot(100, self._load_info)
         
         self.layout.addStretch()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self._desc_label is not None:
+                self._desc_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+            if self._open_icon_label is not None:
+                self._open_icon_label.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
+            if self._open_text_label is not None:
+                self._open_text_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px;")
+            if self.files_info_label is not None:
+                self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        finally:
+            self._applying_theme_styles = False
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
         
     def _open_ipset_folder(self):
         """Открывает папку IP-сетов"""
@@ -120,4 +168,3 @@ class IpsetPage(BasePage):
             
         except Exception as e:
             self.files_info_label.setText(f"Ошибка загрузки информации: {e}")
-

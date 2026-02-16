@@ -3,6 +3,7 @@
 
 import os
 import re
+from string import Template
 from PyQt6.QtCore import Qt, QThread, QObject, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -15,6 +16,8 @@ from ui.sidebar import SettingsCard
 from ui.pages.strategies_page_base import ResetActionButton
 from log import log
 from utils import get_system32_path
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 try:
     # Simple Win11 toggle without text (QCheckBox-based).
@@ -23,28 +26,29 @@ except Exception:
     Win11ToggleSwitchNoText = QCheckBox  # type: ignore[misc,assignment]
 
 
-FLUENT_COMBO_STYLE = """
+_FLUENT_COMBO_STYLE_TEMPLATE = Template(
+    """
 QComboBox {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: $surface_bg;
+    border: 1px solid $surface_border;
     border-radius: 6px;
-    color: #ffffff;
+    color: $fg;
     padding: 6px 28px 6px 12px;
     font-size: 12px;
     font-weight: 600;
     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
 }
 QComboBox:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: $surface_bg_hover;
+    border: 1px solid $surface_border_hover;
 }
 QComboBox:focus {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid #60cdff;
+    background: $surface_bg_hover;
+    border: 1px solid $accent_hex;
 }
 QComboBox:on {
-    background: rgba(96, 205, 255, 0.12);
-    border: 1px solid rgba(96, 205, 255, 0.35);
+    background: $accent_soft_bg;
+    border: 1px solid rgba($accent_rgb, 0.35);
 }
 QComboBox::drop-down {
     border: none;
@@ -56,16 +60,16 @@ QComboBox::down-arrow {
     image: none;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
-    border-top: 6px solid rgba(255, 255, 255, 0.65);
+    border-top: 6px solid $fg_faint;
     margin-right: 10px;
 }
 QComboBox::down-arrow:on {
-    border-top-color: #60cdff;
+    border-top-color: $accent_hex;
 }
 QComboBox QAbstractItemView,
 QComboBox QListView {
-    background-color: #373737;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background-color: $surface_bg;
+    border: 1px solid $surface_border;
     border-radius: 8px;
     padding: 4px;
     outline: none;
@@ -73,27 +77,48 @@ QComboBox QListView {
 QComboBox QAbstractItemView::item,
 QComboBox QListView::item {
     background: transparent;
-    color: #ffffff;
+    color: $fg;
     padding: 6px 10px;
     border-radius: 4px;
     min-height: 24px;
 }
 QComboBox QAbstractItemView::item:hover,
 QComboBox QListView::item:hover {
-    background: rgba(255, 255, 255, 0.10);
+    background: $surface_bg_hover;
 }
 QComboBox QAbstractItemView::item:selected,
 QComboBox QListView::item:selected {
-    background: rgba(96, 205, 255, 0.20);
-    color: #ffffff;
+    background: $accent_soft_bg_hover;
+    color: $selection_fg;
 }
 """
+)
 
-FLUENT_CHIP_STYLE = """
+
+def _get_fluent_combo_style(tokens=None) -> str:
+    tokens = tokens or get_theme_tokens()
+    selection_fg = "rgba(18, 18, 18, 0.90)" if tokens.is_light else tokens.fg
+    return _FLUENT_COMBO_STYLE_TEMPLATE.substitute(
+        surface_bg=tokens.surface_bg,
+        surface_bg_hover=tokens.surface_bg_hover,
+        surface_border=tokens.surface_border,
+        surface_border_hover=tokens.surface_border_hover,
+        fg=tokens.fg,
+        fg_faint=tokens.fg_faint,
+        accent_hex=tokens.accent_hex,
+        accent_rgb=tokens.accent_rgb_str,
+        accent_soft_bg=tokens.accent_soft_bg,
+        accent_soft_bg_hover=tokens.accent_soft_bg_hover,
+        selection_fg=selection_fg,
+    )
+
+
+_FLUENT_CHIP_STYLE_TEMPLATE = Template(
+    """
 QPushButton {
     background-color: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: $fg_muted;
     padding: 2px 8px;
     font-size: 11px;
     font-weight: 500;
@@ -101,16 +126,27 @@ QPushButton {
     text-decoration: none;
 }
 QPushButton:hover {
-    color: #60cdff;
+    color: $accent_hex;
     text-decoration: underline;
 }
 QPushButton:pressed {
-    color: rgba(96, 205, 255, 0.8);
+    color: rgba($accent_rgb, 0.85);
 }
 QPushButton:disabled {
-    color: rgba(255, 255, 255, 0.35);
+    color: $fg_faint;
 }
 """
+)
+
+
+def _get_fluent_chip_style(tokens=None) -> str:
+    tokens = tokens or get_theme_tokens()
+    return _FLUENT_CHIP_STYLE_TEMPLATE.substitute(
+        fg_muted=tokens.fg_muted,
+        fg_faint=tokens.fg_faint,
+        accent_hex=tokens.accent_hex,
+        accent_rgb=tokens.accent_rgb_str,
+    )
 
 _DNS_PROFILE_IP_SUFFIX = re.compile(r"\s*\(\s*(?:\d{1,3}\.){3}\d{1,3}\s*\)\s*$")
 
@@ -124,7 +160,8 @@ def _format_dns_profile_label(profile_name: str) -> str:
 
 class DangerResetActionButton(ResetActionButton):
     def _update_icon(self, rotation: int = 0):
-        color = "white"
+        tokens = get_theme_tokens()
+        color = tokens.fg
         icon_name = "fa5s.trash-alt"
         if rotation != 0:
             self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
@@ -132,25 +169,37 @@ class DangerResetActionButton(ResetActionButton):
             self.setIcon(qta.icon(icon_name, color=color))
 
     def _update_style(self):
-        if self._pending:
-            bg = "rgba(220, 53, 69, 0.98)" if self._hovered else "rgba(220, 53, 69, 0.90)"
-            border = "1px solid rgba(255, 255, 255, 0.25)"
-        else:
-            bg = "rgba(220, 53, 69, 0.90)" if self._hovered else "rgba(220, 53, 69, 0.70)"
-            border = "none"
+        # Guard against StyleChange -> changeEvent -> theme refresh loops.
+        if getattr(self, "_applying_theme_styles", False):
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            semantic = get_semantic_palette()
+            if self._pending:
+                bg = semantic.danger_bg_strong if self._hovered else semantic.danger_bg
+                border = f"1px solid {tokens.surface_border_hover}"
+            else:
+                bg = semantic.danger_bg if self._hovered else semantic.danger_bg_soft
+                border = "none"
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: {border};
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-        """)
+            qss = f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 4px;
+                    color: {semantic.on_color};
+                    padding: 0 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+            """
+            if qss != getattr(self, "_current_qss", ""):
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+        finally:
+            self._applying_theme_styles = False
 
 # Импортируем сервисы и домены
 try:
@@ -244,7 +293,17 @@ class HostsPage(BasePage):
         self.hosts_manager = None
         self.service_combos = {}
         self.service_icon_labels = {}
+        self.service_name_labels = {}
         self.service_icon_base_colors = {}
+        self._services_section_title_labels = []
+        self._service_group_title_labels = []
+        self._service_group_chips_scrolls = []
+        self._service_group_chip_buttons = []
+        self._open_hosts_button = None
+        self._close_error_button = None
+
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
         self._services_container = None
         self._services_layout = None
         self._catalog_sig = None
@@ -260,6 +319,138 @@ class HostsPage(BasePage):
         
         self._init_hosts_manager()
         self._build_ui()
+
+        # Apply tokens to custom inline-styled widgets.
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            for label in list(self._services_section_title_labels):
+                try:
+                    label.setStyleSheet(
+                        f"color: {tokens.fg_muted}; font-size: 13px; font-weight: 600; padding-top: 8px; padding-bottom: 4px;"
+                    )
+                except Exception:
+                    pass
+
+            for label in list(self._service_group_title_labels):
+                try:
+                    label.setStyleSheet(
+                        f"color: {tokens.fg}; font-size: 14px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
+                    )
+                except Exception:
+                    pass
+
+            chips_qss = (
+                "QScrollArea { background: transparent; border: none; }"
+                "QScrollArea QWidget { background: transparent; }"
+                "QScrollBar:horizontal { height: 4px; background: transparent; margin: 0px; }"
+                f"QScrollBar::handle:horizontal {{ background: {tokens.scrollbar_handle}; border-radius: 2px; min-width: 24px; }}"
+                f"QScrollBar::handle:horizontal:hover {{ background: {tokens.scrollbar_handle_hover}; }}"
+                "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; height: 0px; background: transparent; border: none; }"
+                "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }"
+            )
+            for scroll in list(self._service_group_chips_scrolls):
+                try:
+                    scroll.setStyleSheet(chips_qss)
+                except Exception:
+                    pass
+
+            chip_qss = _get_fluent_chip_style(tokens)
+            for btn in list(self._service_group_chip_buttons):
+                try:
+                    btn.setStyleSheet(chip_qss)
+                except Exception:
+                    pass
+
+            for label in list(self.service_name_labels.values()):
+                try:
+                    label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 600;")
+                except Exception:
+                    pass
+
+            combo_qss = _get_fluent_combo_style(tokens)
+            for control in list(self.service_combos.values()):
+                if isinstance(control, QComboBox):
+                    try:
+                        control.setStyleSheet(combo_qss)
+                    except Exception:
+                        pass
+
+            if self._open_hosts_button is not None:
+                try:
+                    self._open_hosts_button.setIcon(qta.icon('fa5s.external-link-alt', color=tokens.fg))
+                    self._open_hosts_button.setStyleSheet(
+                        f"""
+                        QPushButton {{
+                            background-color: {tokens.surface_bg};
+                            color: {tokens.fg};
+                            border: 1px solid {tokens.surface_border};
+                            border-radius: 4px;
+                            font-size: 11px;
+                            padding: 6px 10px;
+                        }}
+                        QPushButton:hover {{
+                            background-color: {tokens.surface_bg_hover};
+                            border-color: {tokens.surface_border_hover};
+                        }}
+                        """
+                    )
+                except Exception:
+                    pass
+
+            if self._close_error_button is not None:
+                try:
+                    self._close_error_button.setIcon(qta.icon('fa5s.times', color=tokens.fg_faint))
+                    self._close_error_button.setStyleSheet(
+                        f"""
+                        QPushButton {{
+                            background: transparent;
+                            border: none;
+                        }}
+                        QPushButton:hover {{
+                            background: {tokens.surface_bg_hover};
+                            border-radius: 10px;
+                        }}
+                        """
+                    )
+                except Exception:
+                    pass
+
+            try:
+                self._update_ui()
+            except Exception:
+                pass
+        finally:
+            self._applying_theme_styles = False
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
@@ -539,16 +730,10 @@ class HostsPage(BasePage):
         if self._services_layout is None:
             return
         label = QLabel(text)
+        self._services_section_title_labels.append(label)
+        tokens = get_theme_tokens()
         label.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 13px;
-                font-weight: 600;
-                padding-top: 8px;
-                padding-bottom: 4px;
-            }
-            """
+            f"color: {tokens.fg_muted}; font-size: 13px; font-weight: 600; padding-top: 8px; padding-bottom: 4px;"
         )
         self._services_layout.addWidget(label)
 
@@ -563,7 +748,12 @@ class HostsPage(BasePage):
         self._clear_layout(self._services_layout)
         self.service_combos = {}
         self.service_icon_labels = {}
+        self.service_name_labels = {}
         self.service_icon_base_colors = {}
+        self._services_section_title_labels = []
+        self._service_group_title_labels = []
+        self._service_group_chips_scrolls = []
+        self._service_group_chip_buttons = []
         self._build_services_selectors()
         try:
             self._catalog_sig = get_hosts_catalog_signature()
@@ -572,6 +762,7 @@ class HostsPage(BasePage):
         
     def _build_error_panel(self):
         """Панель для отображения ошибок доступа к hosts"""
+        semantic = get_semantic_palette()
         self.error_panel = QWidget()
         error_layout = QVBoxLayout(self.error_panel)
         error_layout.setContentsMargins(12, 10, 12, 10)
@@ -583,26 +774,34 @@ class HostsPage(BasePage):
 
         # Иконка ошибки
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon('fa5s.exclamation-triangle', color='#ff5252').pixmap(20, 20))
+        icon_label.setPixmap(qta.icon('fa5s.exclamation-triangle', color=semantic.error).pixmap(20, 20))
         top_row.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
         # Текст ошибки
         self.error_text = QLabel()
         self.error_text.setWordWrap(True)
-        self.error_text.setStyleSheet("color: #ff5252; font-size: 12px; background: transparent;")
+        self.error_text.setStyleSheet(f"color: {semantic.error}; font-size: 12px; background: transparent;")
         top_row.addWidget(self.error_text, 1)
 
         # Кнопка закрыть
         close_btn = QPushButton()
-        close_btn.setIcon(qta.icon('fa5s.times', color='#808080'))
+        self._close_error_button = close_btn
+        tokens = get_theme_tokens()
+        close_btn.setIcon(qta.icon('fa5s.times', color=tokens.fg_faint))
         close_btn.setFixedSize(20, 20)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; border: none;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.1); border-radius: 10px; }
-        """)
+        close_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+                border-radius: 10px;
+            }}
+            """
+        )
         close_btn.clicked.connect(lambda: self.error_panel.hide())
         top_row.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -613,25 +812,25 @@ class HostsPage(BasePage):
         btn_row.setContentsMargins(30, 0, 0, 0)  # Отступ слева под иконку
 
         self.restore_btn = QPushButton(" Восстановить права доступа")
-        self.restore_btn.setIcon(qta.icon('fa5s.wrench', color='white'))
+        self.restore_btn.setIcon(qta.icon('fa5s.wrench', color=tokens.fg))
         self.restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.restore_btn.setFixedHeight(28)
-        self.restore_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 152, 0, 0.8);
-                color: white;
+        self.restore_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {semantic.warning_button};
+                color: {semantic.on_color};
                 border: none;
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 500;
                 padding: 0 12px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 152, 0, 1);
-            }
-            QPushButton:disabled {
-                background-color: rgba(255, 152, 0, 0.4);
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {semantic.warning_button_hover};
+            }}
+            QPushButton:disabled {{
+                background-color: {semantic.warning_button_disabled};
+            }}
         """)
         self.restore_btn.clicked.connect(self._restore_hosts_permissions)
         btn_row.addWidget(self.restore_btn)
@@ -639,13 +838,15 @@ class HostsPage(BasePage):
 
         error_layout.addLayout(btn_row)
 
-        self.error_panel.setStyleSheet("""
-            QWidget {
-                background-color: rgba(255, 82, 82, 0.15);
-                border: 1px solid rgba(255, 82, 82, 0.4);
+        self.error_panel.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {semantic.error_soft_bg};
+                border: 1px solid {semantic.error_soft_border};
                 border-radius: 8px;
-            }
-        """)
+            }}
+            """
+        )
 
         self.error_panel.hide()  # Скрыта по умолчанию
         self.add_widget(self.error_panel)
@@ -711,6 +912,7 @@ class HostsPage(BasePage):
         
     def _build_info_note(self):
         """Информационная заметка о том, зачем нужен hosts"""
+        semantic = get_semantic_palette()
         info_card = SettingsCard()
         
         info_layout = QHBoxLayout()
@@ -719,7 +921,7 @@ class HostsPage(BasePage):
         
         # Иконка лампочки
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon('fa5s.lightbulb', color='#ffc107').pixmap(20, 20))
+        icon_label.setPixmap(qta.icon('fa5s.lightbulb', color=semantic.warning).pixmap(20, 20))
         icon_label.setFixedSize(24, 24)
         info_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
         
@@ -730,11 +932,7 @@ class HostsPage(BasePage):
             "домены направляются через отдельный прокси-сервер в файле hosts."
         )
         info_text.setWordWrap(True)
-        info_text.setStyleSheet("""
-            color: rgba(255, 255, 255, 0.75);
-            font-size: 11px;
-            line-height: 1.4;
-        """)
+        info_text.setStyleSheet(f"color: {get_theme_tokens().fg_muted}; font-size: 11px; line-height: 1.4;")
         info_layout.addWidget(info_text, 1)
         
         info_card.add_layout(info_layout)
@@ -742,13 +940,14 @@ class HostsPage(BasePage):
         
     def _build_browser_warning(self):
         """Предупреждение о необходимости перезапуска браузера"""
+        semantic = get_semantic_palette()
         warning_layout = QHBoxLayout()
         warning_layout.setContentsMargins(12, 4, 12, 4)
         warning_layout.setSpacing(10)
         
         # Иконка предупреждения
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon('fa5s.sync-alt', color='#ff9800').pixmap(16, 16))
+        icon_label.setPixmap(qta.icon('fa5s.sync-alt', color=semantic.warning).pixmap(16, 16))
         warning_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
         
         # Текст предупреждения
@@ -757,7 +956,7 @@ class HostsPage(BasePage):
             "чтобы изменения вступили в силу."
         )
         warning_text.setWordWrap(True)
-        warning_text.setStyleSheet("color: rgba(255, 152, 0, 0.85); font-size: 11px; background: transparent;")
+        warning_text.setStyleSheet(f"color: {semantic.warning_soft}; font-size: 11px; background: transparent;")
         warning_layout.addWidget(warning_text, 1)
         
         # Простой контейнер без фона
@@ -774,20 +973,24 @@ class HostsPage(BasePage):
         status_layout.setSpacing(10)
         
         active = self._get_active_domains()
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette()
         
         self.status_dot = QLabel("●")
-        self.status_dot.setStyleSheet(f"color: {'#6ccb5f' if active else '#888'}; font-size: 12px;")
+        dot_color = semantic.success if active else tokens.fg_faint
+        self.status_dot.setStyleSheet(f"color: {dot_color}; font-size: 12px;")
         status_layout.addWidget(self.status_dot)
         
         self.status_label = QLabel(f"Активно {len(active)} доменов" if active else "Нет активных")
-        self.status_label.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 12px;")
+        self.status_label.setProperty("tone", "primary")
+        self.status_label.setStyleSheet("font-size: 12px;")
         status_layout.addWidget(self.status_label, 1)
         
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
 
     def _configure_fluent_combo(self, combo: QComboBox) -> None:
-        combo.setStyleSheet(FLUENT_COMBO_STYLE)
+        combo.setStyleSheet(_get_fluent_combo_style())
         combo.setFixedHeight(32)
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -795,7 +998,7 @@ class HostsPage(BasePage):
         btn = QPushButton(label)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFixedHeight(24)
-        btn.setStyleSheet(FLUENT_CHIP_STYLE)
+        btn.setStyleSheet(_get_fluent_chip_style())
         return btn
 
     def _bulk_apply_dns_profile(self, service_names: list[str], profile_name: str | None) -> None:
@@ -992,15 +1195,10 @@ class HostsPage(BasePage):
                 header.setSpacing(10)
 
                 title_label = QLabel(title)
+                self._service_group_title_labels.append(title_label)
+                tokens = get_theme_tokens()
                 title_label.setStyleSheet(
-                    """
-                    QLabel {
-                        color: #ffffff;
-                        font-size: 14px;
-                        font-weight: 600;
-                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                    }
-                    """
+                    f"color: {tokens.fg}; font-size: 14px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
                 )
                 header.addWidget(title_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -1013,6 +1211,7 @@ class HostsPage(BasePage):
                     chips_layout.addStretch(1)
 
                     off_btn = self._make_fluent_chip(OFF_LABEL)
+                    self._service_group_chip_buttons.append(off_btn)
                     off_btn.clicked.connect(
                         lambda _checked=False, n=tuple(names): self._bulk_apply_dns_profile(list(n), None)
                     )
@@ -1023,6 +1222,7 @@ class HostsPage(BasePage):
                         if not label:
                             continue
                         btn = self._make_fluent_chip(label)
+                        self._service_group_chip_buttons.append(btn)
                         btn.clicked.connect(
                             lambda _checked=False, n=tuple(names), p=profile_name: self._bulk_apply_dns_profile(list(n), p)
                         )
@@ -1034,29 +1234,18 @@ class HostsPage(BasePage):
                     chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                     chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
                     chips_scroll.setFixedHeight(30)
+                    self._service_group_chips_scrolls.append(chips_scroll)
+                    tokens = get_theme_tokens()
                     chips_scroll.setStyleSheet(
-                        """
-                        QScrollArea { background: transparent; border: none; }
-                        QScrollArea QWidget { background: transparent; }
-                        QScrollBar:horizontal {
-                            height: 4px;
-                            background: transparent;
-                            margin: 0px;
-                        }
-                        QScrollBar::handle:horizontal {
-                            background: rgba(255, 255, 255, 0.22);
-                            border-radius: 2px;
-                            min-width: 24px;
-                        }
-                        QScrollBar::handle:horizontal:hover { background: rgba(255, 255, 255, 0.32); }
-                        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                            width: 0px;
-                            height: 0px;
-                            background: transparent;
-                            border: none;
-                        }
-                        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
-                        """
+                        (
+                            "QScrollArea { background: transparent; border: none; }"
+                            "QScrollArea QWidget { background: transparent; }"
+                            "QScrollBar:horizontal { height: 4px; background: transparent; margin: 0px; }"
+                            f"QScrollBar::handle:horizontal {{ background: {tokens.scrollbar_handle}; border-radius: 2px; min-width: 24px; }}"
+                            f"QScrollBar::handle:horizontal:hover {{ background: {tokens.scrollbar_handle_hover}; }}"
+                            "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; height: 0px; background: transparent; border: none; }"
+                            "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }"
+                        )
                     )
                     chips_scroll.setWidget(chips)
 
@@ -1071,14 +1260,16 @@ class HostsPage(BasePage):
                     row.setContentsMargins(0, 0, 0, 0)
                     row.setSpacing(10)
 
-                    icon_name, icon_color = ui_map.get(service_name, ("fa5s.globe", "#60cdff"))
+                    icon_name, icon_color = ui_map.get(service_name, ("fa5s.globe", None))
 
                     icon_label = QLabel()
                     icon_label.setFixedSize(20, 20)
                     row.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
                     name_label = QLabel(service_name)
-                    name_label.setStyleSheet("color: #fff; font-size: 12px; font-weight: 600;")
+                    self.service_name_labels[service_name] = name_label
+                    tokens = get_theme_tokens()
+                    name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 600;")
                     row.addWidget(name_label, 1, Qt.AlignmentFlag.AlignVCenter)
 
                     # Откл. + доступные профили
@@ -1221,12 +1412,15 @@ class HostsPage(BasePage):
         
     def _build_adobe_section(self):
         self.add_section_title("Дополнительно")
+
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette()
         
         adobe_card = SettingsCard()
         
         # Описание для чего нужна блокировка
         desc_label = QLabel("⚠️ Блокирует серверы проверки активации Adobe. Включите, если у вас установлена пиратская версия.")
-        desc_label.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 10px; margin-bottom: 6px;")
+        desc_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 10px; margin-bottom: 6px;")
         desc_label.setWordWrap(True)
         adobe_card.add_widget(desc_label)
         
@@ -1239,13 +1433,14 @@ class HostsPage(BasePage):
         adobe_layout.addWidget(icon_label)
         
         title = QLabel("Блокировка Adobe")
-        title.setStyleSheet("color: #fff; font-size: 12px; font-weight: 600;")
+        title.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 600;")
         adobe_layout.addWidget(title, 1)
         
         is_adobe_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
         
         self.adobe_status = QLabel("Активно" if is_adobe_active else "Откл.")
-        self.adobe_status.setStyleSheet(f"color: {'#6ccb5f' if is_adobe_active else 'rgba(255,255,255,0.5)'}; font-size: 11px;")
+        adobe_color = semantic.success if is_adobe_active else tokens.fg_faint
+        self.adobe_status.setStyleSheet(f"color: {adobe_color}; font-size: 11px;")
         adobe_layout.addWidget(self.adobe_status)
         
         self.adobe_btn = QPushButton("Откл." if is_adobe_active else "Вкл.")
@@ -1253,10 +1448,10 @@ class HostsPage(BasePage):
         self.adobe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.adobe_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {'#dc3545' if is_adobe_active else '#28a745'};
-                color: white; border: none; border-radius: 4px; font-size: 10px;
+                background-color: {semantic.danger_button if is_adobe_active else semantic.success_button};
+                color: {semantic.on_color}; border: none; border-radius: 4px; font-size: 10px;
             }}
-            QPushButton:hover {{ background-color: {'#c82333' if is_adobe_active else '#218838'}; }}
+            QPushButton:hover {{ background-color: {semantic.danger_button_hover if is_adobe_active else semantic.success_button_hover}; }}
         """)
         self.adobe_btn.clicked.connect(self._toggle_adobe)
         adobe_layout.addWidget(self.adobe_btn)
@@ -1265,6 +1460,7 @@ class HostsPage(BasePage):
         self.add_widget(adobe_card)
         
     def _build_actions(self):
+        semantic = get_semantic_palette()
         actions_card = SettingsCard()
 
         clear_note = QLabel(
@@ -1272,7 +1468,7 @@ class HostsPage(BasePage):
             "и удаляет ВСЕ записи (включая добавленные вручную)."
         )
         clear_note.setWordWrap(True)
-        clear_note.setStyleSheet("color: rgba(255, 152, 0, 0.85); font-size: 10px; margin-bottom: 6px;")
+        clear_note.setStyleSheet(f"color: {semantic.warning_soft}; font-size: 10px; margin-bottom: 6px;")
         actions_card.add_widget(clear_note)
 
         actions_layout = QHBoxLayout()
@@ -1288,16 +1484,26 @@ class HostsPage(BasePage):
         
         # Открыть файл
         open_btn = QPushButton(" Открыть")
-        open_btn.setIcon(qta.icon('fa5s.external-link-alt', color='white'))
+        self._open_hosts_button = open_btn
+        tokens = get_theme_tokens()
+        open_btn.setIcon(qta.icon('fa5s.external-link-alt', color=tokens.fg))
         open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255,255,255,0.08);
-                color: #fff; border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 4px; font-size: 11px; padding: 6px 10px;
-            }
-            QPushButton:hover { background-color: rgba(255,255,255,0.12); }
-        """)
+        open_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                color: {tokens.fg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 4px;
+                font-size: 11px;
+                padding: 6px 10px;
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border-color: {tokens.surface_border_hover};
+            }}
+            """
+        )
         open_btn.clicked.connect(self._open_hosts_file)
         actions_layout.addWidget(open_btn)
         
@@ -1329,7 +1535,10 @@ class HostsPage(BasePage):
         OFF_LABEL = "Откл."
         combo = self.service_combos.get(service_name)
         icon_label = self.service_icon_labels.get(service_name)
-        base_color = self.service_icon_base_colors.get(service_name, "#60cdff")
+        tokens = get_theme_tokens()
+        base_color = self.service_icon_base_colors.get(service_name)
+        if not base_color:
+            base_color = tokens.accent_hex
         if not combo or not icon_label:
             return
 
@@ -1339,7 +1548,7 @@ class HostsPage(BasePage):
             enabled = bool(selected) and selected != OFF_LABEL
         elif isinstance(combo, QCheckBox):
             enabled = bool(combo.isChecked())
-        color = base_color if enabled else "#808080"
+        color = base_color if enabled else tokens.fg_faint
         icon_name = None
         for i_name, n, _c in QUICK_SERVICES:
             if n == service_name:
@@ -1441,13 +1650,15 @@ class HostsPage(BasePage):
     def _update_ui(self):
         """Обновляет весь UI"""
         active = self._get_active_domains()
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette()
         
         # Статус
         if active:
-            self.status_dot.setStyleSheet("color: #6ccb5f; font-size: 12px;")
+            self.status_dot.setStyleSheet(f"color: {semantic.success}; font-size: 12px;")
             self.status_label.setText(f"Активно {len(active)} доменов")
         else:
-            self.status_dot.setStyleSheet("color: #888; font-size: 12px;")
+            self.status_dot.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 12px;")
             self.status_label.setText("Нет активных")
         
         # Обновляем иконки под текущие выборы
@@ -1457,14 +1668,15 @@ class HostsPage(BasePage):
         # Adobe
         is_adobe = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
         self.adobe_status.setText("Активно" if is_adobe else "Откл.")
-        self.adobe_status.setStyleSheet(f"color: {'#6ccb5f' if is_adobe else 'rgba(255,255,255,0.5)'}; font-size: 11px;")
+        adobe_color = semantic.success if is_adobe else tokens.fg_faint
+        self.adobe_status.setStyleSheet(f"color: {adobe_color}; font-size: 11px;")
         self.adobe_btn.setText("Откл." if is_adobe else "Вкл.")
         self.adobe_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {'#dc3545' if is_adobe else '#28a745'};
-                color: white; border: none; border-radius: 4px; font-size: 10px;
+                background-color: {semantic.danger_button if is_adobe else semantic.success_button};
+                color: {semantic.on_color}; border: none; border-radius: 4px; font-size: 10px;
             }}
-            QPushButton:hover {{ background-color: {'#c82333' if is_adobe else '#218838'}; }}
+            QPushButton:hover {{ background-color: {semantic.danger_button_hover if is_adobe else semantic.success_button_hover}; }}
         """)
         
     def refresh(self):

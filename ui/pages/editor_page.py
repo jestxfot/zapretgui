@@ -7,6 +7,7 @@ from typing import Optional
 
 import qtawesome as qta
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -24,6 +25,7 @@ from PyQt6.QtWidgets import (
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from log import log
 from ui.sidebar import ActionButton, SettingsCard
+from ui.theme import get_theme_tokens
 
 
 class EditorPage(BasePage):
@@ -44,6 +46,7 @@ class EditorPage(BasePage):
     # ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        tokens = get_theme_tokens()
         # Категория
         self.add_section_title("Категория")
 
@@ -57,22 +60,22 @@ class EditorPage(BasePage):
         self.category_combo.addItem("HTTP порт 80", "http80")
         self.category_combo.addItem("Discord Voice", "discord_voice")
         self.category_combo.setStyleSheet(
-            """
-            QComboBox {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+            f"""
+            QComboBox {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 8px 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 min-width: 220px;
-            }
-            QComboBox::drop-down { border: none; width: 24px; }
-            QComboBox QAbstractItemView {
-                background: #2d2d2d;
-                border: 1px solid #3d3d3d;
-                selection-background-color: rgba(96, 205, 255, 0.3);
-                color: #ffffff;
-            }
+            }}
+            QComboBox::drop-down {{ border: none; width: 24px; }}
+            QComboBox QAbstractItemView {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                selection-background-color: {tokens.accent_soft_bg};
+                color: {tokens.fg};
+            }}
             """
         )
         self.category_combo.currentIndexChanged.connect(self._on_category_changed)
@@ -92,19 +95,19 @@ class EditorPage(BasePage):
         search_layout = QHBoxLayout()
 
         search_icon = QLabel()
-        search_icon.setPixmap(qta.icon("fa5s.search", color="#888").pixmap(16, 16))
+        search_icon.setPixmap(qta.icon("fa5s.search", color=tokens.fg_faint).pixmap(16, 16))
         search_layout.addWidget(search_icon)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Поиск стратегий...")
         self.search_edit.setStyleSheet(
-            """
-            QLineEdit {
+            f"""
+            QLineEdit {{
                 background: transparent;
                 border: none;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 13px;
-            }
+            }}
             """
         )
         self.search_edit.textChanged.connect(self._filter_strategies)
@@ -138,25 +141,25 @@ class EditorPage(BasePage):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
         self.strategies_table.setStyleSheet(
-            """
-            QTableWidget {
+            f"""
+            QTableWidget {{
                 background-color: transparent;
                 border: none;
-            }
-            QTableWidget::item {
+            }}
+            QTableWidget::item {{
                 padding: 4px 8px;
-            }
-            QTableWidget::item:selected {
-                background-color: rgba(96, 205, 255, 0.12);
-            }
-            QHeaderView::section {
-                background-color: rgba(255,255,255,0.03);
-                color: rgba(255,255,255,0.6);
+            }}
+            QTableWidget::item:selected {{
+                background-color: {tokens.accent_soft_bg};
+            }}
+            QHeaderView::section {{
+                background-color: {tokens.surface_bg};
+                color: {tokens.fg_muted};
                 padding: 8px;
                 border: none;
                 font-weight: 600;
                 font-size: 11px;
-            }
+            }}
             """
         )
 
@@ -176,7 +179,7 @@ class EditorPage(BasePage):
 
         args_header = QHBoxLayout()
         self.args_title_label = QLabel("Аргументы выбранной стратегии")
-        self.args_title_label.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600;")
+        self.args_title_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 600;")
         args_header.addWidget(self.args_title_label)
         args_header.addStretch()
 
@@ -196,16 +199,16 @@ class EditorPage(BasePage):
         self.args_preview.setReadOnly(True)
         self.args_preview.setPlaceholderText("Выберите стратегию в таблице выше…")
         self.args_preview.setStyleSheet(
-            """
-            QPlainTextEdit {
-                background: rgba(255, 255, 255, 0.04);
-                border: 1px solid rgba(255, 255, 255, 0.06);
+            f"""
+            QPlainTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.divider};
                 border-radius: 6px;
                 padding: 10px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 11px;
-            }
+            }}
             """
         )
         self.args_preview.setMinimumHeight(110)
@@ -223,7 +226,7 @@ class EditorPage(BasePage):
 
         form_header = QHBoxLayout()
         self.form_title_label = QLabel("Новая стратегия")
-        self.form_title_label.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 13px; font-weight: 600;")
+        self.form_title_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 600;")
         form_header.addWidget(self.form_title_label)
         form_header.addStretch()
 
@@ -240,15 +243,15 @@ class EditorPage(BasePage):
         self.id_edit = QLineEdit()
         self.id_edit.setPlaceholderText("уникальный_id (латиница, цифры, _)")
         self.id_edit.setStyleSheet(
-            """
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+            f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 8px;
-                color: #ffffff;
-            }
-            QLineEdit:focus { border: 1px solid #60cdff; }
+                color: {tokens.fg};
+            }}
+            QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
             """
         )
         form_layout.addRow("ID:", self.id_edit)
@@ -261,7 +264,7 @@ class EditorPage(BasePage):
         form_layout_outer.addLayout(form_layout)
 
         args_label = QLabel("Аргументы командной строки:")
-        args_label.setStyleSheet("color: rgba(255,255,255,0.75); font-size: 12px; font-weight: 600;")
+        args_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px; font-weight: 600;")
         form_layout_outer.addWidget(args_label)
 
         self.args_edit = ScrollBlockingPlainTextEdit()
@@ -271,7 +274,7 @@ class EditorPage(BasePage):
         form_layout_outer.addWidget(self.args_edit, 1)
 
         hint = QLabel("💡 Пользовательские стратегии содержат только: ID, Название, Аргументы")
-        hint.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px;")
+        hint.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         hint.setWordWrap(True)
         form_layout_outer.addWidget(hint)
 
@@ -296,7 +299,7 @@ class EditorPage(BasePage):
 
         # Статус
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         self.add_widget(self.status_label)
 
         self._load_strategies()
@@ -353,7 +356,7 @@ class EditorPage(BasePage):
             name_item.setToolTip(strategy_id)
 
             if source == "user":
-                name_item.setForeground(Qt.GlobalColor.cyan)
+                name_item.setForeground(QColor(get_theme_tokens().accent_hex))
 
             self.strategies_table.setItem(row, 0, source_item)
             self.strategies_table.setItem(row, 1, name_item)
@@ -538,4 +541,3 @@ class EditorPage(BasePage):
                 _imported_types.discard(self.current_category)
         except Exception as e:
             log(f"Ошибка очистки кэша: {e}", "WARNING")
-

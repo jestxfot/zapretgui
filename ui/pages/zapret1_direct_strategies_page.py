@@ -14,6 +14,7 @@ import qtawesome as qta
 from .strategies_page_base import (StrategiesPageBase, ScrollBlockingScrollArea,
                                    Win11Spinner, ResetActionButton)
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from ui.widgets import StrategySearchBar
 from log import log
 
@@ -260,6 +261,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
 
     def _show_loading_indicator(self, widget):
         """Показывает спиннер загрузки на вкладке"""
+        tokens = get_theme_tokens()
         # Очищаем существующий контент
         old_layout = widget.layout()
         if old_layout:
@@ -279,7 +281,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
         container_layout = QVBoxLayout(container)
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        spinner = Win11Spinner(size=24, color="#60cdff")
+        spinner = Win11Spinner(size=24, color=tokens.accent_hex)
         container_layout.addWidget(spinner, alignment=Qt.AlignmentFlag.AlignCenter)
 
         old_layout.addWidget(container)
@@ -380,7 +382,15 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            scroll.setStyleSheet("QScrollArea{background:transparent;border:none}QScrollBar:vertical{background:rgba(255,255,255,0.05);width:6px}QScrollBar::handle:vertical{background:rgba(255,255,255,0.2);border-radius:3px}")
+            tokens = get_theme_tokens()
+            scroll.setStyleSheet(
+                (
+                    "QScrollArea{background:transparent;border:none}"
+                    f"QScrollBar:vertical{{background:{tokens.surface_bg};width:6px}}"
+                    f"QScrollBar::handle:vertical{{background:{tokens.scrollbar_handle};border-radius:3px}}"
+                    f"QScrollBar::handle:vertical:hover{{background:{tokens.scrollbar_handle_hover};}}"
+                )
+            )
 
             content = QWidget()
             content.setStyleSheet("background:transparent")
@@ -415,7 +425,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             if disabled_strategies and (favorite_strategies or regular_strategies):
                 separator = QWidget()
                 separator.setFixedHeight(1)
-                separator.setStyleSheet("background: rgba(255, 255, 255, 0.08); margin: 8px 0;")
+                separator.setStyleSheet(f"background: {get_theme_tokens().divider}; margin: 8px 0;")
                 content_layout.addWidget(separator)
 
             # === ИЗБРАННЫЕ (вверху) ===
@@ -456,7 +466,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
                     # Разделитель
                     separator = QWidget()
                     separator.setFixedHeight(1)
-                    separator.setStyleSheet("background: rgba(255, 255, 255, 0.08); margin: 8px 0;")
+                    separator.setStyleSheet(f"background: {get_theme_tokens().divider}; margin: 8px 0;")
                     content_layout.addWidget(separator)
 
                 for strategy_id, strategy_data in regular_strategies.items():
@@ -679,7 +689,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
 
                     strategy_name = registry.get_strategy_name_safe(cat_key, strat_id)
                     icon_name = cat_info.icon_name or 'fa5s.globe'
-                    icon_color = cat_info.icon_color or '#60cdff'
+                    icon_color = cat_info.icon_color or get_theme_tokens().accent_hex
                     cat_full = cat_info.full_name
 
                     icons_data.append((icon_name, icon_color, strategy_name))
@@ -706,7 +716,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
                         pixmap = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
                         icon_label.setPixmap(pixmap)
                     except:
-                        pixmap = qta.icon('fa5s.globe', color='#60cdff').pixmap(16, 16)
+                        pixmap = qta.icon('fa5s.globe', color=get_theme_tokens().accent_hex).pixmap(16, 16)
                         icon_label.setPixmap(pixmap)
                     icon_label.setFixedSize(18, 18)
                     icon_label.setToolTip(f"{strat_name}")
@@ -749,7 +759,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             self._clear_content()
 
             self.loading_label = QLabel("Перезагрузка...")
-            self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6);")
+            self.loading_label.setStyleSheet(f"color: {get_theme_tokens().fg_muted};")
             self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.content_layout.addWidget(self.loading_label)
 
@@ -854,7 +864,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
 
         # Добавляем плейсхолдер
         self.loading_label = QLabel("Загрузка...")
-        self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
+        self.loading_label.setStyleSheet(f"color: {get_theme_tokens().fg_muted}; font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
 

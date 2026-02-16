@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayou
 import qtawesome as qta
 
 from .base_page import BasePage
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -100,6 +101,7 @@ class HelpPage(BasePage):
 
     def _add_motto_block(self):
         """Добавляет крупный слоган и перевод в верхней части страницы"""
+        tokens = get_theme_tokens()
         motto_wrap = QFrame()
         motto_wrap.setStyleSheet(
             """
@@ -126,14 +128,14 @@ class HelpPage(BasePage):
         motto_title.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         motto_title.setWordWrap(True)
         motto_title.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(235, 235, 235, 0.88);
+            f"""
+            QLabel {{
+                color: {tokens.fg};
                 font-size: 25px;
                 font-weight: 700;
                 letter-spacing: 0.8px;
                 font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-            }
+            }}
         """
         )
 
@@ -141,16 +143,16 @@ class HelpPage(BasePage):
         motto_translate.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         motto_translate.setWordWrap(True)
         motto_translate.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(176, 176, 176, 0.85);
+            f"""
+            QLabel {{
+                color: {tokens.fg_muted};
                 font-size: 17px;
                 font-style: italic;
                 font-weight: 600;
                 letter-spacing: 0.5px;
                 font-family: 'Palatino Linotype', 'Book Antiqua', 'Georgia', serif;
                 padding-top: 2px;
-            }
+            }}
         """
         )
 
@@ -158,15 +160,15 @@ class HelpPage(BasePage):
         motto_cta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         motto_cta.setWordWrap(True)
         motto_cta.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(140, 140, 140, 0.9);
+            f"""
+            QLabel {{
+                color: {tokens.fg_faint};
                 font-size: 12px;
                 letter-spacing: 1.1px;
                 font-family: 'Segoe UI', sans-serif;
                 text-transform: uppercase;
                 padding-top: 6px;
-            }
+            }}
         """
         )
 
@@ -179,6 +181,7 @@ class HelpPage(BasePage):
 
     def _create_links_card(self, title: str) -> QFrame:
         """Создаёт карточку для группы ссылок без рамки с собственным фоном"""
+        tokens = get_theme_tokens()
         card = QFrame()
         card.setStyleSheet(
             """
@@ -195,9 +198,9 @@ class HelpPage(BasePage):
 
         header = QLabel(title)
         header.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.5);
+            f"""
+            QLabel {{
+                color: {tokens.fg_faint};
                 font-size: 10px;
                 font-weight: 600;
                 text-transform: uppercase;
@@ -205,7 +208,7 @@ class HelpPage(BasePage):
                 padding: 0px 4px 8px 4px;
                 background: transparent;
                 border: none;
-            }
+            }}
         """
         )
         layout.addWidget(header)
@@ -213,23 +216,24 @@ class HelpPage(BasePage):
 
     def _add_link_item(self, layout, icon_name, title, desc, callback):
         """Добавляет кликабельный элемент ссылки без рамок"""
+        tokens = get_theme_tokens()
         link_widget = QPushButton()
         link_widget.setCursor(Qt.CursorShape.PointingHandCursor)
         link_widget.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 background: transparent;
                 border: none;
                 border-radius: 6px;
                 padding: 12px;
                 text-align: left;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.05);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.08);
-            }
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg};
+            }}
+            QPushButton:pressed {{
+                background: {tokens.surface_bg_hover};
+            }}
         """
         )
         link_widget.clicked.connect(callback)
@@ -239,7 +243,7 @@ class HelpPage(BasePage):
         link_layout.setSpacing(12)
 
         link_icon = QLabel()
-        link_icon.setPixmap(qta.icon(icon_name, color="#60cdff").pixmap(20, 20))
+        link_icon.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(20, 20))
         link_icon.setFixedSize(24, 24)
         link_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         link_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -250,13 +254,13 @@ class HelpPage(BasePage):
         link_text_layout.setContentsMargins(0, 0, 0, 0)
 
         link_title = QLabel(title)
-        link_title.setStyleSheet("color: #60cdff; font-size: 12px; font-weight: 500;")
+        link_title.setStyleSheet(f"color: {tokens.accent_hex}; font-size: 12px; font-weight: 500;")
         link_title.setFixedHeight(16)
         link_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_text_layout.addWidget(link_title)
 
         link_desc = QLabel(desc)
-        link_desc.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 10px;")
+        link_desc.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 10px;")
         link_desc.setFixedHeight(14)
         link_desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         link_text_layout.addWidget(link_desc)

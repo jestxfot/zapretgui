@@ -16,6 +16,7 @@ from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from config import MAIN_DIRECTORY
 from config.config import ZAPRET2_MODES, ZAPRET1_DIRECT_MODES
 from strategy_menu import get_strategy_launch_method
+from ui.theme import get_theme_tokens
 from log import log
 from utils.process_status import format_expected_process_status
 
@@ -105,6 +106,7 @@ class PresetConfigPage(BasePage):
 
     def _build_ui(self):
         """Строит UI страницы"""
+        tokens = get_theme_tokens()
 
         # Панель кнопок
         buttons_widget = QWidget()
@@ -114,21 +116,21 @@ class PresetConfigPage(BasePage):
 
         # Кнопка "Открыть в блокноте"
         self.notepad_btn = QPushButton()
-        self.notepad_btn.setIcon(qta.icon("mdi.open-in-new", color="white"))
+        self.notepad_btn.setIcon(qta.icon("mdi.open-in-new", color=tokens.fg))
         self.notepad_btn.setText("Открыть в блокноте")
         self.notepad_btn.setFixedHeight(32)
-        self.notepad_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
+        self.notepad_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {tokens.toggle_off_bg};
                 border: none;
                 border-radius: 4px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
-            }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 0.15); }
-            QPushButton:pressed { background-color: rgba(255, 255, 255, 0.20); }
+            }}
+            QPushButton:hover {{ background-color: {tokens.toggle_off_bg_hover}; }}
+            QPushButton:pressed {{ background-color: {tokens.surface_bg_pressed}; }}
         """)
         self.notepad_btn.clicked.connect(self._open_in_notepad)
         buttons_layout.addWidget(self.notepad_btn)
@@ -139,15 +141,15 @@ class PresetConfigPage(BasePage):
         # Редактор
         self.editor = ScrollBlockingPlainTextEdit()
         self.editor.setFont(QFont("Consolas", 11))
-        self.editor.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: rgba(30, 30, 30, 0.95);
-                color: #e0e0e0;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.editor.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {tokens.surface_bg};
+                color: {tokens.fg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 12px;
-                selection-background-color: rgba(96, 205, 255, 0.3);
-            }
+                selection-background-color: {tokens.accent_soft_bg_hover};
+            }}
         """)
         self.editor.setMinimumHeight(400)
         self.editor.textChanged.connect(self._on_text_changed)
@@ -155,12 +157,12 @@ class PresetConfigPage(BasePage):
 
         # Статус-бар
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.5);
+        self.status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {tokens.fg_faint};
                 font-size: 11px;
                 padding-top: 8px;
-            }
+            }}
         """)
         self.layout.addWidget(self.status_label)
 

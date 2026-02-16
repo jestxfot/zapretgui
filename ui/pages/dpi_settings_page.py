@@ -13,14 +13,20 @@ from ui.theme import get_theme_tokens
 from log import log
 
 
+try:
+    _LEGACY_DEFAULT_ACCENT = get_theme_tokens("Темная синяя").accent_hex.lower()
+except Exception:
+    _LEGACY_DEFAULT_ACCENT = ""
+
+
 def _accent_fg_for_tokens(tokens) -> str:
     """Chooses readable foreground color for accent-filled badges."""
     try:
         r, g, b = tokens.accent_rgb
         yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
     except Exception:
-        return "rgba(0, 0, 0, 0.90)"
+        return "rgba(18, 18, 18, 0.90)"
 
 
 class Win11ToggleSwitch(QCheckBox):
@@ -80,10 +86,7 @@ class Win11ToggleSwitch(QCheckBox):
         if self.isChecked():
             bg_color = QColor(tokens.accent_hex)
         else:
-            if tokens.is_light:
-                bg_color = QColor(0, 0, 0, 26)  # ~0.10
-            else:
-                bg_color = QColor(255, 255, 255, 26)  # ~0.10
+            bg_color = QColor(tokens.toggle_off_bg)
             
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 11, 11)
@@ -93,14 +96,11 @@ class Win11ToggleSwitch(QCheckBox):
         if self.isChecked():
             painter.setPen(Qt.GlobalColor.transparent)
         else:
-            if tokens.is_light:
-                painter.setPen(QColor(0, 0, 0, 40))  # ~0.16
-            else:
-                painter.setPen(QColor(255, 255, 255, 51))  # ~0.20
+            painter.setPen(QColor(tokens.toggle_off_border))
         painter.drawPath(path)
         
         # Круг
-        circle_color = QColor("#ffffff")
+        circle_color = QColor(tokens.accent_hex).lighter(230 if tokens.is_light else 260)
         painter.setBrush(circle_color)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(QRectF(self._circle_position, 4, 14, 14))
@@ -117,7 +117,7 @@ class Win11ToggleRow(QWidget):
     toggled = pyqtSignal(bool)
     
     def __init__(self, icon_name: str, title: str, description: str = "", 
-                 icon_color: str = "#60cdff", parent=None):
+                 icon_color: str = "", parent=None):
         super().__init__(parent)
 
         self._icon_name = icon_name
@@ -168,7 +168,7 @@ class Win11ToggleRow(QWidget):
         c = str(self._icon_color or "").strip()
         if not c:
             return tokens.accent_hex
-        if c.lower() == "#60cdff":
+        if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
             return tokens.accent_hex
         return c
 
@@ -207,7 +207,7 @@ class Win11RadioOption(QWidget):
     clicked = pyqtSignal()
     
     def __init__(self, title: str, description: str, icon_name: str = None, 
-                 icon_color: str = "#60cdff", recommended: bool = False, parent=None):
+                 icon_color: str = "", recommended: bool = False, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -282,7 +282,7 @@ class Win11RadioOption(QWidget):
         c = str(self._icon_color or "").strip()
         if not c:
             return tokens.accent_hex
-        if c.lower() == "#60cdff":
+        if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
             return tokens.accent_hex
         return c
 
@@ -391,7 +391,7 @@ class Win11RadioOption(QWidget):
         if self._selected:
             painter.setPen(QColor(tokens.accent_hex))
         else:
-            painter.setPen(QColor(0, 0, 0, 40) if tokens.is_light else QColor(255, 255, 255, 51))
+            painter.setPen(QColor(tokens.toggle_off_border))
         painter.setBrush(Qt.BrushStyle.NoBrush)
             
         painter.drawEllipse(circle_x - 8, circle_y - 8, 16, 16)
@@ -411,7 +411,7 @@ class Win11NumberRow(QWidget):
     valueChanged = pyqtSignal(int)
     
     def __init__(self, icon_name: str, title: str, description: str = "", 
-                 icon_color: str = "#60cdff", min_val: int = 0, max_val: int = 999,
+                 icon_color: str = "", min_val: int = 0, max_val: int = 999,
                  default_val: int = 10, suffix: str = "", parent=None):
         super().__init__(parent)
 
@@ -471,7 +471,7 @@ class Win11NumberRow(QWidget):
         c = str(self._icon_color or "").strip()
         if not c:
             return tokens.accent_hex
-        if c.lower() == "#60cdff":
+        if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
             return tokens.accent_hex
         return c
 
@@ -546,7 +546,7 @@ class Win11ComboRow(QWidget):
     currentTextChanged = pyqtSignal(str)
 
     def __init__(self, icon_name: str, title: str, description: str = "",
-                 icon_color: str = "#60cdff", items: list = None, parent=None):
+                 icon_color: str = "", items: list = None, parent=None):
         super().__init__(parent)
 
         self._icon_name = icon_name
@@ -607,7 +607,7 @@ class Win11ComboRow(QWidget):
         c = str(self._icon_color or "").strip()
         if not c:
             return tokens.accent_hex
-        if c.lower() == "#60cdff":
+        if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
             return tokens.accent_hex
         return c
 
@@ -619,8 +619,7 @@ class Win11ComboRow(QWidget):
 
     def _apply_theme_styles(self) -> None:
         tokens = get_theme_tokens()
-        # Avoid fixed dark-only popup colors: use theme-aware neutral surfaces.
-        popup_bg = "rgba(255, 255, 255, 0.98)" if tokens.is_light else "rgba(24, 24, 24, 0.96)"
+        popup_bg = tokens.surface_bg_hover
         popup_fg = tokens.fg
         self.combo.setStyleSheet(
             f"""
@@ -789,7 +788,6 @@ class DpiSettingsPage(BasePage):
             "Zapret 2",
             "Прямой запуск с гибкими настройками. Поддерживает фильтры трафика и раздельные стратегии.",
             icon_name="mdi.rocket-launch",
-            icon_color="#60cdff",
             recommended=True
         )
         self.method_direct.clicked.connect(lambda: self._select_method("direct_zapret2"))

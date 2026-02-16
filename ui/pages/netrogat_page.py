@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from log import log
 from utils.netrogat_manager import (
     load_netrogat,
@@ -76,13 +77,14 @@ class NetrogatPage(BasePage):
         QTimer.singleShot(100, self._load)
 
     def _build_ui(self):
+        tokens = get_theme_tokens()
         # Описание
         desc_card = SettingsCard()
         desc = QLabel(
             "Список доменов, которые не следует трогать (netrogat.txt).\n"
             "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
         )
-        desc.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
+        desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -95,16 +97,16 @@ class NetrogatPage(BasePage):
         self.input = QLineEdit()
         self.input.setPlaceholderText("Например: example.com, site.com или через пробел")
         self.input.setStyleSheet(
-            """
-            QLineEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+            f"""
+            QLineEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
                 padding: 10px 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-size: 13px;
-            }
-            QLineEdit:focus { border: 1px solid #60cdff; }
+            }}
+            QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
         """
         )
         self.input.returnPressed.connect(self._add)
@@ -154,19 +156,19 @@ class NetrogatPage(BasePage):
             "vk.com\n\n"
             "Комментарии начинаются с #"
         )
-        self.text_edit.setStyleSheet("""
-            QPlainTextEdit {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.text_edit.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
                 padding: 12px;
-                color: #ffffff;
+                color: {tokens.fg};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 13px;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid #60cdff;
-            }
+            }}
+            QPlainTextEdit:focus {{
+                border: 1px solid {tokens.accent_hex};
+            }}
         """)
         self.text_edit.setMinimumHeight(350)
 
@@ -179,14 +181,14 @@ class NetrogatPage(BasePage):
         editor_layout.addWidget(self.text_edit)
 
         hint = QLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 11px;")
+        hint.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         editor_layout.addWidget(hint)
 
         editor_card.add_layout(editor_layout)
         self.layout.addWidget(editor_card)
 
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         self.layout.addWidget(self.status_label)
 
     def _load(self):

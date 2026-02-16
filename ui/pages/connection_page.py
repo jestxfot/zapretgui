@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
 from connection_test import ConnectionTestWorker, LogSendWorker
 from config import LOGS_FOLDER, APP_VERSION
 from tgram.tg_log_delta import get_client_id
@@ -25,12 +26,10 @@ from tgram.tg_log_delta import get_client_id
 class StatusBadge(QLabel):
     """Небольшой бейдж состояния."""
 
-    COLORS = {
-        "info": "#60cdff",
+    _SEMANTIC_FG = {
         "success": "#6ccb5f",
         "warning": "#ffc107",
         "error": "#ff6b6b",
-        "muted": "rgba(255, 255, 255, 0.6)",
     }
 
     def __init__(self, text: str = "", status: str = "muted", parent=None):
@@ -40,14 +39,26 @@ class StatusBadge(QLabel):
         self.set_status(text, status)
 
     def set_status(self, text: str, status: str = "muted"):
-        color = self.COLORS.get(status, self.COLORS["muted"])
+        tokens = get_theme_tokens()
+        if status == "info":
+            fg = tokens.accent_hex
+            bg = tokens.accent_soft_bg
+            border = f"1px solid rgba({tokens.accent_rgb_str}, 0.25)"
+        elif status == "muted":
+            fg = tokens.fg_muted
+            bg = tokens.surface_bg
+            border = f"1px solid {tokens.surface_border}"
+        else:
+            fg = self._SEMANTIC_FG.get(status, tokens.fg_muted)
+            bg = tokens.surface_bg
+            border = f"1px solid {tokens.surface_border}"
         self.setText(text)
         self.setStyleSheet(
             f"""
             QLabel {{
-                color: {color};
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: {fg};
+                background-color: {bg};
+                border: {border};
                 border-radius: 14px;
                 padding: 6px 12px;
                 font-size: 12px;
@@ -92,6 +103,10 @@ class ConnectionTestPage(BasePage):
         self.log_send_thread = None
         self.log_send_worker = None
         self.stop_check_timer = None
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+
+        self._hero_frame = None
 
         # Контейнер с ограниченной шириной, чтобы не расползалось за края
         self.container = QWidget(self.content)
@@ -110,40 +125,145 @@ class ConnectionTestPage(BasePage):
         self.add_widget(self.container)
         self.add_spacing(8)
 
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if self._hero_frame is not None:
+                self._hero_frame.setStyleSheet(
+                    f"""
+                    QFrame#connectionHero {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                                    stop:0 {tokens.accent_soft_bg},
+                                                    stop:1 {tokens.surface_bg});
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 12px;
+                    }}
+                    """
+                )
+
+            if hasattr(self, "test_combo"):
+                selection_color = "rgba(18, 18, 18, 0.90)" if tokens.is_light else tokens.fg
+                self.test_combo.setStyleSheet(
+                    f"""
+                    QComboBox {{
+                        padding: 8px 12px;
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        background: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        font-size: 12px;
+                    }}
+                    QComboBox:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    QComboBox:focus {{
+                        border-color: {tokens.accent_hex};
+                    }}
+                    QComboBox QAbstractItemView,
+                    QComboBox QListView {{
+                        background: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        selection-background-color: {tokens.accent_soft_bg};
+                        selection-color: {selection_color};
+                        outline: none;
+                    }}
+                    """
+                )
+
+            if hasattr(self, "status_label"):
+                self.status_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px; font-weight: 500;"
+                )
+
+            if hasattr(self, "progress_bar"):
+                self.progress_bar.setStyleSheet(
+                    f"""
+                    QProgressBar {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        color: {tokens.fg};
+                        text-align: center;
+                        padding: 2px;
+                    }}
+                    QProgressBar::chunk {{
+                        background: qlineargradient(
+                            x1:0, y1:0, x2:1, y2:0,
+                            stop:0 {tokens.accent_hex}, stop:1 {tokens.accent_hover_hex});
+                        border-radius: 4px;
+                    }}
+                    """
+                )
+
+            if hasattr(self, "result_text"):
+                self.result_text.setStyleSheet(
+                    f"""
+                    QTextEdit {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg};
+                        font-family: 'Cascadia Code', 'Consolas', monospace;
+                        font-size: 12px;
+                    }}
+                    """
+                )
+        finally:
+            self._applying_theme_styles = False
+
     # ──────────────────────────────────────────────────────────────
     # UI
     # ──────────────────────────────────────────────────────────────
     def _build_header(self):
         hero = QFrame(self.container)
         hero.setObjectName("connectionHero")
+        self._hero_frame = hero
         hero_layout = QVBoxLayout(hero)
         hero_layout.setContentsMargins(20, 18, 20, 18)
         hero_layout.setSpacing(8)
 
         title = QLabel("Диагностика сетевых соединений")
+        title.setProperty("tone", "primary")
         title.setStyleSheet(
-            """
-            QLabel {
-                color: #ffffff;
-                font-size: 22px;
-                font-weight: 700;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            """
+            "font-size: 22px; font-weight: 700; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
         )
 
         subtitle = QLabel(
             "Проверьте доступность Discord и YouTube, найдите подмену DNS и быстро отправьте лог в поддержку."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 13px;
-            }
-            """
-        )
+        subtitle.setProperty("tone", "muted")
+        subtitle.setStyleSheet("font-size: 13px;")
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(8)
@@ -156,18 +276,6 @@ class ConnectionTestPage(BasePage):
         hero_layout.addWidget(title)
         hero_layout.addWidget(subtitle)
         hero_layout.addLayout(badges_layout)
-
-        hero.setStyleSheet(
-            """
-            QFrame#connectionHero {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                            stop:0 rgba(96, 205, 255, 0.12),
-                                            stop:1 rgba(32, 32, 40, 0.5));
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 12px;
-            }
-            """
-        )
 
         self.container_layout.addWidget(hero)
 
@@ -187,23 +295,7 @@ class ConnectionTestPage(BasePage):
                 "🎬 Только YouTube",
             ]
         )
-        self.test_combo.setStyleSheet(
-            """
-            QComboBox {
-                padding: 8px 12px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                background: rgba(255, 255, 255, 0.04);
-                color: #ffffff;
-                font-size: 12px;
-            }
-            QComboBox QAbstractItemView {
-                background: #1e1e1e;
-                selection-background-color: #60cdff;
-                selection-color: #000;
-            }
-            """
-        )
+        # Styled in _apply_theme()
         selector_row.addWidget(self.test_combo, 1)
         card.add_layout(selector_row)
 
@@ -240,37 +332,10 @@ class ConnectionTestPage(BasePage):
         status_layout.setSpacing(12)
 
         self.status_label = QLabel("Готово к тестированию")
-        self.status_label.setStyleSheet(
-            """
-            QLabel {
-                color: rgba(255, 255, 255, 0.75);
-                font-size: 12px;
-                font-weight: 500;
-            }
-            """
-        )
         status_layout.addWidget(self.status_label, 1)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet(
-            """
-            QProgressBar {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 6px;
-                color: #ffffff;
-                text-align: center;
-                padding: 2px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #60cdff, stop:1 #4FA3FF);
-                border-radius: 4px;
-            }
-            """
-        )
         status_layout.addWidget(self.progress_bar, 1)
 
         card.add_layout(status_layout)
@@ -280,18 +345,7 @@ class ConnectionTestPage(BasePage):
         log_card = SettingsCard("Результат тестирования")
         self.result_text = ScrollBlockingTextEdit()
         self.result_text.setReadOnly(True)
-        self.result_text.setStyleSheet(
-            """
-            QTextEdit {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 8px;
-                color: #e0e0e0;
-                font-family: 'Cascadia Code', 'Consolas', monospace;
-                font-size: 12px;
-            }
-            """
-        )
+        # Styled in _apply_theme()
         log_card.add_widget(self.result_text)
         self.container_layout.addWidget(log_card)
 

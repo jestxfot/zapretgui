@@ -11,6 +11,8 @@ import os
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 from log import log
 
 
@@ -73,6 +75,8 @@ class AutostartOptionCard(QFrame):
         self._disabled = False
         self._is_active = False
         self._icon_name = icon_name
+        self._tokens = get_theme_tokens()
+        self._current_qss = ""
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -80,8 +84,6 @@ class AutostartOptionCard(QFrame):
         
         # Иконка
         self._icon_label = QLabel()
-        icon_color = '#60cdff' if accent else '#ffffff'
-        self._icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(28, 28))
         self._icon_label.setFixedSize(36, 36)
         layout.addWidget(self._icon_label)
         
@@ -93,27 +95,21 @@ class AutostartOptionCard(QFrame):
         title_layout.setSpacing(8)
         
         self._title_label = QLabel(title)
-        self._title_label.setStyleSheet(f"""
-            QLabel {{
-                color: {'#60cdff' if accent else '#ffffff'};
-                font-size: 14px;
-                font-weight: 600;
-            }}
-        """)
         title_layout.addWidget(self._title_label)
         
         self._rec_label = None
         if recommended:
+            semantic = get_semantic_palette()
             self._rec_label = QLabel("Рекомендуется")
-            self._rec_label.setStyleSheet("""
-                QLabel {
-                    background-color: #2e7d32;
-                    color: white;
+            self._rec_label.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {semantic.success_badge};
+                    color: {semantic.on_color};
                     font-size: 10px;
                     font-weight: 600;
                     padding: 2px 8px;
                     border-radius: 8px;
-                }
+                }}
             """)
             title_layout.addWidget(self._rec_label)
             
@@ -121,12 +117,6 @@ class AutostartOptionCard(QFrame):
         text_layout.addLayout(title_layout)
         
         self._desc_label = QLabel(description)
-        self._desc_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-            }
-        """)
         self._desc_label.setWordWrap(True)
         text_layout.addWidget(self._desc_label)
         
@@ -134,10 +124,93 @@ class AutostartOptionCard(QFrame):
         
         # Стрелка
         self._arrow = QLabel()
-        self._arrow.setPixmap(qta.icon('fa5s.chevron-right', color='#666666').pixmap(16, 16))
         layout.addWidget(self._arrow)
-        
+
+        self._apply_visuals()
         self._update_style()
+
+    def refresh_theme(self) -> None:
+        self._tokens = get_theme_tokens()
+        self._apply_visuals()
+        self._update_style()
+
+    def _apply_visuals(self) -> None:
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        semantic = get_semantic_palette()
+
+        if self._is_active:
+            title_color = semantic.success
+            icon_color = semantic.success
+            desc_color = tokens.fg_muted
+            arrow_icon = qta.icon("fa5s.check-circle", color=semantic.success)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        elif self._disabled:
+            title_color = tokens.fg_faint
+            icon_color = tokens.fg_faint
+            desc_color = tokens.fg_faint
+            arrow_icon = qta.icon("fa5s.chevron-right", color=tokens.fg_faint)
+            self.setCursor(Qt.CursorShape.ForbiddenCursor)
+        else:
+            title_color = tokens.accent_hex if self._accent else tokens.fg
+            icon_color = tokens.accent_hex if self._accent else tokens.fg
+            desc_color = tokens.fg_muted
+            arrow_icon = qta.icon("fa5s.chevron-right", color=tokens.fg_faint)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._icon_label.setPixmap(qta.icon(self._icon_name, color=icon_color).pixmap(28, 28))
+
+        self._title_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {title_color};
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            """
+        )
+
+        self._desc_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {desc_color};
+                font-size: 12px;
+            }}
+            """
+        )
+
+        if self._rec_label:
+            if self._disabled:
+                # Dim the badge when the option is not available.
+                self._rec_label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        background-color: {tokens.surface_bg_disabled};
+                        border: 1px solid {tokens.surface_border_disabled};
+                        color: {tokens.fg_faint};
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 2px 8px;
+                        border-radius: 8px;
+                    }}
+                    """
+                )
+            else:
+                # Keep a stable green semantic badge.
+                semantic = get_semantic_palette()
+                self._rec_label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        background-color: {semantic.success_badge};
+                        color: {semantic.on_color};
+                        font-size: 10px;
+                        font-weight: 600;
+                        padding: 2px 8px;
+                        border-radius: 8px;
+                    }}
+                    """
+                )
+
+        self._arrow.setPixmap(arrow_icon.pixmap(18 if self._is_active else 16, 18 if self._is_active else 16))
     
     def set_disabled(self, disabled: bool, is_active: bool = False):
         """
@@ -149,155 +222,46 @@ class AutostartOptionCard(QFrame):
         """
         self._disabled = disabled
         self._is_active = is_active
-        
-        if is_active:
-            # Активная карточка - выделена зелёным, но не кликабельна
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            # Зелёная иконка
-            self._icon_label.setPixmap(
-                qta.icon(self._icon_name, color='#6ccb5f').pixmap(28, 28)
-            )
-            # Зелёный заголовок
-            self._title_label.setStyleSheet("""
-                QLabel {
-                    color: #6ccb5f;
-                    font-size: 14px;
-                    font-weight: 600;
-                }
-            """)
-            # Светлое описание
-            self._desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.7);
-                    font-size: 12px;
-                }
-            """)
-            # Бейдж рекомендации (если есть)
-            if self._rec_label:
-                self._rec_label.setStyleSheet("""
-                    QLabel {
-                        background-color: #2e7d32;
-                        color: white;
-                        font-size: 10px;
-                        font-weight: 600;
-                        padding: 2px 8px;
-                        border-radius: 8px;
-                    }
-                """)
-            # Зелёная галочка вместо стрелки
-            self._arrow.setPixmap(
-                qta.icon('fa5s.check-circle', color='#6ccb5f').pixmap(18, 18)
-            )
-        elif disabled:
-            # Заблокированная карточка - затемнена
-            self.setCursor(Qt.CursorShape.ForbiddenCursor)
-            # Затемняем иконку
-            self._icon_label.setPixmap(
-                qta.icon(self._icon_name, color='#404040').pixmap(28, 28)
-            )
-            # Затемняем заголовок
-            self._title_label.setStyleSheet("""
-                QLabel {
-                    color: #404040;
-                    font-size: 14px;
-                    font-weight: 600;
-                }
-            """)
-            # Затемняем описание
-            self._desc_label.setStyleSheet("""
-                QLabel {
-                    color: #333333;
-                    font-size: 12px;
-                }
-            """)
-            # Затемняем бейдж рекомендации
-            if self._rec_label:
-                self._rec_label.setStyleSheet("""
-                    QLabel {
-                        background-color: #1a3d1c;
-                        color: #505050;
-                        font-size: 10px;
-                        font-weight: 600;
-                        padding: 2px 8px;
-                        border-radius: 8px;
-                    }
-                """)
-            # Затемняем стрелку
-            self._arrow.setPixmap(
-                qta.icon('fa5s.chevron-right', color='#303030').pixmap(16, 16)
-            )
-        else:
-            # Обычная активная карточка
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-            # Восстанавливаем иконку
-            icon_color = '#60cdff' if self._accent else '#ffffff'
-            self._icon_label.setPixmap(
-                qta.icon(self._icon_name, color=icon_color).pixmap(28, 28)
-            )
-            # Восстанавливаем заголовок
-            self._title_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {'#60cdff' if self._accent else '#ffffff'};
-                    font-size: 14px;
-                    font-weight: 600;
-                }}
-            """)
-            # Восстанавливаем описание
-            self._desc_label.setStyleSheet("""
-                QLabel {
-                    color: rgba(255, 255, 255, 0.6);
-                    font-size: 12px;
-                }
-            """)
-            # Восстанавливаем бейдж рекомендации
-            if self._rec_label:
-                self._rec_label.setStyleSheet("""
-                    QLabel {
-                        background-color: #2e7d32;
-                        color: white;
-                        font-size: 10px;
-                        font-weight: 600;
-                        padding: 2px 8px;
-                        border-radius: 8px;
-                    }
-                """)
-            # Восстанавливаем стрелку
-            self._arrow.setPixmap(
-                qta.icon('fa5s.chevron-right', color='#666666').pixmap(16, 16)
-            )
+
+        self._apply_visuals()
         self._update_style()
         self.update()  # Принудительное обновление виджета
         
     def _update_style(self):
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        semantic = get_semantic_palette()
         if getattr(self, '_is_active', False):
             # Активная карточка - зелёная подсветка
-            bg = "rgba(108, 203, 95, 0.15)"
-            border = "rgba(108, 203, 95, 0.5)"
+            bg = semantic.success_soft_bg
+            border = semantic.success_soft_border
         elif self._disabled:
-            bg = "rgba(255, 255, 255, 0.02)"
-            border = "rgba(255, 255, 255, 0.04)"
+            bg = tokens.surface_bg_disabled
+            border = tokens.surface_border_disabled
         elif self._accent:
             if self._hovered:
-                bg = "rgba(96, 205, 255, 0.15)"
-                border = "rgba(96, 205, 255, 0.4)"
+                bg = tokens.accent_soft_bg_hover
+                border = f"rgba({tokens.accent_rgb_str}, 0.40)"
             else:
-                bg = "rgba(96, 205, 255, 0.08)"
-                border = "rgba(96, 205, 255, 0.3)"
+                bg = tokens.accent_soft_bg
+                border = f"rgba({tokens.accent_rgb_str}, 0.28)"
         else:
             if self._hovered:
-                bg = "rgba(255, 255, 255, 0.08)"
-                border = "rgba(255, 255, 255, 0.15)"
+                bg = tokens.surface_bg_hover
+                border = tokens.surface_border_hover
             else:
-                bg = "rgba(255, 255, 255, 0.04)"
-                border = "rgba(255, 255, 255, 0.08)"
-                
-        self.setStyleSheet(f"""
+                bg = tokens.surface_bg
+                border = tokens.surface_border
+
+        qss = f"""
             QFrame#autostartOption {{
                 background-color: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;
             }}
-        """)
+        """
+        if qss != self._current_qss:
+            self._current_qss = qss
+            self.setStyleSheet(qss)
         
     def enterEvent(self, event):
         if not self._disabled and not self._is_active:
@@ -326,23 +290,33 @@ class ClickableModeCard(QFrame):
         self.setObjectName("clickableModeCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hovered = False
+        self._tokens = get_theme_tokens()
+        self._current_qss = ""
+        self._update_style()
+
+    def refresh_theme(self) -> None:
+        self._tokens = get_theme_tokens()
         self._update_style()
 
     def _update_style(self):
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
         if self._hovered:
-            bg = "rgba(96, 205, 255, 0.12)"
-            border = "rgba(96, 205, 255, 0.3)"
+            bg = tokens.accent_soft_bg_hover
+            border = f"rgba({tokens.accent_rgb_str}, 0.30)"
         else:
-            bg = "rgba(255, 255, 255, 0.04)"
-            border = "rgba(255, 255, 255, 0.08)"
+            bg = tokens.surface_bg
+            border = tokens.surface_border
 
-        self.setStyleSheet(f"""
+        qss = f"""
             QFrame#clickableModeCard {{
                 background-color: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;
             }}
-        """)
+        """
+        if qss != self._current_qss:
+            self._current_qss = qss
+            self.setStyleSheet(qss)
 
     def enterEvent(self, event):
         self._hovered = True
@@ -379,8 +353,15 @@ class AutostartPage(BasePage):
         self._current_autostart_type = None  # Текущий активный тип автозапуска
         self._detector_worker = None  # Фоновый поток для определения типа
         self._detection_pending = False  # Флаг ожидания результата
+
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._autostart_enabled = False
         
         self._build_ui()
+
+        # Apply theme to custom inline widgets.
+        self._apply_theme()
     
     def showEvent(self, event):
         """Вызывается при показе страницы - запускаем определение в фоне"""
@@ -496,6 +477,7 @@ class AutostartPage(BasePage):
             self.current_strategy_label.setText(name or "Не выбрана")
         
     def _build_ui(self):
+        tokens = get_theme_tokens()
         # ═══════════════════════════════════════════════════════════
         # Статус автозапуска
         # ═══════════════════════════════════════════════════════════
@@ -507,7 +489,7 @@ class AutostartPage(BasePage):
         status_layout.setSpacing(14)
         
         self.status_icon = QLabel()
-        self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#888888').pixmap(20, 20))
+        self.status_icon.setPixmap(qta.icon('fa5s.circle', color=tokens.fg_faint).pixmap(20, 20))
         self.status_icon.setFixedSize(24, 24)
         status_layout.addWidget(self.status_icon)
         
@@ -515,22 +497,9 @@ class AutostartPage(BasePage):
         status_text_layout.setSpacing(4)
         
         self.status_label = QLabel("Автозапуск отключён")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 15px;
-                font-weight: 600;
-            }
-        """)
         status_text_layout.addWidget(self.status_label)
         
         self.status_desc = QLabel("Zapret не запускается автоматически")
-        self.status_desc.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-            }
-        """)
         status_text_layout.addWidget(self.status_desc)
         
         status_layout.addLayout(status_text_layout, 1)
@@ -562,38 +531,32 @@ class AutostartPage(BasePage):
         mode_layout = QHBoxLayout()
         mode_layout.setSpacing(12)
 
-        mode_icon = QLabel()
-        mode_icon.setPixmap(qta.icon('fa5s.cog', color='#60cdff').pixmap(18, 18))
-        mode_icon.setFixedSize(22, 22)
-        mode_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        mode_layout.addWidget(mode_icon)
+        self._mode_icon_label = QLabel()
+        self._mode_icon_label.setFixedSize(22, 22)
+        self._mode_icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        mode_layout.addWidget(self._mode_icon_label)
 
-        mode_text = QLabel("Текущий режим:")
-        mode_text.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
-        mode_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        mode_layout.addWidget(mode_text)
+        self._mode_text_label = QLabel("Текущий режим:")
+        self._mode_text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        mode_layout.addWidget(self._mode_text_label)
 
         self.mode_label = QLabel("Загрузка...")
-        self.mode_label.setStyleSheet("color: #60cdff; font-size: 13px; font-weight: 600;")
         self.mode_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.mode_label)
 
         mode_layout.addSpacing(20)
 
-        strategy_text = QLabel("Стратегия:")
-        strategy_text.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 13px;")
-        strategy_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        mode_layout.addWidget(strategy_text)
+        self._strategy_text_label = QLabel("Стратегия:")
+        self._strategy_text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        mode_layout.addWidget(self._strategy_text_label)
 
         self.current_strategy_label = QLabel("Не выбрана")
         self.current_strategy_label.setWordWrap(True)  # Перенос текста
-        self.current_strategy_label.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;")
         self.current_strategy_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.current_strategy_label, 1)
 
         # Стрелка для индикации кликабельности
         self.mode_arrow = QLabel()
-        self.mode_arrow.setPixmap(qta.icon('fa5s.chevron-right', color='#666666').pixmap(14, 14))
         self.mode_arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.mode_arrow)
 
@@ -677,7 +640,7 @@ class AutostartPage(BasePage):
         tip_layout.setSpacing(10)
         
         tip_icon = QLabel()
-        tip_icon.setPixmap(qta.icon('fa5s.lightbulb', color='#ffc107').pixmap(18, 18))
+        tip_icon.setPixmap(qta.icon('fa5s.lightbulb', color=get_semantic_palette().warning).pixmap(18, 18))
         tip_icon.setFixedSize(22, 22)
         tip_layout.addWidget(tip_icon)
         
@@ -686,7 +649,7 @@ class AutostartPage(BasePage):
             "«Служба Windows» — она запускается раньше всех программ и автоматически "
             "перезапускается при сбоях."
         )
-        tip_text.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 12px;")
+        self._tip_text_label = tip_text
         tip_text.setWordWrap(True)
         tip_layout.addWidget(tip_text, 1)
         
@@ -696,6 +659,9 @@ class AutostartPage(BasePage):
         
         # Обновляем режим
         self._update_mode()
+
+        # Apply theme once after building the UI.
+        self._apply_theme()
         
     def _update_mode(self):
         """Обновляет отображение режима"""
@@ -731,38 +697,110 @@ class AutostartPage(BasePage):
         log("AutostartPage: mode_card clicked, emitting navigate_to_dpi_settings", "DEBUG")
         self.navigate_to_dpi_settings.emit()
 
-    def _is_light_theme(self) -> bool:
-        """Проверяет, является ли текущая тема светлой"""
-        try:
-            # Ищем главное приложение через цепочку parent
-            widget = self.parent()
-            while widget is not None:
-                if hasattr(widget, 'theme_manager'):
-                    theme_name = getattr(widget.theme_manager, 'current_theme', '')
-                    return theme_name.startswith("Светлая")
-                widget = widget.parent() if hasattr(widget, 'parent') else None
-        except Exception:
-            pass
-        return False
-
     def _update_arrow_color(self):
         """Обновляет цвет стрелки в зависимости от темы"""
         if not hasattr(self, 'mode_arrow'):
             return
 
-        if self._is_light_theme():
-            color = '#000000'  # Черная для светлой темы
-        else:
-            color = '#666666'  # Серая для темной темы
-
-        self.mode_arrow.setPixmap(qta.icon('fa5s.chevron-right', color=color).pixmap(14, 14))
+        tokens = get_theme_tokens()
+        self.mode_arrow.setPixmap(qta.icon('fa5s.chevron-right', color=tokens.fg_faint).pixmap(14, 14))
 
     def on_theme_changed(self):
         """Вызывается при смене темы"""
-        self._update_arrow_color()
+        self._schedule_theme_refresh()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if hasattr(self, "status_label"):
+                self.status_label.setStyleSheet(
+                    f"color: {tokens.fg}; font-size: 15px; font-weight: 600;"
+                )
+            if hasattr(self, "status_desc"):
+                self.status_desc.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px;"
+                )
+
+            # Mode card labels
+            if hasattr(self, "_mode_icon_label"):
+                self._mode_icon_label.setPixmap(qta.icon("fa5s.cog", color=tokens.accent_hex).pixmap(18, 18))
+            if hasattr(self, "_mode_text_label"):
+                self._mode_text_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 13px;"
+                )
+            if hasattr(self, "mode_label"):
+                self.mode_label.setStyleSheet(
+                    f"color: {tokens.accent_hex}; font-size: 13px; font-weight: 600;"
+                )
+            if hasattr(self, "_strategy_text_label"):
+                self._strategy_text_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 13px;"
+                )
+            if hasattr(self, "current_strategy_label"):
+                self.current_strategy_label.setStyleSheet(
+                    f"color: {tokens.fg}; font-size: 13px; font-weight: 500;"
+                )
+
+            self._update_arrow_color()
+
+            if hasattr(self, "_tip_text_label"):
+                self._tip_text_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px;"
+                )
+
+            # Keep the status icon consistent with the current theme.
+            if hasattr(self, "status_icon"):
+                if getattr(self, "_autostart_enabled", False):
+                    self.status_icon.setPixmap(qta.icon('fa5s.check-circle', color=get_semantic_palette().success).pixmap(20, 20))
+                else:
+                    self.status_icon.setPixmap(qta.icon('fa5s.circle', color=tokens.fg_faint).pixmap(20, 20))
+
+            # Refresh option cards.
+            for card_name in ("gui_option", "service_option", "logon_option", "boot_option"):
+                card = getattr(self, card_name, None)
+                if card is not None and hasattr(card, "refresh_theme"):
+                    try:
+                        card.refresh_theme()
+                    except Exception:
+                        pass
+            if hasattr(self, "mode_card") and hasattr(self.mode_card, "refresh_theme"):
+                try:
+                    self.mode_card.refresh_theme()
+                except Exception:
+                    pass
+        finally:
+            self._applying_theme_styles = False
 
     def update_status(self, enabled: bool, strategy_name: str = None, autostart_type: str = None):
         """Обновляет отображение статуса автозапуска"""
+        self._autostart_enabled = bool(enabled)
         if enabled:
             self.status_label.setText("Автозапуск включён")
             
@@ -781,12 +819,13 @@ class AutostartPage(BasePage):
                 desc += f" {type_desc}"
             self.status_desc.setText(desc)
             
-            self.status_icon.setPixmap(qta.icon('fa5s.check-circle', color='#6ccb5f').pixmap(20, 20))
+            self.status_icon.setPixmap(qta.icon('fa5s.check-circle', color=get_semantic_palette().success).pixmap(20, 20))
             self.disable_btn.setVisible(True)
         else:
             self.status_label.setText("Автозапуск отключён")
             self.status_desc.setText("Zapret не запускается автоматически")
-            self.status_icon.setPixmap(qta.icon('fa5s.circle', color='#888888').pixmap(20, 20))
+            tokens = get_theme_tokens()
+            self.status_icon.setPixmap(qta.icon('fa5s.circle', color=tokens.fg_faint).pixmap(20, 20))
             self.disable_btn.setVisible(False)
             
         if strategy_name:

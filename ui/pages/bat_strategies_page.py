@@ -11,6 +11,7 @@ import os
 from .strategies_page_base import StrategiesPageBase
 from .base_page import ScrollBlockingTextEdit
 from ui.widgets import StrategySearchBar
+from ui.theme import get_theme_tokens
 from config import BAT_FOLDER
 from log import log
 
@@ -22,6 +23,10 @@ class BatStrategiesPage(StrategiesPageBase):
         super().__init__(parent)
         self._file_watcher = None
         self._watcher_active = False
+        self._applying_local_theme = False
+        self._local_theme_refresh_scheduled = False
+        self._cmd_preview_label = None
+        self._copy_cmd_btn = None
         log("BatStrategiesPage initialized", "DEBUG")
 
     def _load_content(self):
@@ -165,6 +170,7 @@ class BatStrategiesPage(StrategiesPageBase):
 
     def _create_cmd_preview_widget(self) -> QWidget:
         """Создаёт виджет для превью командной строки"""
+        tokens = get_theme_tokens()
         widget = QWidget()
         widget.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(widget)
@@ -176,29 +182,35 @@ class BatStrategiesPage(StrategiesPageBase):
         header_layout.setSpacing(8)
 
         label = QLabel("Командная строка:")
-        label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.7);
+        self._cmd_preview_label = label
+        label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {tokens.fg_muted};
                 font-size: 12px;
                 font-weight: 500;
-            }
-        """)
+            }}
+            """
+        )
         header_layout.addWidget(label)
 
         # Кнопка копирования
         copy_btn = QPushButton()
-        copy_btn.setIcon(qta.icon('fa5s.copy', color='#60cdff'))
+        self._copy_cmd_btn = copy_btn
+        copy_btn.setIcon(qta.icon('fa5s.copy', color=tokens.accent_hex))
         copy_btn.setFixedSize(24, 24)
-        copy_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.05);
+        copy_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: {tokens.surface_bg};
                 border: none;
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-            }
-        """)
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+            }}
+            """
+        )
         copy_btn.setToolTip("Копировать команду")
         copy_btn.clicked.connect(self._copy_cmd_to_clipboard)
         header_layout.addWidget(copy_btn)
@@ -211,22 +223,87 @@ class BatStrategiesPage(StrategiesPageBase):
         self._cmd_preview_text.setReadOnly(True)
         self._cmd_preview_text.setMinimumHeight(80)
         self._cmd_preview_text.setMaximumHeight(150)
-        self._cmd_preview_text.setStyleSheet("""
-            QTextEdit {
-                background: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255,255,255,0.1);
+        self._cmd_preview_text.setStyleSheet(
+            f"""
+            QTextEdit {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 8px;
-                color: #b0b0b0;
+                color: {tokens.fg_muted};
                 font-family: 'Cascadia Code', 'Consolas', monospace;
                 font-size: 11px;
                 padding: 8px;
-            }
-        """)
+            }}
+            """
+        )
         self._cmd_preview_text.setPlaceholderText("Выберите стратегию для просмотра команды...")
         self._cmd_preview_text.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         layout.addWidget(self._cmd_preview_text)
 
         return widget
+
+    def _apply_local_theme(self) -> None:
+        if self._applying_local_theme:
+            return
+        self._applying_local_theme = True
+        try:
+            tokens = get_theme_tokens()
+            if self._cmd_preview_label is not None:
+                self._cmd_preview_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px; font-weight: 500;"
+                )
+            if self._copy_cmd_btn is not None:
+                self._copy_cmd_btn.setIcon(qta.icon('fa5s.copy', color=tokens.accent_hex))
+                self._copy_cmd_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: {tokens.surface_bg};
+                        border: none;
+                        border-radius: 4px;
+                    }}
+                    QPushButton:hover {{
+                        background: {tokens.surface_bg_hover};
+                    }}
+                    """
+                )
+            if hasattr(self, '_cmd_preview_text') and self._cmd_preview_text is not None:
+                self._cmd_preview_text.setStyleSheet(
+                    f"""
+                    QTextEdit {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg_muted};
+                        font-family: 'Cascadia Code', 'Consolas', monospace;
+                        font-size: 11px;
+                        padding: 8px;
+                    }}
+                    """
+                )
+        finally:
+            self._applying_local_theme = False
+
+    def _schedule_local_theme_refresh(self) -> None:
+        if self._applying_local_theme:
+            return
+        if self._local_theme_refresh_scheduled:
+            return
+        self._local_theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_local_theme_change)
+
+    def _on_debounced_local_theme_change(self) -> None:
+        self._local_theme_refresh_scheduled = False
+        self._apply_local_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_local_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def _update_cmd_preview(self):
         """Обновляет превью командной строки для выбранной стратегии"""
