@@ -53,10 +53,10 @@ class _ClearButtonUpdater(QObject):
             if self._explicit_color is not None:
                 color = self._explicit_color
             else:
-                color = "rgba(0,0,0,0.55)" if tokens.is_light else "rgba(255,255,255,0.75)"
+                color = "rgba(0,0,0,0.55)" if tokens.is_light else "rgba(245,245,245,0.75)"
 
-            hover_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.10)"
-            pressed_bg = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.16)"
+            hover_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(245, 245, 245, 0.10)"
+            pressed_bg = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(245, 245, 245, 0.16)"
 
             pixmap = qta.icon(self._icon_name, color=color).pixmap(self._size, self._size)
             btn.setIcon(QIcon(pixmap))

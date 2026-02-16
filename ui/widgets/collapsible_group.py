@@ -89,7 +89,7 @@ class CollapsibleServiceHeader(QFrame):
             """)
         except Exception:
             self._line.setStyleSheet("""
-                QFrame { background: rgba(255, 255, 255, 0.1); border: none; max-height: 1px; }
+                QFrame { background: rgba(245, 245, 245, 0.10); border: none; max-height: 1px; }
             """)
 
     def _apply_style(self):

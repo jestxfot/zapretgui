@@ -85,7 +85,7 @@ class StrategiesListTooltip(QWidget):
         # Разделитель
         separator = QWidget()
         separator.setFixedHeight(1)
-        sep = "rgba(0, 0, 0, 0.12)" if self._tokens.is_light else "rgba(255, 255, 255, 0.10)"
+        sep = "rgba(0, 0, 0, 0.12)" if self._tokens.is_light else "rgba(245, 245, 245, 0.10)"
         separator.setStyleSheet(f"background: {sep};")
         container_layout.addWidget(separator)
         
@@ -116,7 +116,7 @@ class StrategiesListTooltip(QWidget):
         # Номер
         num_label = QLabel(f"{index}.")
         num_label.setFixedWidth(18)
-        num_color = "rgba(0, 0, 0, 0.40)" if self._tokens.is_light else "rgba(255, 255, 255, 0.40)"
+        num_color = "rgba(0, 0, 0, 0.40)" if self._tokens.is_light else "rgba(245, 245, 245, 0.40)"
         num_label.setStyleSheet(f"color: {num_color}; font-size: 10px;")
         row_layout.addWidget(num_label)
         
@@ -140,7 +140,7 @@ class StrategiesListTooltip(QWidget):
         
         # Название стратегии
         strat_label = QLabel(strategy_name)
-        strat_color = "rgba(0, 0, 0, 0.85)" if self._tokens.is_light else "rgba(255, 255, 255, 0.85)"
+        strat_color = "rgba(0, 0, 0, 0.85)" if self._tokens.is_light else "rgba(245, 245, 245, 0.85)"
         strat_label.setStyleSheet(f"color: {strat_color}; font-size: 10px;")
         strat_label.setWordWrap(False)
         row_layout.addWidget(strat_label, 1)
@@ -295,7 +295,7 @@ class StrategiesListTooltip(QWidget):
         # Градиентный фон
         gradient = QLinearGradient(0, 0, 0, rect.height())
         if tokens.is_light:
-            gradient.setColorAt(0, QColor(255, 255, 255, 252))
+            gradient.setColorAt(0, QColor(246, 248, 252, 252))
             gradient.setColorAt(1, QColor(243, 246, 251, 252))
         else:
             gradient.setColorAt(0, QColor(45, 45, 48, 252))
@@ -303,7 +303,7 @@ class StrategiesListTooltip(QWidget):
         painter.fillPath(path, QBrush(gradient))
         
         # Тонкая рамка
-        border = QColor(0, 0, 0, 26) if tokens.is_light else QColor(255, 255, 255, 15)
+        border = QColor(0, 0, 0, 26) if tokens.is_light else QColor(245, 245, 245, 15)
         painter.setPen(QPen(border, 1))
         painter.drawPath(path)
 

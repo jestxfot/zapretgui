@@ -116,6 +116,11 @@ Step 2 adoption progress:
 - [x] `ui/widgets/strategy_radio_item.py` (badge text color moved off hardcoded white literal)
 - [x] `ui/widgets/direct_zapret2_strategies_tree.py` (multisplit icon accent now token-driven; dialog text neutrals token-safe)
 - [x] `ui/widgets/unified_strategies_list.py` (registered in token engine path for stylesheet-bearing widget audit)
+- [x] `ui/widgets/strategies_tooltip.py` (removed residual hardcoded white variants in separators/text/gradient borders)
+- [x] `ui/widgets/line_edit_icons.py` (clear-button icon/hover/pressed dark-theme neutrals moved off `rgba(255,...)`)
+- [x] `ui/widgets/filter_chip_button.py` (legacy hardcoded-color style docs replaced with token semantics to keep audits clean)
+- [x] `ui/widgets/collapsible_group.py` (fallback divider neutral moved off `rgba(255,...)`)
+- [x] `ui/pages/zapret2/direct_control_page.py` (accent foreground contrast helper moved off hardcoded white variant)
 
 ## Work Cadence (How We Execute)
 
@@ -167,3 +172,4 @@ python -c "import os; os.environ.setdefault('QT_QPA_PLATFORM','offscreen'); from
 - 2026-02-16: Residual cleanup tranche J completed for `presets_page.py`, `control_page.py`, `custom_domains_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` tails in accent/pending controls with token/semantic-safe replacements.
 - 2026-02-16: Residual cleanup tranche K completed for `zapret2/strategy_detail_page.py` and `zapret2/user_presets_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` menu/icon/accent fallbacks with token-safe equivalents.
 - 2026-02-16: Residual cleanup tranche L completed for core shells/widgets (`close_dialog.py`, `custom_titlebar.py`, `fluent_icons.py`, `win11_spinner.py`, `notification_banner.py`, `strategy_search_bar.py`, `strategy_radio_item.py`, `direct_zapret2_strategies_tree.py`, `unified_strategies_list.py`): removed remaining critical `#60cdff/#ffffff/rgba(255,255,255,...)` literals, aligned visuals to token/semantic palette, and closed the `setStyleSheet` without `get_theme_tokens()` audit for `ui/**/*.py`.
+- 2026-02-16: Residual cleanup tranche M completed for clean follow-up files (`strategies_tooltip.py`, `line_edit_icons.py`, `filter_chip_button.py`, `collapsible_group.py`, `direct_control_page.py`): removed remaining white-literal tails in dark-mode helpers/fallbacks and kept widget theming fully token-driven.

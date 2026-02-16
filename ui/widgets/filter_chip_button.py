@@ -16,9 +16,9 @@ class FilterChipButton(QPushButton):
     Chip-кнопка с checkable состоянием в стиле Windows 11.
 
     Стили:
-    - Неактивная: rgba(255,255,255,0.06), border rgba(255,255,255,0.08)
-    - Активная: rgba(96,205,255,0.15), border rgba(96,205,255,0.4), цвет #60cdff
-    - Hover: rgba(255,255,255,0.1)
+    - Неактивная: theme `surface_bg` + `surface_border`
+    - Активная: theme accent (`accent_soft_bg`, `accent_hex`)
+    - Hover: theme `surface_bg_hover`
     """
 
     def __init__(self, text: str, filter_key: str, parent=None):
