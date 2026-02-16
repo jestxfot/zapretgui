@@ -37,6 +37,7 @@ class EditorPage(BasePage):
         super().__init__("Пользовательские стартегии", "Здесь Вы можете создать свои пользовательские стратегии для любых протоколов (TCP, UDP, stun) и отредактировать существующие пользовательские стратегий. Стратегии это набор аргументов, Вы можете взять и посмотреть системные стратегии чтобы понять как писать свои.\nТипичный пример стратегии --lua-desync=multidisorder:pos=4:repeats=10:tcp_md5", parent)
         self.current_category = "tcp"
         self.strategies: dict[str, dict] = {}
+        self._loaded_once = False
 
         self._editing_strategy_id: Optional[str] = None
         self._build_ui()
@@ -283,8 +284,16 @@ class EditorPage(BasePage):
         self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         self.add_widget(self.status_label)
 
-        self._load_strategies()
         self._reset_form()
+        self.status_label.setText("Подготовка редактора...")
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        if not self._loaded_once:
+            self._load_strategies()
+            self._loaded_once = True
 
     # ──────────────────────────────────────────────────────────────
     # Data loading / table

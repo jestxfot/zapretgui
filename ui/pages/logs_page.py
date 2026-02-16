@@ -221,12 +221,20 @@ class LogsPage(BasePage):
 
         # qtawesome animations (e.g. qta.Spin) are not QAbstractAnimation; track state ourselves.
         self._refresh_spin_active = False
+        self._ui_built = False
 
+    def _ensure_ui_built(self) -> None:
+        if self._ui_built:
+            return
+        self._ui_built = True
         self._build_ui()
 
     def changeEvent(self, event):
         if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
             try:
+                if not self._ui_built:
+                    self._theme_apply_pending_when_hidden = True
+                    return super().changeEvent(event)
                 tokens = get_theme_tokens()
                 if self._build_theme_apply_key(tokens) == self._last_theme_apply_key:
                     return super().changeEvent(event)
@@ -486,6 +494,9 @@ class LogsPage(BasePage):
             )
 
     def _update_tab_styles(self) -> None:
+        if not hasattr(self, "tab_logs_btn") or not hasattr(self, "tab_send_btn"):
+            return
+
         idx = 0
         try:
             idx = self.stacked_widget.currentIndex()
@@ -1254,9 +1265,14 @@ class LogsPage(BasePage):
     def showEvent(self, event):
         """При показе страницы запускаем мониторинг"""
         super().showEvent(event)
+
+        if not event.spontaneous() and not self._ui_built:
+            self._ensure_ui_built()
+
         if self._theme_apply_pending_when_hidden:
             self._theme_apply_pending_when_hidden = False
             self._schedule_theme_apply()
+
         # Spontaneous showEvent = система восстановила окно (из трея/свёрнутого).
         # Не перезапускаем workers/таймеры при простом восстановлении окна.
         if event.spontaneous():

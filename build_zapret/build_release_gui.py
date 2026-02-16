@@ -808,6 +808,34 @@ class BuildReleaseGUI:
         Inno Setup installs from SOURCEPATH=../zapret, so we must refresh Zapret.exe + _internal there.
         """
 
+        def _safe_replace(src: Path, dst: Path, label: str, *, attempts: int = 8, base_delay: float = 0.6) -> None:
+            # Win32 sometimes keeps lock handles on exe/folder after build or run.
+            # Retry atomic replace after trying to stop blockers.
+            for attempt in range(1, attempts + 1):
+                try:
+                    os.replace(src, dst)
+                    return
+                except PermissionError as e:
+                    if getattr(e, "winerror", None) != 5:
+                        raise
+
+                    if attempt >= attempts:
+                        raise
+
+                    self.log_queue.put(
+                        f"⚠️ Не удалось заменить {label} (попытка {attempt}/{attempts}): доступ запрещен; "
+                        "попробую завершить блокирующие процессы и повторить."
+                    )
+
+                    # Убираем процессы, которые обычно держат блокировки.
+                    self._kill_blocking_processes()
+                    try:
+                        stop_running_zapret()
+                    except Exception:
+                        pass
+
+                    time.sleep(base_delay * attempt)
+
         src_dir = self._source_root() / "Zapret"
         src_exe = src_dir / "Zapret.exe"
         src_internal = src_dir / "_internal"
@@ -821,10 +849,17 @@ class BuildReleaseGUI:
         if not src_internal.is_dir():
             raise FileNotFoundError(f"Не найдена папка _internal: {src_internal}")
 
+        self._kill_blocking_processes()
+
         # Atomically replace Zapret.exe
         tmp_exe = dst_dir / "Zapret.exe.tmp"
+        if tmp_exe.exists():
+            try:
+                tmp_exe.unlink()
+            except Exception:
+                pass
         shutil.copy2(src_exe, tmp_exe)
-        os.replace(tmp_exe, dst_exe)
+        _safe_replace(tmp_exe, dst_exe, "Zapret.exe")
 
         # Replace _internal directory
         tmp_internal = dst_dir / "_internal.tmp"
@@ -833,7 +868,7 @@ class BuildReleaseGUI:
         shutil.copytree(src_internal, tmp_internal)
         if dst_internal.exists():
             shutil.rmtree(dst_internal, ignore_errors=True)
-        os.replace(tmp_internal, dst_internal)
+        _safe_replace(tmp_internal, dst_internal, "_internal")
 
         size_mb = dst_exe.stat().st_size / 1024 / 1024
         self.log_queue.put(f"✅ Dist обновлён: {dst_exe} ({size_mb:.1f} MB)")

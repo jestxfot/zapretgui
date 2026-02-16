@@ -17,7 +17,7 @@ from .base_page import BasePage
 from .dpi_settings_page import Win11ToggleRow
 from ui.sidebar import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
+from ui.theme import get_theme_tokens
 from log import log
 from dns import DNS_PROVIDERS
 
@@ -29,44 +29,6 @@ class DNSProviderCard(SettingsCard):
     
     selected = pyqtSignal(str, dict)  # name, data
     
-    @staticmethod
-    def _style_default() -> str:
-        tokens = get_theme_tokens()
-        card_bg = get_card_gradient_qss(tokens.theme_name)
-        card_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
-        return f"""
-            #dnsCard {{
-                background: {card_bg};
-                border: 1px solid {tokens.divider};
-                border-radius: 10px;
-            }}
-            #dnsCard:hover {{
-                background: {card_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
-            }}
-        """
-
-    @staticmethod
-    def _style_selected() -> str:
-        tokens = get_theme_tokens()
-        selected_bg = get_tinted_surface_gradient_qss(tokens.accent_soft_bg, theme_name=tokens.theme_name)
-        selected_bg_hover = get_tinted_surface_gradient_qss(
-            tokens.accent_soft_bg_hover,
-            theme_name=tokens.theme_name,
-            hover=True,
-        )
-        return f"""
-            #dnsCard {{
-                background: {selected_bg};
-                border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
-                border-radius: 10px;
-            }}
-            #dnsCard:hover {{
-                background: {selected_bg_hover};
-                border: 1px solid rgba({tokens.accent_rgb_str}, 0.52);
-            }}
-        """
-
     @staticmethod
     def _indicator_off() -> str:
         tokens = get_theme_tokens()
@@ -92,9 +54,9 @@ class DNSProviderCard(SettingsCard):
         self.is_current = is_current
         self._is_selected = False
         self.setObjectName("dnsCard")
+        self.setProperty("selected", False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._setup_ui()
-        self.setStyleSheet(self._style_default())
         
     def _setup_ui(self):
         tokens = get_theme_tokens()
@@ -140,12 +102,20 @@ class DNSProviderCard(SettingsCard):
     def set_selected(self, selected: bool):
         """Устанавливает визуальное состояние выбора"""
         self._is_selected = selected
+        self.setProperty("selected", bool(selected))
+        style = self.style()
+        if style is not None:
+            try:
+                style.unpolish(self)
+                style.polish(self)
+            except Exception:
+                pass
+        self.update()
+
         if selected:
             self.indicator.setStyleSheet(self._indicator_on())
-            self.setStyleSheet(self._style_selected())
         else:
             self.indicator.setStyleSheet(self._indicator_off())
-            self.setStyleSheet(self._style_default())
     
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -283,9 +253,16 @@ class NetworkPage(BasePage):
         
         self.dns_cards = {}
         self.adapter_cards = []
-        
-        self._build_ui()
-        self._start_loading()
+        self._page_initialized = False
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        if not self._page_initialized:
+            self._page_initialized = True
+            self._build_ui()
+            self._start_loading()
         
     def _build_ui(self):
         """Строит интерфейс страницы"""
@@ -340,7 +317,7 @@ class NetworkPage(BasePage):
         # Пользовательский DNS
         self.custom_card = SettingsCard()
         self.custom_card.setObjectName("dnsCard")
-        self.custom_card.setStyleSheet(DNSProviderCard._style_default())
+        self.custom_card.setProperty("selected", False)
         custom_layout = QHBoxLayout()
         custom_layout.setContentsMargins(10, 6, 12, 6)
         custom_layout.setSpacing(8)
@@ -509,7 +486,7 @@ class NetworkPage(BasePage):
         auto_card = SettingsCard()
         auto_card.setObjectName("dnsCard")
         auto_card.setCursor(Qt.CursorShape.PointingHandCursor)
-        auto_card.setStyleSheet(DNSProviderCard._style_default())
+        auto_card.setProperty("selected", False)
         auto_layout = QHBoxLayout()
         auto_layout.setContentsMargins(10, 6, 12, 6)
         auto_layout.setSpacing(10)
@@ -581,10 +558,23 @@ class NetworkPage(BasePage):
         if hasattr(self, 'auto_indicator'):
             self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_off())
             if hasattr(self, 'auto_card'):
-                self.auto_card.setStyleSheet(DNSProviderCard._style_default())
+                self._set_dns_card_selected(self.auto_card, False)
         
         self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_off())
-        self.custom_card.setStyleSheet(DNSProviderCard._style_default())
+        self._set_dns_card_selected(self.custom_card, False)
+
+    def _set_dns_card_selected(self, card: QWidget | None, selected: bool) -> None:
+        if card is None:
+            return
+        try:
+            card.setProperty("selected", bool(selected))
+            style = card.style()
+            if style is not None:
+                style.unpolish(card)
+                style.polish(card)
+            card.update()
+        except Exception:
+            pass
     
     def _on_dns_selected(self, name: str, data: dict):
         """Обработчик выбора DNS - сразу применяем"""
@@ -609,7 +599,7 @@ class NetworkPage(BasePage):
         
         self._clear_selection()
         self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_on())
-        self.auto_card.setStyleSheet(DNSProviderCard._style_selected())
+        self._set_dns_card_selected(self.auto_card, True)
         self._selected_provider = None
         
         # Применяем
@@ -692,7 +682,7 @@ class NetworkPage(BasePage):
         
         self._clear_selection()
         self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_on())
-        self.custom_card.setStyleSheet(DNSProviderCard._style_selected())
+        self._set_dns_card_selected(self.custom_card, True)
         
         adapters = self._get_selected_adapters()
         if not adapters:

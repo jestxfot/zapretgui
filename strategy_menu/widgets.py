@@ -216,7 +216,6 @@ class CompactStrategyItem(QFrame):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._current_style = None
                 self._apply_style(self.is_selected)
         except Exception:
             pass

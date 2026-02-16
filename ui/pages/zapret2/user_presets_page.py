@@ -888,11 +888,6 @@ class _PresetActionPopover(QDialog):
         tokens = get_theme_tokens()
         semantic = get_semantic_palette(tokens.theme_name)
         is_light = bool(tokens.is_light)
-        bg_top = _color_with_alpha(
-            tokens.surface_bg_hover,
-            248,
-            "#f6f8fc" if is_light else "#2d3137",
-        )
         bg_bottom = _color_with_alpha(
             tokens.surface_bg,
             246,
@@ -907,20 +902,8 @@ class _PresetActionPopover(QDialog):
         )
 
         self._shadow.setColor(shadow_color)
-        radius = self._BORDER_RADIUS
-        self._container.setStyleSheet(
-            f"""
-            QWidget#presetPopoverContainer {{
-                background-color: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {bg_top},
-                    stop:1 {bg_bottom}
-                );
-                border: 1px solid {tokens.surface_border};
-                border-radius: {radius}px;
-            }}
-            """
-        )
+        # Container surface is styled globally in ui/theme.py.
+        self._container.setStyleSheet("")
 
         # Inner widgets (theme-aware colors).
         try:

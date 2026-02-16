@@ -1213,8 +1213,13 @@ class StrategyDetailPage(BasePage):
         self._preview_pinned = False
         self._main_window = None
         self._strategies_data_by_id = {}
+        self._content_built = False
 
+    def _ensure_content_built(self) -> None:
+        if self._content_built:
+            return
         self._build_content()
+        self._content_built = True
 
         # Close hover/pinned preview when the main window hides/deactivates (e.g. tray).
         QTimer.singleShot(0, self._install_main_window_event_filter)
@@ -1367,8 +1372,6 @@ class StrategyDetailPage(BasePage):
         tokens = get_theme_tokens()
         menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
         menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
-        disabled_surface = "rgba(130, 130, 130, 0.16)" if tokens.is_light else "rgba(175, 175, 175, 0.10)"
-        disabled_border = "rgba(110, 110, 110, 0.30)" if tokens.is_light else "rgba(210, 210, 210, 0.20)"
 
         # Скрываем стандартный заголовок BasePage
         self.title_label.hide()
@@ -1492,20 +1495,10 @@ class StrategyDetailPage(BasePage):
         # ═══════════════════════════════════════════════════════════════
         self._toolbar_frame = QFrame()
         self._toolbar_frame.setObjectName("categoryToolbarFrame")
+        self._toolbar_frame.setProperty("categoryDisabled", False)
         self._toolbar_frame.setFrameShape(QFrame.Shape.NoFrame)
         self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._toolbar_frame.setVisible(False)
-        self._toolbar_frame.setStyleSheet(f"""
-            QFrame#categoryToolbarFrame {{
-                background: {tokens.surface_bg};
-                border: none;
-                border-radius: 8px;
-            }}
-            QFrame#categoryToolbarFrame[categoryDisabled="true"] {{
-                background: {disabled_surface};
-                border: 1px solid {disabled_border};
-            }}
-        """)
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
         toolbar_layout.setContentsMargins(12, 8, 12, 8)
         toolbar_layout.setSpacing(6)
@@ -2164,16 +2157,7 @@ class StrategyDetailPage(BasePage):
         # Strategy controls stay visible even for disabled categories.
         self._strategies_block = QWidget()
         self._strategies_block.setObjectName("categoryStrategiesBlock")
-        self._strategies_block.setStyleSheet(f"""
-            QWidget#categoryStrategiesBlock {{
-                background: transparent;
-                border-radius: 8px;
-            }}
-            QWidget#categoryStrategiesBlock[categoryDisabled="true"] {{
-                background: {disabled_surface};
-                border: 1px solid {disabled_border};
-            }}
-        """)
+        self._strategies_block.setProperty("categoryDisabled", False)
         self._strategies_block.setVisible(False)
         strategies_layout = QVBoxLayout(self._strategies_block)
         strategies_layout.setContentsMargins(0, 0, 0, 0)
@@ -2519,6 +2503,8 @@ class StrategyDetailPage(BasePage):
             category_info: Объект CategoryInfo с информацией о категории
             current_strategy_id: ID текущей выбранной стратегии
         """
+        self._ensure_content_built()
+
         prev_key = str(self._category_key or "").strip()
         if prev_key:
             self._save_scroll_state(prev_key)

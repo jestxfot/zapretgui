@@ -46,10 +46,11 @@ class PresetConfigPage(BasePage):
         self._file_status = ""
         self._process_status = "⏳ Проверка..."
         self._process_monitor_connected = False
+        self._loaded_once = False
 
         self._build_ui()
         self._setup_shortcuts()
-        self._load_file()
+        self._update_status("Подготовка редактора...")
 
         # Таймер только для проверки изменений файла (без проверки процесса в GUI-потоке)
         self._tick_timer = QTimer(self)
@@ -58,6 +59,14 @@ class PresetConfigPage(BasePage):
         # Подписываемся на глобальный монитор процессов (асинхронно, без фризов UI)
         self._connect_process_monitor()
         self._sync_process_status_from_cache()
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        if not self._loaded_once:
+            self._load_file()
+            self._loaded_once = True
 
     def _get_current_preset_path(self) -> tuple[str, str]:
         """Returns (preset_path, display_name) based on current mode"""
@@ -90,7 +99,9 @@ class PresetConfigPage(BasePage):
             # Switch to new file
             self._preset_path = new_path
             self._preset_display_name = new_display
-            self._load_file()
+            if self._loaded_once or self.isVisible():
+                self._load_file()
+                self._loaded_once = True
             try:
                 if hasattr(self, 'subtitle_label'):
                     self.subtitle_label.setText(

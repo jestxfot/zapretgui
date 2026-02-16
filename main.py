@@ -720,12 +720,13 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.setWindowIcon(self._app_icon)
             QApplication.instance().setWindowIcon(self._app_icon)
         
-        from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QFrame
+        from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy
         
         # ✅ ГЛАВНЫЙ КОНТЕЙНЕР со скругленными углами и полупрозрачным фоном (Windows 11 style)
         self.container = QFrame(self)
         self.container.setObjectName("mainContainer")
-        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
+        # Временный стартовый цвет даём через overlay, чтобы он не "залипал" как inline-style
+        # и после старта полностью уступал управление цветами теме.
 
         # Инициализируем функционал безрамочного resize
         # Важно: делаем resize-оверлеи дочерними контейнера, иначе "прозрачные" оверлеи
@@ -793,15 +794,24 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.first_start = True
         self.current_strategy_id = None
         self.current_strategy_name = None
+        self._startup_bootstrap_overlay = None
+        self._startup_bootstrap_hint_label = None
+        self._startup_container_overlay = None
+        self._startup_container_overlay_anim = None
+        self._startup_container_overlay_fading = False
+
+        self._create_startup_bootstrap_overlay()
+        self._create_startup_container_overlay()
 
         # Показываем главное окно сразу (если не стартуем в трее)
         if not self.start_in_tray and not self.isVisible():
             self.show()
             log("Основное окно показано (каркас, init в фоне)", "DEBUG")
 
-        # Тяжёлую инициализацию переносим на следующий тик event loop,
-        # чтобы окно появлялось мгновенно.
-        QTimer.singleShot(0, self._deferred_init)
+        # Для обычного старта даем окну отрисовать первый кадр, и только потом
+        # запускаем тяжелую инициализацию. Для --tray оставляем моментальный старт.
+        deferred_init_delay_ms = 0 if self.start_in_tray else 60
+        QTimer.singleShot(deferred_init_delay_ms, self._deferred_init)
 
     def _deferred_init(self) -> None:
         """Тяжёлая инициализация, запускается после первого показа окна."""
@@ -809,16 +819,39 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             return
         self._deferred_init_started = True
 
+        import time as _time
+        _t_total = _time.perf_counter()
+        log("⏱ Startup: deferred init started", "DEBUG")
+
         # CSS из кеша (может быть тяжелым из-за импорта ui.theme)
+        self._set_startup_bootstrap_message("Применение темы...")
+        _t_css = _time.perf_counter()
         try:
             self._apply_cached_css_at_startup()
         except Exception:
             pass
+        log(f"⏱ Startup: cached CSS step {( _time.perf_counter() - _t_css ) * 1000:.0f}ms", "DEBUG")
 
         # Теперь строим UI в main_widget (не в self)
-        self._build_main_ui()
+        self._set_startup_bootstrap_message("Построение интерфейса...")
+        _t_build = _time.perf_counter()
+        try:
+            self._build_main_ui()
+            self._clear_startup_bootstrap_overlay()
+        except Exception as e:
+            log(f"❌ Startup: build_main_ui failed: {e}", "ERROR")
+            try:
+                import traceback
+                log(traceback.format_exc(), "DEBUG")
+            except Exception:
+                pass
+            self._set_startup_bootstrap_message("Ошибка загрузки интерфейса")
+            return
+        log(f"⏱ Startup: build_main_ui {( _time.perf_counter() - _t_build ) * 1000:.0f}ms", "DEBUG")
 
         # Создаем менеджеры
+        self._set_startup_bootstrap_message("Запуск служб...")
+        _t_mgr = _time.perf_counter()
         from managers.initialization_manager import InitializationManager
         from managers.subscription_manager import SubscriptionManager
         from managers.process_monitor_manager import ProcessMonitorManager
@@ -830,6 +863,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self.process_monitor_manager = ProcessMonitorManager(self)
         self.ui_manager = UIManager(self)
         self.dpi_manager = DPIManager(self)
+        log(f"⏱ Startup: managers init {( _time.perf_counter() - _t_mgr ) * 1000:.0f}ms", "DEBUG")
 
         # Инициализируем donate checker
         self._init_real_donate_checker()  # Упрощенная версия
@@ -839,6 +873,247 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         QTimer.singleShot(50, self.initialization_manager.run_async_init)
         QTimer.singleShot(1000, self.subscription_manager.initialize_async)
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
+        QTimer.singleShot(0, self._fade_out_startup_container_overlay)
+        log(f"⏱ Startup: deferred init total {( _time.perf_counter() - _t_total ) * 1000:.0f}ms", "DEBUG")
+
+    def _create_startup_bootstrap_overlay(self) -> None:
+        """Лёгкий placeholder поверх main_widget до построения реального UI."""
+        try:
+            from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar, QSizePolicy
+
+            overlay = QFrame(self.main_widget)
+            overlay.setObjectName("startupBootstrapOverlay")
+            overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            overlay.setStyleSheet(
+                """
+                QFrame#startupBootstrapOverlay {
+                    background: transparent;
+                }
+                QFrame#startupBootstrapPanel {
+                    background-color: rgba(15, 19, 27, 192);
+                    border: 1px solid rgba(92, 108, 132, 175);
+                    border-radius: 14px;
+                }
+                QLabel#startupBootstrapTitle {
+                    color: #eaf0ff;
+                    font-size: 18px;
+                    font-weight: 600;
+                    letter-spacing: 0.2px;
+                }
+                QLabel#startupBootstrapHint {
+                    color: rgba(226, 234, 248, 0.90);
+                    font-size: 12px;
+                }
+                QLabel#startupBootstrapMeta {
+                    color: rgba(176, 190, 214, 0.78);
+                    font-size: 11px;
+                }
+                QFrame#startupBootstrapAccent {
+                    background-color: rgba(132, 158, 208, 0.55);
+                    border-radius: 2px;
+                    min-height: 4px;
+                    max-height: 4px;
+                }
+                QProgressBar#startupBootstrapProgress {
+                    background-color: rgba(44, 54, 72, 0.95);
+                    border: none;
+                    border-radius: 3px;
+                }
+                QProgressBar#startupBootstrapProgress::chunk {
+                    background-color: rgba(123, 156, 214, 0.95);
+                    border-radius: 3px;
+                }
+                """
+            )
+
+            layout = QVBoxLayout(overlay)
+            layout.setContentsMargins(24, 24, 24, 24)
+            layout.setSpacing(0)
+            layout.addStretch(1)
+
+            panel = QFrame(overlay)
+            panel.setObjectName("startupBootstrapPanel")
+            panel.setFixedWidth(390)
+
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(22, 20, 22, 18)
+            panel_layout.setSpacing(10)
+
+            icon_label = QLabel(panel)
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            if getattr(self, "_app_icon", None) is not None:
+                pixmap = self._app_icon.pixmap(40, 40)
+                icon_label.setPixmap(pixmap)
+            else:
+                icon_label.setText("Z2")
+                icon_label.setStyleSheet(
+                    "color: #eaf0ff; font-size: 20px; font-weight: 700;"
+                )
+            panel_layout.addWidget(icon_label)
+
+            title = QLabel("Zapret 2", panel)
+            title.setObjectName("startupBootstrapTitle")
+            title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            panel_layout.addWidget(title)
+
+            accent = QFrame(panel)
+            accent.setObjectName("startupBootstrapAccent")
+            accent.setFixedWidth(76)
+            panel_layout.addWidget(accent, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+            hint = QLabel("Инициализация модулей...", panel)
+            hint.setObjectName("startupBootstrapHint")
+            hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            panel_layout.addWidget(hint)
+            self._startup_bootstrap_hint_label = hint
+
+            meta = QLabel("Проверка системы • Загрузка страниц • Применение темы", panel)
+            meta.setObjectName("startupBootstrapMeta")
+            meta.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            panel_layout.addWidget(meta)
+
+            progress = QProgressBar(panel)
+            progress.setObjectName("startupBootstrapProgress")
+            progress.setRange(0, 0)
+            progress.setTextVisible(False)
+            progress.setFixedHeight(6)
+            progress.setMaximumWidth(320)
+            progress.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            panel_layout.addWidget(progress, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+            layout.addWidget(panel, alignment=Qt.AlignmentFlag.AlignHCenter)
+            layout.addStretch(2)
+
+            self._startup_bootstrap_overlay = overlay
+            self._update_startup_bootstrap_geometry()
+            overlay.raise_()
+            overlay.show()
+        except Exception as e:
+            self._startup_bootstrap_overlay = None
+            self._startup_bootstrap_hint_label = None
+            log(f"Не удалось создать bootstrap overlay: {e}", "DEBUG")
+
+    def _update_startup_bootstrap_geometry(self) -> None:
+        overlay = getattr(self, "_startup_bootstrap_overlay", None)
+        if overlay is None:
+            return
+        try:
+            overlay.setGeometry(self.main_widget.rect())
+            overlay.raise_()
+        except Exception:
+            pass
+
+    def _set_startup_bootstrap_message(self, text: str) -> None:
+        label = getattr(self, "_startup_bootstrap_hint_label", None)
+        if label is None:
+            return
+        try:
+            label.setText(str(text or ""))
+        except Exception:
+            pass
+
+    def _clear_startup_bootstrap_overlay(self) -> None:
+        overlay = getattr(self, "_startup_bootstrap_overlay", None)
+        if overlay is None:
+            return
+        try:
+            overlay.hide()
+            overlay.deleteLater()
+        except Exception:
+            pass
+        self._startup_bootstrap_overlay = None
+        self._startup_bootstrap_hint_label = None
+
+    def _create_startup_container_overlay(self) -> None:
+        """Создаёт временный стартовый фон-контейнер (до полной отрисовки темы)."""
+        try:
+            from PyQt6.QtWidgets import QFrame
+
+            overlay = QFrame(self.container)
+            overlay.setObjectName("startupContainerOverlay")
+            overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            overlay.setStyleSheet(
+                """
+                QFrame#startupContainerOverlay {
+                    background-color: rgba(26, 32, 44, 246);
+                    border-radius: 10px;
+                    border: 1px solid rgba(92, 108, 132, 190);
+                }
+                """
+            )
+            overlay.setGeometry(self.container.rect())
+            overlay.lower()
+            overlay.show()
+            self._startup_container_overlay = overlay
+        except Exception as e:
+            self._startup_container_overlay = None
+            log(f"Не удалось создать startup overlay контейнера: {e}", "DEBUG")
+
+    def _update_startup_container_overlay_geometry(self) -> None:
+        overlay = getattr(self, "_startup_container_overlay", None)
+        if overlay is None:
+            return
+        try:
+            overlay.setGeometry(self.container.rect())
+            overlay.lower()
+        except Exception:
+            pass
+
+    def _fade_out_startup_container_overlay(self) -> None:
+        """Плавно убирает стартовый цвет, чтобы проявилась реальная тема."""
+        if bool(getattr(self, "_startup_container_overlay_fading", False)):
+            return
+
+        overlay = getattr(self, "_startup_container_overlay", None)
+        if overlay is None:
+            return
+
+        self._startup_container_overlay_fading = True
+        try:
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
+
+            effect = QGraphicsOpacityEffect(overlay)
+            effect.setOpacity(1.0)
+            overlay.setGraphicsEffect(effect)
+
+            anim = QPropertyAnimation(effect, b"opacity", self)
+            anim.setDuration(460)
+            anim.setStartValue(1.0)
+            anim.setEndValue(0.0)
+            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._startup_container_overlay_anim = anim
+
+            def _finish() -> None:
+                try:
+                    overlay.setGraphicsEffect(None)
+                except Exception:
+                    pass
+                try:
+                    effect.deleteLater()
+                except Exception:
+                    pass
+                try:
+                    overlay.hide()
+                    overlay.deleteLater()
+                except Exception:
+                    pass
+                self._startup_container_overlay = None
+                self._startup_container_overlay_anim = None
+                self._startup_container_overlay_fading = False
+
+            anim.finished.connect(_finish)
+            anim.start()
+        except Exception as e:
+            log(f"Не удалось выполнить fade startup overlay: {e}", "DEBUG")
+            try:
+                overlay.hide()
+                overlay.deleteLater()
+            except Exception:
+                pass
+            self._startup_container_overlay = None
+            self._startup_container_overlay_anim = None
+            self._startup_container_overlay_fading = False
 
     def init_theme_handler(self):
         """Инициализирует theme_handler после создания theme_manager"""
@@ -1626,6 +1901,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
                 self._update_resize_handles()
         except Exception:
             pass
+        self._update_startup_bootstrap_geometry()
+        self._update_startup_container_overlay_geometry()
         self._update_garland_geometry()
         self._update_snowflakes_geometry()
         self._on_window_geometry_changed()
@@ -1633,6 +1910,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     def showEvent(self, event):
         """Устанавливаем геометрию декораций при первом показе окна"""
         super().showEvent(event)
+        self._update_startup_bootstrap_geometry()
+        self._update_startup_container_overlay_geometry()
         self._update_garland_geometry()
         self._update_snowflakes_geometry()
 

@@ -16,7 +16,19 @@ class HostlistPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__("Листы", "Управление hostlist и ipset списками для обхода блокировок", parent)
-        self._build_ui()
+        self._ui_built = False
+        self._info_loaded_once = False
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        if not self._ui_built:
+            self._build_ui()
+            self._ui_built = True
+        if not self._info_loaded_once:
+            self._info_loaded_once = True
+            QTimer.singleShot(0, self._load_info)
 
     def _build_ui(self):
         """Строит UI страницы."""
@@ -87,7 +99,6 @@ class HostlistPage(BasePage):
         ipset_card.add_widget(self.ipset_info_label)
         self.layout.addWidget(ipset_card)
 
-        QTimer.singleShot(100, self._load_info)
         self.layout.addStretch()
 
     def _build_action_row(

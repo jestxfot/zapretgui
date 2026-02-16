@@ -106,6 +106,10 @@ class MainWindowUI:
         
     def _create_pages(self):
         """Создает все страницы контента"""
+        import time as _time
+        from log import log
+
+        _t_pages_total = _time.perf_counter()
 
         # Главная страница
         self.home_page = HomePage(self)
@@ -124,8 +128,13 @@ class MainWindowUI:
         self.pages_stack.addWidget(self.zapret2_strategies_page)
 
         # Strategy Detail Page (for category drill-down)
+        _t_strategy_detail = _time.perf_counter()
         self.strategy_detail_page = StrategyDetailPage(self)
         self.pages_stack.addWidget(self.strategy_detail_page)
+        log(
+            f"⏱ Startup: StrategyDetailPage init {( _time.perf_counter() - _t_strategy_detail ) * 1000:.0f}ms",
+            "DEBUG",
+        )
 
         # Zapret 2 Orchestra стратегии
         self.zapret2_orchestra_strategies_page = Zapret2OrchestraStrategiesPage(self)
@@ -148,8 +157,13 @@ class MainWindowUI:
         self.pages_stack.addWidget(self.preset_config_page)
 
         # Мои категории (общий файл для direct режимов)
+        _t_my_categories = _time.perf_counter()
         self.my_categories_page = MyCategoriesPage(self)
         self.pages_stack.addWidget(self.my_categories_page)
+        log(
+            f"⏱ Startup: MyCategoriesPage init {( _time.perf_counter() - _t_my_categories ) * 1000:.0f}ms",
+            "DEBUG",
+        )
 
         # Листы (hostlist + ipset)
         self.hostlist_page = HostlistPage(self)
@@ -163,8 +177,13 @@ class MainWindowUI:
         self.pages_stack.addWidget(self.blobs_page)
 
         # Редактор стратегий
+        _t_editor = _time.perf_counter()
         self.editor_page = EditorPage(self)
         self.pages_stack.addWidget(self.editor_page)
+        log(
+            f"⏱ Startup: EditorPage init {( _time.perf_counter() - _t_editor ) * 1000:.0f}ms",
+            "DEBUG",
+        )
 
         # Настройки DPI
         self.dpi_settings_page = DpiSettingsPage(self)
@@ -205,8 +224,13 @@ class MainWindowUI:
         self.pages_stack.addWidget(self.dns_check_page)
 
         # Hosts - разблокировка сервисов
+        _t_hosts = _time.perf_counter()
         self.hosts_page = HostsPage(self)
         self.pages_stack.addWidget(self.hosts_page)
+        log(
+            f"⏱ Startup: HostsPage init {( _time.perf_counter() - _t_hosts ) * 1000:.0f}ms",
+            "DEBUG",
+        )
 
         # BlockCheck
         self.blockcheck_page = BlockcheckPage(self)
@@ -303,6 +327,11 @@ class MainWindowUI:
             PageName.ORCHESTRA_WHITELIST: self.orchestra_whitelist_page,
             PageName.ORCHESTRA_RATINGS: self.orchestra_ratings_page,
         }
+
+        log(
+            f"⏱ Startup: _create_pages total {( _time.perf_counter() - _t_pages_total ) * 1000:.0f}ms",
+            "DEBUG",
+        )
 
     def get_page(self, name: PageName) -> QWidget:
         """Возвращает виджет страницы по имени"""

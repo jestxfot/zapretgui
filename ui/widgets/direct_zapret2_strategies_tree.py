@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ui.theme import get_theme_tokens, get_cached_qta_pixmap, get_card_gradient_qss
+from ui.theme import get_theme_tokens, get_cached_qta_pixmap
 from ui.theme_semantic import get_semantic_palette
 
 
@@ -66,6 +66,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("directZapret2StrategiesTree")
         self._hover_delay_ms = 180
         self.setColumnCount(2)
         self.setHeaderHidden(True)
@@ -141,23 +142,8 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._applying_theme_styles = True
         try:
             tokens = self._tokens or get_theme_tokens("Темная синяя")
-            tree_bg = get_card_gradient_qss(tokens.theme_name)
-            self.setStyleSheet(f"""
-                QTreeWidget {{
-                    background: {tree_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 8px;
-                    padding: 6px;
-                    outline: none;
-                }}
-                QTreeWidget::item {{
-                    padding: 4px 8px;
-                    min-height: 28px;
-                    color: {tokens.fg};
-                    border-radius: 6px;
-                }}
-                /* Selection/marks are painted in drawRow() to avoid theme/QSS conflicts. */
-            """)
+            # Use global theme QSS (ui/theme.py) for container background/border.
+            self.setStyleSheet("")
 
             try:
                 section_brush = QBrush(QColor(tokens.fg_muted))

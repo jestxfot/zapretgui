@@ -796,9 +796,22 @@ def load_cached_css_sync(theme_name: str | None = None) -> str | None:
             # В старых версиях в кеше мог быть уже финальный CSS с маркером.
             # Сейчас в кеше хранится базовый CSS qt_material (без оверлеев) —
             # финальный собираем синхронно, чтобы ускорить старт.
-            if "/* THEME_VERSION:v2 */" in cached_css:
+            if "/* THEME_VERSION:v3 */" in cached_css:
                 log(f"📦 Загружен финальный CSS из кеша: {len(cached_css)} символов для '{theme_name}'", "DEBUG")
                 return cached_css
+
+            # Legacy final CSS (older theme marker): extract base qt_material layer
+            # and rebuild dynamic layer with the current theme version.
+            if (
+                _THEME_DYNAMIC_LAYER_BEGIN in cached_css
+                and _THEME_DYNAMIC_LAYER_END in cached_css
+            ):
+                try:
+                    base_css, _ = _split_final_css_layers(cached_css)
+                    if base_css:
+                        cached_css = base_css
+                except Exception:
+                    pass
 
             theme_info = THEMES.get(theme_name, {})
             is_rkn_tyan = (theme_name == "РКН Тян")
@@ -1183,22 +1196,27 @@ def get_card_gradient_qss(theme_name: str | None = None, *, hover: bool = False)
         else:
             top = "rgba(255, 255, 255, 224)"
             bottom = "rgba(244, 247, 252, 194)"
-    else:
-        # Windows 11-like dark card base requested by design:
-        # #252B3B -> #252A3E
-        base_top = (0x25, 0x2B, 0x3B)
-        base_bottom = (0x25, 0x2A, 0x3E)
+        return build_vertical_gradient_qss(top, bottom)
+
+    # Dark blue theme: use a stronger, smooth card fill so surfaces stay visible
+    # even without neutral borders.
+    if tokens.theme_name == "Темная синяя":
         if hover:
-            top_rgb = _mix_rgb(base_top, (255, 255, 255), 0.08)
-            bottom_rgb = _mix_rgb(base_bottom, (255, 255, 255), 0.06)
+            top = "rgba(255, 255, 255, 0.122)"
+            bottom = "rgba(255, 255, 255, 0.084)"
         else:
-            top_rgb = base_top
-            bottom_rgb = base_bottom
+            top = "rgba(255, 255, 255, 0.098)"
+            bottom = "rgba(255, 255, 255, 0.062)"
+        return build_vertical_gradient_qss(top, bottom)
 
-        top = _rgb_to_hex(top_rgb)
-        bottom = _rgb_to_hex(bottom_rgb)
-
-    return build_vertical_gradient_qss(top, bottom)
+    # Dark themes: derive gradient from theme surface tokens (no hardcoded #252B3B).
+    # This keeps cards consistent across all dark themes and avoids fixed foreign tint.
+    base_surface = tokens.surface_bg_hover if hover else tokens.surface_bg
+    return get_tinted_surface_gradient_qss(
+        base_surface,
+        theme_name=tokens.theme_name,
+        hover=hover,
+    )
 
 
 def get_tinted_surface_gradient_qss(
@@ -1406,28 +1424,65 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
     tooltip_border = "rgba(0, 0, 0, 0.12)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
     tooltip_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(255, 255, 255, 0.95)"
 
+    is_dark_blue_theme = tokens.theme_name == "Темная синяя"
+
+    card_gradient = get_card_gradient_qss(tokens.theme_name)
+    card_gradient_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
+    disabled_card_gradient = get_tinted_surface_gradient_qss(
+        tokens.surface_bg_disabled,
+        theme_name=tokens.theme_name,
+    )
+
+    dns_selected_gradient = get_tinted_surface_gradient_qss(
+        tokens.accent_soft_bg,
+        theme_name=tokens.theme_name,
+    )
+    dns_selected_gradient_hover = get_tinted_surface_gradient_qss(
+        tokens.accent_soft_bg_hover,
+        theme_name=tokens.theme_name,
+        hover=True,
+    )
+
     if tokens.is_light:
-        card_grad_top = "rgba(255, 255, 255, 0.88)"
-        card_grad_bottom = "rgba(244, 247, 252, 0.76)"
-        card_grad_hover_top = "rgba(255, 255, 255, 0.94)"
-        card_grad_hover_bottom = "rgba(242, 246, 252, 0.86)"
         control_grad_top = "rgba(255, 255, 255, 0.92)"
         control_grad_bottom = "rgba(243, 246, 251, 0.82)"
-        list_grad_top = "rgba(255, 255, 255, 0.88)"
-        list_grad_bottom = "rgba(244, 247, 252, 0.74)"
+        list_gradient = build_vertical_gradient_qss(
+            "rgba(255, 255, 255, 0.88)",
+            "rgba(244, 247, 252, 0.74)",
+        )
         item_hover_bg = "rgba(0, 0, 0, 0.055)"
         item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.22)"
+        neutral_card_border = tokens.surface_border
+        neutral_card_border_hover = tokens.surface_border_hover
+        neutral_card_disabled_border = tokens.surface_border_disabled
+        neutral_list_border = tokens.surface_border
     else:
-        card_grad_top = "#252B3B"
-        card_grad_bottom = "#252A3E"
-        card_grad_hover_top = "#30374A"
-        card_grad_hover_bottom = "#2E354A"
-        control_grad_top = "rgba(255, 255, 255, 0.080)"
-        control_grad_bottom = "rgba(255, 255, 255, 0.040)"
-        list_grad_top = "rgba(255, 255, 255, 0.075)"
-        list_grad_bottom = "rgba(255, 255, 255, 0.030)"
-        item_hover_bg = "rgba(255, 255, 255, 0.080)"
-        item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.25)"
+        if is_dark_blue_theme:
+            control_grad_top = "rgba(255, 255, 255, 0.060)"
+            control_grad_bottom = "rgba(255, 255, 255, 0.040)"
+            list_gradient = build_vertical_gradient_qss(
+                "rgba(255, 255, 255, 0.094)",
+                "rgba(255, 255, 255, 0.066)",
+            )
+            item_hover_bg = "rgba(255, 255, 255, 0.072)"
+            item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.22)"
+            neutral_card_border = "transparent"
+            neutral_card_border_hover = "transparent"
+            neutral_card_disabled_border = "transparent"
+            neutral_list_border = "transparent"
+        else:
+            control_grad_top = "rgba(255, 255, 255, 0.080)"
+            control_grad_bottom = "rgba(255, 255, 255, 0.040)"
+            list_gradient = build_vertical_gradient_qss(
+                "rgba(255, 255, 255, 0.075)",
+                "rgba(255, 255, 255, 0.030)",
+            )
+            item_hover_bg = "rgba(255, 255, 255, 0.080)"
+            item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.25)"
+            neutral_card_border = tokens.surface_border
+            neutral_card_border_hover = tokens.surface_border_hover
+            neutral_card_disabled_border = tokens.surface_border_disabled
+            neutral_list_border = tokens.surface_border
 
     return f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
@@ -1566,10 +1621,8 @@ QTreeView,
 QTreeWidget,
 QTableView,
 QTableWidget {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {list_grad_top},
-                                stop:1 {list_grad_bottom});
-    border: 1px solid {tokens.surface_border};
+    background: {list_gradient};
+    border: 1px solid {neutral_list_border};
     border-radius: 8px;
     color: {tokens.fg};
     outline: none;
@@ -1649,19 +1702,66 @@ QPushButton#sideNavPinButton:pressed {{
     background: {tokens.surface_bg_pressed};
 }}
 
-/* SettingsCard (used across pages) */
-QFrame#settingsCard {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {card_grad_top},
-                                stop:1 {card_grad_bottom}) !important;
-    border: 1px solid {tokens.surface_border} !important;
+/* Shared card surface (SettingsCard and all card-like descendants) */
+QFrame#settingsCard,
+QFrame[uiSurface="card"] {{
+    background: {card_gradient} !important;
+    border: 1px solid {neutral_card_border} !important;
     border-radius: 8px !important;
 }}
-QFrame#settingsCard:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {card_grad_hover_top},
-                                stop:1 {card_grad_hover_bottom}) !important;
-    border: 1px solid {tokens.surface_border_hover} !important;
+QFrame#settingsCard:hover,
+QFrame[uiSurface="card"]:hover {{
+    background: {card_gradient_hover} !important;
+    border: 1px solid {neutral_card_border_hover} !important;
+}}
+
+/* Global DNS card styling (state overlays on top of shared card surface) */
+QFrame#dnsCard[selected="true"] {{
+    background: {dns_selected_gradient} !important;
+    border: 1px solid rgba({tokens.accent_rgb_str}, 0.48) !important;
+    border-radius: 10px !important;
+}}
+QFrame#dnsCard[selected="true"]:hover {{
+    background: {dns_selected_gradient_hover} !important;
+    border: 1px solid rgba({tokens.accent_rgb_str}, 0.60) !important;
+    border-radius: 10px !important;
+}}
+
+/* Zapret2 category blocks */
+QFrame#categoryToolbarFrame,
+QWidget#categoryStrategiesBlock {{
+    background: {card_gradient} !important;
+    border: 1px solid {neutral_card_border} !important;
+    border-radius: 8px !important;
+}}
+QWidget#presetPopoverContainer {{
+    background: {card_gradient} !important;
+    border: 1px solid {neutral_card_border} !important;
+    border-radius: 12px !important;
+}}
+QFrame#categoryToolbarFrame:hover,
+QWidget#categoryStrategiesBlock:hover,
+QWidget#presetPopoverContainer:hover {{
+    background: {card_gradient_hover} !important;
+    border: 1px solid {neutral_card_border_hover} !important;
+}}
+QFrame#categoryToolbarFrame[categoryDisabled="true"],
+QWidget#categoryStrategiesBlock[categoryDisabled="true"] {{
+    background: {disabled_card_gradient} !important;
+    border: 1px solid {neutral_card_disabled_border} !important;
+}}
+
+/* Zapret2 strategies tree host */
+QTreeWidget#directZapret2StrategiesTree {{
+    background: {card_gradient} !important;
+    border: 1px solid {neutral_card_border} !important;
+    border-radius: 8px !important;
+    padding: 6px;
+    outline: none;
+}}
+QTreeWidget#directZapret2StrategiesTree:hover {{
+    background: {card_gradient_hover} !important;
+    border: 1px solid {neutral_card_border_hover} !important;
 }}
 
 /* ActionButton (ui.sidebar.ActionButton) */
@@ -1669,7 +1769,7 @@ QPushButton[uiRole="actionButton"] {{
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                 stop:0 {control_grad_top},
                                 stop:1 {control_grad_bottom});
-    border: 1px solid {tokens.surface_border};
+    border: 1px solid {neutral_card_border};
     border-radius: 8px;
     color: {tokens.fg};
     padding: 0 16px;
@@ -1679,10 +1779,8 @@ QPushButton[uiRole="actionButton"] {{
     min-height: 32px;
 }}
 QPushButton[uiRole="actionButton"]:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {card_grad_hover_top},
-                                stop:1 {card_grad_hover_bottom});
-    border: 1px solid {tokens.surface_border_hover};
+    background: {card_gradient_hover};
+    border: 1px solid {neutral_card_border_hover};
 }}
 QPushButton[uiRole="actionButton"]:pressed {{
     background-color: {tokens.surface_bg_pressed};
@@ -1702,21 +1800,21 @@ QPushButton[uiRole="actionButton"][accent="true"]:pressed {{
 
 /* Appearance page: theme cards */
 QFrame#themeCard {{
-    background-color: {tokens.surface_bg};
-    border: 1px solid {tokens.surface_border};
-    border-radius: 6px;
+    background: {card_gradient} !important;
+    border: 1px solid {neutral_card_border} !important;
+    border-radius: 6px !important;
 }}
 QFrame#themeCard[hovered="true"] {{
-    background-color: {tokens.surface_bg_hover};
-    border: 1px solid {tokens.surface_border_hover};
+    background: {card_gradient_hover} !important;
+    border: 1px solid {neutral_card_border_hover} !important;
 }}
 QFrame#themeCard[selected="true"] {{
-    background-color: {tokens.accent_soft_bg};
-    border: 2px solid {tokens.accent_hex};
+    background: {dns_selected_gradient} !important;
+    border: 2px solid {tokens.accent_hex} !important;
 }}
 QFrame#themeCard:disabled {{
-    background-color: {tokens.surface_bg_disabled};
-    border: 1px solid {tokens.surface_border_disabled};
+    background: {disabled_card_gradient} !important;
+    border: 1px solid {neutral_card_disabled_border} !important;
 }}
 
 QLabel#themeCardName {{
@@ -1775,17 +1873,13 @@ QCheckBox#blurSwitch::indicator:checked:hover {{
 
 /* Strategy list items (Zapret2 strategies UI) */
 StrategyRadioItem {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {card_grad_top},
-                                stop:1 {card_grad_bottom});
-    border: 1px solid {tokens.surface_border};
-    border-radius: 6px;
+    background: {card_gradient} !important;
+    border: 1px solid {neutral_card_border} !important;
+    border-radius: 6px !important;
 }}
 StrategyRadioItem:hover {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {card_grad_hover_top},
-                                stop:1 {card_grad_hover_bottom});
-    border: 1px solid {tokens.surface_border_hover};
+    background: {card_gradient_hover} !important;
+    border: 1px solid {neutral_card_border_hover} !important;
 }}
 
 /* Tooltips (global, theme-aware) */
@@ -1811,7 +1905,7 @@ def _assemble_final_css(
     is_rkn_tyan_2: bool = False,
 ) -> str:
     """Собирает финальный CSS из базового qt_material CSS + оверлеев."""
-    dynamic_styles = [_build_dynamic_style_sheet(theme_name), "/* THEME_VERSION:v2 */"]
+    dynamic_styles = [_build_dynamic_style_sheet(theme_name), "/* THEME_VERSION:v3 */"]
 
     if is_rkn_tyan or is_rkn_tyan_2:
         dynamic_styles.append(

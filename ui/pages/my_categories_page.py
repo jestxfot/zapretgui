@@ -454,6 +454,7 @@ class MyCategoriesPage(BasePage):
         )
         self.parent_app = parent
         self._user_categories_file_path: Path | None = None
+        self._loaded_once = False
 
         self._system_categories: dict[str, dict] = {}
         self._user_categories: dict[str, dict] = {}  # only user_category_N keys
@@ -488,7 +489,13 @@ class MyCategoriesPage(BasePage):
         self._build_add_card()
         self._build_user_card()
 
-        self.reload()
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        if not self._loaded_once:
+            self.reload()
+            self._loaded_once = True
 
     def _on_open_user_categories_file(self) -> None:
         """Opens user_categories.txt in an external editor (prefers VSCode/Notepad++)."""

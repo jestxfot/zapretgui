@@ -315,6 +315,7 @@ class HostsPage(BasePage):
         self._last_error = None  # Последняя ошибка
         self.error_panel = None  # Панель ошибок
         self._current_operation = None
+        self._startup_initialized = False
         self._service_dns_selection = load_user_hosts_selection()
         
         self._init_hosts_manager()
@@ -457,6 +458,13 @@ class HostsPage(BasePage):
         # Не запускаем тяжёлые операции при системном восстановлении окна (из трея/свёрнутого).
         if event.spontaneous():
             return
+
+        # Лениво инициализируем тяжёлые части страницы только при первом открытии вкладки.
+        if not self._startup_initialized:
+            self._check_hosts_access()
+            self._rebuild_services_selectors()
+            self._startup_initialized = True
+
         self._start_catalog_watcher()
         self._refresh_catalog_if_needed(trigger="tab")
 
@@ -642,9 +650,6 @@ class HostsPage(BasePage):
         # Панель ошибок (скрыта по умолчанию)
         self._build_error_panel()
         
-        # Проверяем доступ сразу при загрузке
-        self._check_hosts_access()
-        
         # Информационная заметка
         self._build_info_note()
         self.add_spacing(4)
@@ -674,7 +679,6 @@ class HostsPage(BasePage):
         self._services_layout.setContentsMargins(0, 0, 0, 0)
         self._services_layout.setSpacing(16)
         self.add_widget(self._services_container)
-        self._rebuild_services_selectors()
 
     def _clear_layout(self, layout: QLayout) -> None:
         while layout.count():

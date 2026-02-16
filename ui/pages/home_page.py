@@ -9,7 +9,6 @@ from PyQt6.QtCore import (
     pyqtSignal,
     QEasingCurve,
     QPropertyAnimation,
-    QParallelAnimationGroup,
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -351,7 +350,6 @@ class HomePage(BasePage):
         self._home_intro_running = False
         self._home_intro_pending = 0
         self._home_intro_animations = []
-        self._home_intro_target_heights = {}
         self._build_ui()
         self._connect_card_signals()
 
@@ -519,7 +517,6 @@ class HomePage(BasePage):
 
         self._home_intro_running = True
         self._home_intro_pending = 0
-        self._home_intro_target_heights = {}
         self._home_intro_animations = []
 
         for index, widget in enumerate(widgets):
@@ -528,34 +525,15 @@ class HomePage(BasePage):
                 if not isinstance(effect, QGraphicsOpacityEffect):
                     effect = QGraphicsOpacityEffect(widget)
                     widget.setGraphicsEffect(effect)
-
-                target_height = self._calc_intro_target_height(widget)
-                self._home_intro_target_heights[id(widget)] = target_height
-                widget.setMaximumHeight(0)
-                effect.setOpacity(0.08)
+                effect.setOpacity(0.26)
                 self._home_intro_pending += 1
             except Exception:
                 continue
 
-            QTimer.singleShot(index * 90, lambda target=widget: self._animate_home_intro_widget(target))
+            QTimer.singleShot(index * 120, lambda target=widget: self._animate_home_intro_widget(target))
 
         if self._home_intro_pending <= 0:
             self._finish_home_intro()
-
-    def _calc_intro_target_height(self, widget: QWidget) -> int:
-        target = 0
-        try:
-            target = int(widget.sizeHint().height())
-        except Exception:
-            target = 0
-
-        if target <= 0:
-            try:
-                target = int(widget.height())
-            except Exception:
-                target = 0
-
-        return max(36, target)
 
     def _animate_home_intro_widget(self, widget: QWidget) -> None:
         effect = widget.graphicsEffect()
@@ -565,30 +543,15 @@ class HomePage(BasePage):
                 self._finish_home_intro()
             return
 
-        target_height = self._home_intro_target_heights.get(id(widget), 0)
-        if target_height <= 0:
-            target_height = self._calc_intro_target_height(widget)
-
-        opacity_animation = QPropertyAnimation(effect, b"opacity", self)
-        opacity_animation.setDuration(360)
-        opacity_animation.setStartValue(float(effect.opacity()))
-        opacity_animation.setEndValue(1.0)
-        opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        height_animation = QPropertyAnimation(widget, b"maximumHeight", self)
-        height_animation.setDuration(360)
-        height_animation.setStartValue(max(0, int(widget.maximumHeight())))
-        height_animation.setEndValue(int(target_height))
-        height_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        group = QParallelAnimationGroup(self)
-        group.addAnimation(opacity_animation)
-        group.addAnimation(height_animation)
-        self._home_intro_animations.append(group)
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(520)
+        animation.setStartValue(float(effect.opacity()))
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._home_intro_animations.append(animation)
 
         def _on_finished():
             try:
-                widget.setMaximumHeight(16777215)
                 widget.setGraphicsEffect(None)
             except Exception:
                 pass
@@ -598,15 +561,13 @@ class HomePage(BasePage):
             except Exception:
                 pass
 
-            self._home_intro_target_heights.pop(id(widget), None)
-
             try:
-                self._home_intro_animations.remove(group)
+                self._home_intro_animations.remove(animation)
             except Exception:
                 pass
 
             try:
-                group.deleteLater()
+                animation.deleteLater()
             except Exception:
                 pass
 
@@ -614,13 +575,12 @@ class HomePage(BasePage):
             if self._home_intro_pending == 0:
                 self._finish_home_intro()
 
-        group.finished.connect(_on_finished)
-        group.start()
+        animation.finished.connect(_on_finished)
+        animation.start()
 
     def _finish_home_intro(self) -> None:
         self._home_intro_running = False
         self._home_intro_pending = 0
-        self._home_intro_target_heights = {}
 
         for animation in list(self._home_intro_animations):
             try:
@@ -639,7 +599,6 @@ class HomePage(BasePage):
             if not isinstance(widget, QWidget):
                 continue
             try:
-                widget.setMaximumHeight(16777215)
                 effect = widget.graphicsEffect()
                 if isinstance(effect, QGraphicsOpacityEffect):
                     effect.setOpacity(1.0)
