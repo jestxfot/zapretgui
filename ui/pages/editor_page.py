@@ -127,6 +127,7 @@ class EditorPage(BasePage):
         table_layout.setContentsMargins(0, 0, 0, 0)
 
         self.strategies_table = QTableWidget(0, 2)
+        self.strategies_table.setProperty("uiList", True)
         self.strategies_table.setHorizontalHeaderLabels(["Источник", "Название"])
         self.strategies_table.verticalHeader().setVisible(False)
         self.strategies_table.setAlternatingRowColors(True)
@@ -140,28 +141,8 @@ class EditorPage(BasePage):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
-        self.strategies_table.setStyleSheet(
-            f"""
-            QTableWidget {{
-                background-color: transparent;
-                border: none;
-            }}
-            QTableWidget::item {{
-                padding: 4px 8px;
-            }}
-            QTableWidget::item:selected {{
-                background-color: {tokens.accent_soft_bg};
-            }}
-            QHeaderView::section {{
-                background-color: {tokens.surface_bg};
-                color: {tokens.fg_muted};
-                padding: 8px;
-                border: none;
-                font-weight: 600;
-                font-size: 11px;
-            }}
-            """
-        )
+        # Unified table styling is centralized in ui/theme.py.
+        self.strategies_table.setStyleSheet("")
 
         self.strategies_table.itemSelectionChanged.connect(self._on_strategy_selected)
         self.strategies_table.cellDoubleClicked.connect(self._on_strategy_double_clicked)

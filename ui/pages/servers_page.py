@@ -1263,26 +1263,8 @@ class ServersPage(BasePage):
         tokens = self._tokens
 
         if hasattr(self, "servers_table"):
-            self.servers_table.setStyleSheet(
-                "QTableWidget {"
-                f" background-color: {tokens.surface_bg};"
-                f" border: 1px solid {tokens.surface_border};"
-                " border-radius: 6px;"
-                f" gridline-color: {tokens.divider};"
-                " }"
-                "QTableWidget::item { padding: 6px; }"
-                "QTableWidget::item:selected {"
-                f" background-color: {tokens.accent_soft_bg};"
-                " }"
-                "QHeaderView::section {"
-                f" background-color: {tokens.surface_bg};"
-                f" color: {tokens.fg_muted};"
-                " padding: 8px;"
-                " border: none;"
-                " font-weight: 600;"
-                " font-size: 11px;"
-                " }"
-            )
+            # Unified table styling is centralized in ui/theme.py.
+            self.servers_table.setStyleSheet("")
 
             # Re-apply accent for cached rows marked as current.
             try:
@@ -1333,6 +1315,7 @@ class ServersPage(BasePage):
         # Таблица серверов (растягивается на всё пространство)
         # ═══════════════════════════════════════════════════════════
         self.servers_table = QTableWidget(0, 4)
+        self.servers_table.setProperty("uiList", True)
         self.servers_table.setHorizontalHeaderLabels(["Сервер", "Статус", "Время", "Версии"])
         header = self.servers_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

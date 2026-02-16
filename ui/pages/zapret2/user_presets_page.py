@@ -1602,39 +1602,11 @@ class Zapret2UserPresetsPage(BasePage):
         self.presets_list.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
         self.presets_list.setUniformItemSizes(False)
         self.presets_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.presets_list.setProperty("uiList", True)
         self.presets_list.setProperty("noDrag", True)
         self.presets_list.viewport().setProperty("noDrag", True)
-        self.presets_list.setStyleSheet(
-            f"""
-            QListView#userPresetsList {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 8px;
-                outline: none;
-            }}
-            QListView#userPresetsList::item {{
-                border: none;
-            }}
-            QListView#userPresetsList QScrollBar:vertical {{
-                background: {tokens.scrollbar_track};
-                width: 12px;
-                border-radius: 6px;
-                margin: 2px;
-            }}
-            QListView#userPresetsList QScrollBar::handle:vertical {{
-                background: {tokens.scrollbar_handle};
-                border-radius: 6px;
-                min-height: 28px;
-            }}
-            QListView#userPresetsList QScrollBar::handle:vertical:hover {{
-                background: {tokens.scrollbar_handle_hover};
-            }}
-            QListView#userPresetsList QScrollBar::add-line:vertical,
-            QListView#userPresetsList QScrollBar::sub-line:vertical {{
-                height: 0;
-            }}
-            """
-        )
+        # List visuals are centralized in ui/theme.py (QAbstractItemView + QScrollBar).
+        self.presets_list.setStyleSheet("")
 
         self._presets_model = _PresetListModel(self.presets_list)
         self._presets_delegate = _PresetListDelegate(self.presets_list)

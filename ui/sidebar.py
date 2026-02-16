@@ -1717,6 +1717,7 @@ class SettingsCard(QFrame):
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("settingsCard")
+        self.setProperty("uiSurface", "card")
         # ✅ Политика размера: растягивается по горизонтали, но не бесконечно
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         

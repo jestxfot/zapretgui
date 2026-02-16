@@ -1011,8 +1011,9 @@ def resolve_icon_color(color=None, *, theme_name: str | None = None, muted_fallb
     if parsed is None:
         return fallback
 
-    # Avoid near-black icons on light themes.
-    if tokens.is_light and parsed.red() < 26 and parsed.green() < 26 and parsed.blue() < 26:
+    # Normalize near-black icon colors to theme fallback:
+    # light themes -> gray, dark themes -> light icon color.
+    if parsed.red() < 26 and parsed.green() < 26 and parsed.blue() < 26:
         return fallback
 
     return parsed.name(QColor.NameFormat.HexArgb)
@@ -1111,6 +1112,29 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
     tooltip_border = "rgba(0, 0, 0, 0.12)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
     tooltip_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(255, 255, 255, 0.95)"
 
+    if tokens.is_light:
+        card_grad_top = "rgba(255, 255, 255, 0.88)"
+        card_grad_bottom = "rgba(244, 247, 252, 0.76)"
+        card_grad_hover_top = "rgba(255, 255, 255, 0.94)"
+        card_grad_hover_bottom = "rgba(242, 246, 252, 0.86)"
+        control_grad_top = "rgba(255, 255, 255, 0.92)"
+        control_grad_bottom = "rgba(243, 246, 251, 0.82)"
+        list_grad_top = "rgba(255, 255, 255, 0.88)"
+        list_grad_bottom = "rgba(244, 247, 252, 0.74)"
+        item_hover_bg = "rgba(0, 0, 0, 0.055)"
+        item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.22)"
+    else:
+        card_grad_top = "rgba(255, 255, 255, 0.070)"
+        card_grad_bottom = "rgba(255, 255, 255, 0.035)"
+        card_grad_hover_top = "rgba(255, 255, 255, 0.095)"
+        card_grad_hover_bottom = "rgba(255, 255, 255, 0.050)"
+        control_grad_top = "rgba(255, 255, 255, 0.080)"
+        control_grad_bottom = "rgba(255, 255, 255, 0.040)"
+        list_grad_top = "rgba(255, 255, 255, 0.075)"
+        list_grad_bottom = "rgba(255, 255, 255, 0.030)"
+        item_hover_bg = "rgba(255, 255, 255, 0.080)"
+        item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.25)"
+
     return f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
 QWidget {{
@@ -1127,6 +1151,27 @@ QWidget[tone="muted"] {{
 }}
 QWidget[tone="faint"] {{
     color: {tokens.fg_faint} !important;
+}}
+
+/* Baseline text colors (fixes washed text in light themes) */
+QLabel,
+QCheckBox,
+QRadioButton,
+QGroupBox,
+QMenu,
+QMenuBar,
+QStatusBar,
+QHeaderView,
+QHeaderView::section {{
+    color: {tokens.fg};
+}}
+QLineEdit,
+QTextEdit,
+QPlainTextEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {{
+    color: {tokens.fg};
 }}
 
 QMainWindow {{
@@ -1219,6 +1264,74 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0;
 }}
 
+/* Unified list/table/tree styling */
+QAbstractItemView,
+QListView,
+QListWidget,
+QTreeView,
+QTreeWidget,
+QTableView,
+QTableWidget {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {list_grad_top},
+                                stop:1 {list_grad_bottom});
+    border: 1px solid {tokens.surface_border};
+    border-radius: 8px;
+    color: {tokens.fg};
+    outline: none;
+    selection-background-color: {item_selected_bg};
+    selection-color: {tokens.fg};
+    alternate-background-color: transparent;
+    gridline-color: {tokens.divider};
+}}
+QAbstractItemView::item,
+QListView::item,
+QListWidget::item,
+QTreeView::item,
+QTreeWidget::item,
+QTableView::item,
+QTableWidget::item {{
+    color: {tokens.fg};
+    background: transparent;
+    border: none;
+    padding: 4px 8px;
+}}
+QAbstractItemView::item:hover,
+QListView::item:hover,
+QListWidget::item:hover,
+QTreeView::item:hover,
+QTreeWidget::item:hover,
+QTableView::item:hover,
+QTableWidget::item:hover {{
+    background: {item_hover_bg};
+}}
+QAbstractItemView::item:selected,
+QListView::item:selected,
+QListWidget::item:selected,
+QTreeView::item:selected,
+QTreeWidget::item:selected,
+QTableView::item:selected,
+QTableWidget::item:selected {{
+    background: {item_selected_bg};
+    color: {tokens.fg};
+}}
+QHeaderView::section {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {control_grad_top},
+                                stop:1 {control_grad_bottom});
+    color: {tokens.fg_muted};
+    border: none;
+    border-bottom: 1px solid {tokens.divider};
+    padding: 8px;
+    font-weight: 600;
+    font-size: 11px;
+}}
+QTableCornerButton::section {{
+    background: {control_grad_bottom};
+    border: none;
+    border-bottom: 1px solid {tokens.divider};
+}}
+
 /* Side navigation panel container (theme-aware, no per-widget setStyleSheet) */
 QWidget#sideNavBar {{
     background-color: rgba({sidebar_bg}, 0.85);
@@ -1244,18 +1357,24 @@ QPushButton#sideNavPinButton:pressed {{
 
 /* SettingsCard (used across pages) */
 QFrame#settingsCard {{
-    background-color: {tokens.surface_bg} !important;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {card_grad_top},
+                                stop:1 {card_grad_bottom}) !important;
     border: 1px solid {tokens.surface_border} !important;
     border-radius: 8px !important;
 }}
 QFrame#settingsCard:hover {{
-    background-color: {tokens.surface_bg_hover} !important;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {card_grad_hover_top},
+                                stop:1 {card_grad_hover_bottom}) !important;
     border: 1px solid {tokens.surface_border_hover} !important;
 }}
 
 /* ActionButton (ui.sidebar.ActionButton) */
 QPushButton[uiRole="actionButton"] {{
-    background-color: {tokens.surface_bg};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {control_grad_top},
+                                stop:1 {control_grad_bottom});
     border: 1px solid {tokens.surface_border};
     border-radius: 8px;
     color: {tokens.fg};
@@ -1266,7 +1385,9 @@ QPushButton[uiRole="actionButton"] {{
     min-height: 32px;
 }}
 QPushButton[uiRole="actionButton"]:hover {{
-    background-color: {tokens.surface_bg_hover};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {card_grad_hover_top},
+                                stop:1 {card_grad_hover_bottom});
     border: 1px solid {tokens.surface_border_hover};
 }}
 QPushButton[uiRole="actionButton"]:pressed {{
