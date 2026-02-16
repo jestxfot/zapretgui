@@ -16,6 +16,7 @@ from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.sidebar import SettingsCard, ActionButton
 from .strategies_page_base import ResetActionButton
 from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 from log import log
 
 def split_domains(text: str) -> list[str]:
@@ -119,9 +120,10 @@ class DangerConfirmActionButton(ResetActionButton):
         icon_name = "fa5s.trash-alt" if self._pending else self._default_icon_name
         try:
             tokens = get_theme_tokens()
-            color = "#ffffff" if self._pending else tokens.fg
+            semantic = get_semantic_palette(tokens.theme_name)
+            color = semantic.on_color if self._pending else tokens.fg
         except Exception:
-            color = "#ffffff"
+            color = "rgba(245, 245, 245, 0.95)"
         if rotation != 0:
             self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
         else:
@@ -134,11 +136,12 @@ class DangerConfirmActionButton(ResetActionButton):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
+            semantic = get_semantic_palette(tokens.theme_name)
             if self._pending:
                 bg = "rgba(220, 53, 69, 1.0)" if self._hovered else "rgba(220, 53, 69, 0.92)"
                 pressed_bg = "rgba(190, 39, 54, 1.0)"
-                border = "1px solid rgba(255, 255, 255, 0.24)"
-                text_color = "#ffffff"
+                border = f"1px solid {tokens.divider_strong}"
+                text_color = semantic.on_color
             else:
                 bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
                 pressed_bg = tokens.surface_bg_pressed

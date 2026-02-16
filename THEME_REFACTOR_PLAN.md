@@ -75,9 +75,9 @@ Residual hardcoded-pattern audit (tokenized pages, lower priority cleanup):
 - [x] `ui/pages/home_page.py`
 - [x] `ui/pages/servers_page.py`
 - [x] `ui/pages/logs_page.py`
-- [ ] `ui/pages/presets_page.py`
-- [ ] `ui/pages/control_page.py`
-- [ ] `ui/pages/custom_domains_page.py`
+- [x] `ui/pages/presets_page.py`
+- [x] `ui/pages/control_page.py`
+- [x] `ui/pages/custom_domains_page.py`
 - [ ] `ui/pages/zapret2/strategy_detail_page.py`
 - [ ] `ui/pages/zapret2/user_presets_page.py`
 
@@ -152,3 +152,4 @@ python -c "import os; os.environ.setdefault('QT_QPA_PLATFORM','offscreen'); from
 - 2026-02-16: Step 3 completed for `ui/sidebar.py`: removed residual `#60cdff/#ffffff/rgba(255,255,255,...)` neutrals in action/icon/status controls, switched status colors to semantic palette, and added debounced theme refresh for sidebar status indicator.
 - 2026-02-16: Verification unblock: `base_page.py` title font now safely falls back to `font_family_qss` when `font_family_display_qss` is absent in `ThemeTokens`.
 - 2026-02-16: Residual cleanup tranche I completed for `home_page.py`, `servers_page.py`, `logs_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` patterns with token/semantic replacements and preserved existing behavior.
+- 2026-02-16: Residual cleanup tranche J completed for `presets_page.py`, `control_page.py`, `custom_domains_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` tails in accent/pending controls with token/semantic-safe replacements.

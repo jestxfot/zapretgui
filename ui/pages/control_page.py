@@ -17,9 +17,9 @@ def _accent_fg_for_tokens(tokens) -> str:
     try:
         r, g, b = tokens.accent_rgb
         yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
     except Exception:
-        return "rgba(0, 0, 0, 0.90)"
+        return "rgba(18, 18, 18, 0.90)"
 
 
 def _build_progress_style() -> str:
