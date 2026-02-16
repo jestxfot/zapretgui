@@ -1607,8 +1607,9 @@ class Zapret2UserPresetsPage(BasePage):
         self.presets_list.setStyleSheet(
             f"""
             QListView#userPresetsList {{
-                background: transparent;
-                border: none;
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 8px;
                 outline: none;
             }}
             QListView#userPresetsList::item {{

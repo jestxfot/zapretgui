@@ -123,12 +123,16 @@ from config import APP_VERSION
 from utils import run_hidden
 
 from ui.theme_subscription_manager import ThemeSubscriptionManager
+from ui.theme import install_qtawesome_icon_theme_patch
 
 # DNS настройки теперь интегрированы в network_page
 from log import log, is_verbose_logging_enabled
 
 from config import CHANNEL
 from ui.page_names import PageName, SectionName
+
+# Global icon policy (theme-aware + rgba() normalization for qtawesome).
+install_qtawesome_icon_theme_patch()
 
 def _set_attr_if_exists(name: str, on: bool = True) -> None:
     """Безопасно включает атрибут, если он есть в текущей версии Qt."""

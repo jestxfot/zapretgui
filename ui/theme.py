@@ -1,5 +1,6 @@
 # ui/theme.py
 import os
+import re
 from dataclasses import dataclass
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty, QThread, QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
@@ -14,7 +15,7 @@ import time
 THEMES = {
     # Мягкие пастельные оттенки в стиле Windows 11
     # Темная синяя - оставляем оригинальный тёмно-серый фон
-    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "76, 142, 231", "bg_color": "30, 32, 32"},
+    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "95, 205, 254", "bg_color": "30, 32, 32"},
     # Бирюзовая - тёмный бирюзовый фон
     "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205", "bg_color": "20, 35, 38"},
     # Янтарная - тёмный янтарный/коричневый фон
@@ -751,6 +752,9 @@ class ThemeTokens:
     fg: str
     fg_muted: str
     fg_faint: str
+    icon_fg: str
+    icon_fg_muted: str
+    icon_fg_faint: str
 
     divider: str
     divider_strong: str
@@ -804,6 +808,10 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         fg = "rgba(0, 0, 0, 0.90)"
         fg_muted = "rgba(0, 0, 0, 0.65)"
         fg_faint = "rgba(0, 0, 0, 0.40)"
+        # Solid icon palette for qtawesome: dark gray in light themes.
+        icon_fg = "#6b7280"
+        icon_fg_muted = "#7d8594"
+        icon_fg_faint = "#9aa2af"
 
         divider = "rgba(0, 0, 0, 0.08)"
         divider_strong = "rgba(0, 0, 0, 0.14)"
@@ -830,6 +838,10 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         fg = "rgba(255, 255, 255, 0.92)"
         fg_muted = "rgba(255, 255, 255, 0.65)"
         fg_faint = "rgba(255, 255, 255, 0.35)"
+        # Solid icon palette for qtawesome: light icons in dark themes.
+        icon_fg = "#f5f5f5"
+        icon_fg_muted = "#d2d7df"
+        icon_fg_faint = "#aeb5c1"
 
         divider = "rgba(255, 255, 255, 0.06)"
         divider_strong = "rgba(255, 255, 255, 0.10)"
@@ -867,6 +879,9 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         fg=fg,
         fg_muted=fg_muted,
         fg_faint=fg_faint,
+        icon_fg=icon_fg,
+        icon_fg_muted=icon_fg_muted,
+        icon_fg_faint=icon_fg_faint,
         divider=divider,
         divider_strong=divider_strong,
         surface_bg=surface_bg,
@@ -888,6 +903,163 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         toggle_off_disabled_border=toggle_off_disabled_border,
         font_family_qss="'Segoe UI Variable', 'Segoe UI', Arial, sans-serif",
     )
+
+
+_ICON_TOKENS_CACHE_TS = 0.0
+_ICON_TOKENS_CACHE_VALUE: ThemeTokens | None = None
+_ICON_TOKENS_CACHE_TTL_SEC = 0.35
+_RGBA_COLOR_RE = re.compile(
+    r"^\s*rgba?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*(?:,\s*([0-9]*\.?[0-9]+)\s*)?\)\s*$",
+    re.IGNORECASE,
+)
+_QTA_ICON_PATCHED = False
+
+
+def _theme_tokens_for_icons(theme_name: str | None = None) -> ThemeTokens:
+    if theme_name:
+        return get_theme_tokens(theme_name)
+
+    global _ICON_TOKENS_CACHE_TS, _ICON_TOKENS_CACHE_VALUE
+    now = time.monotonic()
+    if _ICON_TOKENS_CACHE_VALUE is not None and (now - _ICON_TOKENS_CACHE_TS) < _ICON_TOKENS_CACHE_TTL_SEC:
+        return _ICON_TOKENS_CACHE_VALUE
+
+    tokens = get_theme_tokens()
+    _ICON_TOKENS_CACHE_VALUE = tokens
+    _ICON_TOKENS_CACHE_TS = now
+    return tokens
+
+
+def _parse_css_rgba_color(raw: str) -> QColor | None:
+    text = str(raw or "").strip()
+    match = _RGBA_COLOR_RE.fullmatch(text)
+    if not match:
+        return None
+
+    try:
+        r = max(0, min(255, int(match.group(1))))
+        g = max(0, min(255, int(match.group(2))))
+        b = max(0, min(255, int(match.group(3))))
+        alpha_raw = match.group(4)
+
+        if alpha_raw is None:
+            a = 255
+        else:
+            a_float = float(alpha_raw)
+            # Accept both [0..1] and [0..255] alpha notations.
+            if a_float <= 1.0:
+                a = int(round(max(0.0, min(1.0, a_float)) * 255.0))
+            else:
+                a = int(round(max(0.0, min(255.0, a_float))))
+
+        return QColor(r, g, b, a)
+    except Exception:
+        return None
+
+
+def _to_qcolor(value) -> QColor | None:
+    if isinstance(value, QColor):
+        return value if value.isValid() else None
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    # QColor does not parse CSS rgba(..., 0.92) reliably; handle it explicitly.
+    parsed = _parse_css_rgba_color(text)
+    if parsed is not None and parsed.isValid():
+        return parsed
+
+    color = QColor(text)
+    if color.isValid():
+        return color
+    return None
+
+
+def get_theme_icon_color(theme_name: str | None = None, muted: bool = False, faint: bool = False) -> str:
+    """Returns global icon color for current theme.
+
+    Light themes -> dark gray icons.
+    Dark themes -> light icons.
+    """
+    tokens = _theme_tokens_for_icons(theme_name)
+    if faint:
+        return tokens.icon_fg_faint
+    if muted:
+        return tokens.icon_fg_muted
+    return tokens.icon_fg
+
+
+def resolve_icon_color(color=None, *, theme_name: str | None = None, muted_fallback: bool = False) -> str:
+    """Converts arbitrary icon color input to a qtawesome/QColor-safe color string."""
+    tokens = _theme_tokens_for_icons(theme_name)
+    fallback = tokens.icon_fg_muted if muted_fallback else tokens.icon_fg
+
+    if color is None:
+        return fallback
+
+    # Map semantic text tokens to dedicated icon palette.
+    raw = str(color).strip()
+    if raw == tokens.fg:
+        return tokens.icon_fg
+    if raw == tokens.fg_muted:
+        return tokens.icon_fg_muted
+    if raw == tokens.fg_faint:
+        return tokens.icon_fg_faint
+
+    parsed = _to_qcolor(color)
+    if parsed is None:
+        return fallback
+
+    # Avoid near-black icons on light themes.
+    if tokens.is_light and parsed.red() < 26 and parsed.green() < 26 and parsed.blue() < 26:
+        return fallback
+
+    return parsed.name(QColor.NameFormat.HexArgb)
+
+
+def install_qtawesome_icon_theme_patch() -> None:
+    """Installs global qtawesome icon color defaults and rgba() normalization."""
+    global _QTA_ICON_PATCHED
+    if _QTA_ICON_PATCHED:
+        return
+
+    try:
+        import qtawesome as qta
+    except Exception as e:
+        log(f"⚠️ Не удалось импортировать qtawesome для icon patch: {e}", "DEBUG")
+        return
+
+    original_icon = getattr(qta, "icon", None)
+    if not callable(original_icon):
+        return
+
+    def _patched_qta_icon(*args, **kwargs):
+        local_kwargs = dict(kwargs)
+
+        # Normalize known color arguments.
+        local_kwargs["color"] = resolve_icon_color(local_kwargs.get("color"), muted_fallback=False)
+        if "color_disabled" in local_kwargs:
+            local_kwargs["color_disabled"] = resolve_icon_color(local_kwargs.get("color_disabled"), muted_fallback=True)
+        if "color_active" in local_kwargs:
+            local_kwargs["color_active"] = resolve_icon_color(local_kwargs.get("color_active"), muted_fallback=False)
+        if "color_selected" in local_kwargs:
+            local_kwargs["color_selected"] = resolve_icon_color(local_kwargs.get("color_selected"), muted_fallback=False)
+        if "color_on" in local_kwargs:
+            local_kwargs["color_on"] = resolve_icon_color(local_kwargs.get("color_on"), muted_fallback=False)
+        if "color_off" in local_kwargs:
+            local_kwargs["color_off"] = resolve_icon_color(local_kwargs.get("color_off"), muted_fallback=True)
+
+        return original_icon(*args, **local_kwargs)
+
+    try:
+        _patched_qta_icon.__name__ = getattr(original_icon, "__name__", "icon")
+        _patched_qta_icon.__doc__ = getattr(original_icon, "__doc__", None)
+    except Exception:
+        pass
+
+    qta.icon = _patched_qta_icon
+    _QTA_ICON_PATCHED = True
 
 
 def _build_dynamic_style_sheet(theme_name: str) -> str:
