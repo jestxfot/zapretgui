@@ -1,5 +1,6 @@
 # Preset: Default v2
 # ActivePreset: Default v2
+# BuiltinVersion: 1.0
 # Modified: 2026-01-21T17:52:34.648239
 # IconColor: #a8c5ff
 

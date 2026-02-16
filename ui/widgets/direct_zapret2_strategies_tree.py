@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_cached_qta_pixmap, get_card_gradient_qss
+from ui.theme_semantic import get_semantic_palette
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._sort_mode = "default"  # default, name_asc, name_desc
         self._insert_counter = 0
         self._active_strategy_id: str = "none"
-        self._tech_icon_cache: Dict[str, QIcon] = {}
+        self._tech_icon_cache: Dict[tuple, QIcon] = {}
 
         self._hover_timer = QTimer(self)
         self._hover_timer.setSingleShot(True)
@@ -140,9 +141,10 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._applying_theme_styles = True
         try:
             tokens = self._tokens or get_theme_tokens("Темная синяя")
+            tree_bg = get_card_gradient_qss(tokens.theme_name)
             self.setStyleSheet(f"""
                 QTreeWidget {{
-                    background: {tokens.surface_bg};
+                    background: {tree_bg};
                     border: 1px solid {tokens.surface_border};
                     border-radius: 8px;
                     padding: 6px;
@@ -156,6 +158,15 @@ class DirectZapret2StrategiesTree(QTreeWidget):
                 }}
                 /* Selection/marks are painted in drawRow() to avoid theme/QSS conflicts. */
             """)
+
+            try:
+                section_brush = QBrush(QColor(tokens.fg_muted))
+                if hasattr(self, "_fav_root") and self._fav_root is not None:
+                    self._fav_root.setForeground(0, section_brush)
+                if hasattr(self, "_all_root") and self._all_root is not None:
+                    self._all_root.setForeground(0, section_brush)
+            except Exception:
+                pass
         finally:
             self._applying_theme_styles = False
 
@@ -164,11 +175,50 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
                 if self._applying_theme_styles:
                     return super().changeEvent(event)
+
+                old_key = self._current_icon_theme_key()
                 self._tokens = get_theme_tokens()
                 self._apply_theme_styles()
+                new_key = self._current_icon_theme_key()
+                if old_key != new_key:
+                    self._tech_icon_cache.clear()
+                    self._refresh_tech_icons_after_theme_change()
         except Exception:
             pass
         return super().changeEvent(event)
+
+    def _current_icon_theme_key(self) -> tuple[str, str, str, str, str, str, int]:
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        semantic = get_semantic_palette(tokens.theme_name)
+        size = self.iconSize()
+        icon_px = max(1, int(size.width()))
+        return (
+            str(tokens.theme_name),
+            str(tokens.accent_hex),
+            str(tokens.icon_fg_muted),
+            str(semantic.error),
+            str(semantic.warning),
+            str(semantic.success),
+            icon_px,
+        )
+
+    def _refresh_tech_icons_after_theme_change(self) -> None:
+        try:
+            for strategy_id, item in self._rows.items():
+                if strategy_id == "none":
+                    continue
+                techniques_raw = item.data(0, self._ROLE_TECHNIQUES) or []
+                if not isinstance(techniques_raw, (list, tuple)):
+                    continue
+                techniques = [str(tech).strip().lower() for tech in techniques_raw if str(tech).strip()]
+                icon = self._get_tech_icon(techniques[:2])
+                if icon:
+                    item.setIcon(1, icon)
+                else:
+                    item.setIcon(1, QIcon())
+            self.viewport().update()
+        except Exception:
+            pass
 
     def set_all_strategies_phase(self, phase_key: Optional[str]) -> None:
         """
@@ -331,18 +381,26 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         if is_working not in (True, False, None):
             is_working = None
 
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        semantic = get_semantic_palette(tokens.theme_name)
+        accent_r, accent_g, accent_b = tokens.accent_rgb
+
         r = options.rect.adjusted(4, 2, -4, -2)
 
         # Base tint (working/broken)
         base_bg = None
         if is_working is True:
-            base_bg = QColor(74, 222, 128, 64)   # light green
+            success_tint = QColor(semantic.success)
+            success_tint.setAlpha(64)
+            base_bg = success_tint
         elif is_working is False:
-            base_bg = QColor(248, 113, 113, 64)  # light red
+            error_tint = QColor(semantic.error)
+            error_tint.setAlpha(64)
+            base_bg = error_tint
 
         # Hover tint: show a light accent even for non-active rows.
         # Keep it noticeably lighter than the active selection fill (alpha 34).
-        hover_bg = QColor(96, 205, 255, 18) if is_hover and not is_active else None
+        hover_bg = QColor(accent_r, accent_g, accent_b, 18) if is_hover and not is_active else None
 
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing, True)
@@ -359,12 +417,12 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
         if is_active:
             # Ensure active selection is always visible, even on top of working/broken tint.
-            sel_bg = QColor(96, 205, 255, 34)
+            sel_bg = QColor(accent_r, accent_g, accent_b, 34)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(sel_bg))
             painter.drawRoundedRect(r, 6, 6)
 
-            pen = QPen(QColor(96, 205, 255, 140))
+            pen = QPen(QColor(accent_r, accent_g, accent_b, 140))
             pen.setWidth(1)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -373,7 +431,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             # Left accent bar
             bar = r.adjusted(0, 2, -(r.width() - 2), -2)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(96, 205, 255, 220)))
+            painter.setBrush(QBrush(QColor(accent_r, accent_g, accent_b, 220)))
             painter.drawRoundedRect(bar, 2, 2)
 
         painter.restore()
@@ -389,7 +447,8 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         root.setFirstColumnSpanned(True)
         root.setText(0, title)
         root.setFont(0, self._section_font)
-        root.setForeground(0, QBrush(QColor(255, 255, 255, 170)))
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        root.setForeground(0, QBrush(QColor(tokens.fg_muted)))
         root.setFlags(Qt.ItemFlag.NoItemFlags)
         root.setExpanded(True)
         root.setHidden(True)
@@ -603,21 +662,24 @@ class DirectZapret2StrategiesTree(QTreeWidget):
     def _get_tech_icon(self, techniques: list[str]) -> Optional[QIcon]:
         if not techniques:
             return None
-        key = "+".join(techniques[:2])
+        normalized_techniques = tuple(str(t).strip().lower() for t in techniques[:2] if str(t).strip())
+        if not normalized_techniques:
+            return None
+
+        key = (self._current_icon_theme_key(), normalized_techniques)
         if key in self._tech_icon_cache:
             return self._tech_icon_cache[key]
-
-        # Lazy import to avoid hard dependency during early app startup.
-        try:
-            import qtawesome as qta  # type: ignore
-        except Exception:
-            return None
 
         try:
             tokens = self._tokens or get_theme_tokens()
             accent_color = tokens.accent_hex
+            semantic = get_semantic_palette(tokens.theme_name)
         except Exception:
-            accent_color = "#5caee8"
+            tokens = get_theme_tokens("Темная синяя")
+            accent_color = tokens.accent_hex
+            semantic = get_semantic_palette("Темная синяя")
+
+        icon_px = max(1, int(self.iconSize().width()))
 
         # Minimalistic icons + pastel palette (no emoji).
         # Colors per request:
@@ -625,29 +687,33 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         # - multisplit: blue
         # - (multi)disorder: green
         mapping = {
-            "fake": ("fa5s.magic", "#f87171"),
-            "split": ("fa5s.cut", "#fbbf24"),
+            "fake": ("fa5s.magic", semantic.error),
+            "split": ("fa5s.cut", semantic.warning),
             "multisplit": ("fa5s.stream", accent_color),
-            "disorder": ("fa5s.random", "#4ade80"),
+            "disorder": ("fa5s.random", semantic.success),
             "oob": ("fa5s.external-link-alt", "#f472b6"),
-            "syndata": ("fa5s.database", "#94a3b8"),
+            "syndata": ("fa5s.database", tokens.icon_fg_muted),
         }
 
-        primary = techniques[0]
+        primary = normalized_techniques[0]
         icon_name, color_a = mapping.get(primary, (None, None))
         if not icon_name or not color_a:
             return None
 
         try:
-            if len(techniques) >= 2 and techniques[1] != primary:
-                secondary = techniques[1]
+            if len(normalized_techniques) >= 2 and normalized_techniques[1] != primary:
+                secondary = normalized_techniques[1]
                 _, color_b = mapping.get(secondary, (icon_name, color_a))
-                base_a = qta.icon(icon_name, color=color_a).pixmap(self.iconSize())
-                base_b = qta.icon(icon_name, color=color_b).pixmap(self.iconSize())
+                base_a = get_cached_qta_pixmap(icon_name, color=color_a, size=icon_px, theme_name=tokens.theme_name)
+                base_b = get_cached_qta_pixmap(icon_name, color=color_b, size=icon_px, theme_name=tokens.theme_name)
+                if base_a.isNull() or base_b.isNull():
+                    return None
                 pix = self._compose_diagonal_pixmap(base_a, base_b)
                 icon = self._fixed_icon_from_pixmap(pix)
             else:
-                pix = qta.icon(icon_name, color=color_a).pixmap(self.iconSize())
+                pix = get_cached_qta_pixmap(icon_name, color=color_a, size=icon_px, theme_name=tokens.theme_name)
+                if pix.isNull():
+                    return None
                 icon = self._fixed_icon_from_pixmap(pix)
         except Exception:
             return None
@@ -917,13 +983,21 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             pass
 
     def _apply_star(self, item: QTreeWidgetItem, is_favorite: bool, allow: bool) -> None:
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
+        semantic = get_semantic_palette(tokens.theme_name)
         if not allow:
             item.setText(0, "")
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             return
         item.setText(0, "★" if is_favorite else "☆")
         item.setTextAlignment(0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-        item.setForeground(0, QBrush(QColor(255, 193, 7, 255 if is_favorite else 80)))
+        if is_favorite:
+            favorite_color = QColor(semantic.warning)
+            favorite_color.setAlpha(235)
+        else:
+            favorite_color = QColor(tokens.fg_faint)
+            favorite_color.setAlpha(120)
+        item.setForeground(0, QBrush(favorite_color))
 
     def _apply_working_style(self, item: QTreeWidgetItem, is_working: Optional[bool]) -> None:
         # We keep the state in a data role and paint in drawRow().

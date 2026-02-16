@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 from log import log
 from ui.pages.base_page import BasePage
 from ui.sidebar import ActionButton, SettingsCard
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 
 
@@ -160,17 +160,33 @@ def _error_banner_style() -> str:
 
 def _row_frame_style(*, is_dirty: bool) -> str:
     tokens = get_theme_tokens()
-    border = f"rgba({tokens.accent_rgb_str}, 0.35)" if is_dirty else tokens.divider
-    bg = f"rgba({tokens.accent_rgb_str}, 0.10)" if is_dirty else tokens.surface_bg
+    if is_dirty:
+        border = f"rgba({tokens.accent_rgb_str}, 0.35)"
+        border_hover = f"rgba({tokens.accent_rgb_str}, 0.45)"
+        bg = get_tinted_surface_gradient_qss(
+            f"rgba({tokens.accent_rgb_str}, 0.10)",
+            theme_name=tokens.theme_name,
+        )
+        bg_hover = get_tinted_surface_gradient_qss(
+            f"rgba({tokens.accent_rgb_str}, 0.14)",
+            theme_name=tokens.theme_name,
+            hover=True,
+        )
+    else:
+        border = tokens.divider
+        border_hover = tokens.surface_border_hover
+        bg = get_card_gradient_qss(tokens.theme_name)
+        bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
+
     return f"""
         QFrame {{
-            background-color: {bg};
+            background: {bg};
             border: 1px solid {border};
             border-radius: 8px;
         }}
         QFrame:hover {{
-            background-color: {tokens.surface_bg_hover};
-            border: 1px solid {tokens.surface_border_hover};
+            background: {bg_hover};
+            border: 1px solid {border_hover};
         }}
     """
 

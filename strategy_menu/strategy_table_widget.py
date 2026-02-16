@@ -5,6 +5,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint, QEvent
 from PyQt6.QtGui import QCursor
 
 from log import log
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 from .table_builder import StrategyTableBuilder
 from .hover_tooltip import tooltip_manager
 
@@ -25,6 +27,7 @@ class StrategyTableWidget(QWidget):
         self.selected_strategy_id = None
         self.selected_strategy_name = None
         self._last_hover_row = -1
+        self._status_type = "info"
         self.category_key = "bat"  # По умолчанию для BAT режима
 
         self._init_ui()
@@ -37,13 +40,11 @@ class StrategyTableWidget(QWidget):
         layout.setSpacing(0)
         
         # Подсказка
-        hint = QLabel("💡 Клик - применить • Удержание - информация")
-        hint.setStyleSheet("color: rgba(255, 255, 255, 0.4); font-size: 10px; padding: 6px 8px;")
-        layout.addWidget(hint)
+        self.hint_label = QLabel("💡 Клик - применить • Удержание - информация")
+        layout.addWidget(self.hint_label)
         
         # Статус
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: rgba(255, 255, 255, 0.5); font-size: 11px; padding: 4px 8px;")
         self.status_label.setFixedHeight(24)
         layout.addWidget(self.status_label)
         
@@ -63,8 +64,30 @@ class StrategyTableWidget(QWidget):
         
         # Двойной клик для показа информации
         self.table.doubleClicked.connect(self._on_double_click)
-        
+
         layout.addWidget(self.table)
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self):
+        """Применяет theme-aware стили текста."""
+        tokens = get_theme_tokens()
+
+        self.hint_label.setStyleSheet(
+            f"color: {tokens.fg_faint}; font-size: 10px; padding: 6px 8px;"
+        )
+
+        try:
+            StrategyTableBuilder.apply_theme(self.table)
+        except Exception:
+            pass
+
+        current_text = self.status_label.text().strip()
+        if current_text:
+            self.set_status(current_text, self._status_type)
+        else:
+            self.status_label.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 11px; padding: 4px 8px;"
+            )
     
     def eventFilter(self, obj, event):
         """Фильтр событий для отслеживания hover"""
@@ -233,13 +256,16 @@ class StrategyTableWidget(QWidget):
 
     def set_status(self, message, status_type="info"):
         """Устанавливает статус"""
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         colors = {
-            "info": "rgba(255, 255, 255, 0.5)",
-            "success": "#4ade80",
-            "warning": "#fbbf24",
-            "error": "#f87171"
+            "info": tokens.fg_muted,
+            "success": semantic.success,
+            "warning": semantic.warning,
+            "error": semantic.error,
         }
-        color = colors.get(status_type, colors["info"])
+        self._status_type = status_type if status_type in colors else "info"
+        color = colors.get(self._status_type, colors["info"])
         
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"""
@@ -249,6 +275,14 @@ class StrategyTableWidget(QWidget):
                 padding: 4px 8px;
             }}
         """)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
     
     def _on_item_selected(self, current, previous):
         """Обработчик выбора - автоприменение"""

@@ -11,7 +11,7 @@ import os
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
 from ui.theme_semantic import get_semantic_palette
 from log import log
 
@@ -232,29 +232,33 @@ class AutostartOptionCard(QFrame):
         semantic = get_semantic_palette()
         if getattr(self, '_is_active', False):
             # Активная карточка - зелёная подсветка
-            bg = semantic.success_soft_bg
+            bg = get_tinted_surface_gradient_qss(semantic.success_soft_bg, theme_name=tokens.theme_name)
             border = semantic.success_soft_border
         elif self._disabled:
-            bg = tokens.surface_bg_disabled
+            bg = get_tinted_surface_gradient_qss(tokens.surface_bg_disabled, theme_name=tokens.theme_name)
             border = tokens.surface_border_disabled
         elif self._accent:
             if self._hovered:
-                bg = tokens.accent_soft_bg_hover
+                bg = get_tinted_surface_gradient_qss(
+                    tokens.accent_soft_bg_hover,
+                    theme_name=tokens.theme_name,
+                    hover=True,
+                )
                 border = f"rgba({tokens.accent_rgb_str}, 0.40)"
             else:
-                bg = tokens.accent_soft_bg
+                bg = get_tinted_surface_gradient_qss(tokens.accent_soft_bg, theme_name=tokens.theme_name)
                 border = f"rgba({tokens.accent_rgb_str}, 0.28)"
         else:
             if self._hovered:
-                bg = tokens.surface_bg_hover
+                bg = get_card_gradient_qss(tokens.theme_name, hover=True)
                 border = tokens.surface_border_hover
             else:
-                bg = tokens.surface_bg
+                bg = get_card_gradient_qss(tokens.theme_name)
                 border = tokens.surface_border
 
         qss = f"""
             QFrame#autostartOption {{
-                background-color: {bg};
+                background: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;
             }}
@@ -301,15 +305,19 @@ class ClickableModeCard(QFrame):
     def _update_style(self):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
         if self._hovered:
-            bg = tokens.accent_soft_bg_hover
+            bg = get_tinted_surface_gradient_qss(
+                tokens.accent_soft_bg_hover,
+                theme_name=tokens.theme_name,
+                hover=True,
+            )
             border = f"rgba({tokens.accent_rgb_str}, 0.30)"
         else:
-            bg = tokens.surface_bg
+            bg = get_card_gradient_qss(tokens.theme_name)
             border = tokens.surface_border
 
         qss = f"""
             QFrame#clickableModeCard {{
-                background-color: {bg};
+                background: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;
             }}

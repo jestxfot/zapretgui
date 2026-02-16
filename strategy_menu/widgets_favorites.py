@@ -2,37 +2,55 @@ from PyQt6.QtWidgets import QToolButton
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QPoint
 
 from .widgets import CompactStrategyItem
+from ui.theme import get_theme_tokens
 
 
-# Стили для избранных (константы для кэширования)
-_STYLE_SELECTED = """
-    FavoriteCompactStrategyItem {
-        background: rgba(96, 205, 255, 0.15);
-        border: 1px solid rgba(96, 205, 255, 0.5);
+def _style_selected(tokens) -> str:
+    return f"""
+    FavoriteCompactStrategyItem {{
+        background: rgba({tokens.accent_rgb_str}, 0.16);
+        border: 1px solid rgba({tokens.accent_rgb_str}, 0.50);
         border-radius: 4px;
-    }
+    }}
 """
-_STYLE_FAVORITE = """
-    FavoriteCompactStrategyItem {
-        background: rgba(255, 215, 0, 0.08);
-        border: 1px solid rgba(255, 215, 0, 0.25);
+
+
+def _style_favorite(tokens) -> str:
+    if tokens.is_light:
+        bg = "rgba(255, 196, 0, 0.10)"
+        bg_hover = "rgba(255, 196, 0, 0.15)"
+        border = "rgba(176, 120, 0, 0.36)"
+        border_hover = "rgba(176, 120, 0, 0.52)"
+    else:
+        bg = "rgba(255, 215, 0, 0.08)"
+        bg_hover = "rgba(255, 215, 0, 0.12)"
+        border = "rgba(255, 215, 0, 0.25)"
+        border_hover = "rgba(255, 215, 0, 0.40)"
+
+    return f"""
+    FavoriteCompactStrategyItem {{
+        background: {bg};
+        border: 1px solid {border};
         border-radius: 4px;
-    }
-    FavoriteCompactStrategyItem:hover {
-        background: rgba(255, 215, 0, 0.12);
-        border-color: rgba(255, 215, 0, 0.4);
-    }
+    }}
+    FavoriteCompactStrategyItem:hover {{
+        background: {bg_hover};
+        border-color: {border_hover};
+    }}
 """
-_STYLE_NORMAL = """
-    FavoriteCompactStrategyItem {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+
+
+def _style_normal(tokens) -> str:
+    return f"""
+    FavoriteCompactStrategyItem {{
+        background: {tokens.surface_bg};
+        border: 1px solid {tokens.surface_border};
         border-radius: 4px;
-    }
-    FavoriteCompactStrategyItem:hover {
-        background: rgba(255, 255, 255, 0.06);
-        border-color: rgba(255, 255, 255, 0.15);
-    }
+    }}
+    FavoriteCompactStrategyItem:hover {{
+        background: {tokens.surface_bg_hover};
+        border-color: {tokens.surface_border_hover};
+    }}
 """
 
 # Стили для рейтинга стратегий (рабочая/нерабочая)
@@ -73,18 +91,22 @@ _FAV_BTN_STYLE_ACTIVE = """
         color: #ffca28;
     }
 """
-_FAV_BTN_STYLE_INACTIVE = """
-    QToolButton {
+
+
+def _fav_btn_style_inactive(tokens) -> str:
+    inactive_color = "rgba(0, 0, 0, 0.28)" if tokens.is_light else "rgba(255, 255, 255, 0.18)"
+    return f"""
+    QToolButton {{
         border: none;
         background: transparent;
-        color: rgba(255, 255, 255, 0.15);
+        color: {inactive_color};
         font-size: 20px;
         padding: 0;
         margin: 0;
-    }
-    QToolButton:hover {
+    }}
+    QToolButton:hover {{
         color: #ffc107;
-    }
+    }}
 """
 
 
@@ -120,17 +142,18 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
 
     def _apply_style(self, selected):
         """Стиль с учётом избранного и рейтинга (с кэшированием)"""
+        tokens = get_theme_tokens()
         if selected:
-            new_style = _STYLE_SELECTED
+            new_style = _style_selected(tokens)
         else:
             # Сначала проверяем рейтинг (приоритет выше чем избранное)
             rating_style = self._get_rating_style()
             if rating_style:
                 new_style = rating_style
             elif self.is_favorite:
-                new_style = _STYLE_FAVORITE
+                new_style = _style_favorite(tokens)
             else:
-                new_style = _STYLE_NORMAL
+                new_style = _style_normal(tokens)
 
         # Применяем только если стиль изменился
         if self._current_style != new_style:
@@ -154,6 +177,7 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
 
     def _update_favorite_style(self):
         """Стиль звёздочки - крупная и заметная (с кэшированием)"""
+        tokens = get_theme_tokens()
         if self.is_favorite:
             self.favorite_btn.setText("★")
             self.favorite_btn.setToolTip("Убрать из избранных")
@@ -161,12 +185,21 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
         else:
             self.favorite_btn.setText("☆")
             self.favorite_btn.setToolTip("Добавить в избранные")
-            new_style = _FAV_BTN_STYLE_INACTIVE
+            new_style = _fav_btn_style_inactive(tokens)
 
         # Применяем только если стиль изменился
         if self._current_fav_style != new_style:
             self._current_fav_style = new_style
             self.favorite_btn.setStyleSheet(new_style)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._current_fav_style = None
+                self._update_favorite_style()
+        except Exception:
+            pass
+        super().changeEvent(event)
     
     def _toggle_favorite(self):
         """Переключает избранное"""

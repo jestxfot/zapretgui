@@ -1,8 +1,10 @@
 # widgets/progress_bar.py
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QEvent
 from PyQt6.QtGui import QFont
+
+from ui.theme import get_theme_tokens
 
 class AnimatedProgressBar(QWidget):
     """Красивый анимированный прогресс-бар с текстом статуса"""
@@ -29,50 +31,11 @@ class AnimatedProgressBar(QWidget):
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Стиль для прогресс-бара (минималистичный)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                border-radius: 4px;
-                text-align: center;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                font-weight: 500;
-                font-size: 10px;
-                color: rgba(255, 255, 255, 0.8);
-                background-color: rgba(255, 255, 255, 0.08);
-                min-height: 6px;
-                max-height: 6px;
-            }
-            
-            QProgressBar::chunk {
-                background: rgba(255, 255, 255, 0.3);
-                border-radius: 3px;
-            }
-        """)
-
-        # Стиль для метки (минималистичный)
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.7);
-                background-color: transparent;
-                padding: 6px;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                font-size: 11px;
-                font-weight: 400;
-            }
-        """)
-        
         # Добавляем виджеты
         layout.addWidget(self.status_label)
         layout.addWidget(self.progress_bar)
 
-        self.setStyleSheet("""
-            AnimatedProgressBar {
-                background-color: rgba(0, 0, 0, 0.2);
-                border-radius: 16px;
-                border: 1px solid rgba(255, 255, 255, 0.05);
-            }
-        """)
+        self._apply_theme_styles()
 
         # Эффект прозрачности для анимации
         self.opacity_effect = QGraphicsOpacityEffect()
@@ -96,6 +59,64 @@ class AnimatedProgressBar(QWidget):
         
         # Скрываем по умолчанию
         self.hide()
+
+    def _apply_theme_styles(self):
+        tokens = get_theme_tokens()
+        if tokens.is_light:
+            panel_bg = "rgba(255, 255, 255, 0.84)"
+            panel_border = "rgba(0, 0, 0, 0.08)"
+            bar_bg = "rgba(0, 0, 0, 0.10)"
+        else:
+            panel_bg = "rgba(0, 0, 0, 0.20)"
+            panel_border = "rgba(255, 255, 255, 0.05)"
+            bar_bg = "rgba(255, 255, 255, 0.08)"
+
+        chunk_bg = f"rgba({tokens.accent_rgb_str}, 0.60)"
+
+        self.progress_bar.setStyleSheet(
+            f"""
+            QProgressBar {{
+                border: none;
+                border-radius: 4px;
+                text-align: center;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-weight: 500;
+                font-size: 10px;
+                color: {tokens.fg_muted};
+                background-color: {bar_bg};
+                min-height: 6px;
+                max-height: 6px;
+            }}
+
+            QProgressBar::chunk {{
+                background: {chunk_bg};
+                border-radius: 3px;
+            }}
+            """
+        )
+
+        self.status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {tokens.fg_muted};
+                background-color: transparent;
+                padding: 6px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+                font-size: 11px;
+                font-weight: 400;
+            }}
+            """
+        )
+
+        self.setStyleSheet(
+            f"""
+            AnimatedProgressBar {{
+                background-color: {panel_bg};
+                border-radius: 16px;
+                border: 1px solid {panel_border};
+            }}
+            """
+        )
     
     def show_animated(self):
         """Показать с анимацией"""
@@ -160,3 +181,11 @@ class AnimatedProgressBar(QWidget):
             opacity = 0.7
             
         self.opacity_effect.setOpacity(opacity)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)

@@ -14,7 +14,7 @@ import os
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss
 from log import log
 
 
@@ -399,7 +399,7 @@ class AddBlobDialog(QDialog):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
-            container_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
+            container_bg = get_card_gradient_qss(tokens.theme_name)
 
             if self._container is not None:
                 qss = (

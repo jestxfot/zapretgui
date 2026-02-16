@@ -1,5 +1,6 @@
 # Preset: general ALT3
 # ActivePreset: general ALT3
+# BuiltinVersion: 1.0
 # IconColor: #e6c300ff
 
 --lua-init=@lua/zapret-lib.lua

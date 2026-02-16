@@ -1,6 +1,9 @@
 Prefer delegating codebase exploration to subagents; ask questions only when truly blocked; consider several options before making interactive/destructive changes.
 
-Ask questions before changing anything interactively, considering several possible options!
+План работы и коммуникации с пользователем:
+1. Смотришь код и как что завязано. Смотришь ВСЕ файлы очень подробно.
+2. Потом показываешь в ответе полный flow чтобы ты запомнил как файлы связаны друг с другом и что как работает
+3. ВСЕГДА ЗАДАВАЙ МНЕ ВОПРОСЫ ПЕРЕД ЛЮБЫМИ ПРАВКАМИ!
 
 Note: In this repo, multiple agents may work in parallel (e.g. GPT/Codex/Claude). If you see unexpected local changes, assume another agent might be working; don't panic or revert automatically.
 
@@ -26,26 +29,9 @@ Analyze <symptom/log/question>. Find where it happens in the code and propose th
 Return: (1) files+symbols, (2) root cause, (3) targeted fix, (4) how to verify.
 ```
 
-“Make sure to commit every change, as the code sometimes gets reset.
-
-Git workflow (auto-commit + push)
-
-- После любых изменений в коде/конфигах: делай коммит (обычно 1 коммит на задачу/запрос), не оставляй изменения незакоммиченными.
-- По умолчанию после каждого успешного коммита: делай `git push upstream` на текущую ветку.
-- Не полагайся на `origin` (форк может отсутствовать/быть удален).
-- Если push невозможен (нет remote/прав/инета): сообщи об ошибке и оставь локальный коммит.
-- Никогда не используй `--force`/`--force-with-lease`.
-- Никогда не меняй git config.
-
 hosts.ini (каталог доменов)
 
 - Канонический путь каталога: `<repo>/json/hosts.ini` (рядом с репозиторием).
 - Для exe-сборки это тоже внешний файл рядом с папкой приложения: `<exe_dir>/json/hosts.ini`.
 - Единственный валидный путь: внешний `./json/hosts.ini` (рядом с репой или рядом с exe).
 - Любые пути вида `.../_internal/json/hosts.ini`, `sys._MEIPASS/...` и вычисление от `__file__` внутри frozen-бандла считаются багом и должны быть устранены (не использовать как fallback).
-
-Обязательно перед каждым `git commit`:
-- проверь, что staged-изменения содержат актуальный код: `git diff --staged`
-
-Обязательно сразу после каждого коммита:
-- проверь, что в коммите именно последние изменения (а не старый код): `git show --stat` и при необходимости `git show`

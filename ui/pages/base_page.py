@@ -5,7 +5,7 @@ import sys
 from PyQt6.QtCore import Qt, QEvent, QTimer
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QPlainTextEdit, QTextEdit
 from PyQt6.QtGui import QFont
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, bump_theme_refresh_counter
 
 
 class ScrollBlockingPlainTextEdit(QPlainTextEdit):
@@ -68,6 +68,8 @@ class BasePage(QScrollArea):
         self.parent_app = parent
         self._applying_theme_styles = False
         self._theme_refresh_scheduled = False
+        self._theme_refresh_pending_when_hidden = False
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
         
         # Настройка ScrollArea
         self.setWidgetResizable(True)
@@ -137,12 +139,20 @@ class BasePage(QScrollArea):
 
         self._apply_theme_styles()
 
+    def _build_theme_refresh_key(self, tokens) -> tuple[str, str, str]:
+        display_font_family = getattr(tokens, "font_family_display_qss", tokens.font_family_qss)
+        return (str(tokens.theme_name), str(tokens.font_family_qss), str(display_font_family))
+
     def _apply_theme_styles(self) -> None:
         if self._applying_theme_styles:
             return
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
+            theme_key = self._build_theme_refresh_key(tokens)
+            if theme_key == self._last_theme_refresh_key:
+                return
+
             display_font_family = getattr(tokens, "font_family_display_qss", tokens.font_family_qss)
             self.setStyleSheet(
                 """
@@ -173,6 +183,8 @@ class BasePage(QScrollArea):
                     }}
                     """
                 )
+
+            self._last_theme_refresh_key = theme_key
         finally:
             self._applying_theme_styles = False
 
@@ -186,11 +198,35 @@ class BasePage(QScrollArea):
 
     def _on_debounced_theme_change(self) -> None:
         self._theme_refresh_scheduled = False
+        try:
+            page_key = self.__class__.__name__
+            object_name = self.objectName()
+            if object_name:
+                page_key = f"{page_key}#{object_name}"
+            bump_theme_refresh_counter(page_key)
+        except Exception:
+            pass
         self._apply_theme_styles()
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if not self._theme_refresh_pending_when_hidden:
+            return
+        self._theme_refresh_pending_when_hidden = False
+        self._schedule_theme_refresh()
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                try:
+                    tokens = get_theme_tokens()
+                    if self._build_theme_refresh_key(tokens) == self._last_theme_refresh_key:
+                        return super().changeEvent(event)
+                except Exception:
+                    pass
+                if not self.isVisible():
+                    self._theme_refresh_pending_when_hidden = True
+                    return super().changeEvent(event)
                 self._schedule_theme_refresh()
         except Exception:
             pass

@@ -401,6 +401,7 @@ class AboutDialog(QDialog):
 
     def _get_button_style(self, button_type):
         """Получает стиль для кнопки в зависимости от типа и темы"""
+        accent_fg = self._get_accent_button_text_color()
         if self.theme_info['is_pure_black']:
             if button_type == "copy":
                 return """
@@ -439,7 +440,7 @@ class AboutDialog(QDialog):
             return f"""
                 QPushButton {{
                     background-color: rgb({color});
-                    color: white;
+                    color: {accent_fg};
                     border: none;
                     padding: 6px 16px;
                     border-radius: 4px;
@@ -455,7 +456,7 @@ class AboutDialog(QDialog):
             return f"""
                 QPushButton {{
                     background-color: rgb({color});
-                    color: white;
+                    color: {accent_fg};
                     border: none;
                     padding: 6px 16px;
                     border-radius: 4px;
@@ -466,6 +467,19 @@ class AboutDialog(QDialog):
                     background-color: rgba({color}, 0.8);
                 }}
             """
+
+    def _get_accent_button_text_color(self):
+        """Подбирает читаемый цвет текста поверх accent-кнопок."""
+        try:
+            rgb = [int(x.strip()) for x in str(self.theme_info.get('button_color', '0, 125, 242')).split(',')]
+            if len(rgb) != 3:
+                return "#f5f5f5"
+            yiq = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000
+            if yiq >= 160:
+                return "#111111"
+            return "#f5f5f5"
+        except Exception:
+            return "#f5f5f5"
 
     def _create_info_tab(self):
         """Создает вкладку с основной информацией"""

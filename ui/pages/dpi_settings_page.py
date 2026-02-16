@@ -9,7 +9,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
 from log import log
 
 
@@ -27,6 +27,10 @@ def _accent_fg_for_tokens(tokens) -> str:
         return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
     except Exception:
         return "rgba(18, 18, 18, 0.90)"
+
+
+def _build_theme_refresh_key(tokens) -> tuple[str, str, str]:
+    return (str(tokens.theme_name), str(tokens.accent_hex), str(tokens.font_family_qss))
 
 
 class Win11ToggleSwitch(QCheckBox):
@@ -122,6 +126,8 @@ class Win11ToggleRow(QWidget):
 
         self._icon_name = icon_name
         self._icon_color = icon_color
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
+        self._theme_refresh_pending_when_hidden = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
@@ -131,7 +137,7 @@ class Win11ToggleRow(QWidget):
         self._icon_label = QLabel()
         self._icon_label.setFixedSize(22, 22)
         layout.addWidget(self._icon_label)
-        self._refresh_icon()
+        self._refresh_icon(get_theme_tokens())
         
         # Текст
         text_layout = QVBoxLayout()
@@ -163,18 +169,20 @@ class Win11ToggleRow(QWidget):
         self.toggle.toggled.connect(self.toggled.emit)
         layout.addWidget(self.toggle)
 
-    def _resolved_icon_color(self) -> str:
-        tokens = get_theme_tokens()
+    def _resolved_icon_color(self, tokens=None) -> str:
+        theme_tokens = tokens or get_theme_tokens()
         c = str(self._icon_color or "").strip()
         if not c:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         return c
 
-    def _refresh_icon(self) -> None:
+    def _refresh_icon(self, tokens=None) -> None:
+        theme_tokens = tokens or get_theme_tokens()
         try:
-            color = self._resolved_icon_color()
+            self._last_theme_refresh_key = _build_theme_refresh_key(theme_tokens)
+            color = self._resolved_icon_color(theme_tokens)
             self._icon_label.setPixmap(qta.icon(self._icon_name, color=color).pixmap(18, 18))
         except Exception:
             return
@@ -182,10 +190,27 @@ class Win11ToggleRow(QWidget):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._refresh_icon()
+                tokens = get_theme_tokens()
+                theme_key = _build_theme_refresh_key(tokens)
+                if theme_key == self._last_theme_refresh_key:
+                    return super().changeEvent(event)
+                if not self.isVisible():
+                    self._theme_refresh_pending_when_hidden = True
+                    return super().changeEvent(event)
+                self._refresh_icon(tokens)
         except Exception:
             pass
         super().changeEvent(event)
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if not self._theme_refresh_pending_when_hidden:
+            return
+        self._theme_refresh_pending_when_hidden = False
+        tokens = get_theme_tokens()
+        if _build_theme_refresh_key(tokens) == self._last_theme_refresh_key:
+            return
+        self._refresh_icon(tokens)
         
     def setChecked(self, checked: bool, block_signals: bool = False):
         if block_signals:
@@ -220,6 +245,9 @@ class Win11RadioOption(QWidget):
         self._icon_label: QLabel | None = None
         self._badge_label: QLabel | None = None
         self._applying_theme_styles = False
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
+        self._theme_refresh_pending_when_hidden = False
+        initial_tokens = get_theme_tokens()
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -235,7 +263,7 @@ class Win11RadioOption(QWidget):
             self._icon_label = QLabel()
             self._icon_label.setFixedSize(28, 28)
             layout.addWidget(self._icon_label)
-            self._refresh_icon()
+            self._refresh_icon(initial_tokens)
         
         # Текстовый блок
         text_layout = QVBoxLayout()
@@ -257,7 +285,7 @@ class Win11RadioOption(QWidget):
         
         if recommended:
             self._badge_label = QLabel("рекомендуется")
-            self._refresh_badge()
+            self._refresh_badge(initial_tokens)
             title_layout.addWidget(self._badge_label)
         
         title_layout.addStretch()
@@ -275,34 +303,36 @@ class Win11RadioOption(QWidget):
         
         layout.addLayout(text_layout, 1)
         
-        self._update_style()
+        self._update_style(initial_tokens)
+        self._last_theme_refresh_key = _build_theme_refresh_key(initial_tokens)
 
-    def _resolved_icon_color(self) -> str:
-        tokens = get_theme_tokens()
+    def _resolved_icon_color(self, tokens=None) -> str:
+        theme_tokens = tokens or get_theme_tokens()
         c = str(self._icon_color or "").strip()
         if not c:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         return c
 
-    def _refresh_icon(self) -> None:
+    def _refresh_icon(self, tokens=None) -> None:
         if self._icon_label is None or not self._icon_name:
             return
+        theme_tokens = tokens or get_theme_tokens()
         try:
-            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color()).pixmap(24, 24))
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color(theme_tokens)).pixmap(24, 24))
         except Exception:
             return
 
-    def _refresh_badge(self) -> None:
+    def _refresh_badge(self, tokens=None) -> None:
         if self._badge_label is None:
             return
-        tokens = get_theme_tokens()
+        theme_tokens = tokens or get_theme_tokens()
         self._badge_label.setStyleSheet(
             f"""
             QLabel {{
-                color: {_accent_fg_for_tokens(tokens)};
-                background-color: {tokens.accent_hex};
+                color: {_accent_fg_for_tokens(theme_tokens)};
+                background-color: {theme_tokens.accent_hex};
                 font-size: 10px;
                 font-weight: 600;
                 padding: 2px 6px;
@@ -316,12 +346,34 @@ class Win11RadioOption(QWidget):
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
                 if self._applying_theme_styles:
                     return super().changeEvent(event)
-                self._refresh_icon()
-                self._refresh_badge()
-                self._update_style()
+                tokens = get_theme_tokens()
+                theme_key = _build_theme_refresh_key(tokens)
+                if theme_key == self._last_theme_refresh_key:
+                    return super().changeEvent(event)
+                if not self.isVisible():
+                    self._theme_refresh_pending_when_hidden = True
+                    return super().changeEvent(event)
+                self._last_theme_refresh_key = theme_key
+                self._refresh_icon(tokens)
+                self._refresh_badge(tokens)
+                self._update_style(tokens)
         except Exception:
             pass
         super().changeEvent(event)
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if not self._theme_refresh_pending_when_hidden:
+            return
+        self._theme_refresh_pending_when_hidden = False
+        tokens = get_theme_tokens()
+        theme_key = _build_theme_refresh_key(tokens)
+        if theme_key == self._last_theme_refresh_key:
+            return
+        self._last_theme_refresh_key = theme_key
+        self._refresh_icon(tokens)
+        self._refresh_badge(tokens)
+        self._update_style(tokens)
         
     def setSelected(self, selected: bool):
         self._selected = selected
@@ -330,27 +382,33 @@ class Win11RadioOption(QWidget):
     def isSelected(self) -> bool:
         return self._selected
         
-    def _update_style(self):
+    def _update_style(self, tokens=None):
         if self._applying_theme_styles:
             return
 
         self._applying_theme_styles = True
         try:
-            tokens = get_theme_tokens()
+            theme_tokens = tokens or get_theme_tokens()
 
             if self._selected:
-                bg = tokens.accent_soft_bg
-                border = f"rgba({tokens.accent_rgb_str}, 0.60)"
+                selected_bg = theme_tokens.accent_soft_bg_hover if self._hover else theme_tokens.accent_soft_bg
+                bg = get_tinted_surface_gradient_qss(
+                    selected_bg,
+                    theme_name=theme_tokens.theme_name,
+                    hover=self._hover,
+                )
+                border_alpha = "0.68" if self._hover else "0.60"
+                border = f"rgba({theme_tokens.accent_rgb_str}, {border_alpha})"
             elif self._hover:
-                bg = tokens.surface_bg_hover
-                border = tokens.surface_border_hover
+                bg = get_card_gradient_qss(theme_tokens.theme_name, hover=True)
+                border = theme_tokens.surface_border_hover
             else:
-                bg = tokens.surface_bg
-                border = tokens.surface_border
+                bg = get_card_gradient_qss(theme_tokens.theme_name)
+                border = theme_tokens.surface_border
             
             self.setStyleSheet(f"""
                 Win11RadioOption {{
-                    background-color: {bg};
+                    background: {bg};
                     border: 1px solid {border};
                     border-radius: 8px;
                 }}
@@ -388,10 +446,26 @@ class Win11RadioOption(QWidget):
         
         # Внешний круг
         tokens = get_theme_tokens()
-        if self._selected:
-            painter.setPen(QColor(tokens.accent_hex))
-        else:
-            painter.setPen(QColor(tokens.toggle_off_border))
+        accent_r, accent_g, accent_b = tokens.accent_rgb
+        selected_ring = QColor(accent_r, accent_g, accent_b, 245)
+        selected_dot = QColor(accent_r, accent_g, accent_b, 255)
+        unselected_ring = QColor(accent_r, accent_g, accent_b, 140 if tokens.is_light else 165)
+
+        if not selected_ring.isValid():
+            selected_ring = QColor(tokens.accent_hex)
+            selected_ring.setAlpha(245)
+        if not selected_dot.isValid():
+            selected_dot = QColor(tokens.accent_hex)
+            selected_dot.setAlpha(255)
+        if not unselected_ring.isValid():
+            unselected_ring = QColor(tokens.accent_hex)
+            unselected_ring.setAlpha(140 if tokens.is_light else 165)
+
+        ring_color = selected_ring if self._selected else unselected_ring
+        pen = painter.pen()
+        pen.setColor(ring_color)
+        pen.setWidth(2 if self._selected else 1)
+        painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
             
         painter.drawEllipse(circle_x - 8, circle_y - 8, 16, 16)
@@ -399,7 +473,7 @@ class Win11RadioOption(QWidget):
         # Внутренний круг (если выбран)
         if self._selected:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(tokens.accent_hex))
+            painter.setBrush(selected_dot)
             painter.drawEllipse(circle_x - 4, circle_y - 4, 8, 8)
             
         painter.end()
@@ -418,6 +492,9 @@ class Win11NumberRow(QWidget):
         self._icon_name = icon_name
         self._icon_color = icon_color
         self._applying_theme_styles = False
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
+        self._theme_refresh_pending_when_hidden = False
+        initial_tokens = get_theme_tokens()
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
@@ -427,7 +504,7 @@ class Win11NumberRow(QWidget):
         self._icon_label = QLabel()
         self._icon_label.setFixedSize(22, 22)
         layout.addWidget(self._icon_label)
-        self._refresh_icon()
+        self._refresh_icon(initial_tokens)
         
         # Текст
         text_layout = QVBoxLayout()
@@ -462,43 +539,45 @@ class Win11NumberRow(QWidget):
         self.spinbox.setSuffix(suffix)
         self.spinbox.setFixedWidth(80)
         self.spinbox.setFixedHeight(28)
-        self._apply_theme_styles()
+        self._apply_theme_styles(initial_tokens)
+        self._last_theme_refresh_key = _build_theme_refresh_key(initial_tokens)
         self.spinbox.valueChanged.connect(self.valueChanged.emit)
         layout.addWidget(self.spinbox)
 
-    def _resolved_icon_color(self) -> str:
-        tokens = get_theme_tokens()
+    def _resolved_icon_color(self, tokens=None) -> str:
+        theme_tokens = tokens or get_theme_tokens()
         c = str(self._icon_color or "").strip()
         if not c:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         return c
 
-    def _refresh_icon(self) -> None:
+    def _refresh_icon(self, tokens=None) -> None:
+        theme_tokens = tokens or get_theme_tokens()
         try:
-            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color()).pixmap(18, 18))
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color(theme_tokens)).pixmap(18, 18))
         except Exception:
             return
 
-    def _apply_theme_styles(self) -> None:
-        tokens = get_theme_tokens()
+    def _apply_theme_styles(self, tokens=None) -> None:
+        theme_tokens = tokens or get_theme_tokens()
         self.spinbox.setStyleSheet(
             f"""
             QSpinBox {{
-                background-color: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
+                background-color: {theme_tokens.surface_bg};
+                border: 1px solid {theme_tokens.surface_border};
                 border-radius: 4px;
                 padding: 2px 10px;
-                color: {tokens.fg};
+                color: {theme_tokens.fg};
                 font-size: 12px;
             }}
             QSpinBox:hover {{
-                background-color: {tokens.surface_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
+                background-color: {theme_tokens.surface_bg_hover};
+                border: 1px solid {theme_tokens.surface_border_hover};
             }}
             QSpinBox:focus {{
-                border: 1px solid {tokens.accent_hex};
+                border: 1px solid {theme_tokens.accent_hex};
             }}
             QSpinBox::up-button, QSpinBox::down-button {{
                 width: 0px;
@@ -518,15 +597,40 @@ class Win11NumberRow(QWidget):
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
                 if self._applying_theme_styles:
                     return super().changeEvent(event)
+                tokens = get_theme_tokens()
+                theme_key = _build_theme_refresh_key(tokens)
+                if theme_key == self._last_theme_refresh_key:
+                    return super().changeEvent(event)
+                if not self.isVisible():
+                    self._theme_refresh_pending_when_hidden = True
+                    return super().changeEvent(event)
                 self._applying_theme_styles = True
                 try:
-                    self._refresh_icon()
-                    self._apply_theme_styles()
+                    self._last_theme_refresh_key = theme_key
+                    self._refresh_icon(tokens)
+                    self._apply_theme_styles(tokens)
                 finally:
                     self._applying_theme_styles = False
         except Exception:
             pass
         super().changeEvent(event)
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if not self._theme_refresh_pending_when_hidden:
+            return
+        self._theme_refresh_pending_when_hidden = False
+        tokens = get_theme_tokens()
+        theme_key = _build_theme_refresh_key(tokens)
+        if theme_key == self._last_theme_refresh_key:
+            return
+        self._applying_theme_styles = True
+        try:
+            self._last_theme_refresh_key = theme_key
+            self._refresh_icon(tokens)
+            self._apply_theme_styles(tokens)
+        finally:
+            self._applying_theme_styles = False
         
     def setValue(self, value: int, block_signals: bool = False):
         if block_signals:
@@ -552,6 +656,9 @@ class Win11ComboRow(QWidget):
         self._icon_name = icon_name
         self._icon_color = icon_color
         self._applying_theme_styles = False
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
+        self._theme_refresh_pending_when_hidden = False
+        initial_tokens = get_theme_tokens()
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
@@ -561,7 +668,7 @@ class Win11ComboRow(QWidget):
         self._icon_label = QLabel()
         self._icon_label.setFixedSize(22, 22)
         layout.addWidget(self._icon_label)
-        self._refresh_icon()
+        self._refresh_icon(initial_tokens)
 
         # Текст
         text_layout = QVBoxLayout()
@@ -592,7 +699,8 @@ class Win11ComboRow(QWidget):
         self.combo = QComboBox()
         self.combo.setFixedWidth(160)
         self.combo.setFixedHeight(28)
-        self._apply_theme_styles()
+        self._apply_theme_styles(initial_tokens)
+        self._last_theme_refresh_key = _build_theme_refresh_key(initial_tokens)
 
         if items:
             for text, data in items:
@@ -602,41 +710,42 @@ class Win11ComboRow(QWidget):
         self.combo.currentTextChanged.connect(self.currentTextChanged.emit)
         layout.addWidget(self.combo)
 
-    def _resolved_icon_color(self) -> str:
-        tokens = get_theme_tokens()
+    def _resolved_icon_color(self, tokens=None) -> str:
+        theme_tokens = tokens or get_theme_tokens()
         c = str(self._icon_color or "").strip()
         if not c:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         if _LEGACY_DEFAULT_ACCENT and c.lower() == _LEGACY_DEFAULT_ACCENT:
-            return tokens.accent_hex
+            return theme_tokens.accent_hex
         return c
 
-    def _refresh_icon(self) -> None:
+    def _refresh_icon(self, tokens=None) -> None:
+        theme_tokens = tokens or get_theme_tokens()
         try:
-            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color()).pixmap(18, 18))
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=self._resolved_icon_color(theme_tokens)).pixmap(18, 18))
         except Exception:
             return
 
-    def _apply_theme_styles(self) -> None:
-        tokens = get_theme_tokens()
-        popup_bg = tokens.surface_bg_hover
-        popup_fg = tokens.fg
+    def _apply_theme_styles(self, tokens=None) -> None:
+        theme_tokens = tokens or get_theme_tokens()
+        popup_bg = theme_tokens.surface_bg_hover
+        popup_fg = theme_tokens.fg
         self.combo.setStyleSheet(
             f"""
             QComboBox {{
-                background-color: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
+                background-color: {theme_tokens.surface_bg};
+                border: 1px solid {theme_tokens.surface_border};
                 border-radius: 4px;
                 padding: 2px 10px;
-                color: {tokens.fg};
+                color: {theme_tokens.fg};
                 font-size: 12px;
             }}
             QComboBox:hover {{
-                background-color: {tokens.surface_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
+                background-color: {theme_tokens.surface_bg_hover};
+                border: 1px solid {theme_tokens.surface_border_hover};
             }}
             QComboBox:focus {{
-                border: 1px solid {tokens.accent_hex};
+                border: 1px solid {theme_tokens.accent_hex};
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -646,13 +755,13 @@ class Win11ComboRow(QWidget):
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
-                border-top: 5px solid {tokens.fg};
+                border-top: 5px solid {theme_tokens.fg};
                 margin-right: 5px;
             }}
             QComboBox QAbstractItemView {{
                 background-color: {popup_bg};
-                border: 1px solid {tokens.surface_border};
-                selection-background-color: {tokens.accent_soft_bg};
+                border: 1px solid {theme_tokens.surface_border};
+                selection-background-color: {theme_tokens.accent_soft_bg};
                 color: {popup_fg};
                 outline: none;
             }}
@@ -661,10 +770,10 @@ class Win11ComboRow(QWidget):
                 padding: 4px 8px;
             }}
             QComboBox QAbstractItemView::item:hover {{
-                background-color: {tokens.surface_bg_hover};
+                background-color: {theme_tokens.surface_bg_hover};
             }}
             QComboBox QAbstractItemView::item:selected {{
-                background-color: {tokens.accent_soft_bg_hover};
+                background-color: {theme_tokens.accent_soft_bg_hover};
             }}
             QScrollBar:vertical {{
                 width: 0px;
@@ -684,15 +793,40 @@ class Win11ComboRow(QWidget):
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
                 if self._applying_theme_styles:
                     return super().changeEvent(event)
+                tokens = get_theme_tokens()
+                theme_key = _build_theme_refresh_key(tokens)
+                if theme_key == self._last_theme_refresh_key:
+                    return super().changeEvent(event)
+                if not self.isVisible():
+                    self._theme_refresh_pending_when_hidden = True
+                    return super().changeEvent(event)
                 self._applying_theme_styles = True
                 try:
-                    self._refresh_icon()
-                    self._apply_theme_styles()
+                    self._last_theme_refresh_key = theme_key
+                    self._refresh_icon(tokens)
+                    self._apply_theme_styles(tokens)
                 finally:
                     self._applying_theme_styles = False
         except Exception:
             pass
         super().changeEvent(event)
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if not self._theme_refresh_pending_when_hidden:
+            return
+        self._theme_refresh_pending_when_hidden = False
+        tokens = get_theme_tokens()
+        theme_key = _build_theme_refresh_key(tokens)
+        if theme_key == self._last_theme_refresh_key:
+            return
+        self._applying_theme_styles = True
+        try:
+            self._last_theme_refresh_key = theme_key
+            self._refresh_icon(tokens)
+            self._apply_theme_styles(tokens)
+        finally:
+            self._applying_theme_styles = False
 
     def setCurrentData(self, data, block_signals: bool = False):
         """Устанавливает текущий элемент по данным"""
@@ -728,22 +862,24 @@ class DpiSettingsPage(BasePage):
     def __init__(self, parent=None):
         super().__init__("Настройки DPI", "Параметры обхода блокировок", parent)
         self._applying_theme_styles = False
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
+        self._theme_refresh_pending_when_hidden = False
         self._build_ui()
         self._load_settings()
 
-    def _apply_theme_styles(self) -> None:
-        tokens = get_theme_tokens()
+    def _apply_theme_styles(self, tokens=None) -> None:
+        theme_tokens = tokens or get_theme_tokens()
         try:
             if hasattr(self, "zapret2_header") and self.zapret2_header is not None:
                 self.zapret2_header.setStyleSheet(
-                    f"color: {tokens.accent_hex}; font-size: 13px; font-weight: 600; padding: 8px 0 4px 0;"
+                    f"color: {theme_tokens.accent_hex}; font-size: 13px; font-weight: 600; padding: 8px 0 4px 0;"
                 )
         except Exception:
             pass
 
         try:
             if hasattr(self, "separator2") and self.separator2 is not None:
-                self.separator2.setStyleSheet(f"background-color: {tokens.divider_strong}; margin: 8px 0;")
+                self.separator2.setStyleSheet(f"background-color: {theme_tokens.divider_strong}; margin: 8px 0;")
         except Exception:
             pass
 
@@ -752,14 +888,38 @@ class DpiSettingsPage(BasePage):
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
                 if self._applying_theme_styles:
                     return super().changeEvent(event)
+                tokens = get_theme_tokens()
+                theme_key = _build_theme_refresh_key(tokens)
+                if theme_key == self._last_theme_refresh_key:
+                    return super().changeEvent(event)
+                if not self.isVisible():
+                    self._theme_refresh_pending_when_hidden = True
+                    return super().changeEvent(event)
                 self._applying_theme_styles = True
                 try:
-                    self._apply_theme_styles()
+                    self._last_theme_refresh_key = theme_key
+                    self._apply_theme_styles(tokens)
                 finally:
                     self._applying_theme_styles = False
         except Exception:
             pass
         super().changeEvent(event)
+
+    def showEvent(self, event):  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if not self._theme_refresh_pending_when_hidden:
+            return
+        self._theme_refresh_pending_when_hidden = False
+        tokens = get_theme_tokens()
+        theme_key = _build_theme_refresh_key(tokens)
+        if theme_key == self._last_theme_refresh_key:
+            return
+        self._applying_theme_styles = True
+        try:
+            self._last_theme_refresh_key = theme_key
+            self._apply_theme_styles(tokens)
+        finally:
+            self._applying_theme_styles = False
         
     def _build_ui(self):
         """Строит UI страницы"""

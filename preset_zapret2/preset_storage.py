@@ -367,6 +367,30 @@ def _parse_metadata_from_header(header: str) -> Tuple[str, str, str, str]:
     return created, modified, description, icon_color
 
 
+def _parse_builtin_version_from_header(header: str) -> Optional[str]:
+    """Parses `# BuiltinVersion: X.Y` from header comments."""
+    for line in (header or "").split('\n'):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            break
+        match = re.match(r'#\s*BuiltinVersion:\s*(.+)', line, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip()
+            return value or None
+    return None
+
+
+def _read_existing_builtin_version(path: Path) -> Optional[str]:
+    """Reads BuiltinVersion from existing preset file (if present)."""
+    try:
+        if not path.exists():
+            return None
+        content = path.read_text(encoding="utf-8", errors="replace")
+        return _parse_builtin_version_from_header(content)
+    except Exception:
+        return None
+
+
 def _parse_timestamps_from_header(header: str) -> Tuple[str, str]:
     """Backward-compatible helper returning (created, modified) only."""
     created, modified, _desc, _icon = _parse_metadata_from_header(header)
@@ -399,12 +423,21 @@ def save_preset(preset: Preset) -> bool:
         icon_color = normalize_preset_icon_color(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
         preset.icon_color = icon_color
 
-        # Build raw header
-        data.raw_header = f"""# Preset: {preset.name}
-# Created: {preset.created}
-# Modified: {datetime.now().isoformat()}
-# IconColor: {icon_color}
-# Description: {preset.description}"""
+        # Build raw header. Preserve BuiltinVersion if this file already has it
+        # so versioned auto-updates can compare against local state correctly.
+        builtin_version = _read_existing_builtin_version(preset_path)
+        header_lines = [f"# Preset: {preset.name}"]
+        if builtin_version:
+            header_lines.append(f"# BuiltinVersion: {builtin_version}")
+        header_lines.extend(
+            [
+                f"# Created: {preset.created}",
+                f"# Modified: {datetime.now().isoformat()}",
+                f"# IconColor: {icon_color}",
+                f"# Description: {preset.description}",
+            ]
+        )
+        data.raw_header = "\n".join(header_lines)
 
         # Convert categories to CategoryBlocks
         for cat_name, cat in preset.categories.items():

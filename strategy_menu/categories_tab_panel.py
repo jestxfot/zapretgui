@@ -9,11 +9,12 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QStackedWidget, QFrame,
     QSizePolicy, QAbstractItemView, QPushButton, QMenu, QSplitter
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QTimer, QEvent
 from PyQt6.QtGui import QFont, QCursor
 import qtawesome as qta
 
 from log import log
+from ui.theme import get_theme_tokens
 
 
 class ScrollBlockingListWidget(QListWidget):
@@ -60,27 +61,10 @@ class CategoriesTabPanel(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(3)
-        self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                background: rgba(255, 255, 255, 0.06);
-            }
-            QSplitter::handle:hover {
-                background: rgba(96, 205, 255, 0.3);
-            }
-            QSplitter::handle:pressed {
-                background: rgba(96, 205, 255, 0.5);
-            }
-        """)
 
         # Левая панель со списком вкладок
         self.tabs_container = QFrame()
         self.tabs_container.setMinimumWidth(60)  # Минимум чтобы иконки были видны
-        self.tabs_container.setStyleSheet("""
-            QFrame {
-                background: rgba(20, 20, 22, 0.8);
-                border: none;
-            }
-        """)
         
         tabs_layout = QVBoxLayout(self.tabs_container)
         tabs_layout.setContentsMargins(1, 1, 1, 1)
@@ -98,45 +82,6 @@ class CategoriesTabPanel(QWidget):
         # Запрещаем перетаскивание окна при взаимодействии со списком
         self.list_widget.setProperty("noDrag", True)
         
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                background: transparent;
-                border: none;
-                outline: none;
-            }
-            QListWidget::item {
-                color: rgba(255, 255, 255, 0.7);
-                padding: 2px 5px;
-                border-radius: 3px;
-                font-size: 9px;
-                margin: 0;
-                min-height: 18px;
-            }
-            QListWidget::item:hover {
-                background: rgba(255, 255, 255, 0.08);
-            }
-            QListWidget::item:selected {
-                background: rgba(96, 205, 255, 0.15);
-                color: #60cdff;
-                font-weight: 600;
-            }
-            QScrollBar:vertical {
-                width: 3px;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.15);
-                border-radius: 1px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.25);
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
         
         tabs_layout.addWidget(self.list_widget)
 
@@ -153,6 +98,99 @@ class CategoriesTabPanel(QWidget):
         self.splitter.setStretchFactor(1, 1)  # Правая панель растягивается
 
         layout.addWidget(self.splitter)
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self):
+        tokens = get_theme_tokens()
+
+        if tokens.is_light:
+            splitter_base = "rgba(0, 0, 0, 0.08)"
+            splitter_hover = f"rgba({tokens.accent_rgb_str}, 0.28)"
+            splitter_pressed = f"rgba({tokens.accent_rgb_str}, 0.46)"
+            panel_bg = "rgba(255, 255, 255, 0.88)"
+            item_hover = "rgba(0, 0, 0, 0.06)"
+            scrollbar_handle = "rgba(0, 0, 0, 0.20)"
+            scrollbar_handle_hover = "rgba(0, 0, 0, 0.30)"
+        else:
+            splitter_base = "rgba(255, 255, 255, 0.06)"
+            splitter_hover = f"rgba({tokens.accent_rgb_str}, 0.30)"
+            splitter_pressed = f"rgba({tokens.accent_rgb_str}, 0.50)"
+            panel_bg = "rgba(20, 20, 22, 0.82)"
+            item_hover = "rgba(255, 255, 255, 0.08)"
+            scrollbar_handle = "rgba(255, 255, 255, 0.15)"
+            scrollbar_handle_hover = "rgba(255, 255, 255, 0.25)"
+
+        self.splitter.setStyleSheet(
+            f"""
+            QSplitter::handle {{
+                background: {splitter_base};
+            }}
+            QSplitter::handle:hover {{
+                background: {splitter_hover};
+            }}
+            QSplitter::handle:pressed {{
+                background: {splitter_pressed};
+            }}
+            """
+        )
+
+        self.tabs_container.setStyleSheet(
+            f"""
+            QFrame {{
+                background: {panel_bg};
+                border: none;
+            }}
+            """
+        )
+
+        self.list_widget.setStyleSheet(
+            f"""
+            QListWidget {{
+                background: transparent;
+                border: none;
+                outline: none;
+            }}
+            QListWidget::item {{
+                color: {tokens.fg_muted};
+                padding: 2px 5px;
+                border-radius: 3px;
+                font-size: 9px;
+                margin: 0;
+                min-height: 18px;
+            }}
+            QListWidget::item:hover {{
+                background: {item_hover};
+            }}
+            QListWidget::item:selected {{
+                background: rgba({tokens.accent_rgb_str}, 0.16);
+                color: {tokens.accent_hex};
+                font-weight: 600;
+            }}
+            QScrollBar:vertical {{
+                width: 3px;
+                background: transparent;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {scrollbar_handle};
+                border-radius: 1px;
+                min-height: 20px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {scrollbar_handle_hover};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            """
+        )
+
+        for index, category_key in enumerate(self._tab_category_keys):
+            if not category_key:
+                continue
+            icon_meta = self._tab_icons.get(index)
+            is_inactive = bool(icon_meta[2]) if icon_meta and len(icon_meta) >= 3 else False
+            self._set_tab_icon(index, category_key, is_inactive=is_inactive)
         
     def _restore_selection(self, index):
         """Восстанавливает выделение на указанной вкладке"""
@@ -190,11 +228,12 @@ class CategoriesTabPanel(QWidget):
         """Устанавливает иконку для вкладки"""
         try:
             from strategy_menu.strategies_registry import registry
+            tokens = get_theme_tokens()
 
             cat_info = registry.get_category_info(category_key)
             if cat_info:
                 icon_name = cat_info.icon_name or 'fa5s.globe'
-                icon_color = '#888888' if is_inactive else (cat_info.icon_color or '#60cdff')
+                icon_color = tokens.icon_fg_faint if is_inactive else (cat_info.icon_color or tokens.accent_hex)
 
                 self._tab_icons[index] = (icon_name, icon_color, is_inactive)
 
@@ -256,14 +295,22 @@ class CategoriesTabPanel(QWidget):
             self.list_widget.setCurrentRow(index)
             self.stack_widget.setCurrentIndex(index)
     
-    def blockSignals(self, block):
+    def blockSignals(self, block) -> bool:
         """Блокирует/разблокирует сигналы"""
-        super().blockSignals(block)
+        result = super().blockSignals(block)
         self.list_widget.blockSignals(block)
+        return result
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
     
     # Свойства для совместимости
     @property
     def is_pinned(self):
         return True  # Всегда "закреплена"
     
-

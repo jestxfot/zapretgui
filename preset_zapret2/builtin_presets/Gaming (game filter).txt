@@ -1,5 +1,6 @@
 # Preset: Gaming
 # ActivePreset: Gaming
+# BuiltinVersion: 1.0
 # IconColor: #f07575ff
 
 --lua-init=@lua/zapret-lib.lua

@@ -15,7 +15,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
 from log import log
 from orchestra.blocked_strategies_manager import ASKEY_ALL
 
@@ -168,22 +168,28 @@ class BlockedDomainRow(QFrame):
             tokens = self._tokens or get_theme_tokens("Темная синяя")
 
             if self.is_default:
+                disabled_bg = get_tinted_surface_gradient_qss(
+                    tokens.surface_bg_disabled,
+                    theme_name=tokens.theme_name,
+                )
                 qss = f"""
                     BlockedDomainRow {{
-                        background-color: {tokens.surface_bg_disabled};
+                        background: {disabled_bg};
                         border: 1px solid {tokens.surface_border_disabled};
                         border-radius: 6px;
                     }}
                 """
             else:
+                row_bg = get_card_gradient_qss(tokens.theme_name)
+                row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
                 qss = f"""
                     BlockedDomainRow {{
-                        background-color: {tokens.surface_bg};
+                        background: {row_bg};
                         border: 1px solid {tokens.surface_border};
                         border-radius: 6px;
                     }}
                     BlockedDomainRow:hover {{
-                        background-color: {tokens.surface_bg_hover};
+                        background: {row_bg_hover};
                         border: 1px solid {tokens.surface_border_hover};
                     }}
                 """

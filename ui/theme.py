@@ -1,6 +1,7 @@
 # ui/theme.py
 import os
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty, QThread, QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPalette, QBrush, QPainter, QColor
@@ -10,12 +11,154 @@ from log import log
 from typing import Optional, Tuple
 import time
 
+
+_THEME_SWITCH_METRICS_ACTIVE: dict[str, object] | None = None
+_THEME_SWITCH_METRICS_NEXT_ID = 0
+_THEME_TOKENS_CACHE: dict[str, "ThemeTokens"] = {}
+_RUNTIME_ACTIVE_THEME_NAME: str | None = None
+
+_THEME_NAME_SUFFIXES = (
+    " (заблокировано)",
+    " (AMOLED Premium)",
+    " (Pure Black Premium)",
+)
+
+_QTA_PIXMAP_CACHE_MAX = 512
+_QTA_PIXMAP_CACHE: OrderedDict[tuple[str, str, int], QPixmap] = OrderedDict()
+
+_THEME_DYNAMIC_LAYER_BEGIN = "/* __THEME_DYNAMIC_LAYER_BEGIN__ */"
+_THEME_DYNAMIC_LAYER_END = "/* __THEME_DYNAMIC_LAYER_END__ */"
+
+
+def start_theme_switch_metrics(
+    theme_name: str,
+    *,
+    source: str = "unknown",
+    click_started_at: float | None = None,
+) -> int:
+    """Starts per-switch timing metrics for diagnostics."""
+    global _THEME_SWITCH_METRICS_ACTIVE, _THEME_SWITCH_METRICS_NEXT_ID
+
+    if _THEME_SWITCH_METRICS_ACTIVE is not None:
+        prev_id = _THEME_SWITCH_METRICS_ACTIVE.get("id")
+        prev_theme = _THEME_SWITCH_METRICS_ACTIVE.get("theme_name")
+        log(
+            f"📊 Theme switch #{prev_id} ({prev_theme}) superseded by a new request",
+            "DEBUG",
+        )
+
+    _THEME_SWITCH_METRICS_NEXT_ID += 1
+    switch_id = _THEME_SWITCH_METRICS_NEXT_ID
+    _THEME_SWITCH_METRICS_ACTIVE = {
+        "id": switch_id,
+        "theme_name": theme_name,
+        "source": source,
+        "request_started_at": time.perf_counter(),
+        "click_started_at": click_started_at,
+        "css_apply_ms": None,
+        "page_refresh_total": 0,
+        "page_refresh_counts": {},
+    }
+
+    log(
+        f"📊 Theme switch #{switch_id} started: theme='{theme_name}', source={source}",
+        "DEBUG",
+    )
+    return switch_id
+
+
+def bump_theme_refresh_counter(page_name: str) -> None:
+    """Counts page-level theme refresh handlers for the active switch."""
+    metrics = _THEME_SWITCH_METRICS_ACTIVE
+    if metrics is None:
+        return
+
+    counts = metrics.get("page_refresh_counts")
+    if not isinstance(counts, dict):
+        counts = {}
+        metrics["page_refresh_counts"] = counts
+
+    existing_count = counts.get(page_name, 0)
+    counts[page_name] = (existing_count if isinstance(existing_count, int) else 0) + 1
+
+    refresh_total = metrics.get("page_refresh_total", 0)
+    metrics["page_refresh_total"] = (refresh_total if isinstance(refresh_total, int) else 0) + 1
+
+
+def note_theme_css_apply_duration(elapsed_ms: float) -> None:
+    """Stores main-thread CSS apply timing for the active switch."""
+    metrics = _THEME_SWITCH_METRICS_ACTIVE
+    if metrics is None:
+        return
+    metrics["css_apply_ms"] = float(elapsed_ms)
+
+
+def finish_theme_switch_metrics(
+    switch_id: int | None,
+    *,
+    success: bool,
+    message: str,
+    theme_name: str,
+) -> None:
+    """Finalizes and logs metrics for a specific theme switch request."""
+    global _THEME_SWITCH_METRICS_ACTIVE
+
+    metrics = _THEME_SWITCH_METRICS_ACTIVE
+    if metrics is None:
+        return
+    if switch_id is None:
+        return
+    active_id = metrics.get("id", -1)
+    if not isinstance(active_id, int):
+        return
+    if active_id != int(switch_id):
+        return
+
+    done_at = time.perf_counter()
+    request_started_raw = metrics.get("request_started_at", done_at)
+    request_started_at = float(request_started_raw) if isinstance(request_started_raw, (int, float)) else done_at
+    request_ms = (done_at - request_started_at) * 1000
+
+    click_ms_text = "n/a"
+    click_started_at = metrics.get("click_started_at")
+    if isinstance(click_started_at, (int, float)):
+        click_ms = (done_at - float(click_started_at)) * 1000
+        click_ms_text = f"{click_ms:.0f}ms"
+
+    css_apply_ms = metrics.get("css_apply_ms")
+    css_apply_text = "n/a"
+    if isinstance(css_apply_ms, (int, float)):
+        css_apply_text = f"{float(css_apply_ms):.0f}ms"
+
+    refresh_total_raw = metrics.get("page_refresh_total", 0)
+    refresh_total = int(refresh_total_raw) if isinstance(refresh_total_raw, int) else 0
+    refresh_counts = metrics.get("page_refresh_counts")
+    top_refresh_text = "none"
+    if isinstance(refresh_counts, dict) and refresh_counts:
+        ranked = sorted(refresh_counts.items(), key=lambda item: item[1], reverse=True)
+        top_refresh_text = ", ".join(f"{name}:{count}" for name, count in ranked[:5])
+
+    level = "INFO" if success else "WARNING"
+    status = "ok" if success else "error"
+    log(
+        (
+            f"📊 Theme switch #{switch_id} {status}: "
+            f"theme='{theme_name}', request_to_done={request_ms:.0f}ms, "
+            f"click_to_done={click_ms_text}, css_apply={css_apply_text}, "
+            f"page_refresh_total={refresh_total}, top_refresh=[{top_refresh_text}], "
+            f"message='{message}'"
+        ),
+        level,
+    )
+
+    _THEME_SWITCH_METRICS_ACTIVE = None
+
 # Константы - Windows 11 style мягкие цвета
 # bg_color - цвет фона окна (для цветных тем - тёмный оттенок основного цвета)
 THEMES = {
     # Мягкие пастельные оттенки в стиле Windows 11
     # Темная синяя - оставляем оригинальный тёмно-серый фон
-    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "95, 205, 254", "bg_color": "30, 32, 32"},
+    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "95, 205, 254", "bg_color": "31, 32, 32"},
     # Бирюзовая - тёмный бирюзовый фон
     "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205", "bg_color": "20, 35, 38"},
     # Янтарная - тёмный янтарный/коричневый фон
@@ -733,6 +876,51 @@ def _mix_rgb(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tupl
     )
 
 
+def _accent_foreground_color(accent_rgb: tuple[int, int, int]) -> str:
+    """Returns readable text color over accent backgrounds."""
+    r, g, b = accent_rgb
+    yiq = (r * 299 + g * 587 + b * 114) / 1000
+    if yiq >= 160:
+        return "rgba(18, 18, 18, 0.90)"
+    return "rgba(245, 245, 245, 0.95)"
+
+
+def _normalize_theme_name(theme_name: str | None) -> str:
+    raw = str(theme_name or "").strip()
+    if not raw:
+        return "Темная синяя"
+
+    clean = raw
+    for suffix in _THEME_NAME_SUFFIXES:
+        clean = clean.replace(suffix, "")
+
+    if clean in THEMES:
+        return clean
+    return "Темная синяя"
+
+
+def set_active_theme_name(theme_name: str | None) -> str:
+    """Sets runtime active theme used by token/icon helpers."""
+    global _RUNTIME_ACTIVE_THEME_NAME
+    clean = _normalize_theme_name(theme_name)
+    _RUNTIME_ACTIVE_THEME_NAME = clean
+    return clean
+
+
+def get_active_theme_name() -> str:
+    """Returns runtime theme (falls back to persisted registry theme)."""
+    if _RUNTIME_ACTIVE_THEME_NAME in THEMES:
+        return str(_RUNTIME_ACTIVE_THEME_NAME)
+
+    saved = get_selected_theme("Темная синяя", log_read=False)
+    return _normalize_theme_name(saved)
+
+
+def clear_qta_pixmap_cache() -> None:
+    """Clears shared qtawesome pixmap cache."""
+    _QTA_PIXMAP_CACHE.clear()
+
+
 @dataclass(frozen=True)
 class ThemeTokens:
     """Small set of QSS-ready tokens derived from theme_name.
@@ -748,6 +936,7 @@ class ThemeTokens:
     accent_hex: str
     accent_hover_hex: str
     accent_pressed_hex: str
+    accent_fg: str
 
     fg: str
     fg_muted: str
@@ -790,9 +979,14 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
     Note: this is intentionally independent from qt_material internals.
     """
     if theme_name is None:
-        theme_name = get_selected_theme("Темная синяя", log_read=False) or "Темная синяя"
+        clean = get_active_theme_name()
+    else:
+        clean = _normalize_theme_name(theme_name)
 
-    clean = theme_name if theme_name in THEMES else "Темная синяя"
+    cached = _THEME_TOKENS_CACHE.get(clean)
+    if cached is not None:
+        return cached
+
     is_light = clean.startswith("Светлая")
 
     info = THEMES.get(clean, {})
@@ -803,6 +997,7 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
     # Accent hover/pressed: keep consistent across themes.
     accent_hover_hex = _rgb_to_hex(_mix_rgb(accent_rgb, (255, 255, 255), 0.12))
     accent_pressed_hex = _rgb_to_hex(_mix_rgb(accent_rgb, (0, 0, 0), 0.12))
+    accent_fg = _accent_foreground_color(accent_rgb)
 
     if is_light:
         fg = "rgba(0, 0, 0, 0.90)"
@@ -868,7 +1063,7 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
     accent_soft_bg = f"rgba({accent_rgb_str}, 0.15)"
     accent_soft_bg_hover = f"rgba({accent_rgb_str}, 0.20)"
 
-    return ThemeTokens(
+    tokens = ThemeTokens(
         theme_name=clean,
         is_light=is_light,
         accent_rgb=accent_rgb,
@@ -876,6 +1071,7 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         accent_hex=accent_hex,
         accent_hover_hex=accent_hover_hex,
         accent_pressed_hex=accent_pressed_hex,
+        accent_fg=accent_fg,
         fg=fg,
         fg_muted=fg_muted,
         fg_faint=fg_faint,
@@ -904,10 +1100,10 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         font_family_qss="'Segoe UI Variable', 'Segoe UI', Arial, sans-serif",
     )
 
+    _THEME_TOKENS_CACHE[clean] = tokens
+    return tokens
 
-_ICON_TOKENS_CACHE_TS = 0.0
-_ICON_TOKENS_CACHE_VALUE: ThemeTokens | None = None
-_ICON_TOKENS_CACHE_TTL_SEC = 0.35
+
 _RGBA_COLOR_RE = re.compile(
     r"^\s*rgba?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*(?:,\s*([0-9]*\.?[0-9]+)\s*)?\)\s*$",
     re.IGNORECASE,
@@ -916,18 +1112,7 @@ _QTA_ICON_PATCHED = False
 
 
 def _theme_tokens_for_icons(theme_name: str | None = None) -> ThemeTokens:
-    if theme_name:
-        return get_theme_tokens(theme_name)
-
-    global _ICON_TOKENS_CACHE_TS, _ICON_TOKENS_CACHE_VALUE
-    now = time.monotonic()
-    if _ICON_TOKENS_CACHE_VALUE is not None and (now - _ICON_TOKENS_CACHE_TS) < _ICON_TOKENS_CACHE_TTL_SEC:
-        return _ICON_TOKENS_CACHE_VALUE
-
-    tokens = get_theme_tokens()
-    _ICON_TOKENS_CACHE_VALUE = tokens
-    _ICON_TOKENS_CACHE_TS = now
-    return tokens
+    return get_theme_tokens(theme_name)
 
 
 def _parse_css_rgba_color(raw: str) -> QColor | None:
@@ -976,6 +1161,74 @@ def _to_qcolor(value) -> QColor | None:
     return None
 
 
+def _qcolor_to_qss_rgba(color: QColor) -> str:
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()})"
+
+
+def build_vertical_gradient_qss(top_color: str, bottom_color: str) -> str:
+    """Builds a true vertical qlineargradient from two color stops."""
+    return (
+        "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+        f"stop:0 {top_color}, stop:1 {bottom_color})"
+    )
+
+
+def get_card_gradient_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
+    """Returns canonical card gradient used across framed surfaces."""
+    tokens = get_theme_tokens(theme_name)
+    if tokens.is_light:
+        if hover:
+            top = "rgba(255, 255, 255, 239)"
+            bottom = "rgba(242, 246, 252, 219)"
+        else:
+            top = "rgba(255, 255, 255, 224)"
+            bottom = "rgba(244, 247, 252, 194)"
+    else:
+        # Windows 11-like dark card base requested by design:
+        # #252B3B -> #252A3E
+        base_top = (0x25, 0x2B, 0x3B)
+        base_bottom = (0x25, 0x2A, 0x3E)
+        if hover:
+            top_rgb = _mix_rgb(base_top, (255, 255, 255), 0.08)
+            bottom_rgb = _mix_rgb(base_bottom, (255, 255, 255), 0.06)
+        else:
+            top_rgb = base_top
+            bottom_rgb = base_bottom
+
+        top = _rgb_to_hex(top_rgb)
+        bottom = _rgb_to_hex(bottom_rgb)
+
+    return build_vertical_gradient_qss(top, bottom)
+
+
+def get_tinted_surface_gradient_qss(
+    base_color: str,
+    *,
+    theme_name: str | None = None,
+    hover: bool = False,
+) -> str:
+    """Builds a theme-aware real gradient from an arbitrary base color."""
+    tokens = get_theme_tokens(theme_name)
+    parsed = _to_qcolor(base_color)
+    if parsed is None:
+        return get_card_gradient_qss(tokens.theme_name, hover=hover)
+
+    alpha = max(0, min(255, parsed.alpha()))
+    base_rgb = (parsed.red(), parsed.green(), parsed.blue())
+    if tokens.is_light:
+        top_mix = 0.16 if hover else 0.11
+        bottom_mix = 0.10 if hover else 0.06
+    else:
+        top_mix = 0.12 if hover else 0.08
+        bottom_mix = 0.18 if hover else 0.13
+
+    top_rgb = _mix_rgb(base_rgb, (255, 255, 255), top_mix)
+    bottom_rgb = _mix_rgb(base_rgb, (0, 0, 0), bottom_mix)
+    top = _qcolor_to_qss_rgba(QColor(top_rgb[0], top_rgb[1], top_rgb[2], alpha))
+    bottom = _qcolor_to_qss_rgba(QColor(bottom_rgb[0], bottom_rgb[1], bottom_rgb[2], alpha))
+    return build_vertical_gradient_qss(top, bottom)
+
+
 def get_theme_icon_color(theme_name: str | None = None, muted: bool = False, faint: bool = False) -> str:
     """Returns global icon color for current theme.
 
@@ -988,6 +1241,11 @@ def get_theme_icon_color(theme_name: str | None = None, muted: bool = False, fai
     if muted:
         return tokens.icon_fg_muted
     return tokens.icon_fg
+
+
+def get_theme_accent_foreground(theme_name: str | None = None) -> str:
+    """Returns readable text/icon color for accent-filled controls."""
+    return get_theme_tokens(theme_name).accent_fg
 
 
 def resolve_icon_color(color=None, *, theme_name: str | None = None, muted_fallback: bool = False) -> str:
@@ -1017,6 +1275,42 @@ def resolve_icon_color(color=None, *, theme_name: str | None = None, muted_fallb
         return fallback
 
     return parsed.name(QColor.NameFormat.HexArgb)
+
+
+def get_cached_qta_pixmap(
+    icon_name: str,
+    *,
+    color=None,
+    size: int = 16,
+    theme_name: str | None = None,
+    muted_fallback: bool = False,
+) -> QPixmap:
+    """Returns cached qtawesome pixmap for icon+color+size."""
+    try:
+        import qtawesome as qta
+    except Exception:
+        return QPixmap()
+
+    safe_size = max(1, int(size))
+    resolved_color = resolve_icon_color(color, theme_name=theme_name, muted_fallback=muted_fallback)
+    key = (str(icon_name or ""), resolved_color, safe_size)
+
+    cached = _QTA_PIXMAP_CACHE.get(key)
+    if cached is not None and not cached.isNull():
+        _QTA_PIXMAP_CACHE.move_to_end(key)
+        return QPixmap(cached)
+
+    try:
+        pixmap = qta.icon(icon_name, color=resolved_color).pixmap(safe_size, safe_size)
+    except Exception:
+        return QPixmap()
+
+    _QTA_PIXMAP_CACHE[key] = QPixmap(pixmap)
+    _QTA_PIXMAP_CACHE.move_to_end(key)
+    while len(_QTA_PIXMAP_CACHE) > _QTA_PIXMAP_CACHE_MAX:
+        _QTA_PIXMAP_CACHE.popitem(last=False)
+
+    return pixmap
 
 
 def install_qtawesome_icon_theme_patch() -> None:
@@ -1124,10 +1418,10 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
         item_hover_bg = "rgba(0, 0, 0, 0.055)"
         item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.22)"
     else:
-        card_grad_top = "rgba(255, 255, 255, 0.070)"
-        card_grad_bottom = "rgba(255, 255, 255, 0.035)"
-        card_grad_hover_top = "rgba(255, 255, 255, 0.095)"
-        card_grad_hover_bottom = "rgba(255, 255, 255, 0.050)"
+        card_grad_top = "#252B3B"
+        card_grad_bottom = "#252A3E"
+        card_grad_hover_top = "#30374A"
+        card_grad_hover_bottom = "#2E354A"
         control_grad_top = "rgba(255, 255, 255, 0.080)"
         control_grad_bottom = "rgba(255, 255, 255, 0.040)"
         list_grad_top = "rgba(255, 255, 255, 0.075)"
@@ -1397,7 +1691,7 @@ QPushButton[uiRole="actionButton"]:pressed {{
 QPushButton[uiRole="actionButton"][accent="true"] {{
     background-color: {tokens.accent_hex};
     border: 1px solid {tokens.divider_strong};
-    color: #ffffff;
+    color: {tokens.accent_fg};
 }}
 QPushButton[uiRole="actionButton"][accent="true"]:hover {{
     background-color: {tokens.accent_hover_hex};
@@ -1481,12 +1775,16 @@ QCheckBox#blurSwitch::indicator:checked:hover {{
 
 /* Strategy list items (Zapret2 strategies UI) */
 StrategyRadioItem {{
-    background-color: {tokens.surface_bg};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {card_grad_top},
+                                stop:1 {card_grad_bottom});
     border: 1px solid {tokens.surface_border};
     border-radius: 6px;
 }}
 StrategyRadioItem:hover {{
-    background-color: {tokens.surface_bg_hover};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 {card_grad_hover_top},
+                                stop:1 {card_grad_hover_bottom});
     border: 1px solid {tokens.surface_border_hover};
 }}
 
@@ -1513,12 +1811,10 @@ def _assemble_final_css(
     is_rkn_tyan_2: bool = False,
 ) -> str:
     """Собирает финальный CSS из базового qt_material CSS + оверлеев."""
-    all_styles = [base_css]
-    all_styles.append(_build_dynamic_style_sheet(theme_name))
-    all_styles.append("/* THEME_VERSION:v2 */")
+    dynamic_styles = [_build_dynamic_style_sheet(theme_name), "/* THEME_VERSION:v2 */"]
 
     if is_rkn_tyan or is_rkn_tyan_2:
-        all_styles.append(
+        dynamic_styles.append(
             """
 QWidget[hasCustomBackground="true"] { background: transparent !important; }
 QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
@@ -1526,11 +1822,33 @@ QWidget[hasCustomBackground="true"] > QWidget { background: transparent; }
         )
 
     if is_pure_black:
-        all_styles.append(PURE_BLACK_OVERRIDE_STYLE)
+        dynamic_styles.append(PURE_BLACK_OVERRIDE_STYLE)
     elif is_amoled:
-        all_styles.append(AMOLED_OVERRIDE_STYLE)
+        dynamic_styles.append(AMOLED_OVERRIDE_STYLE)
+
+    dynamic_css = "\n".join(dynamic_styles)
+
+    all_styles = [
+        base_css,
+        _THEME_DYNAMIC_LAYER_BEGIN,
+        dynamic_css,
+        _THEME_DYNAMIC_LAYER_END,
+    ]
 
     return "\n".join(all_styles)
+
+
+def _split_final_css_layers(final_css: str) -> tuple[str, str]:
+    """Splits final stylesheet into base qt_material CSS and dynamic overlay CSS."""
+    start_idx = final_css.find(_THEME_DYNAMIC_LAYER_BEGIN)
+    end_idx = final_css.find(_THEME_DYNAMIC_LAYER_END)
+    if start_idx < 0 or end_idx < 0 or end_idx <= start_idx:
+        return "", final_css
+
+    base_css = final_css[:start_idx].strip()
+    overlay_start = start_idx + len(_THEME_DYNAMIC_LAYER_BEGIN)
+    overlay_css = final_css[overlay_start:end_idx].strip()
+    return base_css, overlay_css
    
 class ThemeBuildWorker(QObject):
     """Воркер для полной подготовки CSS темы в фоновом потоке.
@@ -1851,10 +2169,20 @@ class ThemeManager:
         # Потоки для асинхронной генерации CSS темы
         self._theme_build_thread: Optional[QThread] = None
         self._theme_build_worker: Optional[ThemeBuildWorker] = None
-        self._pending_theme_data: Optional[dict] = None  # Данные темы для применения после генерации CSS
+        self._pending_theme_data: Optional[dict] = None  # legacy поле (не используется для новых запросов)
+        self._theme_request_seq = 0
+        self._latest_theme_request_id = 0
+        self._latest_requested_theme: str | None = None
+        self._active_theme_build_jobs: dict[int, tuple[QThread, ThemeBuildWorker]] = {}
         
         # Хеш текущего CSS для оптимизации (не применять повторно)
         self._current_css_hash: Optional[int] = None
+        self._current_base_css_hash: Optional[int] = None
+        self._current_overlay_css_hash: Optional[int] = None
+        self._app_base_initialized = False
+        self._palette_reset_once_done = False
+        self._final_css_cache_max = 8
+        self._final_css_memory_cache: OrderedDict[str, str] = OrderedDict()
 
         # список тем с премиум-статусом
         self.themes = []
@@ -1884,6 +2212,9 @@ class ThemeManager:
             self.current_theme = "Темная синяя"
             log(f"🎨 Тема не найдена, используем 'Темная синяя'", "DEBUG")
 
+        # Runtime source of truth for token helpers (avoids hot-path registry reads).
+        set_active_theme_name(self.current_theme)
+
         # Тема применяется асинхронно через apply_theme_async() после инициализации
         # apply_on_init больше не используется - всегда False
         if apply_on_init:
@@ -1911,6 +2242,7 @@ class ThemeManager:
             # Очищаем кеш
             self._premium_cache = None
             self._cache_time = None
+            self._final_css_memory_cache.clear()
             
             # Останавливаем поток проверки
             if hasattr(self, '_check_thread') and self._check_thread is not None:
@@ -1927,6 +2259,16 @@ class ThemeManager:
                 finally:
                     self._check_thread = None
                     self._check_worker = None
+
+            # Останавливаем фоновые задачи сборки тем (если остались)
+            for _, (thread, _) in list(self._active_theme_build_jobs.items()):
+                try:
+                    if thread.isRunning():
+                        thread.quit()
+                        thread.wait(100)
+                except RuntimeError:
+                    pass
+            self._cleanup_theme_build_thread()
                     
             log("ThemeManager очищен", "DEBUG")
             
@@ -2188,12 +2530,41 @@ class ThemeManager:
         except Exception as e:
             log(f"Ошибка проверки фона РКН Тян 2: {e}", "ERROR")
 
-    def apply_theme_async(self, theme_name: str | None = None, *, persist: bool = True, 
+    def _is_blur_enabled_for_css(self) -> bool:
+        try:
+            from config.reg import get_blur_effect_enabled
+            return bool(get_blur_effect_enabled())
+        except Exception:
+            return False
+
+    def _build_final_css_cache_key(self, theme_name: str) -> str:
+        clean_name = self.get_clean_theme_name(theme_name)
+        blur_enabled = self._is_blur_enabled_for_css()
+        return f"{clean_name}|blur={1 if blur_enabled else 0}"
+
+    def _get_final_css_from_memory_cache(self, cache_key: str) -> str | None:
+        if not cache_key:
+            return None
+        cached = self._final_css_memory_cache.get(cache_key)
+        if not cached:
+            return None
+        self._final_css_memory_cache.move_to_end(cache_key)
+        return cached
+
+    def _remember_final_css(self, cache_key: str, final_css: str) -> None:
+        if not cache_key or not final_css:
+            return
+        self._final_css_memory_cache[cache_key] = final_css
+        self._final_css_memory_cache.move_to_end(cache_key)
+        while len(self._final_css_memory_cache) > self._final_css_cache_max:
+            self._final_css_memory_cache.popitem(last=False)
+
+    def apply_theme_async(self, theme_name: str | None = None, *, persist: bool = True,
                           progress_callback=None, done_callback=None) -> None:
         """
         Асинхронно применяет тему (не блокирует UI).
         CSS генерируется в фоновом потоке, применяется в главном.
-        
+
         Args:
             theme_name: Имя темы (если None, используется текущая)
             persist: Сохранять ли выбор в реестр
@@ -2202,17 +2573,14 @@ class ThemeManager:
         """
         if theme_name is None:
             theme_name = self.current_theme
-            
+
         clean = self.get_clean_theme_name(theme_name)
-        
-        # Защита от множественных одновременных вызовов для одной и той же темы
-        if self._theme_build_thread and self._theme_build_thread.isRunning():
-            if hasattr(self, '_pending_theme_data') and self._pending_theme_data:
-                pending_theme = self._pending_theme_data.get('theme_name')
-                if pending_theme == clean:
-                    log(f"⏭️ Тема '{clean}' уже применяется, игнорируем повторный вызов", "DEBUG")
-                    return
-        
+
+        # Быстрый дедуп одинакового последнего запроса, если он всё ещё в работе.
+        if self._latest_requested_theme == clean and self._latest_theme_request_id in self._active_theme_build_jobs:
+            log(f"⏭️ Тема '{clean}' уже запрошена, игнорируем дубликат", "DEBUG")
+            return
+
         # Проверка премиум (используем кеш, не блокируем UI)
         if self._is_premium_theme(clean):
             is_available = self._premium_cache[0] if self._premium_cache else False
@@ -2226,148 +2594,201 @@ class ThemeManager:
                 if done_callback:
                     done_callback(False, "need premium")
                 return
-        
+
         try:
             info = THEMES[clean]
-            
+
             # Пути к кешу
             cache_dir = os.path.join(self.theme_folder or "themes", "cache")
             os.makedirs(cache_dir, exist_ok=True)
             cache_file = os.path.join(cache_dir, f"{info['file'].replace('.xml', '')}.css")
-            
-            # ВСЯ работа делается в фоновом потоке (включая чтение кеша!)
-            log(f"🎨 Запуск асинхронной подготовки CSS для темы: {clean}", "DEBUG")
-            
+
             if progress_callback:
                 progress_callback("Подготовка темы...")
-            
-            # Сохраняем данные для применения после генерации
-            self._pending_theme_data = {
+
+            self._theme_request_seq += 1
+            request_id = self._theme_request_seq
+            self._latest_theme_request_id = request_id
+            self._latest_requested_theme = clean
+            final_css_cache_key = self._build_final_css_cache_key(clean)
+
+            request_data = {
                 'theme_name': clean,
                 'persist': persist,
                 'done_callback': done_callback,
-                'progress_callback': progress_callback
+                'progress_callback': progress_callback,
+                'final_css_cache_key': final_css_cache_key,
             }
-            
-            # Останавливаем предыдущий поток если есть
-            if self._theme_build_thread is not None:
-                try:
-                    if self._theme_build_thread.isRunning():
-                        log("⏸️ Останавливаем предыдущий поток генерации CSS...", "DEBUG")
-                        # Отключаем сигналы чтобы избежать конфликтов
-                        if self._theme_build_worker:
-                            try:
-                                self._theme_build_worker.finished.disconnect()
-                                self._theme_build_worker.error.disconnect()
-                            except:
-                                pass
-                        self._theme_build_thread.quit()
-                        if not self._theme_build_thread.wait(1000):  # Увеличил таймаут
-                            log("⚠️ Поток не остановился за 1 секунду, принудительно завершаем", "WARNING")
-                            self._theme_build_thread.terminate()
-                        self._theme_build_thread.wait(500)
-                except RuntimeError as e:
-                    log(f"RuntimeError при остановке потока: {e}", "DEBUG")
-                except Exception as e:
-                    log(f"Ошибка остановки потока: {e}", "DEBUG")
-                finally:
-                    self._theme_build_thread = None
-                    self._theme_build_worker = None
-            
-            # Создаём воркер с полными параметрами темы
-            self._theme_build_thread = QThread()
-            self._theme_build_worker = ThemeBuildWorker(
+
+            cached_final_css = self._get_final_css_from_memory_cache(final_css_cache_key)
+            if cached_final_css:
+                log(
+                    f"⚡ Используем in-memory CSS кэш для темы: {clean} ({final_css_cache_key})",
+                    "DEBUG",
+                )
+                if progress_callback:
+                    progress_callback("Применяем тему из памяти...")
+                QTimer.singleShot(
+                    0,
+                    lambda css=cached_final_css, theme=clean, rid=request_id, data=request_data:
+                    self._on_theme_css_ready(css, theme, rid, data),
+                )
+                return
+
+            log(
+                f"🎨 Запуск асинхронной подготовки CSS для темы: {clean} (request_id={request_id})",
+                "DEBUG",
+            )
+
+            thread = QThread()
+            worker = ThemeBuildWorker(
                 theme_file=info["file"],
                 theme_name=clean,
                 cache_file=cache_file,
                 is_amoled=self._is_amoled_theme(clean),
                 is_pure_black=self._is_pure_black_theme(clean),
                 is_rkn_tyan=(clean == "РКН Тян"),
-                is_rkn_tyan_2=(clean == "РКН Тян 2")
+                is_rkn_tyan_2=(clean == "РКН Тян 2"),
             )
-            self._theme_build_worker.moveToThread(self._theme_build_thread)
-            
-            # Подключаем сигналы
-            self._theme_build_thread.started.connect(self._theme_build_worker.run)
-            self._theme_build_worker.finished.connect(self._on_theme_css_ready)
-            self._theme_build_worker.error.connect(self._on_theme_build_error)
+            worker.moveToThread(thread)
+
+            thread.started.connect(worker.run)
+            worker.finished.connect(
+                lambda final_css, built_theme, rid=request_id, data=request_data:
+                self._on_theme_css_ready(final_css, built_theme, rid, data)
+            )
+            worker.error.connect(
+                lambda error, rid=request_id, data=request_data:
+                self._on_theme_build_error(error, rid, data)
+            )
             if progress_callback:
-                self._theme_build_worker.progress.connect(progress_callback)
-            
-            # Очистка после завершения
-            self._theme_build_worker.finished.connect(self._theme_build_thread.quit)
-            self._theme_build_thread.finished.connect(self._cleanup_theme_build_thread)
-            
-            # Запускаем
-            self._theme_build_thread.start()
-            
+                worker.progress.connect(
+                    lambda status, rid=request_id, cb=progress_callback:
+                    (rid == self._latest_theme_request_id) and cb(status)
+                )
+
+            # Важно: завершаем поток и при успехе, и при ошибке.
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(lambda rid=request_id: self._cleanup_theme_build_thread(rid))
+
+            self._active_theme_build_jobs[request_id] = (thread, worker)
+            self._theme_build_thread = thread
+            self._theme_build_worker = worker
+            thread.start()
+
         except Exception as e:
             log(f"Ошибка запуска асинхронного применения темы: {e}", "❌ ERROR")
             if done_callback:
                 done_callback(False, str(e))
-    
-    def _on_theme_css_ready(self, final_css: str, theme_name: str):
+
+    def _on_theme_css_ready(
+        self,
+        final_css: str,
+        theme_name: str,
+        request_id: int | None = None,
+        request_data: Optional[dict] = None,
+    ):
         """Обработчик готовности CSS (вызывается из главного потока).
-        
-        CSS уже полностью подготовлен в фоне - здесь только setStyleSheet()!
+
+        Применяет CSS только для актуального (последнего) запроса.
         """
+        done_callback = None
         try:
-            if not self._pending_theme_data:
-                log("⚠ CSS готов, но pending_theme_data отсутствует", "WARNING")
-                return
-            
-            data = self._pending_theme_data
-            self._pending_theme_data = None
-            
-            persist = data['persist']
+            data = request_data or {}
+            requested_theme = str(data.get('theme_name') or theme_name)
+            persist = bool(data.get('persist', True))
             done_callback = data.get('done_callback')
             progress_callback = data.get('progress_callback')
-            
+
+            if request_id is not None and request_id != self._latest_theme_request_id:
+                log(
+                    f"⏭️ Игнорируем устаревший CSS результат (request_id={request_id}, latest={self._latest_theme_request_id})",
+                    "DEBUG",
+                )
+                return
+
+            cache_key_raw = data.get('final_css_cache_key')
+            if isinstance(cache_key_raw, str) and cache_key_raw:
+                self._remember_final_css(cache_key_raw, final_css)
+
             if progress_callback:
                 progress_callback("Применяем тему...")
-            
-            log(f"🎨 CSS готов ({len(final_css)} символов), применяем: {theme_name}", "DEBUG")
-            
+
+            log(
+                f"🎨 CSS готов ({len(final_css)} символов), применяем: {requested_theme} (request_id={request_id})",
+                "DEBUG",
+            )
+
             # Применяем готовый CSS - это ЕДИНСТВЕННАЯ синхронная операция!
-            self._apply_css_only(final_css, theme_name, persist)
-            
+            self._apply_css_only(final_css, requested_theme, persist)
+
             if done_callback:
                 try:
                     done_callback(True, "ok")
                 except Exception as cb_error:
                     log(f"Ошибка в done_callback: {cb_error}", "WARNING")
-                
+
         except Exception as e:
             log(f"Ошибка применения готового CSS: {e}", "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
-            
-            # Безопасно вызываем callback
+
             if done_callback:
                 try:
                     done_callback(False, str(e))
                 except Exception as cb_error:
                     log(f"Ошибка в error callback: {cb_error}", "WARNING")
-    
-    def _on_theme_build_error(self, error: str):
+
+    def _on_theme_build_error(
+        self,
+        error: str,
+        request_id: int | None = None,
+        request_data: Optional[dict] = None,
+    ):
         """Обработчик ошибки генерации CSS"""
         log(f"❌ Ошибка генерации CSS темы: {error}", "ERROR")
-        
-        if self._pending_theme_data:
-            done_callback = self._pending_theme_data.get('done_callback')
-            self._pending_theme_data = None
-            if done_callback:
-                done_callback(False, error)
-    
-    def _cleanup_theme_build_thread(self):
-        """Очистка потока генерации CSS"""
+
+        if request_id is not None and request_id != self._latest_theme_request_id:
+            log(
+                f"⏭️ Игнорируем устаревшую ошибку темы (request_id={request_id}, latest={self._latest_theme_request_id})",
+                "DEBUG",
+            )
+            return
+
+        done_callback = None
+        if request_data:
+            done_callback = request_data.get('done_callback')
+        if done_callback:
+            done_callback(False, error)
+
+    def _cleanup_theme_build_thread(self, request_id: int | None = None):
+        """Очистка потока генерации CSS по request_id."""
         try:
-            if self._theme_build_worker:
-                self._theme_build_worker.deleteLater()
-                self._theme_build_worker = None
-            if self._theme_build_thread:
-                self._theme_build_thread.deleteLater()
+            ids_to_cleanup = [request_id] if request_id is not None else list(self._active_theme_build_jobs.keys())
+            for rid in ids_to_cleanup:
+                if rid is None:
+                    continue
+                job = self._active_theme_build_jobs.pop(rid, None)
+                if not job:
+                    continue
+                thread, worker = job
+                try:
+                    worker.deleteLater()
+                except RuntimeError:
+                    pass
+                try:
+                    thread.deleteLater()
+                except RuntimeError:
+                    pass
+
+            latest_job = self._active_theme_build_jobs.get(self._latest_theme_request_id)
+            if latest_job:
+                self._theme_build_thread, self._theme_build_worker = latest_job
+            else:
                 self._theme_build_thread = None
+                self._theme_build_worker = None
+
         except RuntimeError:
             self._theme_build_worker = None
             self._theme_build_thread = None
@@ -2387,13 +2808,49 @@ class ThemeManager:
                 log("⚠️ Виджет или приложение удалены, пропускаем применение темы", "WARNING")
                 return
 
-            clean = theme_name
+            clean = set_active_theme_name(theme_name)
 
             # Проверяем хеш CSS - не применяем если не изменился
             css_hash = hash(final_css)
             if self._current_css_hash == css_hash and self.current_theme == clean:
                 log(f"⏭ CSS не изменился, пропускаем setStyleSheet", "DEBUG")
                 return
+
+            base_css, overlay_css = _split_final_css_layers(final_css)
+            if not overlay_css:
+                overlay_css = final_css
+
+            base_css_hash = hash(base_css) if base_css else None
+            overlay_css_hash = hash(overlay_css)
+
+            current_theme_name = str(self.current_theme or "")
+            current_special = (
+                current_theme_name in ("РКН Тян", "РКН Тян 2")
+                or self._is_amoled_theme(current_theme_name)
+                or self._is_pure_black_theme(current_theme_name)
+            )
+            target_special = (
+                clean in ("РКН Тян", "РКН Тян 2")
+                or self._is_amoled_theme(clean)
+                or self._is_pure_black_theme(clean)
+            )
+
+            same_luminance = True
+            try:
+                current_tokens = get_theme_tokens(current_theme_name)
+                target_tokens = get_theme_tokens(clean)
+                same_luminance = bool(current_tokens.is_light) == bool(target_tokens.is_light)
+            except Exception:
+                same_luminance = True
+
+            should_apply_base = False
+            if base_css and base_css_hash is not None:
+                if not self._app_base_initialized:
+                    should_apply_base = True
+                elif self._current_base_css_hash != base_css_hash:
+                    # Fast path: внутри одного светлотного режима обновляем только overlay.
+                    # Полный base обновляем только при переключении light<->dark или special-тем.
+                    should_apply_base = (not same_luminance) or current_special or target_special
 
             # Определяем правильный виджет для сброса фона
             target_widget = self.widget
@@ -2434,16 +2891,41 @@ class ThemeManager:
             main_window.setUpdatesEnabled(False)
 
             try:
-                # ✅ Применяем CSS только к QApplication - виджеты унаследуют стили
                 _t = _time.perf_counter()
-                self.app.setStyleSheet(final_css)
+                base_apply_ms = 0.0
+                if should_apply_base and base_css:
+                    _tb = _time.perf_counter()
+                    self.app.setStyleSheet(base_css)
+                    base_apply_ms = (_time.perf_counter() - _tb) * 1000
+                    self._current_base_css_hash = base_css_hash
+                    self._app_base_initialized = True
+
+                # Overlay применяется к основному окну (subtree), это заметно быстрее,
+                # чем полная переустановка CSS на QApplication при каждой смене темы.
+                _to = _time.perf_counter()
+                main_window.setStyleSheet(overlay_css)
+                overlay_apply_ms = (_time.perf_counter() - _to) * 1000
+                self._current_overlay_css_hash = overlay_css_hash
 
                 # ✅ Сбрасываем палитру чтобы CSS точно применился
-                from PyQt6.QtGui import QPalette
-                main_window.setPalette(QPalette())
+                if not self._palette_reset_once_done:
+                    from PyQt6.QtGui import QPalette
+                    main_window.setPalette(QPalette())
+                    self._palette_reset_once_done = True
+                    palette_reset_note = " + palette reset"
+                else:
+                    palette_reset_note = ""
 
                 elapsed_ms = (_time.perf_counter()-_t)*1000
-                log(f"  setStyleSheet took {elapsed_ms:.0f}ms (app only + palette reset)", "DEBUG")
+                apply_mode = "base+overlay" if should_apply_base else "overlay-only"
+                log(
+                    (
+                        f"  setStyleSheet took {elapsed_ms:.0f}ms "
+                        f"({apply_mode}, base={base_apply_ms:.0f}ms, overlay={overlay_apply_ms:.0f}ms{palette_reset_note})"
+                    ),
+                    "DEBUG",
+                )
+                note_theme_css_apply_duration(elapsed_ms)
             finally:
                 main_window.setUpdatesEnabled(was_updates_enabled)
                 # Возвращаем видимость скрытых виджетов
@@ -2814,6 +3296,24 @@ class ThemeHandler:
                     return
             
             clean_theme_name = self.theme_manager.get_clean_theme_name(theme_name)
+            click_started_at = None
+            try:
+                appearance_page = getattr(self.app_window, 'appearance_page', None)
+                if appearance_page is not None:
+                    clicked_theme = getattr(appearance_page, '_last_theme_click_theme', None)
+                    clicked_at = getattr(appearance_page, '_last_theme_click_started_at', None)
+                    if clicked_theme in (theme_name, clean_theme_name) and isinstance(clicked_at, (int, float)):
+                        click_started_at = float(clicked_at)
+                    appearance_page._last_theme_click_theme = None
+                    appearance_page._last_theme_click_started_at = None
+            except Exception:
+                click_started_at = None
+
+            switch_metrics_id = start_theme_switch_metrics(
+                clean_theme_name,
+                source="ThemeHandler.change_theme",
+                click_started_at=click_started_at,
+            )
             
             # Показываем статус
             if hasattr(self.app_window, 'set_status'):
@@ -2824,7 +3324,12 @@ class ThemeHandler:
                 clean_theme_name,
                 persist=True,
                 progress_callback=self._on_theme_progress,
-                done_callback=lambda success, msg: self._on_theme_change_done(success, msg, theme_name)
+                done_callback=lambda success, msg: self._on_theme_change_done(
+                    success,
+                    msg,
+                    theme_name,
+                    switch_metrics_id,
+                )
             )
                 
         except Exception as e:
@@ -2835,7 +3340,13 @@ class ThemeHandler:
         if hasattr(self.app_window, 'set_status'):
             self.app_window.set_status(f"🎨 {status}")
     
-    def _on_theme_change_done(self, success: bool, message: str, theme_name: str):
+    def _on_theme_change_done(
+        self,
+        success: bool,
+        message: str,
+        theme_name: str,
+        switch_metrics_id: int | None = None,
+    ):
         """Обработчик завершения смены темы"""
         try:
             if not success:
@@ -2845,6 +3356,12 @@ class ThemeHandler:
                     self.app_window.appearance_page.set_current_theme(self.theme_manager.current_theme)
                 if hasattr(self.app_window, 'set_status'):
                     self.app_window.set_status(f"⚠ {message}")
+                finish_theme_switch_metrics(
+                    switch_metrics_id,
+                    success=False,
+                    message=message,
+                    theme_name=theme_name,
+                )
                 return
             
             # Успех - обновляем UI
@@ -2852,12 +3369,26 @@ class ThemeHandler:
                 self.app_window.set_status("✅ Тема применена")
             
             # Отложенное обновление UI
-            QTimer.singleShot(100, lambda: self._post_theme_change_update(theme_name))
+            QTimer.singleShot(
+                100,
+                lambda: self._post_theme_change_update(theme_name, switch_metrics_id, message),
+            )
                 
         except Exception as e:
             log(f"Ошибка в _on_theme_change_done: {e}", "ERROR")
+            finish_theme_switch_metrics(
+                switch_metrics_id,
+                success=False,
+                message=str(e),
+                theme_name=theme_name,
+            )
     
-    def _post_theme_change_update(self, theme_name: str):
+    def _post_theme_change_update(
+        self,
+        theme_name: str,
+        switch_metrics_id: int | None = None,
+        completion_message: str = "ok",
+    ):
         """Выполняет все обновления UI после смены темы за один раз"""
         try:
             # Обновляем выбранную тему в галерее
@@ -2869,8 +3400,20 @@ class ThemeHandler:
             
             # Обновляем статус подписки
             self.update_subscription_status_in_title()
+            finish_theme_switch_metrics(
+                switch_metrics_id,
+                success=True,
+                message=completion_message,
+                theme_name=theme_name,
+            )
         except Exception as e:
             log(f"Ошибка в _post_theme_change_update: {e}", "DEBUG")
+            finish_theme_switch_metrics(
+                switch_metrics_id,
+                success=False,
+                message=str(e),
+                theme_name=theme_name,
+            )
 
     def _update_titlebar_theme(self, theme_name: str):
         """Обновляет цвета кастомного titlebar в соответствии с темой"""

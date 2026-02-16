@@ -3,6 +3,7 @@
 Объёмные иконки в стиле Fluent Design / Windows 11
 с градиентами и тенями
 """
+from collections import OrderedDict
 from PyQt6.QtCore import Qt, QSize, QRect, QPointF
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import (
@@ -14,6 +15,9 @@ import qtawesome as qta
 
 class FluentIcon:
     """Создаёт объёмные иконки с градиентами в стиле Windows 11"""
+
+    _ICON_CACHE_MAX = 256
+    _ICON_CACHE: OrderedDict[tuple[str, int], QIcon] = OrderedDict()
     
     # Палитра цветов для иконок (градиенты)
     ICON_COLORS = {
@@ -109,11 +113,18 @@ class FluentIcon:
             icon_name: Имя иконки FontAwesome
             size: Размер иконки
         """
+        safe_size = max(1, int(size))
+        cache_key = (str(icon_name), safe_size)
+        cached = cls._ICON_CACHE.get(cache_key)
+        if cached is not None:
+            cls._ICON_CACHE.move_to_end(cache_key)
+            return cached
+
         # Получаем цвета градиента
         top_color, bottom_color = cls.get_gradient_colors(icon_name)
         
         # Создаём pixmap
-        pixmap = QPixmap(size, size)
+        pixmap = QPixmap(safe_size, safe_size)
         pixmap.fill(Qt.GlobalColor.transparent)
         
         painter = QPainter(pixmap)
@@ -121,13 +132,13 @@ class FluentIcon:
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
         # Создаём градиент сверху вниз
-        gradient = QLinearGradient(0, 0, 0, size)
+        gradient = QLinearGradient(0, 0, 0, safe_size)
         gradient.setColorAt(0.0, QColor(top_color))
         gradient.setColorAt(1.0, QColor(bottom_color))
         
         # Получаем базовую иконку
         base_icon = qta.icon(icon_name, color='white')
-        base_pixmap = base_icon.pixmap(QSize(size, size))
+        base_pixmap = base_icon.pixmap(QSize(safe_size, safe_size))
         
         # Рисуем иконку с градиентом используя маску
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
@@ -138,16 +149,21 @@ class FluentIcon:
         painter.fillRect(pixmap.rect(), gradient)
         
         # Добавляем лёгкое свечение сверху для объёма
-        highlight_gradient = QLinearGradient(0, 0, 0, size // 3)
+        highlight_gradient = QLinearGradient(0, 0, 0, safe_size // 3)
         highlight_gradient.setColorAt(0.0, QColor(255, 255, 255, 60))
         highlight_gradient.setColorAt(1.0, QColor(255, 255, 255, 0))
         
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceAtop)
-        painter.fillRect(0, 0, size, size // 3, highlight_gradient)
+        painter.fillRect(0, 0, safe_size, safe_size // 3, highlight_gradient)
         
         painter.end()
-        
-        return QIcon(pixmap)
+
+        icon = QIcon(pixmap)
+        cls._ICON_CACHE[cache_key] = icon
+        cls._ICON_CACHE.move_to_end(cache_key)
+        while len(cls._ICON_CACHE) > cls._ICON_CACHE_MAX:
+            cls._ICON_CACHE.popitem(last=False)
+        return icon
     
     @classmethod
     def create_pixmap(cls, icon_name: str, size: int = 24) -> QPixmap:

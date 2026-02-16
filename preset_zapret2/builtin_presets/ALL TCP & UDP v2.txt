@@ -1,5 +1,6 @@
 # Preset: ALL TCP & UDP v2 | Дикие Ягодки
 # ActivePreset: ALL TCP & UDP v2 | Дикие Ягодки
+# BuiltinVersion: 1.0
 # Created: 2026-01-30T20:52:33.575788
 # Modified: 2026-01-31T15:09:19.682782
 # Description: 

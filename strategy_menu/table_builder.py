@@ -6,12 +6,23 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor, QBrush, QCursor
 
 from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
+from ui.theme import get_theme_tokens
 
 # Цвета подсветки рейтинга стратегий (полупрозрачные)
 RATING_COLORS = {
     'working': QColor(74, 222, 128, 40),   # Зелёный полупрозрачный rgba(74, 222, 128, 0.15)
     'broken': QColor(248, 113, 113, 40),   # Красный полупрозрачный rgba(248, 113, 113, 0.15)
 }
+
+
+def _badge_text_color(background_color: str) -> str:
+    color = QColor(str(background_color or ""))
+    if not color.isValid():
+        return "rgba(245, 245, 245, 0.95)"
+    yiq = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
+    if yiq >= 160:
+        return "rgba(18, 18, 18, 0.92)"
+    return "rgba(245, 245, 245, 0.95)"
 
 
 class ScrollBlockingTableWidget(QTableWidget):
@@ -42,6 +53,88 @@ class ScrollBlockingTableWidget(QTableWidget):
 
 class StrategyTableBuilder:
     """Класс для построения и заполнения таблиц стратегий."""
+
+    @staticmethod
+    def apply_theme(table: QTableWidget) -> None:
+        """Применяет theme-aware стиль таблицы."""
+        tokens = get_theme_tokens()
+
+        if tokens.is_light:
+            table_bg_top = "rgba(255, 255, 255, 0.90)"
+            table_bg_bottom = "rgba(244, 247, 252, 0.80)"
+            row_hover = "rgba(0, 0, 0, 0.055)"
+            header_text = "rgba(0, 0, 0, 0.58)"
+            divider = "rgba(0, 0, 0, 0.08)"
+            scrollbar = "rgba(0, 0, 0, 0.20)"
+            scrollbar_hover = "rgba(0, 0, 0, 0.32)"
+        else:
+            table_bg_top = "rgba(255, 255, 255, 0.075)"
+            table_bg_bottom = "rgba(255, 255, 255, 0.035)"
+            row_hover = "rgba(255, 255, 255, 0.07)"
+            header_text = "rgba(255, 255, 255, 0.50)"
+            divider = "rgba(255, 255, 255, 0.08)"
+            scrollbar = "rgba(255, 255, 255, 0.15)"
+            scrollbar_hover = "rgba(255, 255, 255, 0.24)"
+
+        table.setStyleSheet(
+            f"""
+            QTableWidget {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 {table_bg_top},
+                                            stop:1 {table_bg_bottom});
+                border: 1px solid {tokens.surface_border};
+                border-radius: 8px;
+                outline: none;
+                selection-background-color: transparent;
+            }}
+            QTableWidget::item {{
+                padding: 4px 8px;
+                color: {tokens.fg};
+                border: none;
+            }}
+            QTableWidget::item:hover {{
+                background-color: {row_hover};
+            }}
+            QTableWidget::item:selected {{
+                background-color: rgba({tokens.accent_rgb_str}, 0.18);
+                color: {tokens.fg};
+            }}
+            QHeaderView::section {{
+                background: transparent;
+                color: {header_text};
+                font-weight: 600;
+                font-size: 11px;
+                padding: 10px 8px;
+                border: none;
+                border-bottom: 1px solid {divider};
+                text-transform: uppercase;
+                letter-spacing: 1px;
+            }}
+            QHeaderView::section:first {{
+                padding-left: 12px;
+            }}
+            QScrollBar:vertical {{
+                width: 6px;
+                background: transparent;
+                margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {scrollbar};
+                border-radius: 3px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {scrollbar_hover};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {{
+                height: 0px;
+                background: none;
+            }}
+            """
+        )
     
     @staticmethod
     def create_strategies_table():
@@ -58,61 +151,7 @@ class StrategyTableBuilder:
         table.setShowGrid(False)
         table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         
-        # Современный минималистичный стиль
-        table.setStyleSheet("""
-            QTableWidget {
-                background-color: #1a1a1a;
-                border: none;
-                outline: none;
-                selection-background-color: transparent;
-            }
-            QTableWidget::item {
-                padding: 4px 8px;
-                color: rgba(255, 255, 255, 0.85);
-                border: none;
-            }
-            QTableWidget::item:hover {
-                background-color: rgba(255, 255, 255, 0.05);
-            }
-            QTableWidget::item:selected {
-                background-color: rgba(96, 205, 255, 0.12);
-                color: #60cdff;
-            }
-            QHeaderView::section {
-                background-color: #1a1a1a;
-                color: rgba(255, 255, 255, 0.45);
-                font-weight: 600;
-                font-size: 11px;
-                padding: 10px 8px;
-                border: none;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            QHeaderView::section:first {
-                padding-left: 12px;
-            }
-            QScrollBar:vertical {
-                width: 6px;
-                background: transparent;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.12);
-                border-radius: 3px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.2);
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical,
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                height: 0px;
-                background: none;
-            }
-        """)
+        StrategyTableBuilder.apply_theme(table)
         
         # Настройка колонок
         header = table.horizontalHeader()
@@ -139,6 +178,8 @@ class StrategyTableBuilder:
             skip_grouping: Если True, не группировать по провайдерам (для сортировки по имени)
         """
         from strategy_menu import get_favorite_strategies
+
+        tokens = get_theme_tokens()
 
         table.setRowCount(0)
         strategies_map = {}
@@ -210,12 +251,17 @@ class StrategyTableBuilder:
 
         # === ИЗБРАННЫЕ (вверху) ===
         if favorite_strategies:
-            bg_color = QColor(40, 35, 20)  # Тёплый золотистый оттенок
+            if tokens.is_light:
+                bg_color = QColor(255, 211, 96, 52)
+                header_fg = QColor(136, 88, 12)
+            else:
+                bg_color = QColor(40, 35, 20)
+                header_fg = QColor(255, 193, 7)
 
             # Колонка 0: Звезда в заголовке (по центру)
             star_item = QTableWidgetItem("*")
             star_item.setBackground(QBrush(bg_color))
-            star_item.setForeground(QBrush(QColor(255, 193, 7)))
+            star_item.setForeground(QBrush(header_fg))
             star_item.setFont(QFont("Segoe UI", 12))
             star_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
             star_item.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -227,7 +273,7 @@ class StrategyTableBuilder:
             fav_header_font.setBold(True)
             fav_header_item.setFont(fav_header_font)
             fav_header_item.setBackground(QBrush(bg_color))
-            fav_header_item.setForeground(QBrush(QColor(255, 193, 7)))
+            fav_header_item.setForeground(QBrush(header_fg))
             fav_header_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 1, fav_header_item)
 
@@ -259,7 +305,12 @@ class StrategyTableBuilder:
         # === ОСТАЛЬНЫЕ СТРАТЕГИИ (по провайдерам) ===
         for provider, strategies_list in sorted_providers:
             provider_name = StrategyTableBuilder.get_provider_display_name(provider)
-            bg_color = QColor(28, 28, 28)
+            if tokens.is_light:
+                bg_color = QColor(0, 0, 0, 12)
+                provider_fg = QColor(0, 0, 0, 150)
+            else:
+                bg_color = QColor(255, 255, 255, 14)
+                provider_fg = QColor(255, 255, 255, 150)
 
             # Колонка 0: Пустая ячейка для звезды
             empty_star_item = QTableWidgetItem("")
@@ -273,7 +324,7 @@ class StrategyTableBuilder:
             provider_font.setBold(True)
             provider_item.setFont(provider_font)
             provider_item.setBackground(QBrush(bg_color))
-            provider_item.setForeground(QBrush(QColor(255, 255, 255, 140)))
+            provider_item.setForeground(QBrush(provider_fg))
             provider_item.setFlags(Qt.ItemFlag.NoItemFlags)
             table.setItem(current_row, 1, provider_item)
 
@@ -382,9 +433,10 @@ class StrategyTableBuilder:
         if label and label in LABEL_TEXTS:
             label_text = QLabel(LABEL_TEXTS[label])
             label_color = LABEL_COLORS[label]
+            label_fg = _badge_text_color(label_color)
             label_text.setStyleSheet(f"""
                 QLabel {{
-                    color: #ffffff;
+                    color: {label_fg};
                     font-weight: 600;
                     font-size: 10px;
                     padding: 5px 10px;
@@ -415,10 +467,11 @@ class StrategyTableBuilder:
 
         label_text = QLabel(LABEL_TEXTS[label])
         label_color = LABEL_COLORS[label]
+        label_fg = _badge_text_color(label_color)
 
         label_text.setStyleSheet(f"""
             QLabel {{
-                color: #ffffff;
+                color: {label_fg};
                 font-weight: 600;
                 font-size: 10px;
             padding: 5px 10px;
@@ -463,6 +516,8 @@ class StrategyTableBuilder:
         star_btn.is_favorite = is_favorite
         
         def update_star_style(btn):
+            tokens = get_theme_tokens()
+            star_inactive = "rgba(0, 0, 0, 0.28)" if tokens.is_light else "rgba(255, 255, 255, 0.22)"
             if btn.is_favorite:
                 btn.setText("★")
                 btn.setToolTip("Убрать из избранных")
@@ -491,7 +546,7 @@ class StrategyTableBuilder:
                     QPushButton {
                         border: none;
                         background: transparent;
-                        color: rgba(255, 255, 255, 0.2);
+                        color: %(star_inactive)s;
                         font-size: 18px;
                         padding: 0;
                         margin: 0;
@@ -504,7 +559,7 @@ class StrategyTableBuilder:
                     QPushButton:pressed {
                         color: #ffb300;
                     }
-                """)
+                """ % {"star_inactive": star_inactive})
         
         def on_star_clicked():
             new_state = toggle_favorite_strategy(star_btn.strategy_id, star_btn.category_key)

@@ -10,10 +10,12 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QPushButton, QWidget,
     QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF, QEvent
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QPen, QFont
 
 from log import log
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 
 class PresetEditorDialog(QDialog):
@@ -74,94 +76,25 @@ class PresetEditorDialog(QDialog):
         header = QHBoxLayout()
         header.setSpacing(8)
 
-        title_label = QLabel("Редактор конфига")
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-            }
-        """)
-        header.addWidget(title_label, 1)
+        self.title_label = QLabel("Редактор конфига")
+        header.addWidget(self.title_label, 1)
 
         # Кнопка закрытия
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(self._close_dialog)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: rgba(255,255,255,0.5);
-                border: none;
-                font-size: 20px;
-                font-weight: 400;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-                color: #fff;
-            }
-        """)
-        header.addWidget(close_btn)
+        self.close_btn = QPushButton("×")
+        self.close_btn.setFixedSize(28, 28)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.clicked.connect(self._close_dialog)
+        header.addWidget(self.close_btn)
         container_layout.addLayout(header)
 
         # === Путь к файлу ===
-        path_label = QLabel(self.preset_path)
-        path_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255,255,255,0.4);
-                font-size: 10px;
-                font-family: 'Cascadia Code', 'Consolas', monospace;
-            }
-        """)
-        path_label.setWordWrap(True)
-        container_layout.addWidget(path_label)
+        self.path_label = QLabel(self.preset_path)
+        self.path_label.setWordWrap(True)
+        container_layout.addWidget(self.path_label)
 
         # === Текстовое поле ===
         self.text_edit = QPlainTextEdit()
-        self.text_edit.setStyleSheet("""
-            QPlainTextEdit {
-                background: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                color: #d4d4d4;
-                font-family: 'Cascadia Code', 'Consolas', monospace;
-                font-size: 12px;
-                padding: 12px;
-                selection-background-color: rgba(96, 205, 255, 0.3);
-            }
-            QScrollBar:vertical {
-                width: 8px;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,0.2);
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255,255,255,0.3);
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar:horizontal {
-                height: 8px;
-                background: transparent;
-            }
-            QScrollBar::handle:horizontal {
-                background: rgba(255,255,255,0.2);
-                border-radius: 4px;
-                min-width: 30px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background: rgba(255,255,255,0.3);
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-            }
-        """)
+        self.text_edit.setStyleSheet("")
 
         # Шрифт
         font = QFont("Cascadia Code", 12)
@@ -181,12 +114,6 @@ class PresetEditorDialog(QDialog):
         status_layout.setSpacing(8)
 
         self.status_label = QLabel("Загружено")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255,255,255,0.5);
-                font-size: 11px;
-            }
-        """)
         status_layout.addWidget(self.status_label)
         status_layout.addStretch()
         container_layout.addLayout(status_layout)
@@ -196,55 +123,140 @@ class PresetEditorDialog(QDialog):
         buttons_layout.setSpacing(8)
 
         # Кнопка перезагрузки
-        reload_btn = QPushButton("Перезагрузить")
-        reload_btn.setFixedHeight(32)
-        reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        reload_btn.clicked.connect(self._load_file)
-        reload_btn.setStyleSheet(self._get_button_style())
-        buttons_layout.addWidget(reload_btn)
+        self.reload_btn = QPushButton("Перезагрузить")
+        self.reload_btn.setFixedHeight(32)
+        self.reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reload_btn.clicked.connect(self._load_file)
+        buttons_layout.addWidget(self.reload_btn)
 
         buttons_layout.addStretch()
 
         # Кнопка открытия в редакторе
-        open_btn = QPushButton("Открыть в редакторе")
-        open_btn.setFixedHeight(32)
-        open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_btn.clicked.connect(self._open_in_editor)
-        open_btn.setStyleSheet(self._get_button_style())
-        buttons_layout.addWidget(open_btn)
+        self.open_btn = QPushButton("Открыть в редакторе")
+        self.open_btn.setFixedHeight(32)
+        self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_btn.clicked.connect(self._open_in_editor)
+        buttons_layout.addWidget(self.open_btn)
 
         container_layout.addLayout(buttons_layout)
 
         # === Подсказка ===
-        hint = QLabel("Изменения сохраняются автоматически • ESC — закрыть")
-        hint.setStyleSheet("color: rgba(255,255,255,0.25); font-size: 10px;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        container_layout.addWidget(hint)
+        self.hint_label = QLabel("Изменения сохраняются автоматически • ESC — закрыть")
+        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container_layout.addWidget(self.hint_label)
 
         main_layout.addWidget(self.container)
 
         # Размер окна
         self.setFixedSize(620, 520)
+        self._apply_theme_styles()
 
     def _get_button_style(self) -> str:
         """Возвращает стиль кнопки"""
-        return """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
+        tokens = get_theme_tokens()
+        return f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 0 16px;
                 font-size: 12px;
                 font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.06);
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
         """
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+        if tokens.is_light:
+            editor_bg = "rgba(255, 255, 255, 0.92)"
+            editor_border = "rgba(0, 0, 0, 0.12)"
+            scroll = "rgba(0, 0, 0, 0.20)"
+            scroll_hover = "rgba(0, 0, 0, 0.30)"
+        else:
+            editor_bg = "rgba(0, 0, 0, 0.30)"
+            editor_border = "rgba(255, 255, 255, 0.10)"
+            scroll = "rgba(255, 255, 255, 0.20)"
+            scroll_hover = "rgba(255, 255, 255, 0.30)"
+
+        self.title_label.setStyleSheet(
+            f"color: {tokens.fg}; font-size: 14px; font-weight: 600;"
+        )
+        self.close_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                color: {tokens.fg_muted};
+                border: none;
+                font-size: 20px;
+                font-weight: 400;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+                color: {tokens.fg};
+            }}
+            """
+        )
+        self.path_label.setStyleSheet(
+            f"color: {tokens.fg_faint}; font-size: 10px; font-family: 'Cascadia Code', 'Consolas', monospace;"
+        )
+        self.hint_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 10px;")
+
+        self.text_edit.setStyleSheet(
+            f"""
+            QPlainTextEdit {{
+                background: {editor_bg};
+                border: 1px solid {editor_border};
+                border-radius: 6px;
+                color: {tokens.fg};
+                font-family: 'Cascadia Code', 'Consolas', monospace;
+                font-size: 12px;
+                padding: 12px;
+                selection-background-color: rgba({tokens.accent_rgb_str}, 0.30);
+            }}
+            QScrollBar:vertical {{
+                width: 8px;
+                background: transparent;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {scroll};
+                border-radius: 4px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {scroll_hover};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                height: 8px;
+                background: transparent;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {scroll};
+                border-radius: 4px;
+                min-width: 30px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {scroll_hover};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
+        """
+        )
+
+        self.reload_btn.setStyleSheet(self._get_button_style())
+        self.open_btn.setStyleSheet(self._get_button_style())
 
     def paintEvent(self, event):
         """Рисуем Fluent фон"""
@@ -256,13 +268,20 @@ class PresetEditorDialog(QDialog):
         path.addRoundedRect(QRectF(rect), 12, 12)
 
         # Градиент фона
+        tokens = get_theme_tokens()
         gradient = QLinearGradient(0, rect.top(), 0, rect.bottom())
-        gradient.setColorAt(0, QColor(48, 48, 48, 252))
-        gradient.setColorAt(1, QColor(36, 36, 36, 252))
+        if tokens.is_light:
+            gradient.setColorAt(0, QColor(255, 255, 255, 248))
+            gradient.setColorAt(1, QColor(243, 247, 252, 244))
+            border_color = QColor(0, 0, 0, 24)
+        else:
+            gradient.setColorAt(0, QColor(48, 48, 48, 252))
+            gradient.setColorAt(1, QColor(36, 36, 36, 252))
+            border_color = QColor(255, 255, 255, 15)
         painter.fillPath(path, QBrush(gradient))
 
         # Рамка
-        painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
+        painter.setPen(QPen(border_color, 1))
         painter.drawPath(path)
 
     def _load_file(self):
@@ -320,14 +339,16 @@ class PresetEditorDialog(QDialog):
 
     def _update_status(self, text: str, success: bool = False, error: bool = False, pending: bool = False):
         """Обновляет статус-бар"""
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         if error:
-            color = "#f87171"  # Красный
+            color = semantic.error
         elif success:
-            color = "#4ade80"  # Зелёный
+            color = semantic.success
         elif pending:
-            color = "#fbbf24"  # Жёлтый
+            color = semantic.warning
         else:
-            color = "rgba(255,255,255,0.5)"
+            color = tokens.fg_muted
 
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"""
@@ -336,6 +357,15 @@ class PresetEditorDialog(QDialog):
                 font-size: 11px;
             }}
         """)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+                self._update_status(self.status_label.text())
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def _open_in_editor(self):
         """Открывает файл в системном редакторе"""

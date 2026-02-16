@@ -16,7 +16,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import ActionButton, SettingsCard
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
 from log import log
 
 
@@ -43,9 +43,7 @@ def _cached_pixmap(name: str, color, w: int = 20, h: int = 20):
 def _accent_fg_for_tokens(tokens) -> str:
     """Chooses readable foreground for the current accent color."""
     try:
-        r, g, b = tokens.accent_rgb
-        yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
+        return str(tokens.accent_fg)
     except Exception:
         return "rgba(18, 18, 18, 0.90)"
 
@@ -629,10 +627,17 @@ class PresetCard(QFrame):
         tokens = get_theme_tokens()
 
         if self._is_active:
-            bg = tokens.accent_soft_bg_hover if self._hovered else tokens.accent_soft_bg
+            if self._hovered:
+                bg = get_tinted_surface_gradient_qss(
+                    tokens.accent_soft_bg_hover,
+                    theme_name=tokens.theme_name,
+                    hover=True,
+                )
+            else:
+                bg = get_tinted_surface_gradient_qss(tokens.accent_soft_bg, theme_name=tokens.theme_name)
             border = f"1px solid {tokens.accent_hex}"
         else:
-            bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
+            bg = get_card_gradient_qss(tokens.theme_name, hover=self._hovered)
             border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
 
         self._applying_theme_styles = True
@@ -640,7 +645,7 @@ class PresetCard(QFrame):
             self.setStyleSheet(
                 f"""
                 QFrame#presetCard {{
-                    background-color: {bg};
+                    background: {bg};
                     border: {border};
                     border-radius: 8px;
                 }}

@@ -16,7 +16,7 @@ from .base_page import BasePage
 from ui.sidebar import SettingsCard
 from ui.widgets import NotificationBanner
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss
 from log import log
 from orchestra.locked_strategies_manager import ASKEY_ALL
 
@@ -122,15 +122,17 @@ class LockedDomainRow(QFrame):
         self._applying_theme_styles = True
         try:
             tokens = self._tokens or get_theme_tokens("Темная синяя")
+            row_bg = get_card_gradient_qss(tokens.theme_name)
+            row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
 
             qss = f"""
                 LockedDomainRow {{
-                    background-color: {tokens.surface_bg};
+                    background: {row_bg};
                     border: 1px solid {tokens.surface_border};
                     border-radius: 6px;
                 }}
                 LockedDomainRow:hover {{
-                    background-color: {tokens.surface_bg_hover};
+                    background: {row_bg_hover};
                     border: 1px solid {tokens.surface_border_hover};
                 }}
             """

@@ -5,10 +5,13 @@ Templates are stored in `%APPDATA%/zapret/presets_template/*.txt`.
 They serve as the source-of-truth for preset reset operations.
 Editable copies live in `%APPDATA%/zapret/presets/*.txt`.
 
-At startup, every template is automatically copied to presets/
-(unless the user explicitly deleted it — tracked via deleted_presets.ini).
+At startup, templates are synced into presets/.
+Missing presets are recreated, and existing presets can be force-updated
+when template `# BuiltinVersion` is newer.
 """
 
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +20,56 @@ from safe_construct import safe_construct
 _TEMPLATES_CACHE: Optional[dict[str, str]] = None
 _TEMPLATE_BY_KEY: Optional[dict[str, str]] = None
 _CANONICAL_NAME_BY_KEY: Optional[dict[str, str]] = None
+
+_BUILTIN_VERSION_RE = re.compile(r"^\s*#\s*BuiltinVersion:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _extract_builtin_version(content: str) -> Optional[str]:
+    """Extracts `# BuiltinVersion: X.Y` from preset header."""
+    for raw in (content or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if not line.startswith("#"):
+            break
+        match = _BUILTIN_VERSION_RE.match(raw)
+        if match:
+            value = (match.group(1) or "").strip()
+            return value or None
+    return None
+
+
+def _version_to_tuple(version: Optional[str]) -> tuple[int, ...]:
+    if not version:
+        return tuple()
+    chunks = re.findall(r"\d+", version)
+    if not chunks:
+        return tuple()
+    try:
+        return tuple(int(x) for x in chunks)
+    except Exception:
+        return tuple()
+
+
+def _is_newer_builtin_version(candidate: Optional[str], current: Optional[str]) -> bool:
+    """Returns True when candidate version is strictly newer than current."""
+    c = _version_to_tuple(candidate)
+    cur = _version_to_tuple(current)
+    if not c:
+        return False
+    if not cur:
+        return True
+
+    max_len = max(len(c), len(cur))
+    c = c + (0,) * (max_len - len(c))
+    cur = cur + (0,) * (max_len - len(cur))
+    return c > cur
+
+
+def _sanitize_version_for_filename(version: Optional[str]) -> str:
+    raw = (version or "none").strip() or "none"
+    sanitized = re.sub(r"[^0-9A-Za-z._-]+", "_", raw)
+    return sanitized[:48] or "none"
 
 
 def _template_sanity_ok(text: str) -> bool:
@@ -326,15 +379,23 @@ def clear_all_deleted_presets() -> bool:
 # ── Ensure templates are copied to presets ────────────────────────────────
 
 def ensure_templates_copied_to_presets() -> bool:
-    """Copies any new templates from presets_template/ to presets/.
+    """Ensures built-in templates are present in presets and version-updated.
 
-    Skips presets that already exist in presets/ or are in deleted_presets.ini.
-    Called at startup.
+    Behavior:
+    - Missing preset files are created from templates.
+    - Existing preset files are overwritten only when template
+      `# BuiltinVersion:` is strictly newer.
+    - Deleted built-ins are restored automatically.
+    - Before overwrite, old preset content is backed up to
+      `<presets_dir>/_builtin_version_backups/`.
+    - If an updated preset is currently active, `preset-zapret2.txt`
+      is synced immediately.
 
     Returns True on success.
     """
     try:
         from config import get_zapret_presets_dir
+        from .preset_storage import get_active_preset_name, get_active_preset_path
 
         templates = get_preset_templates()
         if not templates:
@@ -343,26 +404,93 @@ def ensure_templates_copied_to_presets() -> bool:
         presets_dir = Path(get_zapret_presets_dir())
         presets_dir.mkdir(parents=True, exist_ok=True)
 
-        deleted = get_deleted_preset_names()
+        backups_dir = presets_dir / "_builtin_version_backups"
+        deleted_lower = {d.lower() for d in get_deleted_preset_names()}
+        active_key = (get_active_preset_name() or "").strip().lower()
+
+        created_count = 0
+        updated_count = 0
+        restored_deleted_count = 0
 
         for name, content in templates.items():
-            # Skip if user explicitly deleted this preset
-            if name.lower() in {d.lower() for d in deleted}:
-                continue
-
+            name_key = name.lower()
             dest = presets_dir / f"{name}.txt"
-            if dest.exists():
-                continue
+            template_version = _extract_builtin_version(content)
+            was_deleted = name_key in deleted_lower
 
-            try:
-                dest.write_text(content, encoding="utf-8")
+            needs_write = False
+            created = False
+            updated = False
+            existing_content: Optional[str] = None
+            existing_version: Optional[str] = None
+
+            if not dest.exists():
+                needs_write = True
+                created = True
+            else:
                 try:
-                    from log import log
-                    log(f"Created preset '{name}' from template", "DEBUG")
+                    existing_content = dest.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    existing_content = None
+
+                existing_version = _extract_builtin_version(existing_content or "")
+
+                if _is_newer_builtin_version(template_version, existing_version):
+                    needs_write = True
+                    updated = True
+
+                    # Backup current file before forced overwrite.
+                    if existing_content is not None:
+                        try:
+                            backups_dir.mkdir(parents=True, exist_ok=True)
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            from_v = _sanitize_version_for_filename(existing_version)
+                            to_v = _sanitize_version_for_filename(template_version)
+                            backup_name = f"{dest.stem}__{timestamp}__{from_v}_to_{to_v}.txt"
+                            (backups_dir / backup_name).write_text(existing_content, encoding="utf-8")
+                        except Exception:
+                            pass
+
+            if needs_write:
+                try:
+                    dest.write_text(content, encoding="utf-8")
+                except Exception:
+                    continue
+
+                if created:
+                    created_count += 1
+                if updated:
+                    updated_count += 1
+                if was_deleted and created:
+                    restored_deleted_count += 1
+
+                # Keep runtime active file in sync if this preset is active.
+                if active_key and active_key == name_key:
+                    try:
+                        active_path = get_active_preset_path()
+                        active_path.parent.mkdir(parents=True, exist_ok=True)
+                        active_path.write_text(content, encoding="utf-8")
+                    except Exception:
+                        pass
+
+            # If deleted marker exists for this built-in, clear it because
+            # built-ins are now always auto-restored.
+            if was_deleted:
+                try:
+                    unmark_preset_deleted(name)
                 except Exception:
                     pass
-            except Exception:
-                pass
+
+        try:
+            from log import log
+            if created_count or updated_count or restored_deleted_count:
+                log(
+                    "Built-in preset sync complete: "
+                    f"created={created_count}, updated={updated_count}, restored_deleted={restored_deleted_count}",
+                    "INFO",
+                )
+        except Exception:
+            pass
 
         return True
     except Exception as e:

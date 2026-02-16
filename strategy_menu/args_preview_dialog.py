@@ -10,6 +10,8 @@ from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve,
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QPen, QCursor
 
 from log import log
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 
 class _ArgsPreviewRightClickCloser(QObject):
@@ -158,6 +160,7 @@ class ArgsPreviewDialog(QDialog):
         self._pinned = False
         self._hover_follow = False
         self._mouse_offset = None
+        self._copy_success = False
         self._mouse_timer = QTimer(self)
         self._mouse_timer.timeout.connect(self._follow_cursor)
         
@@ -419,55 +422,24 @@ class ArgsPreviewDialog(QDialog):
         header.setSpacing(8)
         
         self.title_label = QLabel()
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-            }
-        """)
         header.addWidget(self.title_label, 1)
         
         # Кнопка закрытия
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(24, 24)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(self.close_dialog)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: rgba(255,255,255,0.5);
-                border: none;
-                font-size: 18px;
-                font-weight: 400;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-                color: #fff;
-            }
-        """)
-        header.addWidget(close_btn)
+        self.close_btn = QPushButton("×")
+        self.close_btn.setFixedSize(24, 24)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.clicked.connect(self.close_dialog)
+        header.addWidget(self.close_btn)
         container_layout.addLayout(header)
         
         # === Автор ===
         self.author_label = QLabel()
-        self.author_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
         self.author_label.hide()
         container_layout.addWidget(self.author_label)
         
         # === Информационная строка ===
         self.info_panel = QLabel()
         self.info_panel.setWordWrap(True)
-        self.info_panel.setStyleSheet("""
-            QLabel {
-                color: rgba(255,255,255,0.7);
-                font-size: 11px;
-                padding: 6px 10px;
-                background: rgba(255,255,255,0.04);
-                border-radius: 6px;
-            }
-        """)
         self.info_panel.hide()
         container_layout.addWidget(self.info_panel)
         
@@ -479,54 +451,20 @@ class ArgsPreviewDialog(QDialog):
         
         # Заголовок аргументов
         args_header = QHBoxLayout()
-        args_title = QLabel("Аргументы запуска:")
-        args_title.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 11px;")
-        args_header.addWidget(args_title)
+        self.args_title = QLabel("Аргументы запуска:")
+        args_header.addWidget(self.args_title)
         args_header.addStretch()
         
         self.copy_button = QPushButton("Копировать")
         self.copy_button.setFixedHeight(22)
         self.copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_button.clicked.connect(self.copy_args)
-        self.copy_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.06);
-                color: rgba(255,255,255,0.7);
-                border: none;
-                border-radius: 4px;
-                padding: 0 10px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-                color: #fff;
-            }
-        """)
         args_header.addWidget(self.copy_button)
         args_layout.addLayout(args_header)
         
         # Текст аргументов
         self.args_text = QTextEdit()
         self.args_text.setReadOnly(True)
-        self.args_text.setStyleSheet("""
-            QTextEdit {
-                background: rgba(0,0,0,0.2);
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 6px;
-                color: rgba(255,255,255,0.7);
-                font-family: 'Cascadia Code', 'Consolas', monospace;
-                font-size: 10px;
-                padding: 8px;
-            }
-            QScrollBar:vertical {
-                width: 4px;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,0.15);
-                border-radius: 2px;
-            }
-        """)
         self.args_text.setMinimumHeight(60)
         self.args_text.setMaximumHeight(120)
         args_layout.addWidget(self.args_text)
@@ -545,9 +483,8 @@ class ArgsPreviewDialog(QDialog):
         rating_layout.setContentsMargins(0, 4, 0, 0)
         rating_layout.setSpacing(8)
         
-        rating_label = QLabel("Оценить:")
-        rating_label.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px;")
-        rating_layout.addWidget(rating_label)
+        self.rating_label = QLabel("Оценить:")
+        rating_layout.addWidget(self.rating_label)
         rating_layout.addStretch()
         
         self.working_button = QPushButton("РАБОЧАЯ")
@@ -565,16 +502,128 @@ class ArgsPreviewDialog(QDialog):
         container_layout.addWidget(rating_widget)
         
         # === Подсказка ===
-        hint = QLabel("ESC — закрыть")
-        hint.setStyleSheet("color: rgba(255,255,255,0.25); font-size: 10px;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        container_layout.addWidget(hint)
+        self.hint_label = QLabel("ESC — закрыть")
+        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container_layout.addWidget(self.hint_label)
         
         main_layout.addWidget(self.container)
         self.setFixedWidth(420)
         
         # Обновляем стили кнопок
+        self._apply_theme_styles()
         self._update_rating_buttons()
+
+    def _copy_button_style(self) -> str:
+        tokens = get_theme_tokens()
+        if self._copy_success:
+            fg = "#2e7d32" if tokens.is_light else "#4ade80"
+            bg = "rgba(74, 222, 128, 0.18)" if tokens.is_light else "rgba(74, 222, 128, 0.20)"
+            bg_hover = "rgba(74, 222, 128, 0.24)" if tokens.is_light else "rgba(74, 222, 128, 0.26)"
+            border = "1px solid rgba(74, 222, 128, 0.36)"
+        else:
+            fg = tokens.fg_muted
+            bg = tokens.surface_bg
+            bg_hover = tokens.surface_bg_hover
+            border = f"1px solid {tokens.surface_border}"
+
+        return f"""
+            QPushButton {{
+                background: {bg};
+                color: {fg};
+                border: {border};
+                border-radius: 4px;
+                padding: 0 10px;
+                font-size: 11px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background: {bg_hover};
+                color: {tokens.fg};
+            }}
+        """
+
+    def _apply_theme_styles(self) -> None:
+        tokens = get_theme_tokens()
+        if tokens.is_light:
+            info_bg = "rgba(0, 0, 0, 0.035)"
+            args_bg = "rgba(255, 255, 255, 0.92)"
+            args_border = "rgba(0, 0, 0, 0.12)"
+            args_scroll = "rgba(0, 0, 0, 0.20)"
+            args_scroll_hover = "rgba(0, 0, 0, 0.30)"
+        else:
+            info_bg = "rgba(255, 255, 255, 0.04)"
+            args_bg = "rgba(0, 0, 0, 0.22)"
+            args_border = "rgba(255, 255, 255, 0.08)"
+            args_scroll = "rgba(255, 255, 255, 0.15)"
+            args_scroll_hover = "rgba(255, 255, 255, 0.24)"
+
+        self.title_label.setStyleSheet(
+            f"color: {tokens.fg}; font-size: 14px; font-weight: 600;"
+        )
+        self.close_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent;
+                color: {tokens.fg_muted};
+                border: none;
+                font-size: 18px;
+                font-weight: 400;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background: {tokens.surface_bg_hover};
+                color: {tokens.fg};
+            }}
+            """
+        )
+        self.author_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
+        self.info_panel.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {tokens.fg_muted};
+                font-size: 11px;
+                padding: 6px 10px;
+                background: {info_bg};
+                border-radius: 6px;
+                border: 1px solid {tokens.surface_border};
+            }}
+            """
+        )
+        self.args_title.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
+        self.args_text.setStyleSheet(
+            f"""
+            QTextEdit {{
+                background: {args_bg};
+                border: 1px solid {args_border};
+                border-radius: 6px;
+                color: {tokens.fg};
+                font-family: 'Cascadia Code', 'Consolas', monospace;
+                font-size: 10px;
+                padding: 8px;
+            }}
+            QScrollBar:vertical {{
+                width: 4px;
+                background: transparent;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {args_scroll};
+                border-radius: 2px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {args_scroll_hover};
+            }}
+            """
+        )
+        self.rating_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
+        self.hint_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 10px;")
+        self.copy_button.setStyleSheet(self._copy_button_style())
+
+        try:
+            effect = self.container.graphicsEffect()
+            if isinstance(effect, QGraphicsDropShadowEffect):
+                effect.setColor(QColor(0, 0, 0, 56 if tokens.is_light else 78))
+        except Exception:
+            pass
         
     def paintEvent(self, event):
         """Рисуем Fluent фон"""
@@ -586,13 +635,20 @@ class ArgsPreviewDialog(QDialog):
         path.addRoundedRect(QRectF(rect), 12, 12)
         
         # Градиент фона
+        tokens = get_theme_tokens()
         gradient = QLinearGradient(0, rect.top(), 0, rect.bottom())
-        gradient.setColorAt(0, QColor(48, 48, 48, 252))
-        gradient.setColorAt(1, QColor(36, 36, 36, 252))
+        if tokens.is_light:
+            gradient.setColorAt(0, QColor(255, 255, 255, 248))
+            gradient.setColorAt(1, QColor(243, 247, 252, 244))
+            border_color = QColor(0, 0, 0, 26)
+        else:
+            gradient.setColorAt(0, QColor(48, 48, 48, 252))
+            gradient.setColorAt(1, QColor(36, 36, 36, 252))
+            border_color = QColor(255, 255, 255, 15)
         painter.fillPath(path, QBrush(gradient))
         
         # Рамка
-        painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
+        painter.setPen(QPen(border_color, 1))
         painter.drawPath(path)
         
     def set_strategy_data(
@@ -670,21 +726,28 @@ class ArgsPreviewDialog(QDialog):
         else:
             self.label_widget.hide()
         
+        self._apply_theme_styles()
         self._update_rating_buttons()
         self.adjustSize()
     
     def _get_rating_button_style(self, is_active, rating_type):
         """Стиль кнопки оценки"""
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         if rating_type == 'working':
-            color = '#4ade80'
+            color = semantic.success
         else:
-            color = '#f87171'
+            color = semantic.error
+
+        active_qcolor = QColor(color)
+        yiq = (active_qcolor.red() * 299 + active_qcolor.green() * 587 + active_qcolor.blue() * 114) / 1000
+        active_fg = "rgba(18, 18, 18, 0.92)" if yiq >= 160 else "rgba(245, 245, 245, 0.95)"
         
         if is_active:
             return f"""
                 QPushButton {{
                     background: {color};
-                    color: #000;
+                    color: {active_fg};
                     border: none;
                     border-radius: 4px;
                     padding: 0 12px;
@@ -695,15 +758,15 @@ class ArgsPreviewDialog(QDialog):
         else:
             return f"""
                 QPushButton {{
-                    background: rgba(255,255,255,0.06);
-                    color: rgba(255,255,255,0.6);
-                    border: 1px solid rgba(255,255,255,0.08);
+                    background: {tokens.surface_bg};
+                    color: {tokens.fg_muted};
+                    border: 1px solid {tokens.surface_border};
                     border-radius: 4px;
                     padding: 0 12px;
                     font-size: 10px;
                 }}
                 QPushButton:hover {{
-                    background: rgba(255,255,255,0.1);
+                    background: {tokens.surface_bg_hover};
                     color: {color};
                     border-color: {color};
                 }}
@@ -754,34 +817,14 @@ class ArgsPreviewDialog(QDialog):
         if hasattr(self, 'original_args'):
             QApplication.clipboard().setText(self.original_args)
             self.copy_button.setText("✓ Скопировано")
-            self.copy_button.setStyleSheet("""
-                QPushButton {
-                    background: rgba(74, 222, 128, 0.2);
-                    color: #4ade80;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 0 10px;
-                    font-size: 11px;
-                }
-            """)
+            self._copy_success = True
+            self.copy_button.setStyleSheet(self._copy_button_style())
             QTimer.singleShot(1500, self._reset_copy_button)
     
     def _reset_copy_button(self):
         self.copy_button.setText("Копировать")
-        self.copy_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.06);
-                color: rgba(255,255,255,0.7);
-                border: none;
-                border-radius: 4px;
-                padding: 0 10px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.1);
-                color: #fff;
-            }
-        """)
+        self._copy_success = False
+        self.copy_button.setStyleSheet(self._copy_button_style())
     
     def show_animated(self, pos=None):
         if self._hover_follow and not self._pinned:
@@ -820,6 +863,15 @@ class ArgsPreviewDialog(QDialog):
             pass
         self.hide()
         self.closed.emit()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+                self._update_rating_buttons()
+        except Exception:
+            pass
+        super().changeEvent(event)
     
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:

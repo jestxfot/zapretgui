@@ -155,7 +155,7 @@ def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
 def ensure_builtin_presets_exist() -> bool:
     """
     Ensures that preset templates directory (presets_template/) exists and
-    copies templates to presets/ for any that are missing.
+    syncs templates to presets/ (including version-based auto-updates).
 
     In dev mode, seeds templates from the repo folder
     `preset_zapret2/builtin_presets/*.txt` into `presets_template/`.
@@ -205,7 +205,7 @@ def ensure_builtin_presets_exist() -> bool:
         except Exception:
             pass
 
-        # Copy templates to presets/ (skips already-existing and user-deleted)
+        # Sync templates to presets/ (create missing + version-based overwrite)
         ensure_templates_copied_to_presets()
         return True
 

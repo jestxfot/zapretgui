@@ -1,28 +1,32 @@
 from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QVBoxLayout, QLabel,
                             QRadioButton, QWidget, QListWidgetItem, QSizePolicy)
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QFont, QColor, QBrush
 
 from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
+from ui.theme import get_theme_tokens
 
-# Константы стилей - оптимизированы для минимизации setStyleSheet вызовов
-_STYLE_SELECTED = """
-    CompactStrategyItem {
-        background: rgba(96, 205, 255, 0.15);
-        border: 1px solid rgba(96, 205, 255, 0.5);
+def _style_selected(tokens) -> str:
+    return f"""
+    CompactStrategyItem {{
+        background: rgba({tokens.accent_rgb_str}, 0.16);
+        border: 1px solid rgba({tokens.accent_rgb_str}, 0.50);
         border-radius: 4px;
-    }
+    }}
 """
-_STYLE_NORMAL = """
-    CompactStrategyItem {
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.06);
+
+
+def _style_normal(tokens) -> str:
+    return f"""
+    CompactStrategyItem {{
+        background: {tokens.surface_bg};
+        border: 1px solid {tokens.surface_border};
         border-radius: 4px;
-    }
-    CompactStrategyItem:hover {
-        background: rgba(255, 255, 255, 0.05);
-        border-color: rgba(255, 255, 255, 0.12);
-    }
+    }}
+    CompactStrategyItem:hover {{
+        background: {tokens.surface_bg_hover};
+        border-color: {tokens.surface_border_hover};
+    }}
 """
 
 # Стили для рейтинга стратегий (рабочая/нерабочая)
@@ -49,19 +53,35 @@ _STYLE_RATING_BROKEN = """
     }
 """
 
-# Константы стилей для текста (используются как есть, без пересоздания строк)
-_STYLE_NAME = "color: rgba(255, 255, 255, 0.9); font-size: 11px; font-weight: 500;"
-_STYLE_DESC = "color: rgba(255, 255, 255, 0.4); font-size: 10px;"
-
 # Кэш стилей для меток (оптимизация - избегаем создания строк)
 _LABEL_STYLE_CACHE = {}
 
 
+def _label_text_color(background_color: str) -> str:
+    color = QColor(str(background_color or ""))
+    if not color.isValid():
+        return "rgba(245, 245, 245, 0.95)"
+    yiq = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
+    if yiq >= 160:
+        return "rgba(18, 18, 18, 0.92)"
+    return "rgba(245, 245, 245, 0.95)"
+
+
 def _get_label_style(color: str) -> str:
     """Получает кэшированный стиль для метки"""
-    if color not in _LABEL_STYLE_CACHE:
-        _LABEL_STYLE_CACHE[color] = f"background:{color};color:#fff;font-size:9px;font-weight:600;padding:3px 8px;border-radius:4px;"
-    return _LABEL_STYLE_CACHE[color]
+    key = str(color)
+    cached = _LABEL_STYLE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    fg = _label_text_color(color)
+    style = (
+        f"background:{color};"
+        f"color:{fg};"
+        "font-size:9px;font-weight:600;padding:3px 8px;border-radius:4px;"
+    )
+    _LABEL_STYLE_CACHE[key] = style
+    return style
 
 
 class CompactStrategyItem(QFrame):
@@ -101,12 +121,13 @@ class CompactStrategyItem(QFrame):
 
     def _apply_style(self, selected):
         """Применяет стиль (с кэшированием для избежания лишних вызовов)"""
+        tokens = get_theme_tokens()
         if selected:
-            new_style = _STYLE_SELECTED
+            new_style = _style_selected(tokens)
         else:
             # Проверяем рейтинг стратегии
             rating_style = self._get_rating_style()
-            new_style = rating_style if rating_style else _STYLE_NORMAL
+            new_style = rating_style if rating_style else _style_normal(tokens)
         if self._current_style != new_style:
             self._current_style = new_style
             self.setStyleSheet(new_style)
@@ -141,7 +162,8 @@ class CompactStrategyItem(QFrame):
 
         name = self.strategy_data.get('name', self.strategy_id)
         self.name_label = QLabel(name)
-        self.name_label.setStyleSheet(_STYLE_NAME)
+        self.name_label.setProperty("tone", "primary")
+        self.name_label.setStyleSheet("font-size: 11px; font-weight: 500;")
         top_row.addWidget(self.name_label)
 
         # Метка (если есть)
@@ -160,7 +182,8 @@ class CompactStrategyItem(QFrame):
         if desc:
             self.desc_label = QLabel(desc)
             self.desc_label.setWordWrap(True)
-            self.desc_label.setStyleSheet(_STYLE_DESC)
+            self.desc_label.setProperty("tone", "muted")
+            self.desc_label.setStyleSheet("font-size: 10px;")
             text_container.addWidget(self.desc_label)
 
         main_layout.addLayout(text_container, 1)
@@ -189,6 +212,15 @@ class CompactStrategyItem(QFrame):
         """Обновляет стиль на основе рейтинга"""
         self._current_style = None  # Сбрасываем кэш
         self._apply_style(self.is_selected)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._current_style = None
+                self._apply_style(self.is_selected)
+        except Exception:
+            pass
+        super().changeEvent(event)
 
     def _update_rating_style(self):
         """Обновляет стиль рейтинга"""

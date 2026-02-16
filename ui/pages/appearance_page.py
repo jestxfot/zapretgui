@@ -1,6 +1,8 @@
 # ui/pages/appearance_page.py
 """Страница настроек оформления - темы"""
 
+import time
+
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -783,6 +785,9 @@ class AppearancePage(BasePage):
         if card and card.is_premium and not self._is_premium:
             # Просто игнорируем клик - карточка уже визуально disabled
             return
+
+        self._last_theme_click_started_at = time.perf_counter()
+        self._last_theme_click_theme = theme_name
             
         # Устанавливаем выбранную тему
         self._select_theme(theme_name)

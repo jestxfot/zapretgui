@@ -7,9 +7,11 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QGraphicsDropShadowEffect, QApplication)
 from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, 
-                          QPoint, QRectF, pyqtProperty)
+                          QPoint, QRectF, pyqtProperty, QEvent)
 from PyQt6.QtGui import (QColor, QPainter, QPainterPath, QBrush, 
                          QPen, QLinearGradient, QCursor)
+
+from ui.theme import get_theme_tokens
 
 
 class FloatingSpinner(QWidget):
@@ -39,14 +41,21 @@ class FloatingSpinner(QWidget):
         self.update()
         
     def paintEvent(self, event):
+        tokens = get_theme_tokens()
+        self._color = QColor(tokens.accent_hex)
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
         # Фон
         path = QPainterPath()
         path.addRoundedRect(QRectF(self.rect()), 8, 8)
-        painter.fillPath(path, QBrush(QColor(40, 40, 40, 230)))
-        painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
+        if tokens.is_light:
+            painter.fillPath(path, QBrush(QColor(255, 255, 255, 240)))
+            painter.setPen(QPen(QColor(0, 0, 0, 26), 1))
+        else:
+            painter.fillPath(path, QBrush(QColor(40, 40, 40, 230)))
+            painter.setPen(QPen(QColor(255, 255, 255, 15), 1))
         painter.drawPath(path)
         
         # Спиннер
@@ -110,31 +119,17 @@ class StrategyHoverTooltip(QWidget):
         # Заголовок
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: 600;
-            }
-        """)
         container_layout.addWidget(self.title_label)
         
         # Описание
         self.description_label = QLabel()
         self.description_label.setWordWrap(True)
-        self.description_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 11px;
-            }
-        """)
         container_layout.addWidget(self.description_label)
         
         # Разделитель
-        separator = QWidget()
-        separator.setFixedHeight(1)
-        separator.setStyleSheet("background: rgba(255, 255, 255, 0.08);")
-        container_layout.addWidget(separator)
+        self.separator = QWidget()
+        self.separator.setFixedHeight(1)
+        container_layout.addWidget(self.separator)
         
         # Информация
         self.info_layout = QVBoxLayout()
@@ -142,9 +137,8 @@ class StrategyHoverTooltip(QWidget):
         container_layout.addLayout(self.info_layout)
         
         # Подсказка
-        hint = QLabel("ПКМ — подробнее")
-        hint.setStyleSheet("color: rgba(255, 255, 255, 0.3); font-size: 10px; margin-top: 4px;")
-        container_layout.addWidget(hint)
+        self.hint_label = QLabel("ПКМ — подробнее")
+        container_layout.addWidget(self.hint_label)
         
         main_layout.addWidget(self.container)
         
@@ -154,16 +148,38 @@ class StrategyHoverTooltip(QWidget):
         shadow.setColor(QColor(0, 0, 0, 60))
         shadow.setOffset(0, 6)
         self.container.setGraphicsEffect(shadow)
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self):
+        tokens = get_theme_tokens()
+
+        self.title_label.setStyleSheet(
+            f"color: {tokens.fg}; font-size: 12px; font-weight: 600;"
+        )
+        self.description_label.setStyleSheet(
+            f"color: {tokens.fg_muted}; font-size: 11px;"
+        )
+        self.hint_label.setStyleSheet(
+            f"color: {tokens.fg_faint}; font-size: 10px; margin-top: 4px;"
+        )
+
+        separator_color = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.08)"
+        self.separator.setStyleSheet(f"background: {separator_color};")
+
+        effect = self.container.graphicsEffect()
+        if isinstance(effect, QGraphicsDropShadowEffect):
+            effect.setColor(QColor(0, 0, 0, 54 if tokens.is_light else 78))
         
     def _create_info_row(self, label_text, value_text, color="#60cdff"):
         """Создает строку информации"""
+        tokens = get_theme_tokens()
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(6)
         
         name = QLabel(label_text)
-        name.setStyleSheet("color: rgba(255, 255, 255, 0.45); font-size: 10px;")
+        name.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 10px;")
         row_layout.addWidget(name)
         
         row_layout.addStretch()
@@ -176,6 +192,7 @@ class StrategyHoverTooltip(QWidget):
     
     def set_data(self, strategy_info, strategy_id):
         """Устанавливает данные"""
+        self._apply_theme_styles()
         name = strategy_info.get('name') or strategy_id
         self.title_label.setText(name)
         
@@ -286,13 +303,28 @@ class StrategyHoverTooltip(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(rect), radius, radius)
         
+        tokens = get_theme_tokens()
         gradient = QLinearGradient(0, 0, 0, rect.height())
-        gradient.setColorAt(0, QColor(48, 48, 48, 250))
-        gradient.setColorAt(1, QColor(32, 32, 32, 250))
+        if tokens.is_light:
+            gradient.setColorAt(0, QColor(255, 255, 255, 248))
+            gradient.setColorAt(1, QColor(244, 247, 252, 242))
+            border_color = QColor(0, 0, 0, 24)
+        else:
+            gradient.setColorAt(0, QColor(48, 48, 48, 250))
+            gradient.setColorAt(1, QColor(32, 32, 32, 250))
+            border_color = QColor(255, 255, 255, 12)
         painter.fillPath(path, QBrush(gradient))
-        
-        painter.setPen(QPen(QColor(255, 255, 255, 12), 1))
+
+        painter.setPen(QPen(border_color, 1))
         painter.drawPath(path)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)
 
 
 class TooltipManager:

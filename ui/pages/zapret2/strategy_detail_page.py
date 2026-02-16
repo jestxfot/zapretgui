@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent, QRectF
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QPlainTextEdit, QSizePolicy, QTabBar, QWidgetAction
+    QCheckBox, QPlainTextEdit, QSizePolicy, QTabBar, QWidgetAction, QGraphicsOpacityEffect
 )
 from PyQt6.QtGui import QFont, QFontMetrics, QColor, QPainter, QFontMetricsF
 import qtawesome as qta
@@ -1367,6 +1367,8 @@ class StrategyDetailPage(BasePage):
         tokens = get_theme_tokens()
         menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
         menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
+        disabled_surface = "rgba(130, 130, 130, 0.16)" if tokens.is_light else "rgba(175, 175, 175, 0.10)"
+        disabled_border = "rgba(110, 110, 110, 0.30)" if tokens.is_light else "rgba(210, 210, 210, 0.20)"
 
         # Скрываем стандартный заголовок BasePage
         self.title_label.hide()
@@ -1489,14 +1491,19 @@ class StrategyDetailPage(BasePage):
         # ТУЛБАР НАСТРОЕК КАТЕГОРИИ (фоновой блок)
         # ═══════════════════════════════════════════════════════════════
         self._toolbar_frame = QFrame()
+        self._toolbar_frame.setObjectName("categoryToolbarFrame")
         self._toolbar_frame.setFrameShape(QFrame.Shape.NoFrame)
         self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._toolbar_frame.setVisible(False)
         self._toolbar_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#categoryToolbarFrame {{
                 background: {tokens.surface_bg};
                 border: none;
                 border-radius: 8px;
+            }}
+            QFrame#categoryToolbarFrame[categoryDisabled="true"] {{
+                background: {disabled_surface};
+                border: 1px solid {disabled_border};
             }}
         """)
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
@@ -2154,9 +2161,19 @@ class StrategyDetailPage(BasePage):
         settings_host_layout.addWidget(self._toolbar_frame)
         self.layout.addWidget(self._settings_host)
 
-        # All strategy controls are hidden when the category is disabled.
+        # Strategy controls stay visible even for disabled categories.
         self._strategies_block = QWidget()
-        self._strategies_block.setStyleSheet("background: transparent;")
+        self._strategies_block.setObjectName("categoryStrategiesBlock")
+        self._strategies_block.setStyleSheet(f"""
+            QWidget#categoryStrategiesBlock {{
+                background: transparent;
+                border-radius: 8px;
+            }}
+            QWidget#categoryStrategiesBlock[categoryDisabled="true"] {{
+                background: {disabled_surface};
+                border: 1px solid {disabled_border};
+            }}
+        """)
         self._strategies_block.setVisible(False)
         strategies_layout = QVBoxLayout(self._strategies_block)
         strategies_layout.setContentsMargins(0, 0, 0, 0)
@@ -4264,30 +4281,50 @@ class StrategyDetailPage(BasePage):
 
         self._save_tcp_phase_state_to_preset(show_loading=True)
 
+    def _set_category_block_dimmed(self, widget: QWidget | None, dimmed: bool) -> None:
+        if widget is None:
+            return
+
+        try:
+            widget.setProperty("categoryDisabled", bool(dimmed))
+            style = widget.style()
+            if style is not None:
+                style.unpolish(widget)
+                style.polish(widget)
+            widget.update()
+        except Exception:
+            pass
+
+        try:
+            if dimmed:
+                effect = widget.graphicsEffect()
+                if not isinstance(effect, QGraphicsOpacityEffect):
+                    effect = QGraphicsOpacityEffect(widget)
+                    widget.setGraphicsEffect(effect)
+                effect.setOpacity(0.56)
+            else:
+                widget.setGraphicsEffect(None)
+        except Exception:
+            pass
+
     def _set_category_enabled_ui(self, enabled: bool) -> None:
-        """Hides all settings/strategy UI when the category is disabled."""
-        want = bool(enabled)
+        """Keeps controls visible and dims blocks for disabled categories."""
+        is_enabled = bool(enabled)
         try:
             if hasattr(self, "_toolbar_frame") and self._toolbar_frame is not None:
-                self._toolbar_frame.setVisible(want)
+                self._toolbar_frame.setVisible(True)
+                self._set_category_block_dimmed(self._toolbar_frame, not is_enabled)
         except Exception:
             pass
         try:
             if hasattr(self, "_strategies_block") and self._strategies_block is not None:
-                self._strategies_block.setVisible(want)
-                # Prevent hidden stretch items from consuming vertical space and pushing UI around.
+                self._strategies_block.setVisible(True)
+                self._set_category_block_dimmed(self._strategies_block, not is_enabled)
                 if hasattr(self, "layout") and self.layout is not None:
-                    self.layout.setStretchFactor(self._strategies_block, 1 if want else 0)
-                if want:
-                    self._strategies_block.setMaximumHeight(16777215)
-                else:
-                    self._strategies_block.setMaximumHeight(0)
+                    self.layout.setStretchFactor(self._strategies_block, 1)
+                self._strategies_block.setMaximumHeight(16777215)
         except Exception:
             pass
-
-        if not want:
-            # Ensure the args editor doesn't remain open (even though it becomes hidden).
-            self._hide_args_editor(clear_text=True)
         try:
             self._refresh_scroll_range()
         except Exception:

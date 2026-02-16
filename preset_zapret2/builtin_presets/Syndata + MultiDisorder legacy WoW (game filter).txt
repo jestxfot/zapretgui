@@ -1,5 +1,6 @@
 # Preset: Syndata + MultiDisorder legacy WoW (game filter)
 # ActivePreset: Syndata + MultiDisorder legacy WoW (game filter)
+# BuiltinVersion: 1.0
 # Modified: 2026-02-14T21:15:21.132234
 # IconColor: #a8c5ff
 

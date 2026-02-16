@@ -1,17 +1,26 @@
 # ui/pages/home_page.py
 """Главная страница - обзор состояния системы"""
 
-from PyQt6.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import (
+    Qt,
+    QSize,
+    QTimer,
+    QThread,
+    pyqtSignal,
+    QEasingCurve,
+    QPropertyAnimation,
+    QParallelAnimationGroup,
+)
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QGridLayout, QSizePolicy, QProgressBar
+    QFrame, QGridLayout, QSizePolicy, QProgressBar, QGraphicsOpacityEffect
 )
 from PyQt6.QtGui import QFont
 import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, StatusIndicator, ActionButton
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss
 from ui.theme_semantic import get_semantic_palette
 from log import log
 
@@ -152,15 +161,17 @@ class StatusCard(QFrame):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
+            card_bg = get_card_gradient_qss(tokens.theme_name)
+            card_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
             self.setStyleSheet(
                 f"""
                 QFrame#statusCard {{
-                    background-color: {tokens.surface_bg};
+                    background: {card_bg};
                     border: 1px solid {tokens.surface_border};
                     border-radius: 8px;
                 }}
                 QFrame#statusCard:hover {{
-                    background-color: {tokens.surface_bg_hover};
+                    background: {card_bg_hover};
                     border: 1px solid {tokens.surface_border_hover};
                 }}
                 """
@@ -336,6 +347,11 @@ class HomePage(BasePage):
         super().__init__("Главная", "Обзор состояния Zapret", parent)
 
         self._autostart_worker = None
+        self._home_intro_checked = False
+        self._home_intro_running = False
+        self._home_intro_pending = 0
+        self._home_intro_animations = []
+        self._home_intro_target_heights = {}
         self._build_ui()
         self._connect_card_signals()
 
@@ -357,6 +373,8 @@ class HomePage(BasePage):
         QTimer.singleShot(100, self._check_autostart_status)
         # Обновляем карточку метода запуска, когда UI стабилизировался.
         QTimer.singleShot(150, self._refresh_strategy_card)
+        if not self._home_intro_checked:
+            QTimer.singleShot(0, self._maybe_play_home_intro)
 
     def _get_launch_method_display_name(self) -> str:
         """Возвращает человекочитаемое название текущего метода запуска."""
@@ -420,16 +438,16 @@ class HomePage(BasePage):
         self.subscription_card.set_value("Free", "Базовые функции")
         cards_layout.addWidget(self.subscription_card, 1, 1)
         
-        cards_widget = QWidget(self.content)  # ✅ Явный родитель
-        cards_widget.setLayout(cards_layout)
-        self.add_widget(cards_widget)
+        self.cards_widget = QWidget(self.content)  # ✅ Явный родитель
+        self.cards_widget.setLayout(cards_layout)
+        self.add_widget(self.cards_widget)
         
         self.add_spacing(8)
         
         # Быстрые действия
         self.add_section_title("Быстрые действия")
         
-        actions_card = SettingsCard()
+        self.actions_card = SettingsCard()
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
         
@@ -451,19 +469,19 @@ class HomePage(BasePage):
         actions_layout.addWidget(self.folder_btn)
         
         actions_layout.addStretch()
-        actions_card.add_layout(actions_layout)
-        self.add_widget(actions_card)
+        self.actions_card.add_layout(actions_layout)
+        self.add_widget(self.actions_card)
         
         self.add_spacing(8)
         
         # Статусная строка
         self.add_section_title("Статус")
         
-        status_card = SettingsCard()
+        self.status_card = SettingsCard()
         self.status_indicator = StatusIndicator()
         self.status_indicator.set_status("Готов к работе", "neutral")
-        status_card.add_widget(self.status_indicator)
-        self.add_widget(status_card)
+        self.status_card.add_widget(self.status_indicator)
+        self.add_widget(self.status_card)
         
         # Индикатор загрузки (бегающая полоска)
         self.progress_bar = QProgressBar()
@@ -479,6 +497,156 @@ class HomePage(BasePage):
 
         # Блок Premium
         self._build_premium_block()
+
+    def _maybe_play_home_intro(self) -> None:
+        if self._home_intro_checked or self._home_intro_running:
+            return
+
+        self._home_intro_checked = True
+        self._play_home_intro()
+
+    def _play_home_intro(self) -> None:
+        widgets = [
+            getattr(self, "cards_widget", None),
+            getattr(self, "actions_card", None),
+            getattr(self, "status_card", None),
+            getattr(self, "premium_card", None),
+        ]
+        widgets = [w for w in widgets if isinstance(w, QWidget)]
+        if not widgets:
+            self._finish_home_intro()
+            return
+
+        self._home_intro_running = True
+        self._home_intro_pending = 0
+        self._home_intro_target_heights = {}
+        self._home_intro_animations = []
+
+        for index, widget in enumerate(widgets):
+            try:
+                effect = widget.graphicsEffect()
+                if not isinstance(effect, QGraphicsOpacityEffect):
+                    effect = QGraphicsOpacityEffect(widget)
+                    widget.setGraphicsEffect(effect)
+
+                target_height = self._calc_intro_target_height(widget)
+                self._home_intro_target_heights[id(widget)] = target_height
+                widget.setMaximumHeight(0)
+                effect.setOpacity(0.08)
+                self._home_intro_pending += 1
+            except Exception:
+                continue
+
+            QTimer.singleShot(index * 90, lambda target=widget: self._animate_home_intro_widget(target))
+
+        if self._home_intro_pending <= 0:
+            self._finish_home_intro()
+
+    def _calc_intro_target_height(self, widget: QWidget) -> int:
+        target = 0
+        try:
+            target = int(widget.sizeHint().height())
+        except Exception:
+            target = 0
+
+        if target <= 0:
+            try:
+                target = int(widget.height())
+            except Exception:
+                target = 0
+
+        return max(36, target)
+
+    def _animate_home_intro_widget(self, widget: QWidget) -> None:
+        effect = widget.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            self._home_intro_pending = max(0, self._home_intro_pending - 1)
+            if self._home_intro_pending == 0:
+                self._finish_home_intro()
+            return
+
+        target_height = self._home_intro_target_heights.get(id(widget), 0)
+        if target_height <= 0:
+            target_height = self._calc_intro_target_height(widget)
+
+        opacity_animation = QPropertyAnimation(effect, b"opacity", self)
+        opacity_animation.setDuration(360)
+        opacity_animation.setStartValue(float(effect.opacity()))
+        opacity_animation.setEndValue(1.0)
+        opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        height_animation = QPropertyAnimation(widget, b"maximumHeight", self)
+        height_animation.setDuration(360)
+        height_animation.setStartValue(max(0, int(widget.maximumHeight())))
+        height_animation.setEndValue(int(target_height))
+        height_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(opacity_animation)
+        group.addAnimation(height_animation)
+        self._home_intro_animations.append(group)
+
+        def _on_finished():
+            try:
+                widget.setMaximumHeight(16777215)
+                widget.setGraphicsEffect(None)
+            except Exception:
+                pass
+
+            try:
+                effect.deleteLater()
+            except Exception:
+                pass
+
+            self._home_intro_target_heights.pop(id(widget), None)
+
+            try:
+                self._home_intro_animations.remove(group)
+            except Exception:
+                pass
+
+            try:
+                group.deleteLater()
+            except Exception:
+                pass
+
+            self._home_intro_pending = max(0, self._home_intro_pending - 1)
+            if self._home_intro_pending == 0:
+                self._finish_home_intro()
+
+        group.finished.connect(_on_finished)
+        group.start()
+
+    def _finish_home_intro(self) -> None:
+        self._home_intro_running = False
+        self._home_intro_pending = 0
+        self._home_intro_target_heights = {}
+
+        for animation in list(self._home_intro_animations):
+            try:
+                animation.stop()
+                animation.deleteLater()
+            except Exception:
+                pass
+        self._home_intro_animations = []
+
+        for widget in (
+            getattr(self, "cards_widget", None),
+            getattr(self, "actions_card", None),
+            getattr(self, "status_card", None),
+            getattr(self, "premium_card", None),
+        ):
+            if not isinstance(widget, QWidget):
+                continue
+            try:
+                widget.setMaximumHeight(16777215)
+                effect = widget.graphicsEffect()
+                if isinstance(effect, QGraphicsOpacityEffect):
+                    effect.setOpacity(1.0)
+                    widget.setGraphicsEffect(None)
+                    effect.deleteLater()
+            except Exception:
+                pass
 
     def _connect_card_signals(self):
         """Подключает клики по карточкам к сигналам навигации"""
@@ -580,7 +748,7 @@ class HomePage(BasePage):
         
     def _build_premium_block(self):
         """Создает блок Premium на главной странице"""
-        premium_card = SettingsCard()
+        self.premium_card = SettingsCard()
         
         premium_layout = QHBoxLayout()
         premium_layout.setSpacing(16)
@@ -619,5 +787,5 @@ class HomePage(BasePage):
         self.premium_link_btn.setFixedHeight(36)
         premium_layout.addWidget(self.premium_link_btn)
         
-        premium_card.add_layout(premium_layout)
-        self.add_widget(premium_card)
+        self.premium_card.add_layout(premium_layout)
+        self.add_widget(self.premium_card)

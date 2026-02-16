@@ -7,12 +7,11 @@ even on a dark theme. We replace it with an explicit qtawesome icon.
 
 from __future__ import annotations
 
-import qtawesome as qta
 from PyQt6.QtCore import QObject, QSize, Qt, QTimer, QEvent
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QLineEdit, QToolButton
 
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_cached_qta_pixmap
 
 
 class _ClearButtonUpdater(QObject):
@@ -53,12 +52,12 @@ class _ClearButtonUpdater(QObject):
             if self._explicit_color is not None:
                 color = self._explicit_color
             else:
-                color = "rgba(0,0,0,0.55)" if tokens.is_light else "rgba(245,245,245,0.75)"
+                color = tokens.icon_fg_muted
 
-            hover_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(245, 245, 245, 0.10)"
-            pressed_bg = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(245, 245, 245, 0.16)"
+            hover_bg = tokens.surface_bg_hover
+            pressed_bg = tokens.surface_bg_pressed
 
-            pixmap = qta.icon(self._icon_name, color=color).pixmap(self._size, self._size)
+            pixmap = get_cached_qta_pixmap(self._icon_name, color=color, size=self._size)
             btn.setIcon(QIcon(pixmap))
             btn.setIconSize(QSize(self._size, self._size))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)

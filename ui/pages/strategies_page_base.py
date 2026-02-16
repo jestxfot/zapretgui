@@ -136,7 +136,7 @@ class StatusIndicator(QWidget):
         try:
             spinner_color = get_theme_tokens().accent_hex
         except Exception:
-            spinner_color = "#5caee8"
+            spinner_color = get_theme_tokens("Темная синяя").accent_hex
         self.spinner = Win11Spinner(20, spinner_color)
         self.stack.addWidget(self.spinner)
 
@@ -197,14 +197,12 @@ class ResetActionButton(QPushButton):
 
     def _update_icon(self, rotation: int = 0):
         """Обновляет иконку с опциональным углом поворота"""
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         if self._pending:
-            color = '#4ade80'
+            color = semantic.success
         else:
-            try:
-                tokens = get_theme_tokens()
-                color = tokens.fg
-            except Exception:
-                color = '#e6e6e6'
+            color = tokens.fg
         icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.broom'
         if rotation != 0:
             self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
@@ -219,14 +217,13 @@ class ResetActionButton(QPushButton):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
+            semantic = get_semantic_palette(tokens.theme_name)
             if self._pending:
-                # Состояние подтверждения - зеленоватый цвет
-                if self._hovered:
-                    bg = "rgba(74, 222, 128, 0.35)"
-                else:
-                    bg = "rgba(74, 222, 128, 0.25)"
-                text_color = "#4ade80"
-                border = "1px solid rgba(74, 222, 128, 0.5)"
+                success_bg = QColor(semantic.success)
+                success_bg.setAlpha(90 if self._hovered else 64)
+                bg = f"rgba({success_bg.red()}, {success_bg.green()}, {success_bg.blue()}, {success_bg.alpha()})"
+                text_color = semantic.success
+                border = f"1px solid {semantic.success_soft_border}"
             else:
                 # Обычное состояние
                 bg = tokens.toggle_off_bg if not self._hovered else tokens.toggle_off_bg_hover

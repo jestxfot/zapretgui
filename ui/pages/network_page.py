@@ -17,7 +17,7 @@ from .base_page import BasePage
 from .dpi_settings_page import Win11ToggleRow
 from ui.sidebar import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
 from log import log
 from dns import DNS_PROVIDERS
 
@@ -32,22 +32,38 @@ class DNSProviderCard(SettingsCard):
     @staticmethod
     def _style_default() -> str:
         tokens = get_theme_tokens()
+        card_bg = get_card_gradient_qss(tokens.theme_name)
+        card_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
         return f"""
             #dnsCard {{
-                background-color: {tokens.surface_bg};
+                background: {card_bg};
                 border: 1px solid {tokens.divider};
                 border-radius: 10px;
+            }}
+            #dnsCard:hover {{
+                background: {card_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
             }}
         """
 
     @staticmethod
     def _style_selected() -> str:
         tokens = get_theme_tokens()
+        selected_bg = get_tinted_surface_gradient_qss(tokens.accent_soft_bg, theme_name=tokens.theme_name)
+        selected_bg_hover = get_tinted_surface_gradient_qss(
+            tokens.accent_soft_bg_hover,
+            theme_name=tokens.theme_name,
+            hover=True,
+        )
         return f"""
             #dnsCard {{
-                background-color: {tokens.accent_soft_bg};
+                background: {selected_bg};
                 border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
                 border-radius: 10px;
+            }}
+            #dnsCard:hover {{
+                background: {selected_bg_hover};
+                border: 1px solid rgba({tokens.accent_rgb_str}, 0.52);
             }}
         """
 

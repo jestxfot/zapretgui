@@ -123,6 +123,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._applying_theme_styles = False
         # Cache tokens to avoid registry reads on every hover.
         self._tokens = get_theme_tokens()
+        self._last_theme_refresh_key: tuple[str, str, str, str] | None = None
         self._theme_refresh_scheduled = False
         self._current_qss = ""
         # Prevent style/palette change re-entrancy leading to setIcon recursion.
@@ -193,7 +194,19 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
     def _refresh_theme(self) -> None:
         if self._applying_theme_styles:
             return
-        self._tokens = get_theme_tokens()
+
+        refreshed_tokens = get_theme_tokens()
+        theme_key = (
+            str(refreshed_tokens.theme_name),
+            str(refreshed_tokens.accent_hex),
+            str(refreshed_tokens.fg),
+            str(refreshed_tokens.icon_fg_muted),
+        )
+        if theme_key == self._last_theme_refresh_key and self._current_qss:
+            return
+
+        self._tokens = refreshed_tokens
+        self._last_theme_refresh_key = theme_key
         self._update_style()
     
     def set_collapsed(self, collapsed: bool):
@@ -266,7 +279,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
             except:
                 base_color = QColor(tokens.accent_hex)
         else:
-            base_color = QColor('#5c5c5c' if tokens.is_light else '#9e9e9e')
+            base_color = QColor(tokens.icon_fg_muted)
 
         # Интерполируем к белому при свечении
         if brightness > 0:
@@ -335,6 +348,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         self._collapsed = False
         self._applying_theme_styles = False
         self._tokens = get_theme_tokens()
+        self._last_theme_refresh_key: tuple[str, str, str, str] | None = None
         self._theme_refresh_scheduled = False
         self._current_qss = ""
         # Prevent style/palette change re-entrancy leading to setIcon recursion.
@@ -403,7 +417,19 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
     def _refresh_theme(self) -> None:
         if self._applying_theme_styles:
             return
-        self._tokens = get_theme_tokens()
+
+        refreshed_tokens = get_theme_tokens()
+        theme_key = (
+            str(refreshed_tokens.theme_name),
+            str(refreshed_tokens.accent_hex),
+            str(refreshed_tokens.fg),
+            str(refreshed_tokens.icon_fg_faint),
+        )
+        if theme_key == self._last_theme_refresh_key and self._current_qss:
+            return
+
+        self._tokens = refreshed_tokens
+        self._last_theme_refresh_key = theme_key
         self._update_style()
     
     def set_collapsed(self, collapsed: bool):
@@ -470,7 +496,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         if self._selected:
             base_color = QColor(tokens.accent_hex)
         else:
-            base_color = QColor('#6a6a6a' if tokens.is_light else '#707070')
+            base_color = QColor(tokens.icon_fg_faint)
 
         # Интерполируем к белому при свечении
         if brightness > 0:
@@ -538,6 +564,7 @@ class CollapsibleHeader(QPushButton):
         self._collapsed_sidebar = False
         self._base_text = text
         self._tokens = get_theme_tokens()
+        self._last_theme_refresh_key: tuple[str, str] | None = None
         self._applying_theme_styles = False
         self._theme_refresh_scheduled = False
         self._current_qss = ""
@@ -567,7 +594,14 @@ class CollapsibleHeader(QPushButton):
     def _refresh_theme(self) -> None:
         if self._applying_theme_styles:
             return
-        self._tokens = get_theme_tokens()
+
+        refreshed_tokens = get_theme_tokens()
+        theme_key = (str(refreshed_tokens.theme_name), str(refreshed_tokens.fg_muted))
+        if theme_key == self._last_theme_refresh_key and self._current_qss:
+            return
+
+        self._tokens = refreshed_tokens
+        self._last_theme_refresh_key = theme_key
         self._update_style()
 
     def _update_style(self):
@@ -640,7 +674,7 @@ class CollapsibleHeader(QPushButton):
         chevron_x = self.width() - 18
         chevron_y = self.height() // 2
         tokens = self._tokens or get_theme_tokens("Темная синяя")
-        color = QColor('#606060' if tokens.is_light else '#a0a0a0')
+        color = QColor(tokens.icon_fg_faint)
         painter.setPen(color)
         painter.setBrush(color)
 
@@ -747,7 +781,7 @@ class CollapsibleNavButton(NavButton):
         if self._selected:
             color = QColor(tokens.accent_hex)
         else:
-            color = QColor('#6a6a6a' if tokens.is_light else '#707070')
+            color = QColor(tokens.icon_fg_faint)
         
         painter.setPen(color)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1757,6 +1791,7 @@ class SettingsRow(QWidget):
         self._icon_name = icon_name
         self._icon_label = None
         self._icon_update_scheduled = False
+        self._last_icon_theme_key: tuple[str, str] | None = None
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -1811,9 +1846,14 @@ class SettingsRow(QWidget):
             return
         try:
             tokens = get_theme_tokens()
+            theme_key = (str(tokens.theme_name), str(tokens.accent_hex))
+            if theme_key == self._last_icon_theme_key:
+                return
             icon_color = tokens.accent_hex
+            self._last_icon_theme_key = theme_key
         except Exception:
             icon_color = get_theme_tokens("Темная синяя").accent_hex
+            self._last_icon_theme_key = None
         self._icon_label.setPixmap(qta.icon(self._icon_name, color=icon_color).pixmap(20, 20))
         
     def set_control(self, widget: QWidget):
@@ -1834,6 +1874,7 @@ class ActionButton(QPushButton):
         self._current_qss = ""
         # Cache tokens to avoid registry reads on hover.
         self._tokens = get_theme_tokens()
+        self._last_theme_refresh_key: tuple[str, str, str, bool] | None = None
         # Prevent style/palette change re-entrancy leading to setIcon recursion.
         self._in_style_change = False
         self._icon_update_scheduled = False
@@ -1913,7 +1954,19 @@ class ActionButton(QPushButton):
     def _refresh_theme(self) -> None:
         if self._applying_theme_styles:
             return
-        self._tokens = get_theme_tokens()
+
+        refreshed_tokens = get_theme_tokens()
+        theme_key = (
+            str(refreshed_tokens.theme_name),
+            str(refreshed_tokens.accent_hex),
+            str(refreshed_tokens.fg),
+            bool(self.accent),
+        )
+        if theme_key == self._last_theme_refresh_key and self._current_qss:
+            return
+
+        self._tokens = refreshed_tokens
+        self._last_theme_refresh_key = theme_key
         self._update_style()
 
     def _update_style(self):
@@ -1975,7 +2028,8 @@ class PulsingDot(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._color = QColor("#888888")
+        tokens = get_theme_tokens()
+        self._color = QColor(tokens.icon_fg_faint)
         self._pulse_phase = 0.0  # 0.0 - 1.0
         self._is_pulsing = False
 
@@ -2089,6 +2143,7 @@ class StatusIndicator(QWidget):
         super().__init__(parent)
         self._current_status = "neutral"
         self._theme_refresh_scheduled = False
+        self._last_theme_name: str | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -2115,6 +2170,7 @@ class StatusIndicator(QWidget):
 
         tokens = get_theme_tokens()
         semantic = get_semantic_palette(tokens.theme_name)
+        self._last_theme_name = str(tokens.theme_name)
         colors = {
             'running': semantic.success,
             'stopped': semantic.error,
@@ -2134,6 +2190,12 @@ class StatusIndicator(QWidget):
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                try:
+                    tokens = get_theme_tokens()
+                    if str(tokens.theme_name) == self._last_theme_name:
+                        return super().changeEvent(event)
+                except Exception:
+                    pass
                 if not self._theme_refresh_scheduled:
                     self._theme_refresh_scheduled = True
                     QTimer.singleShot(0, self._on_debounced_theme_change)

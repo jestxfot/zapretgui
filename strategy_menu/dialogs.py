@@ -1,11 +1,12 @@
 # strategy_menu/dialogs.py
 
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextBrowser, QPushButton
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtGui import QFont, QColor
 
 from log import log
 from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
+from ui.theme import get_theme_tokens
 
 class StrategyInfoDialog(QDialog):
     """Отдельное окно для отображения подробной информации о стратегии."""
@@ -34,9 +35,6 @@ class StrategyInfoDialog(QDialog):
         # Детальная информация
         self.strategy_info = QTextBrowser()
         self.strategy_info.setOpenExternalLinks(True)
-        self.strategy_info.setStyleSheet(
-            "background-color: #333333; color: #ffffff; font-size: 9pt;"
-        )
         layout.addWidget(self.strategy_info)
         
         # Кнопка закрытия
@@ -44,6 +42,30 @@ class StrategyInfoDialog(QDialog):
         close_button.clicked.connect(self.close)
         close_button.setMaximumWidth(100)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self):
+        tokens = get_theme_tokens()
+        if tokens.is_light:
+            browser_bg = "rgba(255, 255, 255, 0.92)"
+            browser_border = "rgba(0, 0, 0, 0.12)"
+        else:
+            browser_bg = "rgba(0, 0, 0, 0.22)"
+            browser_border = "rgba(255, 255, 255, 0.10)"
+
+        self.strategy_title.setStyleSheet(f"color: {tokens.fg};")
+        self.strategy_info.setStyleSheet(
+            f"""
+            QTextBrowser {{
+                background-color: {browser_bg};
+                border: 1px solid {browser_border};
+                border-radius: 6px;
+                color: {tokens.fg};
+                font-size: 9pt;
+                padding: 6px;
+            }}
+            """
+        )
     
     def display_strategy_info(self, strategy_id, strategy_name):
         """Отображает информацию о выбранной стратегии."""
@@ -81,16 +103,31 @@ class StrategyInfoDialog(QDialog):
     
     def _format_strategy_info_html(self, strategy_info, label):
         """Форматирует HTML для отображения информации о стратегии."""
-        html = """<style>
-            body {font-family: Arial; margin: 5px; color: #ffffff; 
-                  background-color: #333333; font-size: 9pt;}
+        tokens = get_theme_tokens()
+        table_divider = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.08)"
+        html = f"""<style>
+            body {{
+                font-family: 'Segoe UI', Arial, sans-serif;
+                margin: 5px;
+                color: {tokens.fg};
+                background-color: transparent;
+                font-size: 9pt;
+            }}
+            h4 {{ margin: 10px 0 6px 0; }}
+            a {{ color: {tokens.accent_hex}; }}
+            table {{ border-collapse: collapse; }}
+            td {{ padding: 3px 4px; border-bottom: 1px solid {table_divider}; }}
         </style>"""
         
         # Метка
         if label and label in LABEL_TEXTS:
+            label_color = LABEL_COLORS.get(label, '#000000')
+            qcolor = QColor(label_color)
+            yiq = (qcolor.red() * 299 + qcolor.green() * 587 + qcolor.blue() * 114) / 1000 if qcolor.isValid() else 0
+            label_fg = "#111111" if yiq >= 160 else "#f5f5f5"
             html += f"""<p style='text-align: center; padding: 5px; 
-                background-color: {LABEL_COLORS.get(label, '#000000')}; 
-                color: white; font-weight: bold; font-size: 10pt; 
+                background-color: {label_color}; 
+                color: {label_fg}; font-weight: bold; font-size: 10pt; 
                 border-radius: 3px;'>{LABEL_TEXTS[label]}</p>"""
         
         # Описание
@@ -136,3 +173,11 @@ class StrategyInfoDialog(QDialog):
             html += "<p><b>Режим:</b> <span style='color:#00ff00;'>• ВСЕ САЙТЫ</span></p>"
         
         return html
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+        super().changeEvent(event)

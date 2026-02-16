@@ -23,19 +23,11 @@ class AboutPage(BasePage):
     def _build_ui(self):
         from config import APP_VERSION
         tokens = get_theme_tokens()
-        card_style = f"""
-            QFrame#settingsCard {{
-                background-color: {tokens.surface_bg};
-                border: none;
-                border-radius: 8px;
-            }}
-        """
         
         # Информация о версии
         self.add_section_title("Версия")
         
         version_card = SettingsCard()
-        version_card.setStyleSheet(card_style)
         
         version_layout = QHBoxLayout()
         version_layout.setSpacing(16)
@@ -85,7 +77,6 @@ class AboutPage(BasePage):
         self.add_section_title("Устройство")
 
         device_card = SettingsCard()
-        device_card.setStyleSheet(card_style)
 
         device_layout = QHBoxLayout()
         device_layout.setSpacing(16)
@@ -130,7 +121,6 @@ class AboutPage(BasePage):
         self.add_section_title("Подписка")
         
         sub_card = SettingsCard()
-        sub_card.setStyleSheet(card_style)
         
         sub_layout = QVBoxLayout()
         sub_layout.setSpacing(12)

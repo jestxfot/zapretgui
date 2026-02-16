@@ -19,11 +19,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QSize
 from PyQt6.QtCore import QEvent
-from PyQt6.QtGui import QIcon, QPixmap
-import qtawesome as qta
+from PyQt6.QtGui import QIcon
 
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_cached_qta_pixmap
 
 from strategy_menu.filter_engine import SearchQuery
 from config.reg import reg
@@ -103,6 +102,7 @@ class StrategySearchBar(QWidget):
         self._applying_theme_styles = False
         self._theme_refresh_scheduled = False
         self._has_active_filters = False
+        self._last_theme_refresh_key: tuple[str, str, str] | None = None
         self._setup_ui()
         self._setup_connections()
         self._refresh_theme()
@@ -151,9 +151,9 @@ class StrategySearchBar(QWidget):
     def _apply_combo_popup_style(self, view: QListView) -> None:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
 
-        bg = "#f6f7f9" if tokens.is_light else "#373737"
+        bg = tokens.surface_bg
         border = tokens.surface_border
-        text = "rgba(18, 18, 18, 0.92)" if tokens.is_light else "rgba(245, 245, 245, 0.95)"
+        text = tokens.fg
         item_hover = tokens.surface_bg_hover
         item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.20)"
 
@@ -191,20 +191,20 @@ class StrategySearchBar(QWidget):
     def _get_icon_color(self, *, muted: bool = False) -> str:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
         if muted:
-            return "#666666" if tokens.is_light else "#b3b3b3"
-        return "#111111" if tokens.is_light else "#f5f5f5"
+            return tokens.icon_fg_muted
+        return tokens.icon_fg
 
     def _refresh_icons(self) -> None:
         icon_color = self._get_icon_color(muted=True)
 
         try:
-            search_pixmap = qta.icon("fa5s.search", color=icon_color).pixmap(16, 16)
+            search_pixmap = get_cached_qta_pixmap("fa5s.search", color=icon_color, size=16)
             self._search_action.setIcon(QIcon(search_pixmap))
         except Exception:
             pass
 
         try:
-            clear_pixmap = qta.icon("fa5s.times-circle", color=icon_color).pixmap(14, 14)
+            clear_pixmap = get_cached_qta_pixmap("fa5s.times-circle", color=icon_color, size=14)
             self._clear_btn.setIcon(QIcon(clear_pixmap))
         except Exception:
             pass
@@ -212,13 +212,13 @@ class StrategySearchBar(QWidget):
         # Refresh combo item icons (pixmaps are not auto-recolored on theme change)
         try:
             for i, (_, icon_name, _) in enumerate(self.LABEL_OPTIONS):
-                pix = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
+                pix = get_cached_qta_pixmap(icon_name, color=icon_color, size=16)
                 self._label_combo.setItemIcon(i, QIcon(pix))
             for i, (_, icon_name, _) in enumerate(self.DESYNC_OPTIONS):
-                pix = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
+                pix = get_cached_qta_pixmap(icon_name, color=icon_color, size=16)
                 self._desync_combo.setItemIcon(i, QIcon(pix))
             for i, (_, icon_name, _) in enumerate(self.SORT_OPTIONS):
-                pix = qta.icon(icon_name, color=icon_color).pixmap(16, 16)
+                pix = get_cached_qta_pixmap(icon_name, color=icon_color, size=16)
                 self._sort_combo.setItemIcon(i, QIcon(pix))
         except Exception:
             pass
@@ -234,17 +234,17 @@ class StrategySearchBar(QWidget):
 
     def _build_qss(self) -> str:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
-        fg = "rgba(18, 18, 18, 0.92)" if tokens.is_light else "rgba(245, 245, 245, 0.95)"
-        placeholder = "rgba(0, 0, 0, 0.40)" if tokens.is_light else "rgba(245, 245, 245, 0.45)"
-        arrow = "rgba(0, 0, 0, 0.55)" if tokens.is_light else "rgba(245, 245, 245, 0.62)"
-        arrow_hover = "rgba(0, 0, 0, 0.80)" if tokens.is_light else "rgba(245, 245, 245, 0.90)"
-        toolbtn_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else tokens.surface_bg_hover
+        fg = tokens.fg
+        placeholder = tokens.fg_faint
+        arrow = tokens.fg_muted
+        arrow_hover = tokens.fg
+        toolbtn_hover = tokens.surface_bg_hover
 
-        clear_btn_bg = "rgba(0, 0, 0, 0.04)" if tokens.is_light else "rgba(245, 245, 245, 0.06)"
-        clear_btn_bg_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(245, 245, 245, 0.09)"
-        clear_btn_bg_pressed = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(245, 245, 245, 0.13)"
-        clear_btn_border = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(245, 245, 245, 0.10)"
-        clear_btn_border_hover = "rgba(0, 0, 0, 0.14)" if tokens.is_light else "rgba(245, 245, 245, 0.14)"
+        clear_btn_bg = tokens.surface_bg
+        clear_btn_bg_hover = tokens.surface_bg_hover
+        clear_btn_bg_pressed = tokens.surface_bg_pressed
+        clear_btn_border = tokens.surface_border
+        clear_btn_border_hover = tokens.surface_border_hover
 
         return f"""
             /* Search Input */
@@ -345,11 +345,19 @@ class StrategySearchBar(QWidget):
             }}
         """
 
+    def _build_theme_refresh_key(self, tokens) -> tuple[str, str, str]:
+        return (str(tokens.theme_name), str(tokens.accent_hex), str(tokens.font_family_qss))
+
     def _refresh_theme(self) -> None:
         if self._applying_theme_styles:
             return
 
-        self._tokens = get_theme_tokens()
+        refreshed_tokens = get_theme_tokens()
+        theme_key = self._build_theme_refresh_key(refreshed_tokens)
+        if theme_key == self._last_theme_refresh_key and self._current_qss:
+            return
+
+        self._tokens = refreshed_tokens
         self._applying_theme_styles = True
         try:
             qss = self._build_qss()
@@ -358,6 +366,7 @@ class StrategySearchBar(QWidget):
                 self.setStyleSheet(qss)
             self._refresh_icons()
             self._update_clear_button_visibility()
+            self._last_theme_refresh_key = theme_key
         finally:
             self._applying_theme_styles = False
 
@@ -367,6 +376,12 @@ class StrategySearchBar(QWidget):
                 QEvent.Type.StyleChange,
                 QEvent.Type.PaletteChange,
             ):
+                try:
+                    tokens = get_theme_tokens()
+                    if self._build_theme_refresh_key(tokens) == self._last_theme_refresh_key:
+                        return super().changeEvent(event)
+                except Exception:
+                    pass
                 if not self._theme_refresh_scheduled:
                     self._theme_refresh_scheduled = True
                     QTimer.singleShot(0, self._on_debounced_theme_change)
@@ -398,8 +413,7 @@ class StrategySearchBar(QWidget):
         self._search_input.setToolTip("Введите текст для поиска стратегий")
 
         # Add search icon (theme-aware)
-        search_icon = qta.icon("fa5s.search", color=self._get_icon_color(muted=True))
-        search_pixmap = search_icon.pixmap(16, 16)
+        search_pixmap = get_cached_qta_pixmap("fa5s.search", color=self._get_icon_color(muted=True), size=16)
         self._search_action = self._search_input.addAction(
             QIcon(search_pixmap), QLineEdit.ActionPosition.LeadingPosition
         )
@@ -411,8 +425,7 @@ class StrategySearchBar(QWidget):
 
         # Clear filters button (hidden by default)
         self._clear_btn = QPushButton()
-        clear_icon = qta.icon("fa5s.times-circle", color=self._get_icon_color(muted=True))
-        clear_pixmap = clear_icon.pixmap(14, 14)
+        clear_pixmap = get_cached_qta_pixmap("fa5s.times-circle", color=self._get_icon_color(muted=True), size=14)
         self._clear_btn.setIcon(QIcon(clear_pixmap))
         self._clear_btn.setIconSize(QSize(14, 14))
         self._clear_btn.setFixedSize(32, 32)
@@ -441,8 +454,7 @@ class StrategySearchBar(QWidget):
         self._label_combo.setMaximumWidth(140)
         self._label_combo.setToolTip("Фильтр по типу стратегии")
         for display_text, icon_name, value in self.LABEL_OPTIONS:
-            icon = qta.icon(icon_name, color=self._get_icon_color(muted=True))
-            pixmap = icon.pixmap(16, 16)
+            pixmap = get_cached_qta_pixmap(icon_name, color=self._get_icon_color(muted=True), size=16)
             self._label_combo.addItem(QIcon(pixmap), display_text, value)
         # Configure dropdown to show all 5 items without scrollbar
         self._configure_combo_no_scrollbar(self._label_combo, len(self.LABEL_OPTIONS))
@@ -454,8 +466,7 @@ class StrategySearchBar(QWidget):
         self._desync_combo.setMaximumWidth(120)
         self._desync_combo.setToolTip("Фильтр по технике обхода DPI")
         for display_text, icon_name, value in self.DESYNC_OPTIONS:
-            icon = qta.icon(icon_name, color=self._get_icon_color(muted=True))
-            pixmap = icon.pixmap(16, 16)
+            pixmap = get_cached_qta_pixmap(icon_name, color=self._get_icon_color(muted=True), size=16)
             self._desync_combo.addItem(QIcon(pixmap), display_text, value)
         # Configure dropdown to show all 7 items without scrollbar
         self._configure_combo_no_scrollbar(self._desync_combo, len(self.DESYNC_OPTIONS))
@@ -467,8 +478,7 @@ class StrategySearchBar(QWidget):
         self._sort_combo.setMaximumWidth(200)
         self._sort_combo.setToolTip("Сортировка списка стратегий")
         for display_text, icon_name, value in self.SORT_OPTIONS:
-            icon = qta.icon(icon_name, color=self._get_icon_color(muted=True))
-            pixmap = icon.pixmap(16, 16)
+            pixmap = get_cached_qta_pixmap(icon_name, color=self._get_icon_color(muted=True), size=16)
             self._sort_combo.addItem(QIcon(pixmap), display_text, value)
         # Configure dropdown to show all 4 items without scrollbar
         self._configure_combo_no_scrollbar(self._sort_combo, len(self.SORT_OPTIONS))

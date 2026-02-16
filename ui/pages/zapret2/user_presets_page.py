@@ -51,6 +51,7 @@ from ui.sidebar import ActionButton, SettingsCard
 from ui.pages.presets_page import _RevealFrame, _SegmentedChoice
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 from log import log
 
 
@@ -58,14 +59,16 @@ _icon_cache: dict[str, object] = {}
 _DEFAULT_PRESET_ICON_COLOR = "#5caee8"
 _HEX_COLOR_RGB_RE = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
 _HEX_COLOR_RGBA_RE = re.compile(r"^#(?:[0-9a-fA-F]{8})$")
+_CSS_RGBA_COLOR_RE = re.compile(
+    r"^\s*rgba?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*(?:,\s*([0-9]*\.?[0-9]+)\s*)?\)\s*$",
+    re.IGNORECASE,
+)
 
 
 def _accent_fg_for_tokens(tokens) -> str:
     """Chooses readable foreground for the current accent color."""
     try:
-        r, g, b = tokens.accent_rgb
-        yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
+        return str(tokens.accent_fg)
     except Exception:
         return "rgba(18, 18, 18, 0.90)"
 
@@ -90,6 +93,116 @@ def _cached_icon(name: str, color: str):
         icon = qta.icon(name, color=color)
         _icon_cache[key] = icon
     return icon
+
+
+def _relative_luminance(color: QColor) -> float:
+    def _channel_luma(channel: int) -> float:
+        value = max(0.0, min(1.0, float(channel) / 255.0))
+        if value <= 0.03928:
+            return value / 12.92
+        return ((value + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * _channel_luma(color.red())
+        + 0.7152 * _channel_luma(color.green())
+        + 0.0722 * _channel_luma(color.blue())
+    )
+
+
+def _contrast_ratio(foreground: QColor, background: QColor) -> float:
+    fg = QColor(foreground)
+    bg = QColor(background)
+    fg.setAlpha(255)
+    bg.setAlpha(255)
+    l1 = _relative_luminance(fg)
+    l2 = _relative_luminance(bg)
+    lighter = max(l1, l2)
+    darker = min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _pick_contrast_color(
+    preferred_color: str,
+    background_color: QColor,
+    fallback_colors: list[str],
+    *,
+    minimum_ratio: float = 2.4,
+) -> str:
+    bg = QColor(background_color)
+    if not bg.isValid():
+        bg = QColor("#000000")
+    bg.setAlpha(255)
+
+    candidates: list[str] = []
+    for raw in [preferred_color, *fallback_colors]:
+        value = str(raw or "").strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    best_color = None
+    best_ratio = -1.0
+    for candidate in candidates:
+        color = QColor(candidate)
+        if not color.isValid():
+            continue
+        color.setAlpha(255)
+        ratio = _contrast_ratio(color, bg)
+        if ratio >= minimum_ratio:
+            return color.name(QColor.NameFormat.HexRgb)
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_color = color
+
+    if best_color is not None:
+        return best_color.name(QColor.NameFormat.HexRgb)
+    return "#f5f5f5" if _relative_luminance(bg) < 0.45 else "#111111"
+
+
+def _color_with_alpha(color_value: str, alpha: int, fallback_hex: str) -> str:
+    color = QColor(color_value)
+    if not color.isValid():
+        color = QColor(fallback_hex)
+    color.setAlpha(max(0, min(255, int(alpha))))
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()})"
+
+
+def _to_qcolor(value, fallback_hex: str = "#000000") -> QColor:
+    if isinstance(value, QColor):
+        color = QColor(value)
+        if color.isValid():
+            return color
+
+    text = str(value or "").strip()
+    if text:
+        match = _CSS_RGBA_COLOR_RE.fullmatch(text)
+        if match:
+            try:
+                r = max(0, min(255, int(match.group(1))))
+                g = max(0, min(255, int(match.group(2))))
+                b = max(0, min(255, int(match.group(3))))
+                alpha_raw = match.group(4)
+
+                if alpha_raw is None:
+                    a = 255
+                else:
+                    a_float = float(alpha_raw)
+                    if a_float <= 1.0:
+                        a = int(round(max(0.0, min(1.0, a_float)) * 255.0))
+                    else:
+                        a = int(round(max(0.0, min(255.0, a_float))))
+
+                return QColor(r, g, b, a)
+            except Exception:
+                pass
+
+        color = QColor(text)
+        if color.isValid():
+            return color
+
+    fallback = QColor(fallback_hex)
+    if fallback.isValid():
+        return fallback
+    return QColor(0, 0, 0)
 
 
 class _PresetListModel(QAbstractListModel):
@@ -374,7 +487,6 @@ class _PresetListDelegate(QStyledItemDelegate):
         painter.save()
         tokens = get_theme_tokens()
         rect = option.rect
-        painter.fillRect(rect, QColor(tokens.surface_bg_hover))
 
         text_rect = rect.adjusted(12, 0, -12, 0)
         font = painter.font()
@@ -385,14 +497,14 @@ class _PresetListDelegate(QStyledItemDelegate):
         metrics = QFontMetrics(font)
         text_width = metrics.horizontalAdvance(text)
 
-        painter.setPen(QColor(tokens.fg_muted))
+        painter.setPen(_to_qcolor(tokens.fg_muted, "#9aa2af"))
         painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
 
         # Draw a subtle separator line to the right of the label.
         line_x1 = text_rect.left() + text_width + 10
         line_x2 = rect.right() - 12
         if line_x2 > line_x1:
-            painter.setPen(QColor(tokens.divider))
+            painter.setPen(_to_qcolor(tokens.divider, "#5f6368"))
             y = rect.center().y()
             painter.drawLine(line_x1, y, line_x2, y)
         painter.restore()
@@ -400,7 +512,7 @@ class _PresetListDelegate(QStyledItemDelegate):
     def _paint_empty_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
         painter.save()
         tokens = get_theme_tokens()
-        painter.setPen(QColor(tokens.fg_muted))
+        painter.setPen(_to_qcolor(tokens.fg_muted, "#9aa2af"))
         font = painter.font()
         font.setPointSize(10)
         painter.setFont(font)
@@ -409,6 +521,7 @@ class _PresetListDelegate(QStyledItemDelegate):
 
     def _paint_preset_row(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
         tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         name = str(index.data(_PresetListModel.NameRole) or "")
         date_text = str(index.data(_PresetListModel.DateRole) or "")
         is_active = bool(index.data(_PresetListModel.ActiveRole))
@@ -417,19 +530,25 @@ class _PresetListDelegate(QStyledItemDelegate):
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
         if is_active:
-            bg = QColor(tokens.accent_soft_bg)
+            bg = _to_qcolor(tokens.accent_soft_bg, tokens.accent_hex)
         elif hovered:
-            bg = QColor(tokens.surface_bg_hover)
+            bg = _to_qcolor(tokens.surface_bg_hover, tokens.surface_bg)
         else:
-            bg = QColor(tokens.surface_bg)
+            bg = QColor(Qt.GlobalColor.transparent)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.fillRect(row_rect, bg)
+        if bg.alpha() > 0:
+            painter.fillRect(row_rect, bg)
 
         icon_rect = QRect(row_rect.left() + 12, row_rect.center().y() - 10, 20, 20)
         icon_name = "fa5s.star" if is_active else "fa5s.file-alt"
-        icon_color = _normalize_preset_icon_color(str(index.data(_PresetListModel.IconColorRole) or ""))
+        icon_color = _pick_contrast_color(
+            _normalize_preset_icon_color(str(index.data(_PresetListModel.IconColorRole) or "")),
+            bg,
+            [tokens.accent_hex, tokens.fg],
+            minimum_ratio=2.6,
+        )
         _cached_icon(icon_name, icon_color).paint(painter, icon_rect)
 
         action_rects = self._action_rects(row_rect, is_active)
@@ -449,7 +568,7 @@ class _PresetListDelegate(QStyledItemDelegate):
             painter.drawRoundedRect(badge_rect, 4, 4)
 
             painter.setFont(badge_font)
-            painter.setPen(QColor(_accent_fg_for_tokens(tokens)))
+            painter.setPen(_to_qcolor(_accent_fg_for_tokens(tokens), "#f5f5f5"))
             painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), badge_text)
             right_cursor = badge_rect.left() - 10
 
@@ -461,7 +580,7 @@ class _PresetListDelegate(QStyledItemDelegate):
             date_metrics = QFontMetrics(date_font)
             date_width = date_metrics.horizontalAdvance(date_text)
             date_rect = QRect(max(row_rect.left() + 80, right_cursor - date_width), row_rect.top(), date_width, row_rect.height())
-            painter.setPen(QColor(tokens.fg_faint))
+            painter.setPen(_to_qcolor(tokens.fg_faint, "#aeb5c1"))
             painter.drawText(date_rect, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), date_text)
             right_cursor = date_rect.left() - 10
 
@@ -471,7 +590,7 @@ class _PresetListDelegate(QStyledItemDelegate):
         name_font.setPointSize(10)
         name_font.setBold(True)
         painter.setFont(name_font)
-        painter.setPen(QColor(tokens.fg))
+        painter.setPen(_to_qcolor(tokens.fg, "#f5f5f5"))
         name_metrics = QFontMetrics(name_font)
         elided_name = name_metrics.elidedText(name, Qt.TextElideMode.ElideRight, name_rect.width())
         painter.drawText(name_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), elided_name)
@@ -479,11 +598,21 @@ class _PresetListDelegate(QStyledItemDelegate):
         for action, action_rect in action_rects:
             pending = self._pending_destructive == (name, action)
             if pending:
-                btn_bg = QColor(255, 107, 107, 50)
-                icon_col = "#ff6b6b"
+                btn_bg = _to_qcolor(semantic.error_soft_bg, semantic.error)
+                icon_col = _pick_contrast_color(
+                    semantic.error,
+                    btn_bg,
+                    [semantic.on_color, tokens.fg],
+                    minimum_ratio=2.8,
+                )
             else:
-                btn_bg = QColor(tokens.surface_bg_hover)
-                icon_col = str(tokens.fg_muted)
+                btn_bg = _to_qcolor(tokens.surface_bg_hover, tokens.surface_bg)
+                icon_col = _pick_contrast_color(
+                    str(tokens.fg_muted),
+                    btn_bg,
+                    [tokens.fg],
+                    minimum_ratio=2.6,
+                )
 
             painter.setBrush(btn_bg)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -757,17 +886,25 @@ class _PresetActionPopover(QDialog):
 
     def _apply_styles(self) -> None:
         tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         is_light = bool(tokens.is_light)
-        if is_light:
-            bg_top = "rgba(246, 248, 252, 246)"
-            bg_bottom = "rgba(243, 246, 251, 246)"
-            shadow_color = QColor(0, 0, 0, 66)
-            error_color = "#cf3d3d"
-        else:
-            bg_top = "rgba(45, 49, 55, 248)"
-            bg_bottom = "rgba(35, 39, 45, 248)"
-            shadow_color = QColor(0, 0, 0, 124)
-            error_color = "#ff6b6b"
+        bg_top = _color_with_alpha(
+            tokens.surface_bg_hover,
+            248,
+            "#f6f8fc" if is_light else "#2d3137",
+        )
+        bg_bottom = _color_with_alpha(
+            tokens.surface_bg,
+            246,
+            "#f3f6fb" if is_light else "#23272d",
+        )
+        shadow_color = QColor(0, 0, 0, 66 if is_light else 124)
+        error_color = _pick_contrast_color(
+            semantic.error,
+            _to_qcolor(bg_bottom, "#23272d" if not is_light else "#f3f6fb"),
+            [tokens.fg],
+            minimum_ratio=2.8,
+        )
 
         self._shadow.setColor(shadow_color)
         radius = self._BORDER_RADIUS
@@ -870,6 +1007,34 @@ class _PresetActionPopover(QDialog):
                 QPushButton:pressed {{ background-color: {tokens.surface_bg_pressed}; }}
                 """
             )
+        except Exception:
+            pass
+
+        try:
+            accent_fg = _accent_fg_for_tokens(tokens)
+            self._submit_btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {tokens.accent_hex};
+                    border: none;
+                    border-radius: 10px;
+                    color: {accent_fg};
+                    padding: 0 18px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+                QPushButton:hover {{ background-color: {tokens.accent_hover_hex}; }}
+                QPushButton:pressed {{ background-color: {tokens.accent_pressed_hex}; }}
+                """
+            )
+            self._submit_btn.setIcon(qta.icon("fa5s.check", color=accent_fg))
+        except Exception:
+            pass
+
+        try:
+            icon_name = "fa5s.edit" if self._mode == "rename" else "fa5s.plus"
+            self._icon.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(18, 18))
         except Exception:
             pass
 
@@ -1106,6 +1271,8 @@ class Zapret2UserPresetsPage(BasePage):
         self._presets_delegate: Optional[_PresetListDelegate] = None
         self._manager = None
         self._ui_dirty = True  # needs rebuild on next show
+        self._page_theme_refresh_scheduled = False
+        self._last_page_theme_key: tuple[str, str, str] | None = None
 
         self._file_watcher: Optional[QFileSystemWatcher] = None
         self._watcher_active = False
@@ -1141,6 +1308,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._action_popover = _PresetActionPopover(self)
         self._action_popover.submit_requested.connect(self._submit_inline_action)
         self._action_popover.cancel_requested.connect(self._hide_inline_action)
+        self._apply_page_theme()
 
         # Subscribe to central store signals
         try:
@@ -1188,6 +1356,28 @@ class Zapret2UserPresetsPage(BasePage):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._resync_layout_metrics()
+        self._schedule_layout_resync()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                try:
+                    tokens = get_theme_tokens()
+                    theme_key = (str(tokens.theme_name), str(tokens.accent_hex), str(tokens.surface_bg))
+                    if theme_key == self._last_page_theme_key:
+                        return super().changeEvent(event)
+                except Exception:
+                    pass
+                if not self._page_theme_refresh_scheduled:
+                    self._page_theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_page_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_page_theme_change(self) -> None:
+        self._page_theme_refresh_scheduled = False
+        self._apply_page_theme()
         self._schedule_layout_resync()
 
     def hideEvent(self, event):
@@ -1304,6 +1494,7 @@ class Zapret2UserPresetsPage(BasePage):
 
     def _build_ui(self):
         tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
 
         # Telegram configs link
         configs_card = SettingsCard()
@@ -1312,9 +1503,9 @@ class Zapret2UserPresetsPage(BasePage):
         configs_card.setStyleSheet("")
         configs_layout = QHBoxLayout()
         configs_layout.setSpacing(12)
-        configs_icon = QLabel()
-        configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
-        configs_layout.addWidget(configs_icon)
+        self._configs_icon = QLabel()
+        self._configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
+        configs_layout.addWidget(self._configs_icon)
         configs_title = QLabel(
             "Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно"
         )
@@ -1536,11 +1727,11 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._action_error = QLabel("")
         self._action_error.setStyleSheet(
-            """
-            QLabel {
-                color: #ff6b6b;
+            f"""
+            QLabel {{
+                color: {semantic.error};
                 font-size: 12px;
-            }
+            }}
             """
         )
         self._action_error.setWordWrap(True)
@@ -1622,60 +1813,56 @@ class Zapret2UserPresetsPage(BasePage):
 
     def _create_main_button(self, text: str, icon_name: str, accent: bool = False) -> QPushButton:
         btn = QPushButton(text)
-
-        tokens = get_theme_tokens()
-        accent_fg = _accent_fg_for_tokens(tokens)
-        icon_color = accent_fg if accent else tokens.fg
-        btn.setIcon(qta.icon(icon_name, color=icon_color))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(36)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        if accent:
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {tokens.accent_hex};
-                    border: none;
-                    border-radius: 8px;
-                    color: {accent_fg};
-                    padding: 0 20px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:hover {{
-                    background-color: {tokens.accent_hover_hex};
-                }}
-                QPushButton:pressed {{
-                    background-color: {tokens.accent_pressed_hex};
-                }}
-                """
-            )
-        else:
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {tokens.surface_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 8px;
-                    color: {tokens.fg};
-                    padding: 0 20px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:hover {{
-                    background-color: {tokens.surface_bg_hover};
-                    border: 1px solid {tokens.surface_border_hover};
-                }}
-                QPushButton:pressed {{
-                    background-color: {tokens.surface_bg_pressed};
-                }}
-                """
-            )
+        self._apply_row_button_theme(btn, icon_name, accent=accent)
 
         return btn
+
+    def _accent_row_button_style(self) -> str:
+        tokens = get_theme_tokens()
+        accent_fg = _accent_fg_for_tokens(tokens)
+        return f"""
+            QPushButton {{
+                background-color: {tokens.accent_hex};
+                border: none;
+                border-radius: 8px;
+                color: {accent_fg};
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.accent_hover_hex};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.accent_pressed_hex};
+            }}
+        """
+
+    def _plain_main_button_style(self) -> str:
+        tokens = get_theme_tokens()
+        return f"""
+            QPushButton {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 8px;
+                color: {tokens.fg};
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+            }}
+            QPushButton:hover {{
+                background-color: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {tokens.surface_bg_pressed};
+            }}
+        """
 
     def _secondary_row_button_style(self) -> str:
         tokens = get_theme_tokens()
@@ -1701,12 +1888,166 @@ class Zapret2UserPresetsPage(BasePage):
 
     def _create_secondary_row_button(self, text: str, icon_name: str) -> QPushButton:
         btn = QPushButton(text)
-        btn.setIcon(qta.icon(icon_name, color=get_theme_tokens().fg))
         btn.setIconSize(QSize(16, 16))
         btn.setFixedHeight(32)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(self._secondary_row_button_style())
+        self._apply_secondary_row_button_theme(btn, icon_name)
         return btn
+
+    def _apply_row_button_theme(self, btn: QPushButton, icon_name: str, *, accent: bool) -> None:
+        tokens = get_theme_tokens()
+        if accent:
+            accent_fg = _accent_fg_for_tokens(tokens)
+            btn.setIcon(qta.icon(icon_name, color=accent_fg))
+            btn.setStyleSheet(self._accent_row_button_style())
+            return
+        btn.setIcon(qta.icon(icon_name, color=tokens.fg))
+        btn.setStyleSheet(self._plain_main_button_style())
+
+    def _apply_secondary_row_button_theme(self, btn: QPushButton, icon_name: str) -> None:
+        tokens = get_theme_tokens()
+        btn.setIcon(qta.icon(icon_name, color=tokens.fg))
+        btn.setStyleSheet(self._secondary_row_button_style())
+
+    def _apply_page_theme(self) -> None:
+        try:
+            tokens = get_theme_tokens()
+            theme_key = (str(tokens.theme_name), str(tokens.accent_hex), str(tokens.surface_bg))
+            if theme_key == self._last_page_theme_key:
+                return
+
+            semantic = get_semantic_palette(tokens.theme_name)
+
+            if getattr(self, "_configs_icon", None) is not None:
+                self._configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
+
+            if getattr(self, "_restore_deleted_btn", None) is not None:
+                self._restore_deleted_btn.setIcon(qta.icon("fa5s.undo", color=tokens.fg))
+                self._restore_deleted_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg};
+                        padding: 0 16px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid {tokens.surface_border_hover};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {tokens.surface_bg_pressed};
+                    }}
+                    """
+                )
+
+            if getattr(self, "create_btn", None) is not None:
+                self._apply_row_button_theme(self.create_btn, "fa5s.plus", accent=True)
+            if getattr(self, "import_btn", None) is not None:
+                self._apply_secondary_row_button_theme(self.import_btn, "fa5s.file-import")
+            if getattr(self, "presets_info_btn", None) is not None:
+                self._apply_secondary_row_button_theme(self.presets_info_btn, "fa5s.info-circle")
+            if getattr(self, "_action_cancel_btn", None) is not None:
+                self._apply_row_button_theme(self._action_cancel_btn, "fa5s.times", accent=False)
+            if getattr(self, "_action_submit_btn", None) is not None:
+                self._apply_row_button_theme(self._action_submit_btn, "fa5s.check", accent=True)
+
+            if getattr(self, "_action_icon", None) is not None:
+                action_icon_name = "fa5s.edit" if self._action_mode == "rename" else "fa5s.plus"
+                self._action_icon.setPixmap(qta.icon(action_icon_name, color=tokens.accent_hex).pixmap(18, 18))
+
+            if getattr(self, "_action_close_btn", None) is not None:
+                self._action_close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
+                self._action_close_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        color: {tokens.fg};
+                    }}
+                    QPushButton:hover {{ background: {tokens.surface_bg_hover}; border: 1px solid {tokens.surface_border_hover}; }}
+                    QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
+                    """
+                )
+
+            if getattr(self, "_name_input", None) is not None:
+                self._name_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg};
+                        padding: 10px 12px;
+                        font-size: 13px;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }}
+                    QLineEdit:hover {{ background-color: {tokens.surface_bg_hover}; }}
+                    QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
+                    """
+                )
+                set_line_edit_clear_button_icon(self._name_input, color=tokens.fg_muted)
+
+            if self._preset_search_input is not None:
+                self._preset_search_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg};
+                        padding: 0 12px;
+                        font-size: 13px;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }}
+                    QLineEdit:hover {{ background: {tokens.surface_bg_hover}; }}
+                    QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
+                    QLineEdit::placeholder {{ color: {tokens.fg_faint}; }}
+                    """
+                )
+                set_line_edit_clear_button_icon(self._preset_search_input, color=tokens.fg_muted)
+
+            if getattr(self, "_action_error", None) is not None:
+                self._action_error.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        color: {semantic.error};
+                        font-size: 12px;
+                    }}
+                    """
+                )
+
+            if getattr(self, "reset_all_btn", None) is not None:
+                if self._reset_all_confirm_pending:
+                    self._apply_reset_all_button_style(True)
+                    confirm_icon_color = _pick_contrast_color(
+                        semantic.on_color,
+                        _to_qcolor(semantic.danger_bg, "#dc3545"),
+                        [tokens.fg, "#ffffff"],
+                        minimum_ratio=3.0,
+                    )
+                    self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color=confirm_icon_color))
+                else:
+                    self._apply_reset_all_button_style(False)
+                    if getattr(self, "_reset_all_result_token", None) is None:
+                        self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color=tokens.fg))
+
+            pop = getattr(self, "_action_popover", None)
+            if pop is not None:
+                pop._apply_styles()
+
+            if getattr(self, "presets_list", None) is not None:
+                self.presets_list.viewport().update()
+
+            self._last_page_theme_key = theme_key
+
+        except Exception as e:
+            log(f"Ошибка применения темы на странице пресетов: {e}", "DEBUG")
 
     def _content_inner_width(self) -> int:
         margins = self.layout.contentsMargins()
@@ -1772,24 +2113,33 @@ class Zapret2UserPresetsPage(BasePage):
 
     def _apply_reset_all_button_style(self, confirm: bool):
         if confirm:
+            tokens = get_theme_tokens()
+            semantic = get_semantic_palette(tokens.theme_name)
+            danger_bg = _to_qcolor(semantic.danger_bg, "#dc3545")
+            confirm_fg = _pick_contrast_color(
+                semantic.on_color,
+                danger_bg,
+                [tokens.fg, "#ffffff"],
+                minimum_ratio=3.0,
+            )
             self.reset_all_btn.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: rgba(255, 107, 107, 0.95);
-                    border: 1px solid rgba(255, 177, 177, 0.5);
+                f"""
+                QPushButton {{
+                    background-color: {semantic.danger_bg};
+                    border: 1px solid {semantic.error_soft_border};
                     border-radius: 4px;
-                    color: rgba(245, 245, 245, 0.95);
+                    color: {confirm_fg};
                     padding: 0 16px;
                     font-size: 12px;
                     font-weight: 700;
                     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 107, 107, 1);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(230, 85, 85, 1);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {semantic.danger_bg_strong};
+                }}
+                QPushButton:pressed {{
+                    background-color: {semantic.danger_button_hover};
+                }}
                 """
             )
             return
@@ -1801,7 +2151,15 @@ class Zapret2UserPresetsPage(BasePage):
         self._reset_all_result_token = None
         self._reset_all_confirm_pending = True
         self.reset_all_btn.setText("Это сбросит ваши настройки")
-        self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color="rgba(245, 245, 245, 0.95)"))
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
+        confirm_icon_color = _pick_contrast_color(
+            semantic.on_color,
+            _to_qcolor(semantic.danger_bg, "#dc3545"),
+            [tokens.fg, "#ffffff"],
+            minimum_ratio=3.0,
+        )
+        self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color=confirm_icon_color))
         self._apply_reset_all_button_style(True)
         self._reset_all_confirm_timer.start(5000)
         self._update_toolbar_buttons_layout()
