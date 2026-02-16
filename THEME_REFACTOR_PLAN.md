@@ -72,9 +72,9 @@ Late audit (files likely still not fully on new engine):
 
 Residual hardcoded-pattern audit (tokenized pages, lower priority cleanup):
 
-- [ ] `ui/pages/home_page.py`
-- [ ] `ui/pages/servers_page.py`
-- [ ] `ui/pages/logs_page.py`
+- [x] `ui/pages/home_page.py`
+- [x] `ui/pages/servers_page.py`
+- [x] `ui/pages/logs_page.py`
 - [ ] `ui/pages/presets_page.py`
 - [ ] `ui/pages/control_page.py`
 - [ ] `ui/pages/custom_domains_page.py`
@@ -151,3 +151,4 @@ python -c "import os; os.environ.setdefault('QT_QPA_PLATFORM','offscreen'); from
 - 2026-02-16: Step 2 tranche C completed for `support_page.py`, `strategies_page_base.py`, `premium_page.py`: migrated remaining success/warning/error status UI to `ui/theme_semantic.py` (including premium badge/server/activation and strategy status indicator/favorites badge).
 - 2026-02-16: Step 3 completed for `ui/sidebar.py`: removed residual `#60cdff/#ffffff/rgba(255,255,255,...)` neutrals in action/icon/status controls, switched status colors to semantic palette, and added debounced theme refresh for sidebar status indicator.
 - 2026-02-16: Verification unblock: `base_page.py` title font now safely falls back to `font_family_qss` when `font_family_display_qss` is absent in `ThemeTokens`.
+- 2026-02-16: Residual cleanup tranche I completed for `home_page.py`, `servers_page.py`, `logs_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` patterns with token/semantic replacements and preserved existing behavior.

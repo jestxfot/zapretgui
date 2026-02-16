@@ -12,6 +12,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, StatusIndicator, ActionButton
 from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 from log import log
 
 
@@ -286,14 +287,15 @@ class StatusCard(QFrame):
         
     def set_status_color(self, status: str):
         """Меняет цвет иконки по статусу"""
+        semantic = get_semantic_palette()
         try:
             neutral = get_theme_tokens().accent_hex
         except Exception:
-            neutral = '#60cdff'
+            neutral = get_theme_tokens("Темная синяя").accent_hex
         colors = {
-            'running': '#6ccb5f',
-            'stopped': '#ff6b6b',
-            'warning': '#ffc107',
+            'running': semantic.success,
+            'stopped': semantic.error,
+            'warning': semantic.warning,
             'neutral': neutral,
         }
         color = colors.get(status, colors['neutral'])

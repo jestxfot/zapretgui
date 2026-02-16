@@ -15,6 +15,7 @@ from datetime import datetime
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 from config import APP_VERSION, CHANNEL
 from log import log
 from updater.telegram_updater import TELEGRAM_CHANNELS
@@ -1002,21 +1003,6 @@ class ChangelogCard(QFrame):
         self.install_btn.setFixedHeight(32)
         self.install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.install_btn.clicked.connect(self._on_install)
-        # Иконка download (белая)
-        download_icon = qta.icon('fa5s.download', color='#ffffff')
-        self.install_btn.setIcon(download_icon)
-        self.install_btn.setStyleSheet("""
-            QPushButton {
-                background: #4CAF50;
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px 0 12px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background: #45a049; }
-        """)
         buttons_layout.addWidget(self.install_btn)
         
         layout.addWidget(self.buttons_widget)
@@ -1031,6 +1017,7 @@ class ChangelogCard(QFrame):
         try:
             self._tokens = get_theme_tokens(theme_name)
             tokens = self._tokens
+            semantic = get_semantic_palette(tokens.theme_name)
 
             self.setStyleSheet(
                 "QFrame#changelogCard {"
@@ -1066,6 +1053,22 @@ class ChangelogCard(QFrame):
                 " }"
                 "QPushButton:pressed {"
                 f" background: {tokens.surface_bg_pressed};"
+                " }"
+            )
+
+            self.install_btn.setIcon(qta.icon('fa5s.download', color=semantic.on_color))
+            self.install_btn.setStyleSheet(
+                "QPushButton {"
+                f" background: {semantic.success_button};"
+                " border: none;"
+                " border-radius: 4px;"
+                f" color: {semantic.on_color};"
+                " padding: 0 16px 0 12px;"
+                " font-size: 12px;"
+                " font-weight: 600;"
+                " }"
+                "QPushButton:hover {"
+                f" background: {semantic.success_button_hover};"
                 " }"
             )
 
@@ -1398,7 +1401,8 @@ class ServersPage(BasePage):
         tg_btn = QPushButton("  Открыть Telegram канал")
         tg_btn.setFixedHeight(36)
         tg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        tg_btn.setIcon(qta.icon('fa5b.telegram-plane', color='#ffffff'))
+        tg_on_color = "rgba(245, 245, 245, 0.95)"
+        tg_btn.setIcon(qta.icon('fa5b.telegram-plane', color=tg_on_color))
         tg_btn.clicked.connect(self._open_telegram_channel)
         tg_btn.setStyleSheet("""
             QPushButton {
@@ -1406,7 +1410,7 @@ class ServersPage(BasePage):
                     stop:0 #0088cc, stop:1 #00aaee);
                 border: none;
                 border-radius: 6px;
-                color: #ffffff;
+                color: rgba(245, 245, 245, 0.95);
                 padding: 0 20px;
                 font-size: 13px;
                 font-weight: 600;

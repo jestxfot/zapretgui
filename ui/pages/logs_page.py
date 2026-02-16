@@ -270,7 +270,7 @@ class LogsPage(BasePage):
 
         # Controls
         if hasattr(self, "log_combo"):
-            popup_bg = "#ffffff" if tokens.is_light else "rgba(45, 45, 48, 0.95)"
+            popup_bg = tokens.surface_bg if tokens.is_light else "rgba(45, 45, 48, 0.95)"
             self.log_combo.setStyleSheet(
                 "QComboBox {"
                 f" background-color: {tokens.surface_bg};"
@@ -340,8 +340,8 @@ class LogsPage(BasePage):
             self.info_label.setStyleSheet(f"QLabel {{ color: {tokens.accent_hex}; font-size: 11px; }}")
 
         # Log area
-        editor_bg = "rgba(255, 255, 255, 0.85)" if tokens.is_light else "rgba(0, 0, 0, 0.55)"
-        editor_fg = "rgba(0, 0, 0, 0.88)" if tokens.is_light else "rgba(255, 255, 255, 0.90)"
+        editor_bg = tokens.surface_bg if tokens.is_light else "rgba(0, 0, 0, 0.55)"
+        editor_fg = tokens.fg if tokens.is_light else "rgba(245, 245, 245, 0.90)"
         if hasattr(self, "log_text"):
             self.log_text.setStyleSheet(
                 "QTextEdit {"
