@@ -13,6 +13,7 @@ from PyQt6.QtGui import QFont, QTextCursor, QAction, QPainter, QColor
 import qtawesome as qta
 
 from .base_page import BasePage
+from ui.theme import get_theme_tokens
 
 
 class StyledCheckBox(QCheckBox):
@@ -21,28 +22,68 @@ class StyledCheckBox(QCheckBox):
     def __init__(self, text: str, color: str = "#4CAF50", parent=None):
         super().__init__(text, parent)
         self._check_color = QColor(color)
-        self.setStyleSheet(f"""
-            QCheckBox {{
-                color: rgba(255,255,255,0.7);
-                font-size: 12px;
-                spacing: 8px;
-                padding-left: 4px;
-            }}
-            QCheckBox::indicator {{
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 2px solid rgba(255,255,255,0.3);
-                background: rgba(0,0,0,0.2);
-            }}
-            QCheckBox::indicator:checked {{
-                background: {color};
-                border-color: {color};
-            }}
-            QCheckBox::indicator:hover {{
-                border-color: rgba(255,255,255,0.5);
-            }}
-        """)
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            accent = self._check_color.name()
+            qss = f"""
+                QCheckBox {{
+                    color: {tokens.fg_muted};
+                    font-size: 12px;
+                    spacing: 8px;
+                    padding-left: 4px;
+                }}
+                QCheckBox::indicator {{
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 4px;
+                    border: 2px solid {tokens.surface_border_hover};
+                    background: {tokens.surface_bg};
+                }}
+                QCheckBox::indicator:checked {{
+                    background: {accent};
+                    border-color: {accent};
+                }}
+                QCheckBox::indicator:hover {{
+                    border-color: {tokens.surface_border_hover};
+                }}
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+        finally:
+            self._applying_theme_styles = False
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -89,6 +130,9 @@ class DangerResetButton(QPushButton):
         self._confirm_text = confirm_text
         self._pending = False
         self._hovered = False
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._current_qss = ""
 
         # Иконка
         self._update_icon()
@@ -110,7 +154,8 @@ class DangerResetButton(QPushButton):
 
     def _update_icon(self, rotation: int = 0):
         """Обновляет иконку с опциональным углом поворота"""
-        color = '#ff6b6b' if self._pending else 'white'
+        tokens = get_theme_tokens()
+        color = '#ff6b6b' if self._pending else tokens.fg
         icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.redo-alt'
         if rotation != 0:
             self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
@@ -119,35 +164,46 @@ class DangerResetButton(QPushButton):
 
     def _update_style(self):
         """Обновляет стили кнопки"""
-        if self._pending:
-            # Состояние подтверждения - красный цвет (danger)
-            if self._hovered:
-                bg = "rgba(255, 107, 107, 0.35)"
-            else:
-                bg = "rgba(255, 107, 107, 0.25)"
-            text_color = "#ff6b6b"
-            border = "1px solid rgba(255, 107, 107, 0.5)"
-        else:
-            # Обычное состояние
-            if self._hovered:
-                bg = "rgba(255, 255, 255, 0.15)"
-            else:
-                bg = "rgba(255, 255, 255, 0.08)"
-            text_color = "#ffffff"
-            border = "none"
+        if self._applying_theme_styles:
+            return
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                border: {border};
-                border-radius: 4px;
-                color: {text_color};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-        """)
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            if self._pending:
+                # Состояние подтверждения - красный цвет (danger)
+                if self._hovered:
+                    bg = "rgba(255, 107, 107, 0.35)"
+                else:
+                    bg = "rgba(255, 107, 107, 0.25)"
+                text_color = "#ff6b6b"
+                border = "1px solid rgba(255, 107, 107, 0.5)"
+            else:
+                # Обычное состояние
+                if self._hovered:
+                    bg = tokens.surface_bg_hover
+                else:
+                    bg = tokens.surface_bg
+                text_color = tokens.fg
+                border = f"1px solid {tokens.surface_border}"
+
+            qss = f"""
+                QPushButton {{
+                    background-color: {bg};
+                    border: {border};
+                    border-radius: 4px;
+                    color: {text_color};
+                    padding: 0 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                }}
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+        finally:
+            self._applying_theme_styles = False
 
     def _animate_shake(self):
         """Анимация качания иконки корзинки"""
@@ -210,6 +266,29 @@ class DangerResetButton(QPushButton):
         self._update_style()
         super().leaveEvent(event)
 
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._update_icon()
+        self._update_style()
+
 
 class OrchestraPage(BasePage):
     """Страница оркестратора с логами обучения"""
@@ -229,6 +308,15 @@ class OrchestraPage(BasePage):
             "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).\nЧтобы начать обучение зайдите на сайт и через несколько секунд обновите вкладку. Продолжайте это пока стратегия не будет помечена как LOCKED",
             parent
         )
+
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._info_label = None
+        self._filter_label = None
+        self._clear_filter_btn = None
+        self._log_history_desc = None
+        self._clear_all_logs_btn = None
+
         self._build_ui()
 
         # Путь к лог-файлу (берём из runner динамически)
@@ -255,6 +343,9 @@ class OrchestraPage(BasePage):
         # Подключаем сигнал для обновления логов (теперь только из main thread)
         self.log_received.connect(self._on_log_received)
 
+        # Apply token styles after UI construction.
+        self._apply_theme()
+
     def _build_ui(self):
         """Строит UI страницы"""
 
@@ -267,7 +358,6 @@ class OrchestraPage(BasePage):
         self.status_icon = QLabel()
         self.status_icon.setFixedSize(24, 24)
         self.status_label = QLabel("Не запущен")
-        self.status_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 14px;")
         status_row.addWidget(self.status_icon)
         status_row.addWidget(self.status_label)
         status_row.addStretch()
@@ -280,7 +370,7 @@ class OrchestraPage(BasePage):
             "• RUNNING - работает на лучших стратегиях\n"
             "• UNLOCKED - переобучение (RST блокировка)"
         )
-        info_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 8px;")
+        self._info_label = info_label
         status_layout.addWidget(info_label)
 
         status_card.add_layout(status_layout)
@@ -294,17 +384,6 @@ class OrchestraPage(BasePage):
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setMinimumHeight(300)
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                background-color: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                color: #00ff00;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11px;
-                padding: 8px;
-            }
-        """)
         self.log_text.setPlaceholderText("Логи обучения будут отображаться здесь...")
         # Контекстное меню для блокировки стратегий
         self.log_text.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -315,72 +394,26 @@ class OrchestraPage(BasePage):
         filter_row = QHBoxLayout()
 
         filter_label = QLabel("Фильтр:")
-        filter_label.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 12px;")
+        self._filter_label = filter_label
         filter_row.addWidget(filter_label)
 
         # Поле ввода для фильтра по домену
         self.log_filter_input = QLineEdit()
         self.log_filter_input.setPlaceholderText("Домен (например: youtube.com)")
-        self.log_filter_input.setStyleSheet("""
-            QLineEdit {
-                background: rgba(0,0,0,0.2);
-                border: 1px solid rgba(255,255,255,0.2);
-                border-radius: 4px;
-                color: white;
-                padding: 6px 10px;
-                font-size: 12px;
-            }
-            QLineEdit:focus {
-                border-color: #60cdff;
-            }
-        """)
         self.log_filter_input.textChanged.connect(self._apply_log_filter)
         filter_row.addWidget(self.log_filter_input, 2)
 
         # Комбобокс для фильтра по протоколу
         self.log_protocol_filter = QComboBox()
         self.log_protocol_filter.addItems(["Все", "TLS", "HTTP", "UDP", "SUCCESS", "FAIL"])
-        self.log_protocol_filter.setStyleSheet("""
-            QComboBox {
-                background: rgba(0,0,0,0.2);
-                border: 1px solid rgba(255,255,255,0.2);
-                border-radius: 4px;
-                color: white;
-                padding: 6px 10px;
-                font-size: 12px;
-                min-width: 80px;
-            }
-            QComboBox:focus {
-                border-color: #60cdff;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox QAbstractItemView {
-                background: #2d2d2d;
-                color: white;
-                selection-background-color: #0078d4;
-            }
-        """)
         self.log_protocol_filter.currentTextChanged.connect(self._apply_log_filter)
         filter_row.addWidget(self.log_protocol_filter)
 
         # Кнопка сброса фильтра
         clear_filter_btn = QPushButton()
-        clear_filter_btn.setIcon(qta.icon("mdi.close", color="#999999"))
+        self._clear_filter_btn = clear_filter_btn
         clear_filter_btn.setToolTip("Сбросить фильтр")
         clear_filter_btn.setFixedSize(28, 28)
-        clear_filter_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.1);
-                border: 1px solid rgba(255,255,255,0.2);
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.2);
-            }
-        """)
         clear_filter_btn.clicked.connect(self._clear_log_filter)
         filter_row.addWidget(clear_filter_btn)
 
@@ -395,24 +428,6 @@ class OrchestraPage(BasePage):
         self.clear_log_btn.setFixedHeight(32)
         self.clear_log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_log_btn.clicked.connect(self._clear_log)
-        self.clear_log_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
         btn_row1.addWidget(self.clear_log_btn)
 
         self.clear_learned_btn = DangerResetButton("Сбросить обучение", "Это всё сотрёт!")
@@ -435,35 +450,13 @@ class OrchestraPage(BasePage):
 
         # Описание
         log_history_desc = QLabel("Каждый запуск оркестратора создаёт новый лог с уникальным ID. Старые логи автоматически удаляются.")
-        log_history_desc.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
+        self._log_history_desc = log_history_desc
         log_history_desc.setWordWrap(True)
         log_history_layout.addWidget(log_history_desc)
 
         # Список логов
         self.log_history_list = QListWidget()
         self.log_history_list.setMaximumHeight(150)
-        self.log_history_list.setStyleSheet("""
-            QListWidget {
-                background-color: rgba(0,0,0,0.2);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 6px;
-                color: rgba(255,255,255,0.8);
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11px;
-            }
-            QListWidget::item {
-                padding: 6px 8px;
-                border-radius: 4px;
-                margin: 2px 4px;
-            }
-            QListWidget::item:hover {
-                background-color: rgba(255,255,255,0.06);
-            }
-            QListWidget::item:selected {
-                background-color: rgba(138,43,226,0.3);
-                border: 1px solid rgba(138,43,226,0.4);
-            }
-        """)
         self.log_history_list.itemDoubleClicked.connect(self._view_log_history)
         log_history_layout.addWidget(self.log_history_list)
 
@@ -481,29 +474,11 @@ class OrchestraPage(BasePage):
         log_history_buttons.addStretch()
 
         clear_all_logs_btn = QPushButton("Очистить все")
-        clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color="white"))
+        self._clear_all_logs_btn = clear_all_logs_btn
         clear_all_logs_btn.setIconSize(QSize(16, 16))
         clear_all_logs_btn.setFixedHeight(32)
         clear_all_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_all_logs_btn.clicked.connect(self._clear_all_log_history)
-        clear_all_logs_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
         log_history_buttons.addWidget(clear_all_logs_btn)
 
         log_history_layout.addLayout(log_history_buttons)
@@ -513,9 +488,238 @@ class OrchestraPage(BasePage):
         # Обновляем статус
         self._update_status(self.STATE_IDLE)
 
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            popup_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
+            selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
+
+            if self.status_label is not None:
+                # Final state color is applied by _update_status.
+                self.status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 14px;")
+
+            if self._info_label is not None:
+                self._info_label.setStyleSheet(
+                    f"color: {tokens.fg_faint}; font-size: 12px; margin-top: 8px;"
+                )
+
+            if self.log_text is not None:
+                self.log_text.setStyleSheet(
+                    f"""
+                    QTextEdit {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 8px;
+                        color: {tokens.fg};
+                        font-family: 'Consolas', 'Courier New', monospace;
+                        font-size: 11px;
+                        padding: 8px;
+                    }}
+                    QTextEdit::selection {{
+                        background-color: {tokens.accent_soft_bg_hover};
+                        color: {selection_fg};
+                    }}
+                    """
+                )
+
+            if self._filter_label is not None:
+                self._filter_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px;"
+                )
+
+            if self.log_filter_input is not None:
+                self.log_filter_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        color: {tokens.fg};
+                        padding: 6px 10px;
+                        font-size: 12px;
+                    }}
+                    QLineEdit:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    QLineEdit:focus {{
+                        border-color: {tokens.accent_hex};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+
+            if self.log_protocol_filter is not None:
+                self.log_protocol_filter.setStyleSheet(
+                    f"""
+                    QComboBox {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        color: {tokens.fg};
+                        padding: 6px 10px;
+                        font-size: 12px;
+                        min-width: 80px;
+                    }}
+                    QComboBox:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    QComboBox:focus {{
+                        border-color: {tokens.accent_hex};
+                    }}
+                    QComboBox::drop-down {{
+                        border: none;
+                        width: 20px;
+                    }}
+                    QComboBox QAbstractItemView {{
+                        background: {popup_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        selection-background-color: {tokens.accent_soft_bg_hover};
+                        selection-color: {selection_fg};
+                    }}
+                    """
+                )
+
+            if self._clear_filter_btn is not None:
+                self._clear_filter_btn.setIcon(qta.icon("mdi.close", color=tokens.fg_faint))
+                self._clear_filter_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                    }}
+                    QPushButton:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    """
+                )
+
+            if self.clear_log_btn is not None:
+                self.clear_log_btn.setIcon(qta.icon("fa5s.broom", color=tokens.fg))
+                self.clear_log_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        color: {tokens.fg};
+                        padding: 0 16px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {tokens.surface_bg_pressed};
+                    }}
+                    """
+                )
+
+            if self._log_history_desc is not None:
+                self._log_history_desc.setStyleSheet(
+                    f"color: {tokens.fg_faint}; font-size: 11px;"
+                )
+
+            if self.log_history_list is not None:
+                self.log_history_list.setStyleSheet(
+                    f"""
+                    QListWidget {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        color: {tokens.fg};
+                        font-family: 'Consolas', 'Courier New', monospace;
+                        font-size: 11px;
+                    }}
+                    QListWidget::item {{
+                        padding: 6px 8px;
+                        border-radius: 4px;
+                        margin: 2px 4px;
+                    }}
+                    QListWidget::item:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                    }}
+                    QListWidget::item:selected {{
+                        background-color: {tokens.accent_soft_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
+                    }}
+                    """
+                )
+
+            if self._clear_all_logs_btn is not None:
+                self._clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color=tokens.fg))
+                self._clear_all_logs_btn.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        color: {tokens.fg};
+                        padding: 0 16px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border-color: {tokens.surface_border_hover};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {tokens.surface_bg_pressed};
+                    }}
+                    """
+                )
+
+            if self.clear_learned_btn is not None:
+                try:
+                    self.clear_learned_btn._update_icon()  # noqa: SLF001
+                    self.clear_learned_btn._update_style()  # noqa: SLF001
+                except Exception:
+                    pass
+
+            self._update_status(getattr(self, "_current_state", self.STATE_IDLE))
+        finally:
+            self._applying_theme_styles = False
+
     def _update_status(self, state: str):
         """Обновляет статус на основе состояния"""
         self._current_state = state
+        tokens = get_theme_tokens()
 
         if state == self.STATE_RUNNING:
             self.status_icon.setPixmap(
@@ -537,10 +741,10 @@ class OrchestraPage(BasePage):
             self.status_label.setStyleSheet("color: #F44336; font-size: 14px;")
         else:  # STATE_IDLE
             self.status_icon.setPixmap(
-                qta.icon("mdi.brain", color="#666").pixmap(24, 24)  # Серый
+                qta.icon("mdi.brain", color=tokens.fg_faint).pixmap(24, 24)
             )
             self.status_label.setText("⏸ IDLE - ожидание соединений")
-            self.status_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 14px;")
+            self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 14px;")
 
     def _clear_log(self):
         """Очищает лог"""
@@ -906,27 +1110,31 @@ class OrchestraPage(BasePage):
 
         # Создаём контекстное меню
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2d2d2d;
-                color: white;
-                border: 1px solid #3d3d3d;
+        tokens = get_theme_tokens()
+        menu_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
+        menu.setStyleSheet(
+            f"""
+            QMenu {{
+                background-color: {menu_bg};
+                color: {tokens.fg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 4px;
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 8px 16px;
                 border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #0078d4;
-            }
-            QMenu::separator {
+            }}
+            QMenu::item:selected {{
+                background-color: {tokens.accent_soft_bg_hover};
+            }}
+            QMenu::separator {{
                 height: 1px;
-                background: #3d3d3d;
+                background: {tokens.surface_border};
                 margin: 4px 8px;
-            }
-        """)
+            }}
+            """
+        )
 
         # Стандартные действия
         copy_action = QAction("📋 Копировать строку", self)

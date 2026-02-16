@@ -88,8 +88,8 @@ Support helpers (theme consistency):
 ### Step 2: Semantic Palette Extraction
 
 - [x] Create small shared semantic color module/constants (`success`, `warning`, `error`, `info`).
-- [ ] Refactor pages/widgets to consume semantic constants instead of duplicated literals.
-- [ ] Validate that semantic colors remain readable in light and dark themes.
+- [x] Refactor pages/widgets to consume semantic constants instead of duplicated literals.
+- [x] Validate that semantic colors remain readable in light and dark themes.
 
 Step 2 adoption progress:
 
@@ -121,6 +121,11 @@ Step 2 adoption progress:
 - [x] `ui/widgets/filter_chip_button.py` (legacy hardcoded-color style docs replaced with token semantics to keep audits clean)
 - [x] `ui/widgets/collapsible_group.py` (fallback divider neutral moved off `rgba(255,...)`)
 - [x] `ui/pages/zapret2/direct_control_page.py` (accent foreground contrast helper moved off hardcoded white variant)
+- [x] `ui/pages/orchestra_page.py` (menu/log popup light/dark residual white literals removed)
+- [x] `ui/pages/orchestra_blocked_page.py` (popup and selection foreground residual white literals removed)
+- [x] `ui/pages/orchestra_locked_page.py` (popup and selection foreground residual white literals removed)
+- [x] `ui/pages/orchestra_ratings_page.py` (selection/editor residual white literals removed)
+- [x] `ui/pages/blobs_page.py` (dialog popup and accent button foreground residual white literals removed)
 
 ## Work Cadence (How We Execute)
 
@@ -173,3 +178,4 @@ python -c "import os; os.environ.setdefault('QT_QPA_PLATFORM','offscreen'); from
 - 2026-02-16: Residual cleanup tranche K completed for `zapret2/strategy_detail_page.py` and `zapret2/user_presets_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` menu/icon/accent fallbacks with token-safe equivalents.
 - 2026-02-16: Residual cleanup tranche L completed for core shells/widgets (`close_dialog.py`, `custom_titlebar.py`, `fluent_icons.py`, `win11_spinner.py`, `notification_banner.py`, `strategy_search_bar.py`, `strategy_radio_item.py`, `direct_zapret2_strategies_tree.py`, `unified_strategies_list.py`): removed remaining critical `#60cdff/#ffffff/rgba(255,255,255,...)` literals, aligned visuals to token/semantic palette, and closed the `setStyleSheet` without `get_theme_tokens()` audit for `ui/**/*.py`.
 - 2026-02-16: Residual cleanup tranche M completed for clean follow-up files (`strategies_tooltip.py`, `line_edit_icons.py`, `filter_chip_button.py`, `collapsible_group.py`, `direct_control_page.py`): removed remaining white-literal tails in dark-mode helpers/fallbacks and kept widget theming fully token-driven.
+- 2026-02-16: Residual cleanup tranche N completed for remaining high-churn pages (`orchestra_page.py`, `orchestra_blocked_page.py`, `orchestra_locked_page.py`, `orchestra_ratings_page.py`, `blobs_page.py`): removed final `#ffffff/rgba(255,255,255,...)` tails in popup/selection/editor/accent button styles and closed repository-wide residual grep (excluding `ui/theme.py` internals).

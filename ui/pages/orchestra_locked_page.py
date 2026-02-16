@@ -4,7 +4,7 @@
 Каждый домен отображается в виде редактируемого ряда с QSpinBox для номера стратегии.
 Изменения автоматически сохраняются в реестр.
 """
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QWidget,
@@ -16,6 +16,7 @@ from .base_page import BasePage
 from ui.sidebar import SettingsCard
 from ui.widgets import NotificationBanner
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+from ui.theme import get_theme_tokens
 from log import log
 from orchestra.locked_strategies_manager import ASKEY_ALL
 
@@ -27,21 +28,18 @@ class LockedDomainRow(QFrame):
         super().__init__(parent)
         self.domain = domain
         self.proto = proto
+        self._tokens = get_theme_tokens()
+        self._current_qss = ""
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+
+        self._domain_label = None
+        self._proto_label = None
+        self._delete_btn = None
         self._setup_ui(domain, strategy, proto)
 
     def _setup_ui(self, domain: str, strategy: int, proto: str):
         self.setFixedHeight(40)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 6px;
-            }
-            QFrame:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 0, 8, 0)
@@ -49,12 +47,12 @@ class LockedDomainRow(QFrame):
 
         # Домен
         domain_label = QLabel(domain)
-        domain_label.setStyleSheet("color: white; font-size: 13px; border: none; background: transparent;")
+        self._domain_label = domain_label
         layout.addWidget(domain_label, 1)
 
         # Протокол
         proto_label = QLabel(f"[{proto.upper()}]")
-        proto_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; border: none; background: transparent;")
+        self._proto_label = proto_label
         proto_label.setFixedWidth(45)
         layout.addWidget(proto_label)
 
@@ -63,34 +61,12 @@ class LockedDomainRow(QFrame):
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(strategy)
         self.strat_spin.setFixedWidth(70)
-        self.strat_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: rgba(255, 255, 255, 0.08);
-                color: #60cdff;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 13px;
-                font-weight: 600;
-            }
-            QSpinBox:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QSpinBox:focus {
-                border: 1px solid #60cdff;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 0px;
-                border: none;
-            }
-        """)
         self.strat_spin.valueChanged.connect(self._on_strategy_changed)
         layout.addWidget(self.strat_spin)
 
         # Кнопка удаления (разлочить)
         delete_btn = QPushButton()
-        delete_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color="white"))
+        self._delete_btn = delete_btn
         delete_btn.setIconSize(QSize(16, 16))
         delete_btn.setFixedSize(28, 28)
         delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -110,6 +86,99 @@ class LockedDomainRow(QFrame):
         """)
         delete_btn.clicked.connect(self._on_delete_clicked)
         layout.addWidget(delete_btn)
+
+        self._apply_theme()
+
+    def refresh_theme(self) -> None:
+        self._tokens = get_theme_tokens()
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self.refresh_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+
+            qss = f"""
+                LockedDomainRow {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 6px;
+                }}
+                LockedDomainRow:hover {{
+                    background-color: {tokens.surface_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+            """
+            if qss != self._current_qss:
+                self._current_qss = qss
+                self.setStyleSheet(qss)
+
+            if self._domain_label is not None:
+                self._domain_label.setStyleSheet(
+                    f"color: {tokens.fg}; font-size: 13px; border: none; background: transparent;"
+                )
+            if self._proto_label is not None:
+                self._proto_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 11px; border: none; background: transparent;"
+                )
+
+            if hasattr(self, "strat_spin") and self.strat_spin is not None:
+                self.strat_spin.setStyleSheet(
+                    f"""
+                    QSpinBox {{
+                        background-color: {tokens.surface_bg_hover};
+                        color: {tokens.accent_hex};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-size: 13px;
+                        font-weight: 600;
+                    }}
+                    QSpinBox:hover {{
+                        background-color: {tokens.surface_bg_pressed};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QSpinBox:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QSpinBox::up-button, QSpinBox::down-button {{
+                        width: 0px;
+                        border: none;
+                    }}
+                    """
+                )
+
+            if self._delete_btn is not None:
+                self._delete_btn.setIcon(
+                    qta.icon("mdi.lock-open-variant-outline", color=tokens.fg)
+                )
+        finally:
+            self._applying_theme_styles = False
 
     def _on_strategy_changed(self, value: int):
         """При изменении стратегии - уведомляем родителя для автосохранения"""
@@ -138,11 +207,16 @@ class OrchestraLockedPage(BasePage):
             parent
         )
         self.setObjectName("orchestraLockedPage")
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._hint_label = None
         self._all_locked_data = []  # Кэш данных для фильтрации
         # Инициализируем пустые данные (будут загружены при первом showEvent)
         self._direct_locked_by_askey = {askey: {} for askey in ASKEY_ALL}
         self._initial_load_done = False
         self._setup_ui()
+
+        self._apply_theme()
 
     def _setup_ui(self):
         # === Уведомление (баннер) ===
@@ -157,47 +231,14 @@ class OrchestraLockedPage(BasePage):
         # Домен
         self.domain_input = QLineEdit()
         self.domain_input.setPlaceholderText("example.com")
-        self.domain_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 8px 12px;
-            }
-            QLineEdit:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QLineEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+        # Styled in _apply_theme()
         add_layout.addWidget(self.domain_input, 1)
 
         # Протокол (askey)
         self.proto_combo = QComboBox()
         self.proto_combo.addItems([askey.upper() for askey in ASKEY_ALL])
         self.proto_combo.setFixedWidth(90)
-        self.proto_combo.setStyleSheet("""
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 8px 12px;
-            }
-            QComboBox:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background-color: #2d2d2d;
-                color: white;
-                selection-background-color: #0078d4;
-            }
-        """)
+        # Styled in _apply_theme()
         add_layout.addWidget(self.proto_combo)
 
         # Стратегия
@@ -205,31 +246,12 @@ class OrchestraLockedPage(BasePage):
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(1)
         self.strat_spin.setFixedWidth(70)
-        self.strat_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 8px 12px;
-            }
-            QSpinBox:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QSpinBox:focus {
-                border: 1px solid #60cdff;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 0px;
-                border: none;
-            }
-        """)
+        # Styled in _apply_theme()
         add_layout.addWidget(self.strat_spin)
 
         # Кнопка добавления
         self.lock_btn = QPushButton()
-        self.lock_btn.setIcon(qta.icon("mdi.plus", color="white"))
+        # Icon styled in _apply_theme()
         self.lock_btn.setIconSize(QSize(18, 18))
         self.lock_btn.setFixedSize(36, 36)
         self.lock_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -268,76 +290,26 @@ class OrchestraLockedPage(BasePage):
         self.search_input.setClearButtonEnabled(True)
         set_line_edit_clear_button_icon(self.search_input)
         self.search_input.textChanged.connect(self._filter_list)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 6px 12px;
-                min-width: 200px;
-            }
-            QLineEdit:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(96, 205, 255, 0.3);
-            }
-            QLineEdit:focus {
-                border: 1px solid #60cdff;
-            }
-        """)
+        # Styled in _apply_theme()
         top_row.addWidget(self.search_input)
 
         # Кнопка обновления списка из реестра
         self.refresh_btn = QPushButton("Обновить")
-        self.refresh_btn.setIcon(qta.icon("mdi.refresh", color="white"))
+        # Icon styled in _apply_theme()
         self.refresh_btn.setIconSize(QSize(16, 16))
         self.refresh_btn.setFixedHeight(32)
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_btn.clicked.connect(self._reload_from_registry)
-        self.refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
+        # Styled in _apply_theme()
         top_row.addWidget(self.refresh_btn)
 
         self.unlock_all_btn = QPushButton("Разлочить все")
-        self.unlock_all_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color="white"))
+        # Icon styled in _apply_theme()
         self.unlock_all_btn.setIconSize(QSize(16, 16))
         self.unlock_all_btn.setFixedHeight(32)
         self.unlock_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.unlock_all_btn.clicked.connect(self._unlock_all)
-        self.unlock_all_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 4px;
-                color: #ffffff;
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.20);
-            }
-        """)
+        # Styled in _apply_theme()
         top_row.addWidget(self.unlock_all_btn)
         top_row.addStretch()
 
@@ -345,12 +317,11 @@ class OrchestraLockedPage(BasePage):
 
         # Счётчик на отдельной строке (чтобы влезал в таб)
         self.count_label = QLabel()
-        self.count_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
         list_layout.addWidget(self.count_label)
 
         # Подсказка
         hint_label = QLabel("Измените номер стратегии и она автоматически сохранится")
-        hint_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 10px; font-style: italic;")
+        self._hint_label = hint_label
         list_layout.addWidget(hint_label)
 
         # Контейнер для рядов (без скролла - страница сама прокручивается)
@@ -366,6 +337,191 @@ class OrchestraLockedPage(BasePage):
 
         list_card.add_layout(list_layout)
         self.layout.addWidget(list_card)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+            popup_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
+
+            if hasattr(self, "domain_input") and self.domain_input is not None:
+                self.domain_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                    }}
+                    QLineEdit:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QLineEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                        background-color: {tokens.surface_bg_hover};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+
+            if hasattr(self, "proto_combo") and self.proto_combo is not None:
+                selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
+                self.proto_combo.setStyleSheet(
+                    f"""
+                    QComboBox {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                    }}
+                    QComboBox:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QComboBox:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QComboBox::drop-down {{ border: none; }}
+                    QComboBox QAbstractItemView {{
+                        background-color: {popup_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        selection-background-color: {tokens.accent_soft_bg_hover};
+                        selection-color: {selection_fg};
+                    }}
+                    """
+                )
+
+            if hasattr(self, "strat_spin") and self.strat_spin is not None:
+                self.strat_spin.setStyleSheet(
+                    f"""
+                    QSpinBox {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                    }}
+                    QSpinBox:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QSpinBox:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QSpinBox::up-button, QSpinBox::down-button {{
+                        width: 0px;
+                        border: none;
+                    }}
+                    """
+                )
+
+            if hasattr(self, "lock_btn") and self.lock_btn is not None:
+                self.lock_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
+
+            if hasattr(self, "search_input") and self.search_input is not None:
+                set_line_edit_clear_button_icon(self.search_input)
+                self.search_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        color: {tokens.fg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 4px;
+                        padding: 6px 12px;
+                        min-width: 200px;
+                    }}
+                    QLineEdit:hover {{
+                        background-color: {tokens.surface_bg_hover};
+                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
+                    }}
+                    QLineEdit:focus {{
+                        border: 1px solid {tokens.accent_hex};
+                    }}
+                    QLineEdit::placeholder {{
+                        color: {tokens.fg_faint};
+                    }}
+                    """
+                )
+
+            for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unlock_all_btn", "mdi.lock-open-variant-outline")):
+                btn = getattr(self, btn_attr, None)
+                if btn is None:
+                    continue
+                try:
+                    btn.setIcon(qta.icon(icon_name, color=tokens.fg))
+                    btn.setStyleSheet(
+                        f"""
+                        QPushButton {{
+                            background-color: {tokens.surface_bg};
+                            border: 1px solid {tokens.surface_border};
+                            border-radius: 4px;
+                            color: {tokens.fg};
+                            padding: 0 16px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                        }}
+                        QPushButton:hover {{
+                            background-color: {tokens.surface_bg_hover};
+                            border-color: {tokens.surface_border_hover};
+                        }}
+                        QPushButton:pressed {{
+                            background-color: {tokens.surface_bg_pressed};
+                        }}
+                        """
+                    )
+                except Exception:
+                    pass
+
+            if hasattr(self, "count_label") and self.count_label is not None:
+                self.count_label.setStyleSheet(
+                    f"color: {tokens.fg_faint}; font-size: 11px;"
+                )
+            if self._hint_label is not None:
+                self._hint_label.setStyleSheet(
+                    f"color: {tokens.fg_faint}; font-size: 10px; font-style: italic;"
+                )
+
+            # Refresh row widgets.
+            try:
+                for row in list(getattr(self, "_domain_rows", {}).values()):
+                    if hasattr(row, "refresh_theme"):
+                        row.refresh_theme()
+            except Exception:
+                pass
+        finally:
+            self._applying_theme_styles = False
 
     def showEvent(self, event):
         """При показе страницы загружаем данные один раз (без авто-обновления)"""
