@@ -105,6 +105,18 @@ Step 2 adoption progress:
 - [x] Ensure sidebar icons/status indicators refresh correctly on theme switch.
 - [x] Verify no recursive refresh behavior in sidebar controls.
 
+### Step 4: Core UI Shells And Widgets Audit
+
+- [x] `ui/close_dialog.py` (migrated dialogs to token/semantic palette and removed critical hardcoded literals)
+- [x] `ui/custom_titlebar.py` (removed residual hardcoded white neutrals and switched resize-handle accent highlight to tokens)
+- [x] `ui/fluent_icons.py` (removed legacy fixed accent/default white literals)
+- [x] `ui/widgets/win11_spinner.py` (default spinner color now token accent with safe fallback)
+- [x] `ui/widgets/notification_banner.py` (info/accent and close-button icon neutrals token-safe)
+- [x] `ui/widgets/strategy_search_bar.py` (dark-mode foreground/hover/clear controls moved off hardcoded `#ffffff`/`rgba(255,...)`)
+- [x] `ui/widgets/strategy_radio_item.py` (badge text color moved off hardcoded white literal)
+- [x] `ui/widgets/direct_zapret2_strategies_tree.py` (multisplit icon accent now token-driven; dialog text neutrals token-safe)
+- [x] `ui/widgets/unified_strategies_list.py` (registered in token engine path for stylesheet-bearing widget audit)
+
 ## Work Cadence (How We Execute)
 
 For each tranche:
@@ -154,3 +166,4 @@ python -c "import os; os.environ.setdefault('QT_QPA_PLATFORM','offscreen'); from
 - 2026-02-16: Residual cleanup tranche I completed for `home_page.py`, `servers_page.py`, `logs_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` patterns with token/semantic replacements and preserved existing behavior.
 - 2026-02-16: Residual cleanup tranche J completed for `presets_page.py`, `control_page.py`, `custom_domains_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` tails in accent/pending controls with token/semantic-safe replacements.
 - 2026-02-16: Residual cleanup tranche K completed for `zapret2/strategy_detail_page.py` and `zapret2/user_presets_page.py`: removed remaining `#60cdff/#ffffff/rgba(255,255,255,...)` menu/icon/accent fallbacks with token-safe equivalents.
+- 2026-02-16: Residual cleanup tranche L completed for core shells/widgets (`close_dialog.py`, `custom_titlebar.py`, `fluent_icons.py`, `win11_spinner.py`, `notification_banner.py`, `strategy_search_bar.py`, `strategy_radio_item.py`, `direct_zapret2_strategies_tree.py`, `unified_strategies_list.py`): removed remaining critical `#60cdff/#ffffff/rgba(255,255,255,...)` literals, aligned visuals to token/semantic palette, and closed the `setStyleSheet` without `get_theme_tokens()` audit for `ui/**/*.py`.

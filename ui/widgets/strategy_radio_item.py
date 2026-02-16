@@ -157,7 +157,7 @@ class StrategyRadioItem(QFrame):
         self._list_badge.setStyleSheet(f"""
             QLabel {{
                 background: {badge_bg};
-                color: #ffffff;
+                color: rgba(245, 245, 245, 0.95);
                 border-radius: 8px;
                 padding: 1px 6px;
                 font-size: 9px;

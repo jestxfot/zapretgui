@@ -41,7 +41,7 @@ class NotificationBanner(QWidget):
         'info': {
             'bg': 'rgba(96, 205, 255, 0.15)',
             'border': 'rgba(96, 205, 255, 0.4)',
-            'icon_color': '#60cdff',
+            'icon_color': '#5caee8',
             'icon': 'mdi.information',
         },
         'success': {
@@ -105,13 +105,13 @@ class NotificationBanner(QWidget):
         try:
             try:
                 tokens = get_theme_tokens()
-                icon_color = "#111111" if tokens.is_light else "#ffffff"
-                hover_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.15)"
-                pressed_bg = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.20)"
+                icon_color = "#111111" if tokens.is_light else "#f5f5f5"
+                hover_bg = tokens.surface_bg_hover
+                pressed_bg = tokens.surface_bg_pressed
             except Exception:
-                icon_color = "#ffffff"
-                hover_bg = "rgba(255, 255, 255, 0.15)"
-                pressed_bg = "rgba(255, 255, 255, 0.20)"
+                icon_color = "#f5f5f5"
+                hover_bg = "rgba(245, 245, 245, 0.14)"
+                pressed_bg = "rgba(245, 245, 245, 0.20)"
 
             self.close_btn.setIcon(qta.icon("mdi.close", color=icon_color))
             self.close_btn.setStyleSheet(f"""

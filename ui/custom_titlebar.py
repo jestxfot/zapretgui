@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QIcon, QFont, QMouseEvent, QPainter, QColor, QPen
 
 import qtawesome as qta
+from ui.theme import get_theme_tokens
 
 
 def _is_zoomed_window(window) -> bool:
@@ -381,7 +382,7 @@ class DraggableWidget(QWidget):
 MENUBAR_STYLE = """
 QMenuBar {
     background-color: transparent;
-    color: #ffffff;
+    color: rgba(245, 245, 245, 0.95);
     border: none;
     padding: 0px;
     spacing: 0px;
@@ -391,18 +392,18 @@ QMenuBar {
 
 QMenuBar::item {
     background-color: transparent;
-    color: #ffffff;
+    color: rgba(245, 245, 245, 0.95);
     padding: 4px 10px;
     border-radius: 4px;
     margin: 2px 1px;
 }
 
 QMenuBar::item:selected {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(245, 245, 245, 0.10);
 }
 
 QMenuBar::item:pressed {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(245, 245, 245, 0.15);
 }
 
 QMenu {
@@ -415,11 +416,11 @@ QMenu {
 QMenu::item {
     padding: 6px 24px 6px 12px;
     border-radius: 4px;
-    color: #ffffff;
+    color: rgba(245, 245, 245, 0.95);
 }
 
 QMenu::item:selected {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(245, 245, 245, 0.10);
 }
 
 QMenu::separator {
@@ -558,7 +559,7 @@ class CustomTitleBar(QWidget):
         self.title_label.setObjectName("titleLabel")
         self.title_label.setStyleSheet("""
             QLabel#titleLabel {
-                color: #ffffff;
+                color: rgba(245, 245, 245, 0.95);
                 font-size: 11px;
                 font-weight: 500;
                 font-family: 'Segoe UI', Arial, sans-serif;
@@ -603,7 +604,7 @@ class CustomTitleBar(QWidget):
         """Сохраняет ссылку на menubar (теперь он добавляется отдельно под titlebar)"""
         self._menubar = menubar
         
-    def _apply_style(self, bg_color: str = "rgba(32, 32, 32, 0.98)", text_color: str = "#ffffff"):
+    def _apply_style(self, bg_color: str = "rgba(32, 32, 32, 0.98)", text_color: str = "rgba(245, 245, 245, 0.95)"):
         self.setStyleSheet(f"""
             QWidget#customTitleBar {{
                 background-color: {bg_color};
@@ -623,7 +624,7 @@ class CustomTitleBar(QWidget):
             }}
         """)
         
-    def set_theme_colors(self, bg_color: str = "#1a1a1a", text_color: str = "#ffffff"):
+    def set_theme_colors(self, bg_color: str = "#1a1a1a", text_color: str = "rgba(245, 245, 245, 0.95)"):
         """Обновляет цвета titlebar в соответствии с темой"""
         self._apply_style(bg_color, text_color)
         
@@ -699,10 +700,10 @@ class CustomTitleBar(QWidget):
                     margin: 2px 1px;
                 }}
                 QMenuBar::item:selected {{
-                    background-color: rgba(255, 255, 255, 0.1);
+                    background-color: rgba(245, 245, 245, 0.10);
                 }}
                 QMenuBar::item:pressed {{
-                    background-color: rgba(255, 255, 255, 0.15);
+                    background-color: rgba(245, 245, 245, 0.15);
                 }}
                 QMenu {{
                     background-color: {menu_bg};
@@ -716,7 +717,7 @@ class CustomTitleBar(QWidget):
                     color: {text_color};
                 }}
                 QMenu::item:selected {{
-                    background-color: rgba(255, 255, 255, 0.1);
+                    background-color: rgba(245, 245, 245, 0.10);
                 }}
                 QMenu::separator {{
                     height: 1px;
@@ -1211,13 +1212,20 @@ class FramelessWindowMixin:
     
     def _highlight_resize_handle(self, handle: ResizeHandle, highlight: bool):
         if highlight:
+            try:
+                tokens = get_theme_tokens()
+                accent_soft = f"rgba({tokens.accent_rgb_str}, 0.10)"
+                accent_strong = f"rgba({tokens.accent_rgb_str}, 0.18)"
+            except Exception:
+                accent_soft = "rgba(92, 174, 232, 0.10)"
+                accent_strong = "rgba(92, 174, 232, 0.18)"
             if '-' in handle.edge:
-                handle.setStyleSheet("""
-                    background: rgba(96,205,255,0.18);
+                handle.setStyleSheet(f"""
+                    background: {accent_strong};
                     border-radius: 12px;
                 """)
             else:
-                handle.setStyleSheet("background: rgba(96,205,255,0.10);")
+                handle.setStyleSheet(f"background: {accent_soft};")
         else:
             handle.setStyleSheet("background: transparent;")
 

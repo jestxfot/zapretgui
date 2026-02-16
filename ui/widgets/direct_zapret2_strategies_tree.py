@@ -613,6 +613,12 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         except Exception:
             return None
 
+        try:
+            tokens = self._tokens or get_theme_tokens()
+            accent_color = tokens.accent_hex
+        except Exception:
+            accent_color = "#5caee8"
+
         # Minimalistic icons + pastel palette (no emoji).
         # Colors per request:
         # - fake: red
@@ -621,7 +627,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         mapping = {
             "fake": ("fa5s.magic", "#f87171"),
             "split": ("fa5s.cut", "#fbbf24"),
-            "multisplit": ("fa5s.stream", "#60cdff"),
+            "multisplit": ("fa5s.stream", accent_color),
             "disorder": ("fa5s.random", "#4ade80"),
             "oob": ("fa5s.external-link-alt", "#f472b6"),
             "syndata": ("fa5s.database", "#94a3b8"),
@@ -1051,7 +1057,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         dlg.setModal(True)
         tokens = get_theme_tokens()
         dlg_bg = "#f6f7f9" if tokens.is_light else "#2a2a2a"
-        btn_text = "#111111" if tokens.is_light else "rgba(255,255,255,0.85)"
+        btn_text = "#111111" if tokens.is_light else "rgba(245,245,245,0.90)"
         dlg.setStyleSheet(f"""
             QDialog {{ background: {dlg_bg}; }}
             QPushButton {{
@@ -1074,7 +1080,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         edit.setReadOnly(True)
         edit.setPlainText(full)
         edit_bg = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(0, 0, 0, 0.25)"
-        edit_text = "#111111" if tokens.is_light else "rgba(255,255,255,0.85)"
+        edit_text = "#111111" if tokens.is_light else "rgba(245,245,245,0.90)"
         edit.setStyleSheet(f"""
             QPlainTextEdit {{
                 background: {edit_bg};

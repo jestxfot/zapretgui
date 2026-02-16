@@ -11,6 +11,7 @@ from PyQt6.QtCore import pyqtSignal
 from .filter_chip_button import FilterButtonGroup
 from .collapsible_group import CollapsibleGroup
 from .strategy_radio_item import StrategyRadioItem
+from ui.theme import get_theme_tokens
 from strategy_menu.strategies_registry import registry
 from log import log
 
@@ -88,8 +89,9 @@ class UnifiedStrategiesList(QWidget):
         layout.addWidget(self._filter_group)
 
         # Контейнер для групп (без scroll - родитель BasePage уже scroll area)
+        tokens = get_theme_tokens()
         self._content = QWidget()
-        self._content.setStyleSheet("background: transparent;")
+        self._content.setStyleSheet(f"background: {'transparent' if tokens.is_light else 'transparent'};")
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(12)

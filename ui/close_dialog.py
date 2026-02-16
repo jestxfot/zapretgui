@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize
 from PyQt6.QtGui import QColor, QFont
 from typing import Optional
+from ui.theme import ThemeManager, get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 try:
     import qtawesome as qta
@@ -170,10 +172,19 @@ class CloseDialog(QDialog):
     #  Стили (поддержка тёмной/светлой темы)
     # ------------------------------------------------------------------
     def _apply_styles(self):
-        is_light = self._detect_light_theme()
+        theme_name = "Темная синяя"
+        try:
+            tm = ThemeManager.instance()
+            if tm and hasattr(tm, "_current_theme") and tm._current_theme:
+                theme_name = tm._current_theme
+        except Exception:
+            pass
+        tokens = get_theme_tokens(theme_name)
+        semantic = get_semantic_palette(theme_name)
+        is_light = tokens.is_light
 
         if is_light:
-            bg_top = "rgba(255, 255, 255, 246)"
+            bg_top = "rgba(246, 248, 252, 246)"
             bg_bottom = "rgba(243, 246, 251, 246)"
             border = "rgba(133, 145, 163, 0.48)"
             title_color = "#171b24"
@@ -193,19 +204,19 @@ class CloseDialog(QDialog):
         else:
             bg_top = "rgba(45, 49, 55, 248)"
             bg_bottom = "rgba(35, 39, 45, 248)"
-            border = "rgba(255, 255, 255, 0.16)"
-            title_color = "#f5f8ff"
-            sub_color = "#c5ccda"
-            btn_bg = "rgba(255, 255, 255, 0.08)"
-            btn_hover = "rgba(255, 255, 255, 0.14)"
-            btn_pressed = "rgba(255, 255, 255, 0.18)"
-            btn_border = "rgba(255, 255, 255, 0.24)"
-            btn_text = "#f3f7ff"
+            border = tokens.surface_border
+            title_color = "rgba(245, 245, 245, 0.95)"
+            sub_color = "rgba(198, 206, 220, 0.95)"
+            btn_bg = tokens.surface_bg
+            btn_hover = tokens.surface_bg_hover
+            btn_pressed = tokens.surface_bg_pressed
+            btn_border = tokens.surface_border_hover
+            btn_text = "rgba(245, 245, 245, 0.95)"
             danger_bg = "#db4646"
             danger_hover = "#c03b3b"
             danger_pressed = "#a93333"
             cancel_color = "#a3acbc"
-            cancel_hover = "rgba(255, 255, 255, 0.08)"
+            cancel_hover = tokens.surface_bg_hover
             focus_border = "#78a7ff"
             shadow_color = QColor(0, 0, 0, 124)
 
@@ -260,7 +271,7 @@ class CloseDialog(QDialog):
         self._btn_stop.setStyleSheet(f"""
             QPushButton#closeDialogStopBtn {{
                 background-color: {danger_bg};
-                color: #ffffff;
+                color: {semantic.on_color};
                 border: 1px solid transparent;
                 border-radius: 10px;
                 padding: 0 16px;
@@ -273,12 +284,12 @@ class CloseDialog(QDialog):
                 background-color: {danger_pressed};
             }}
             QPushButton#closeDialogStopBtn:focus {{
-                border: 1px solid rgba(255, 255, 255, 0.58);
+                border: 1px solid {tokens.surface_border_hover};
             }}
         """)
 
         self._apply_icon(self._btn_gui, btn_text)
-        self._apply_icon(self._btn_stop, "#ffffff")
+        self._apply_icon(self._btn_stop, semantic.on_color)
 
         # Кнопка "Отмена"
         self._btn_cancel.setStyleSheet(f"""
@@ -455,10 +466,18 @@ class StartStrategyWarningDialog(QDialog):
             pass
 
     def _apply_styles(self) -> None:
-        is_light = self._detect_light_theme()
+        theme_name = "Темная синяя"
+        try:
+            tm = ThemeManager.instance()
+            if tm and hasattr(tm, "_current_theme") and tm._current_theme:
+                theme_name = tm._current_theme
+        except Exception:
+            pass
+        tokens = get_theme_tokens(theme_name)
+        is_light = tokens.is_light
 
         if is_light:
-            bg_top = "rgba(255, 255, 255, 246)"
+            bg_top = "rgba(246, 248, 252, 246)"
             bg_bottom = "rgba(243, 246, 251, 246)"
             border = "rgba(133, 145, 163, 0.48)"
             title_color = "#171b24"
@@ -473,14 +492,14 @@ class StartStrategyWarningDialog(QDialog):
         else:
             bg_top = "rgba(45, 49, 55, 248)"
             bg_bottom = "rgba(35, 39, 45, 248)"
-            border = "rgba(255, 255, 255, 0.16)"
-            title_color = "#f5f8ff"
-            sub_color = "#c5ccda"
-            btn_bg = "rgba(255, 255, 255, 0.08)"
-            btn_hover = "rgba(255, 255, 255, 0.14)"
-            btn_pressed = "rgba(255, 255, 255, 0.18)"
-            btn_border = "rgba(255, 255, 255, 0.24)"
-            btn_text = "#f3f7ff"
+            border = tokens.surface_border
+            title_color = "rgba(245, 245, 245, 0.95)"
+            sub_color = "rgba(198, 206, 220, 0.95)"
+            btn_bg = tokens.surface_bg
+            btn_hover = tokens.surface_bg_hover
+            btn_pressed = tokens.surface_bg_pressed
+            btn_border = tokens.surface_border_hover
+            btn_text = "rgba(245, 245, 245, 0.95)"
             focus_border = "#78a7ff"
             shadow_color = QColor(0, 0, 0, 124)
 

@@ -18,8 +18,8 @@ class FluentIcon:
     # Палитра цветов для иконок (градиенты)
     ICON_COLORS = {
         # Синие оттенки
-        'blue': ('#60cdff', '#0078d4'),
-        'light_blue': ('#99d9ea', '#60cdff'),
+        'blue': ('#5caee8', '#0078d4'),
+        'light_blue': ('#99d9ea', '#5caee8'),
         
         # Зелёные оттенки
         'green': ('#6ccb5f', '#107c10'),
@@ -239,7 +239,7 @@ def status_pixmap(status: str, size: int = 16) -> QPixmap:
 VALID_ICON_PREFIXES = ('fa5s.', 'fa5b.', 'fa.', 'mdi.', 'ei.', 'ri.')
 
 
-def safe_qta_icon(icon_name: str, color: str = '#ffffff', fallback: str = 'fa5s.circle') -> QIcon:
+def safe_qta_icon(icon_name: str, color: str = '#f5f5f5', fallback: str = 'fa5s.circle') -> QIcon:
     """
     Безопасно создаёт иконку qtawesome с проверкой префикса.
     

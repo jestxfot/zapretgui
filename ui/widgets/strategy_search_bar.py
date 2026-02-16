@@ -152,9 +152,9 @@ class StrategySearchBar(QWidget):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
 
         bg = "#f6f7f9" if tokens.is_light else "#373737"
-        border = "rgba(0, 0, 0, 0.12)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
-        text = "#111111" if tokens.is_light else "#ffffff"
-        item_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.10)"
+        border = tokens.surface_border
+        text = "rgba(18, 18, 18, 0.92)" if tokens.is_light else "rgba(245, 245, 245, 0.95)"
+        item_hover = tokens.surface_bg_hover
         item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.20)"
 
         view.setStyleSheet(
@@ -192,7 +192,7 @@ class StrategySearchBar(QWidget):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
         if muted:
             return "#666666" if tokens.is_light else "#b3b3b3"
-        return "#111111" if tokens.is_light else "#ffffff"
+        return "#111111" if tokens.is_light else "#f5f5f5"
 
     def _refresh_icons(self) -> None:
         icon_color = self._get_icon_color(muted=True)
@@ -234,17 +234,17 @@ class StrategySearchBar(QWidget):
 
     def _build_qss(self) -> str:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
-        fg = "#111111" if tokens.is_light else "#ffffff"
-        placeholder = "rgba(0, 0, 0, 0.40)" if tokens.is_light else "rgba(255, 255, 255, 0.40)"
-        arrow = "rgba(0, 0, 0, 0.55)" if tokens.is_light else "rgba(255, 255, 255, 0.60)"
-        arrow_hover = "rgba(0, 0, 0, 0.80)" if tokens.is_light else "rgba(255, 255, 255, 0.90)"
-        toolbtn_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.10)"
+        fg = "rgba(18, 18, 18, 0.92)" if tokens.is_light else "rgba(245, 245, 245, 0.95)"
+        placeholder = "rgba(0, 0, 0, 0.40)" if tokens.is_light else "rgba(245, 245, 245, 0.45)"
+        arrow = "rgba(0, 0, 0, 0.55)" if tokens.is_light else "rgba(245, 245, 245, 0.62)"
+        arrow_hover = "rgba(0, 0, 0, 0.80)" if tokens.is_light else "rgba(245, 245, 245, 0.90)"
+        toolbtn_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else tokens.surface_bg_hover
 
-        clear_btn_bg = "rgba(0, 0, 0, 0.04)" if tokens.is_light else "rgba(255, 255, 255, 0.05)"
-        clear_btn_bg_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(255, 255, 255, 0.08)"
-        clear_btn_bg_pressed = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
-        clear_btn_border = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(255, 255, 255, 0.08)"
-        clear_btn_border_hover = "rgba(0, 0, 0, 0.14)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
+        clear_btn_bg = "rgba(0, 0, 0, 0.04)" if tokens.is_light else "rgba(245, 245, 245, 0.06)"
+        clear_btn_bg_hover = "rgba(0, 0, 0, 0.06)" if tokens.is_light else "rgba(245, 245, 245, 0.09)"
+        clear_btn_bg_pressed = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(245, 245, 245, 0.13)"
+        clear_btn_border = "rgba(0, 0, 0, 0.10)" if tokens.is_light else "rgba(245, 245, 245, 0.10)"
+        clear_btn_border_hover = "rgba(0, 0, 0, 0.14)" if tokens.is_light else "rgba(245, 245, 245, 0.14)"
 
         return f"""
             /* Search Input */
