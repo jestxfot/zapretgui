@@ -55,7 +55,7 @@ from log import log
 
 
 _icon_cache: dict[str, object] = {}
-_DEFAULT_PRESET_ICON_COLOR = "#60cdff"
+_DEFAULT_PRESET_ICON_COLOR = "#5caee8"
 _HEX_COLOR_RGB_RE = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
 _HEX_COLOR_RGBA_RE = re.compile(r"^#(?:[0-9a-fA-F]{8})$")
 
@@ -65,9 +65,9 @@ def _accent_fg_for_tokens(tokens) -> str:
     try:
         r, g, b = tokens.accent_rgb
         yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(0, 0, 0, 0.90)" if yiq >= 160 else "rgba(255, 255, 255, 0.92)"
+        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
     except Exception:
-        return "rgba(0, 0, 0, 0.90)"
+        return "rgba(18, 18, 18, 0.90)"
 
 
 def _normalize_preset_icon_color(value: Optional[str]) -> str:
@@ -759,7 +759,7 @@ class _PresetActionPopover(QDialog):
         tokens = get_theme_tokens()
         is_light = bool(tokens.is_light)
         if is_light:
-            bg_top = "rgba(255, 255, 255, 246)"
+            bg_top = "rgba(246, 248, 252, 246)"
             bg_bottom = "rgba(243, 246, 251, 246)"
             shadow_color = QColor(0, 0, 0, 66)
             error_color = "#cf3d3d"
@@ -1805,7 +1805,7 @@ class Zapret2UserPresetsPage(BasePage):
                     background-color: rgba(255, 107, 107, 0.95);
                     border: 1px solid rgba(255, 177, 177, 0.5);
                     border-radius: 4px;
-                    color: #ffffff;
+                    color: rgba(245, 245, 245, 0.95);
                     padding: 0 16px;
                     font-size: 12px;
                     font-weight: 700;
@@ -1828,7 +1828,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._reset_all_result_token = None
         self._reset_all_confirm_pending = True
         self.reset_all_btn.setText("Это сбросит ваши настройки")
-        self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color="#ffffff"))
+        self.reset_all_btn.setIcon(qta.icon("fa5s.exclamation-triangle", color="rgba(245, 245, 245, 0.95)"))
         self._apply_reset_all_button_style(True)
         self._reset_all_confirm_timer.start(5000)
         self._update_toolbar_buttons_layout()
@@ -1841,7 +1841,7 @@ class Zapret2UserPresetsPage(BasePage):
         try:
             self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color=get_theme_tokens().fg))
         except Exception:
-            self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="#ffffff"))
+            self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color="rgba(245, 245, 245, 0.95)"))
         self._apply_reset_all_button_style(False)
         self._update_toolbar_buttons_layout()
         if self.isVisible():

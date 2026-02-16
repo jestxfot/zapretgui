@@ -744,7 +744,7 @@ class StrategyRow(QFrame):
         try:
             accent = get_theme_tokens().accent_hex
         except Exception:
-            accent = "#60cdff"
+            accent = get_theme_tokens("Темная синяя").accent_hex
         icon = qta.icon('fa5s.circle-notch', color=accent, animation=qta.Spin(self._loading_label))
         pixmap = icon.pixmap(14, 14)
         self._loading_label.setPixmap(pixmap)
@@ -773,8 +773,8 @@ class StrategyRow(QFrame):
         menu = QMenu(self)
         try:
             tokens = get_theme_tokens()
-            menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
-            menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+            menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
+            menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
             menu.setStyleSheet(f"""
                 QMenu {{
                     background: {menu_bg};
@@ -1061,7 +1061,7 @@ class PhaseTabBar(QTabBar):
                 tokens = get_theme_tokens()
                 accent = QColor(tokens.accent_hex)
             except Exception:
-                accent = QColor("#60cdff")
+                accent = QColor(92, 174, 232)
 
             try:
                 text_primary = self.palette().color(self.foregroundRole())
@@ -1365,8 +1365,8 @@ class StrategyDetailPage(BasePage):
     def _build_content(self):
         """Строит содержимое страницы"""
         tokens = get_theme_tokens()
-        menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
-        menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+        menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
+        menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
 
         # Скрываем стандартный заголовок BasePage
         self.title_label.hide()
@@ -4514,8 +4514,8 @@ class StrategyDetailPage(BasePage):
 
         menu = QMenu(self)
         tokens = get_theme_tokens()
-        menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
-        menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+        menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
+        menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
         menu.setStyleSheet(f"""
             QMenu {{
                 background: {menu_bg};
@@ -4741,8 +4741,8 @@ class StrategyDetailPage(BasePage):
         """Показывает меню сортировки"""
         menu = QMenu(self)
         tokens = get_theme_tokens()
-        menu_bg = "#ffffff" if tokens.is_light else "#2d2d2d"
-        menu_fg = "rgba(0,0,0,0.90)" if tokens.is_light else "rgba(255,255,255,0.95)"
+        menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
+        menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
         menu.setStyleSheet(f"""
             QMenu {{
                 background: {menu_bg};
