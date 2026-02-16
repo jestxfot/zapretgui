@@ -15,6 +15,8 @@ from datetime import datetime
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
+from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 
 class WorkerThread(QThread):
@@ -81,27 +83,25 @@ class StatusBadge(QFrame):
         text_layout.setSpacing(2)
         
         self.status_label = QLabel("Проверка...")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 15px;
-                font-weight: 600;
-            }
-        """)
         text_layout.addWidget(self.status_label)
         
         self.details_label = QLabel("")
-        self.details_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 12px;
-            }
-        """)
         text_layout.addWidget(self.details_label)
         
         layout.addLayout(text_layout, 1)
+
+        self.apply_theme()
         
         self._update_style("neutral")
+
+    def apply_theme(self, tokens=None) -> None:
+        tokens = tokens or get_theme_tokens()
+        self.status_label.setStyleSheet(
+            f"color: {tokens.fg}; font-size: 15px; font-weight: 600;"
+        )
+        self.details_label.setStyleSheet(
+            f"color: {tokens.fg_muted}; font-size: 12px;"
+        )
         
     def set_status(self, text: str, details: str = "", status: str = "neutral"):
         """Устанавливает статус"""
@@ -110,11 +110,13 @@ class StatusBadge(QFrame):
         self._update_style(status)
         
     def _update_style(self, status: str):
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette()
         colors = {
-            'active': ('#6ccb5f', 'rgba(108, 203, 95, 0.15)'),
-            'warning': ('#ffc107', 'rgba(255, 193, 7, 0.15)'),
-            'expired': ('#ff6b6b', 'rgba(255, 107, 107, 0.15)'),
-            'neutral': ('#60cdff', 'rgba(96, 205, 255, 0.1)'),
+            'active': (semantic.success, semantic.success_soft_bg),
+            'warning': (semantic.warning, semantic.warning_soft_bg),
+            'expired': (semantic.error, semantic.error_soft_bg),
+            'neutral': (tokens.accent_hex, tokens.accent_soft_bg),
         }
         
         icon_color, bg_color = colors.get(status, colors['neutral'])
@@ -150,8 +152,15 @@ class PremiumPage(BasePage):
         self.checker = None
         self.current_thread = None
         self._animated_cards = []
+
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+        self._days_label_semantic = False
         
         self._build_ui()
+
+        # Apply initial theme to inline-styled widgets.
+        self._apply_theme()
         
         # Инициализируем checker лениво при первом показе
         self._initialized = False
@@ -184,6 +193,7 @@ class PremiumPage(BasePage):
             card.animate_in()
         
     def _build_ui(self):
+        tokens = get_theme_tokens()
         # ═══════════════════════════════════════════════════════════
         # СТАТУС ПОДПИСКИ
         # ═══════════════════════════════════════════════════════════
@@ -201,13 +211,9 @@ class PremiumPage(BasePage):
         
         # Дополнительная информация
         self.days_label = QLabel("")
-        self.days_label.setStyleSheet("""
-            QLabel {
-                color: #60cdff;
-                font-size: 24px;
-                font-weight: 700;
-            }
-        """)
+        self.days_label.setStyleSheet(
+            f"color: {tokens.accent_hex}; font-size: 24px; font-weight: 700;"
+        )
         self.days_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_layout.addWidget(self.days_label)
         
@@ -229,24 +235,26 @@ class PremiumPage(BasePage):
         activation_layout.setSpacing(12)
         
         # Инструкции (обычный QLabel)
-        instructions = QLabel(
+        self.instructions_label = QLabel(
             "1. Нажмите «Создать код»\n"
             "2. Отправьте код боту @zapretvpns_bot в Telegram (сообщением)\n"
             "3. Вернитесь сюда и нажмите «Проверить статус»"
         )
-        instructions.setStyleSheet("""
-            QLabel {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.06);
+        self.instructions_label.setStyleSheet(
+            f"""
+            QLabel {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: rgba(255, 255, 255, 0.7);
+                color: {tokens.fg_muted};
                 padding: 12px 16px;
                 font-size: 12px;
                 line-height: 1.5;
-            }
-        """)
-        instructions.setWordWrap(True)
-        activation_layout.addWidget(instructions)
+            }}
+            """
+        )
+        self.instructions_label.setWordWrap(True)
+        activation_layout.addWidget(self.instructions_label)
         
         # ═══════════════════════════════════════════════════════════
         # Контейнер для кода привязки (скрывается при активной подписке)
@@ -263,21 +271,23 @@ class PremiumPage(BasePage):
         self.key_input = QLineEdit()
         self.key_input.setPlaceholderText("ABCD12EF")
         self.key_input.setReadOnly(True)
-        self.key_input.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+        self.key_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background-color: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
-                color: #ffffff;
+                color: {tokens.fg};
                 padding: 12px 16px;
                 font-size: 14px;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
-            }
-            QLineEdit:focus {
-                border-color: #60cdff;
-                background-color: rgba(255, 255, 255, 0.08);
-            }
-        """)
+            }}
+            QLineEdit:focus {{
+                border-color: {tokens.accent_hex};
+                background-color: {tokens.surface_bg_hover};
+            }}
+            """
+        )
         key_layout.addWidget(self.key_input, 1)
         
         self.activate_btn = ActionButton("Создать код", "fa5s.link", accent=True)
@@ -290,7 +300,7 @@ class PremiumPage(BasePage):
         
         # Статус привязки
         self.activation_status = QLabel("")
-        self.activation_status.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
+        self.activation_status.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.activation_status.setWordWrap(True)
         key_container_layout.addWidget(self.activation_status)
         
@@ -328,43 +338,24 @@ class PremiumPage(BasePage):
         
         # ID устройства
         self.device_id_label = QLabel("ID устройства: загрузка...")
-        self.device_id_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 12px;
-                font-family: 'JetBrains Mono', 'Consolas', monospace;
-            }
-        """)
+        self.device_id_label.setStyleSheet(
+            f"color: {tokens.fg_muted}; font-size: 12px; font-family: 'JetBrains Mono', 'Consolas', monospace;"
+        )
         device_layout.addWidget(self.device_id_label)
         
         # Сохранённый ключ
         self.saved_key_label = QLabel("Сохранённый ключ: нет")
-        self.saved_key_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 12px;
-            }
-        """)
+        self.saved_key_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         device_layout.addWidget(self.saved_key_label)
         
         # Последняя проверка
         self.last_check_label = QLabel("Последняя проверка: —")
-        self.last_check_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.5);
-                font-size: 11px;
-            }
-        """)
+        self.last_check_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         device_layout.addWidget(self.last_check_label)
         
         # Статус сервера
         self.server_status_label = QLabel("Сервер: проверка...")
-        self.server_status_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.5);
-                font-size: 11px;
-            }
-        """)
+        self.server_status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         device_layout.addWidget(self.server_status_label)
         
         device_card.add_layout(device_layout)
@@ -420,6 +411,106 @@ class PremiumPage(BasePage):
         actions_card.add_layout(actions_layout)
         self.add_widget(actions_card)
 
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if hasattr(self, "status_badge"):
+                try:
+                    self.status_badge.apply_theme(tokens)
+                except Exception:
+                    pass
+
+            if hasattr(self, "days_label") and not getattr(self, "_days_label_semantic", False):
+                self.days_label.setStyleSheet(
+                    f"color: {tokens.accent_hex}; font-size: 24px; font-weight: 700;"
+                )
+
+            if hasattr(self, "instructions_label"):
+                self.instructions_label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        color: {tokens.fg_muted};
+                        padding: 12px 16px;
+                        font-size: 12px;
+                        line-height: 1.5;
+                    }}
+                    """
+                )
+
+            if hasattr(self, "key_input"):
+                self.key_input.setStyleSheet(
+                    f"""
+                    QLineEdit {{
+                        background-color: {tokens.surface_bg};
+                        border: 1px solid {tokens.surface_border};
+                        border-radius: 6px;
+                        color: {tokens.fg};
+                        padding: 12px 16px;
+                        font-size: 14px;
+                        font-family: 'JetBrains Mono', 'Consolas', monospace;
+                    }}
+                    QLineEdit:focus {{
+                        border-color: {tokens.accent_hex};
+                        background-color: {tokens.surface_bg_hover};
+                    }}
+                    """
+                )
+
+            # Neutral labels.
+            if hasattr(self, "device_id_label"):
+                self.device_id_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px; font-family: 'JetBrains Mono', 'Consolas', monospace;"
+                )
+            if hasattr(self, "saved_key_label"):
+                self.saved_key_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 12px;"
+                )
+            if hasattr(self, "last_check_label"):
+                self.last_check_label.setStyleSheet(
+                    f"color: {tokens.fg_faint}; font-size: 11px;"
+                )
+
+            if hasattr(self, "server_status_label"):
+                # Preserve semantic colors (✅/❌) that are set elsewhere.
+                text = self.server_status_label.text() if hasattr(self.server_status_label, "text") else ""
+                if "✅" not in text and "❌" not in text:
+                    self.server_status_label.setStyleSheet(
+                        f"color: {tokens.fg_faint}; font-size: 11px;"
+                    )
+        finally:
+            self._applying_theme_styles = False
+
     def _open_extend_bot(self) -> None:
         """Открывает бота для продления подписки."""
         try:
@@ -461,7 +552,8 @@ class PremiumPage(BasePage):
             if pair_code:
                 parts.append(f"pair: {pair_code}")
             self.saved_key_label.setText(" | ".join(parts))
-            self.saved_key_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 12px;")
+            tokens = get_theme_tokens()
+            self.saved_key_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
             
             # Последняя проверка
             last_check = self.RegistryManager.get_last_check()
@@ -485,14 +577,15 @@ class PremiumPage(BasePage):
             self._init_checker()
             if not self.checker:
                 self.activation_status.setText("❌ Ошибка инициализации")
-                self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
+                semantic = get_semantic_palette()
+                self.activation_status.setStyleSheet(f"color: {semantic.error}; font-size: 12px;")
                 return
 
         # Блокируем кнопку
         self.activate_btn.setEnabled(False)
         self.activate_btn.setText("Создание...")
         self.activation_status.setText("🔄 Создаю код...")
-        self.activation_status.setStyleSheet("color: #60cdff; font-size: 12px;")
+        self.activation_status.setStyleSheet(f"color: {get_theme_tokens().accent_hex}; font-size: 12px;")
         
         # Запускаем в потоке
         self.current_thread = WorkerThread(self.checker.pair_start, args=())
@@ -520,18 +613,21 @@ class PremiumPage(BasePage):
             except Exception:
                 pass
             self.activation_status.setText("✅ Код создан и скопирован. Отправьте его боту в Telegram.")
-            self.activation_status.setStyleSheet("color: #6ccb5f; font-size: 12px;")
+            semantic = get_semantic_palette()
+            self.activation_status.setStyleSheet(f"color: {semantic.success}; font-size: 12px;")
             self._update_device_info()
         else:
             self.activation_status.setText(f"❌ {message}")
-            self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
+            semantic = get_semantic_palette()
+            self.activation_status.setStyleSheet(f"color: {semantic.error}; font-size: 12px;")
             
     def _on_activation_error(self, error):
         """Обработка ошибки активации"""
         self.activate_btn.setEnabled(True)
         self.activate_btn.setText("Создать код")
         self.activation_status.setText(f"❌ Ошибка: {error}")
-        self.activation_status.setStyleSheet("color: #ff6b6b; font-size: 12px;")
+        semantic = get_semantic_palette()
+        self.activation_status.setStyleSheet(f"color: {semantic.error}; font-size: 12px;")
         
     def _check_status(self):
         """Проверка статуса подписки"""
@@ -575,26 +671,32 @@ class PremiumPage(BasePage):
                 self._set_activation_section_visible(False)
                 
                 if days_remaining is not None:
+                    self._days_label_semantic = True
                     if days_remaining > 30:
                         self.status_badge.set_status("Подписка активна", f"Осталось {days_remaining} дней", "active")
                         self.days_label.setText(f"Осталось дней: {days_remaining}")
-                        self.days_label.setStyleSheet("color: #6ccb5f; font-size: 24px; font-weight: 700;")
+                        semantic = get_semantic_palette()
+                        self.days_label.setStyleSheet(f"color: {semantic.success}; font-size: 24px; font-weight: 700;")
                     elif days_remaining > 7:
                         self.status_badge.set_status("Подписка активна", f"Осталось {days_remaining} дней", "warning")
                         self.days_label.setText(f"⚠️ Осталось дней: {days_remaining}")
-                        self.days_label.setStyleSheet("color: #ffc107; font-size: 24px; font-weight: 700;")
+                        semantic = get_semantic_palette()
+                        self.days_label.setStyleSheet(f"color: {semantic.warning}; font-size: 24px; font-weight: 700;")
                     else:
                         self.status_badge.set_status("Скоро истекает!", f"Осталось {days_remaining} дней", "warning")
                         self.days_label.setText(f"⚠️ Срочно продлите! Осталось: {days_remaining}")
-                        self.days_label.setStyleSheet("color: #ff6b6b; font-size: 24px; font-weight: 700;")
+                        semantic = get_semantic_palette()
+                        self.days_label.setStyleSheet(f"color: {semantic.error}; font-size: 24px; font-weight: 700;")
                     
                     # Эмитим сигнал обновления
                     self.subscription_updated.emit(True, days_remaining)
                 else:
+                    self._days_label_semantic = False
                     self.status_badge.set_status("Подписка активна", result.get('status', ''), "active")
                     self.days_label.setText("")
                     self.subscription_updated.emit(True, 0)
             else:
+                self._days_label_semantic = False
                 # Если устройство уже привязано (есть device_token), не заставляем перепривязывать:
                 # просто показываем, что подписка не активна/истекла.
                 self._set_activation_section_visible(not is_linked)
@@ -606,12 +708,14 @@ class PremiumPage(BasePage):
                 self.subscription_updated.emit(False, 0)
                 
         except Exception as e:
+            self._days_label_semantic = False
             self.status_badge.set_status("Ошибка", str(e), "expired")
             # При ошибке показываем секцию активации на всякий случай
             self._set_activation_section_visible(True)
             
     def _on_status_error(self, error):
         """Обработка ошибки проверки статуса"""
+        self._days_label_semantic = False
         self.refresh_btn.setEnabled(True)
         self.refresh_btn.setText("Обновить статус")
         self.status_badge.set_status("Ошибка проверки", error, "expired")
@@ -622,13 +726,14 @@ class PremiumPage(BasePage):
             self._init_checker()
             if not self.checker:
                 self.server_status_label.setText("❌ Ошибка инициализации")
-                self.server_status_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
+                semantic = get_semantic_palette()
+                self.server_status_label.setStyleSheet(f"color: {semantic.error}; font-size: 11px;")
                 return
             
         self.test_btn.setEnabled(False)
         self.test_btn.setText("Проверка...")
         self.server_status_label.setText("🔄 Проверка соединения...")
-        self.server_status_label.setStyleSheet("color: #60cdff; font-size: 11px;")
+        self.server_status_label.setStyleSheet(f"color: {get_theme_tokens().accent_hex}; font-size: 11px;")
         
         self.current_thread = WorkerThread(self.checker.test_connection)
         self.current_thread.result_ready.connect(self._on_connection_test_complete)
@@ -643,17 +748,20 @@ class PremiumPage(BasePage):
         
         if success:
             self.server_status_label.setText(f"✅ {message}")
-            self.server_status_label.setStyleSheet("color: #6ccb5f; font-size: 11px;")
+            semantic = get_semantic_palette()
+            self.server_status_label.setStyleSheet(f"color: {semantic.success}; font-size: 11px;")
         else:
             self.server_status_label.setText(f"❌ {message}")
-            self.server_status_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
+            semantic = get_semantic_palette()
+            self.server_status_label.setStyleSheet(f"color: {semantic.error}; font-size: 11px;")
             
     def _on_connection_test_error(self, error):
         """Обработка ошибки теста соединения"""
         self.test_btn.setEnabled(True)
         self.test_btn.setText("Проверить соединение")
         self.server_status_label.setText(f"❌ Ошибка: {error}")
-        self.server_status_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
+        semantic = get_semantic_palette()
+        self.server_status_label.setStyleSheet(f"color: {semantic.error}; font-size: 11px;")
         
     def _change_key(self):
         """Сброс привязки на устройстве"""
@@ -684,6 +792,7 @@ class PremiumPage(BasePage):
             self._update_device_info()
             self.status_badge.set_status("Привязка сброшена", "Создайте новый код для привязки", "expired")
             self.days_label.setText("")
+            self._days_label_semantic = False
             
             # Показываем секцию активации
             self._set_activation_section_visible(True)

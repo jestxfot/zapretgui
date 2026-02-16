@@ -22,6 +22,7 @@ from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
 
 from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 
 class ScrollBlockingScrollArea(QScrollArea):
@@ -53,11 +54,11 @@ class ScrollBlockingScrollArea(QScrollArea):
 class Win11Spinner(QWidget):
     """Спиннер в стиле Windows 11 - кольцо с бегущей точкой"""
 
-    def __init__(self, size=20, color="#60cdff", parent=None):
+    def __init__(self, size=20, color: str | None = None, parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
         self._size = size
-        self._color = QColor(color)
+        self._color = QColor(color or get_theme_tokens().accent_hex)
         self._angle = 0
         self._arc_length = 90  # Длина дуги в градусах
 
@@ -86,9 +87,9 @@ class Win11Spinner(QWidget):
         # Рисуем фоновое кольцо (серое)
         try:
             tokens = get_theme_tokens()
-            ring = QColor(0, 0, 0, 30) if tokens.is_light else QColor(255, 255, 255, 30)
+            ring = QColor(tokens.divider)
         except Exception:
-            ring = QColor(255, 255, 255, 30)
+            ring = QColor(220, 220, 220, 30)
         pen = QPen(ring)
         pen.setWidth(2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -127,18 +128,26 @@ class StatusIndicator(QWidget):
 
         # Галочка
         self.check_icon = QLabel()
-        self.check_icon.setPixmap(qta.icon('fa5s.check-circle', color='#6ccb5f').pixmap(20, 20))
+        self.apply_theme()
         self.check_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.stack.addWidget(self.check_icon)
 
         # Спиннер
-        self.spinner = Win11Spinner(20, "#60cdff")
+        try:
+            spinner_color = get_theme_tokens().accent_hex
+        except Exception:
+            spinner_color = "#5caee8"
+        self.spinner = Win11Spinner(20, spinner_color)
         self.stack.addWidget(self.spinner)
 
         layout.addWidget(self.stack)
 
         # По умолчанию показываем галочку
         self.stack.setCurrentWidget(self.check_icon)
+
+    def apply_theme(self) -> None:
+        semantic = get_semantic_palette()
+        self.check_icon.setPixmap(qta.icon('fa5s.check-circle', color=semantic.success).pixmap(20, 20))
 
     def show_loading(self):
         """Показывает спиннер загрузки"""
@@ -193,9 +202,9 @@ class ResetActionButton(QPushButton):
         else:
             try:
                 tokens = get_theme_tokens()
-                color = '#111111' if tokens.is_light else '#ffffff'
+                color = tokens.fg
             except Exception:
-                color = '#ffffff'
+                color = '#e6e6e6'
         icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.broom'
         if rotation != 0:
             self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
@@ -220,14 +229,9 @@ class ResetActionButton(QPushButton):
                 border = "1px solid rgba(74, 222, 128, 0.5)"
             else:
                 # Обычное состояние
-                if tokens.is_light:
-                    bg = "rgba(0, 0, 0, 0.06)" if not self._hovered else "rgba(0, 0, 0, 0.10)"
-                    text_color = "#111111"
-                    border = "1px solid rgba(0, 0, 0, 0.12)"
-                else:
-                    bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
-                    text_color = "#ffffff"
-                    border = "1px solid rgba(255, 255, 255, 0.12)"
+                bg = tokens.toggle_off_bg if not self._hovered else tokens.toggle_off_bg_hover
+                text_color = tokens.fg
+                border = f"1px solid {tokens.toggle_off_border}"
 
             qss = f"""
                 QPushButton {{
@@ -352,6 +356,9 @@ class StrategiesPageBase(QWidget):
         self._file_watcher = None
         self._watcher_active = False
 
+        self._applying_theme_styles = False
+        self._theme_refresh_scheduled = False
+
         # Таймер для проверки статуса процесса
         self._process_check_timer = QTimer(self)
         self._process_check_timer.timeout.connect(self._check_process_status)
@@ -378,6 +385,9 @@ class StrategiesPageBase(QWidget):
 
         self._build_ui()
 
+        # Apply theme to local inline styles.
+        self._apply_theme()
+
     def _build_ui(self):
         """Строит базовый UI - общий для всех режимов"""
         self.main_layout = QVBoxLayout(self)
@@ -386,26 +396,10 @@ class StrategiesPageBase(QWidget):
 
         # Заголовок страницы (фиксированный, не прокручивается)
         self.title_label = QLabel("Выбор активных стратегий (и их настройка) Zapret 2")
-        self.title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 28px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-                padding-bottom: 4px;
-            }
-        """)
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
         self.subtitle_label = QLabel("Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) можно выбрать свою стратегию для обхода блокировок. Список всех статегий для каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). Некоторые типы дурения (например send или syndata) можно настроить более точечно чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ.")
-        self.subtitle_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 13px;
-                padding-bottom: 8px;
-            }
-        """)
         self.subtitle_label.setWordWrap(True)
         self.main_layout.addWidget(self.subtitle_label)
 
@@ -419,7 +413,7 @@ class StrategiesPageBase(QWidget):
         current_layout.addWidget(self.status_indicator)
 
         current_prefix = QLabel("Текущая:")
-        current_prefix.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 14px;")
+        self._current_prefix_label = current_prefix
         current_layout.addWidget(current_prefix)
 
         # Контейнер для иконок активных стратегий
@@ -439,13 +433,6 @@ class StrategiesPageBase(QWidget):
 
         # Текстовый лейбл (для fallback и BAT режима)
         self.current_strategy_label = QLabel("Не выбрана")
-        self.current_strategy_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
         current_layout.addWidget(self.current_strategy_label)
 
         current_layout.addStretch()
@@ -454,11 +441,11 @@ class StrategiesPageBase(QWidget):
         self.favorites_count_label = QLabel("")
         self.favorites_count_label.setStyleSheet("""
             QLabel {
-                color: #ffc107;
+                color: #ff9800;
                 font-size: 13px;
                 font-weight: 600;
                 padding: 4px 12px;
-                background: rgba(255, 193, 7, 0.1);
+                background: rgba(255, 152, 0, 0.15);
                 border-radius: 12px;
             }
         """)
@@ -472,23 +459,6 @@ class StrategiesPageBase(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
-                background: rgba(255,255,255,0.03);
-                width: 8px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,0.15);
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255,255,255,0.25);
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
 
         # Контейнер для контента (меняется в зависимости от режима)
         self.content_container = QWidget()
@@ -499,7 +469,6 @@ class StrategiesPageBase(QWidget):
 
         # Плейсхолдер загрузки
         self.loading_label = QLabel("Загрузка...")
-        self.loading_label.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 13px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
 
@@ -511,6 +480,98 @@ class StrategiesPageBase(QWidget):
         self.select_strategy_btn.hide()
 
         self.category_selections = {}
+
+        self._apply_theme()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if hasattr(self, "title_label"):
+                self.title_label.setStyleSheet(
+                    f"color: {tokens.fg}; font-size: 28px; font-weight: 600; font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; padding-bottom: 4px;"
+                )
+            if hasattr(self, "subtitle_label"):
+                self.subtitle_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 13px; padding-bottom: 8px;"
+                )
+            if hasattr(self, "_current_prefix_label"):
+                self._current_prefix_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 14px;"
+                )
+            if hasattr(self, "current_strategy_label"):
+                self.current_strategy_label.setStyleSheet(
+                    f"color: {tokens.fg}; font-size: 14px; font-weight: 500;"
+                )
+            if hasattr(self, "loading_label"):
+                self.loading_label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 13px;"
+                )
+            if hasattr(self, "status_indicator"):
+                self.status_indicator.apply_theme()
+            if hasattr(self, "favorites_count_label"):
+                semantic = get_semantic_palette()
+                self.favorites_count_label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        color: {semantic.warning};
+                        font-size: 13px;
+                        font-weight: 600;
+                        padding: 4px 12px;
+                        background: {semantic.warning_soft_bg};
+                        border-radius: 12px;
+                    }}
+                    """
+                )
+
+            if hasattr(self, "scroll_area"):
+                self.scroll_area.setStyleSheet(
+                    f"""
+                    QScrollArea {{ background: transparent; border: none; }}
+                    QScrollBar:vertical {{
+                        background: transparent;
+                        width: 8px;
+                        border-radius: 4px;
+                    }}
+                    QScrollBar::handle:vertical {{
+                        background: {tokens.divider_strong};
+                        border-radius: 4px;
+                        min-height: 30px;
+                    }}
+                    QScrollBar::handle:vertical:hover {{
+                        background: {tokens.fg_muted};
+                    }}
+                    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+                    """
+                )
+        finally:
+            self._applying_theme_styles = False
 
     def showEvent(self, event):
         """При показе страницы загружаем стратегии"""
@@ -689,19 +750,34 @@ class StrategiesPageBase(QWidget):
 
     def eventFilter(self, obj, event):
         """Обработчик событий для красивого тултипа"""
-        if obj == self.current_strategy_container:
-            from PyQt6.QtCore import QEvent
+        # NOTE: During app shutdown / page teardown Qt may still dispatch events
+        # while Python wrappers are already marked as deleted.
+        try:
+            container = self.current_strategy_container
+        except RuntimeError:
+            return False
+        except Exception:
+            return False
 
-            if event.type() == QEvent.Type.Enter:
-                # При наведении показываем красивый тултип если есть стратегии
-                if self._has_hidden_strategies and hasattr(self, '_tooltip_strategies_data') and self._tooltip_strategies_data:
-                    self._show_strategies_tooltip()
+        if obj is container:
+            try:
+                from PyQt6.QtCore import QEvent
 
-            elif event.type() == QEvent.Type.Leave:
-                # При уходе скрываем тултип
-                self._hide_strategies_tooltip()
+                if event.type() == QEvent.Type.Enter:
+                    # При наведении показываем красивый тултип если есть стратегии
+                    if self._has_hidden_strategies and hasattr(self, '_tooltip_strategies_data') and self._tooltip_strategies_data:
+                        self._show_strategies_tooltip()
 
-        return super().eventFilter(obj, event)
+                elif event.type() == QEvent.Type.Leave:
+                    # При уходе скрываем тултип
+                    self._hide_strategies_tooltip()
+            except RuntimeError:
+                return False
+            except Exception:
+                pass
+
+        # Do not filter the event.
+        return False
 
     def _show_strategies_tooltip(self):
         """Показывает красивый тултип со списком стратегий"""

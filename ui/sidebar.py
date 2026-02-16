@@ -12,6 +12,7 @@ import qtawesome as qta
 
 from ui.page_names import PageName, SectionName, SECTION_TO_PAGE, SECTION_CHILDREN, ORCHESTRA_ONLY_SECTIONS
 from ui.theme import get_theme_tokens
+from ui.theme_semantic import get_semantic_palette
 
 
 class ShimmerMixin:
@@ -269,7 +270,7 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
 
         # Интерполируем к белому при свечении
         if brightness > 0:
-            glow_color = QColor('#000000' if tokens.is_light else '#ffffff')
+            glow_color = QColor(tokens.fg)
             r = int(base_color.red() + (glow_color.red() - base_color.red()) * brightness * 0.6)
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
@@ -473,7 +474,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
 
         # Интерполируем к белому при свечении
         if brightness > 0:
-            glow_color = QColor('#000000' if tokens.is_light else '#ffffff')
+            glow_color = QColor(tokens.fg)
             r = int(base_color.red() + (glow_color.red() - base_color.red()) * brightness * 0.6)
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
@@ -1154,7 +1155,7 @@ class SideNavBar(QWidget):
             icon = qta.icon('fa5s.thumbtack', color=tokens.accent_hex)
             tooltip = "Открепить панель (плавающий режим)"
         else:
-            icon = qta.icon('fa5s.thumbtack', color='#666666', rotated=45)
+            icon = qta.icon('fa5s.thumbtack', color=tokens.fg_faint, rotated=45)
             tooltip = "Закрепить панель"
         
         self.pin_btn.setIcon(icon)
@@ -1751,6 +1752,10 @@ class SettingsRow(QWidget):
     
     def __init__(self, icon_name: str, title: str, description: str = "", parent=None):
         super().__init__(parent)
+
+        self._icon_name = icon_name
+        self._icon_label = None
+        self._icon_update_scheduled = False
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -1758,7 +1763,8 @@ class SettingsRow(QWidget):
         
         # Иконка
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon(icon_name, color='#60cdff').pixmap(20, 20))
+        self._icon_label = icon_label
+        self._refresh_icon()
         icon_label.setFixedSize(24, 24)
         layout.addWidget(icon_label)
         
@@ -1784,6 +1790,30 @@ class SettingsRow(QWidget):
         self.control_container = QHBoxLayout()
         self.control_container.setSpacing(8)
         layout.addLayout(self.control_container)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if not self._icon_update_scheduled:
+                    self._icon_update_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._icon_update_scheduled = False
+        self._refresh_icon()
+
+    def _refresh_icon(self) -> None:
+        if self._icon_label is None:
+            return
+        try:
+            tokens = get_theme_tokens()
+            icon_color = tokens.accent_hex
+        except Exception:
+            icon_color = get_theme_tokens("Темная синяя").accent_hex
+        self._icon_label.setPixmap(qta.icon(self._icon_name, color=icon_color).pixmap(20, 20))
         
     def set_control(self, widget: QWidget):
         """Устанавливает контрол справа"""
@@ -1826,10 +1856,11 @@ class ActionButton(QPushButton):
         if not self._icon_name:
             return
         tokens = self._tokens or get_theme_tokens("Темная синяя")
+        semantic = get_semantic_palette(tokens.theme_name)
         if self.accent:
-            color = "#ffffff"
+            color = semantic.on_color
         else:
-            color = "#111111" if tokens.is_light else "#ffffff"
+            color = tokens.fg
         self._safe_set_icon(qta.icon(self._icon_name, color=color))
 
     def _safe_set_icon(self, icon: QIcon) -> None:
@@ -1891,23 +1922,18 @@ class ActionButton(QPushButton):
         self._applying_theme_styles = True
         try:
             tokens = self._tokens or get_theme_tokens("Темная синяя")
+            semantic = get_semantic_palette(tokens.theme_name)
 
             if self.accent:
                 bg = tokens.accent_hex if not self._hovered else tokens.accent_hover_hex
                 pressed_bg = tokens.accent_pressed_hex
-                border = "rgba(255, 255, 255, 0.18)" if not tokens.is_light else tokens.divider_strong
-                text_color = "#ffffff"
+                border = tokens.divider_strong
+                text_color = semantic.on_color
             else:
-                if tokens.is_light:
-                    bg = "rgba(0, 0, 0, 0.06)" if not self._hovered else "rgba(0, 0, 0, 0.10)"
-                    pressed_bg = "rgba(0, 0, 0, 0.14)"
-                    border = "rgba(0, 0, 0, 0.12)"
-                    text_color = "#111111"
-                else:
-                    bg = "rgba(255, 255, 255, 0.08)" if not self._hovered else "rgba(255, 255, 255, 0.15)"
-                    pressed_bg = "rgba(255, 255, 255, 0.22)"
-                    border = "rgba(255, 255, 255, 0.12)"
-                    text_color = "#ffffff"
+                bg = tokens.surface_bg if not self._hovered else tokens.surface_bg_hover
+                pressed_bg = tokens.surface_bg_pressed
+                border = tokens.surface_border
+                text_color = tokens.fg
 
             self._refresh_icon()
 
@@ -2061,6 +2087,7 @@ class StatusIndicator(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._current_status = "neutral"
+        self._theme_refresh_scheduled = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -2085,11 +2112,13 @@ class StatusIndicator(QWidget):
         self.text.setText(text)
         self._current_status = status
 
+        tokens = get_theme_tokens()
+        semantic = get_semantic_palette(tokens.theme_name)
         colors = {
-            'running': '#6ccb5f',  # Зеленый
-            'stopped': '#ff6b6b',  # Красный
-            'warning': '#ffc107',  # Желтый
-            'neutral': '#888888',  # Серый
+            'running': semantic.success,
+            'stopped': semantic.error,
+            'warning': semantic.warning,
+            'neutral': tokens.fg_faint,
         }
 
         color = colors.get(status, colors['neutral'])
@@ -2100,3 +2129,17 @@ class StatusIndicator(QWidget):
             self.dot.start_pulse()
         else:
             self.dot.stop_pulse()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self.set_status(self.text.text(), self._current_status)

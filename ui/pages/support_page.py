@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QVBoxLayout
 from .base_page import BasePage
 from log import log
 from ui.sidebar import ActionButton, SettingsCard, SettingsRow
+from ui.theme_semantic import get_semantic_palette
+from ui.theme import get_theme_tokens
 
 
 class SupportPage(BasePage):
@@ -35,6 +37,10 @@ class SupportPage(BasePage):
         # UI refs
         self._zaphub_status_label: QLabel | None = None
         self._zaphub_action_btn: ActionButton | None = None
+        self._hub_icon_label: QLabel | None = None
+
+        self._applying_theme_styles: bool = False
+        self._theme_refresh_scheduled: bool = False
 
         self._build_ui()
 
@@ -42,6 +48,7 @@ class SupportPage(BasePage):
     # UI
     # ---------------------------------------------------------------------
     def _build_ui(self) -> None:
+        tokens = get_theme_tokens()
         # ZapretHub block
         self.add_section_title("ZapretHub")
 
@@ -51,24 +58,27 @@ class SupportPage(BasePage):
         hub_layout.setSpacing(16)
 
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon("fa5s.users", color="#60cdff").pixmap(36, 36))
+        icon_label.setPixmap(qta.icon("fa5s.users", color=tokens.accent_hex).pixmap(36, 36))
         icon_label.setFixedSize(44, 44)
+        self._hub_icon_label = icon_label
         hub_layout.addWidget(icon_label)
 
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
 
         title = QLabel("ZapretHub")
-        title.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 650;")
+        title.setProperty("tone", "primary")
+        title.setStyleSheet("font-size: 15px; font-weight: 650;")
         text_layout.addWidget(title)
 
         desc = QLabel("Центр сообщества Zapret: стратегии, пресеты и форум.")
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: rgba(255, 255, 255, 0.6); font-size: 11px;")
+        desc.setProperty("tone", "muted")
+        desc.setStyleSheet("font-size: 11px;")
         text_layout.addWidget(desc)
 
         self._zaphub_status_label = QLabel("Статус: проверяю…")
-        self._zaphub_status_label.setStyleSheet("color: rgba(255, 255, 255, 0.55); font-size: 11px;")
+        self._zaphub_status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
         text_layout.addWidget(self._zaphub_status_label)
 
         hub_layout.addLayout(text_layout, 1)
@@ -117,6 +127,49 @@ class SupportPage(BasePage):
         # Initial state refresh
         self._refresh_zaphub_state()
 
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            from PyQt6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._schedule_theme_refresh()
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _schedule_theme_refresh(self) -> None:
+        if self._applying_theme_styles:
+            return
+        if self._theme_refresh_scheduled:
+            return
+        self._theme_refresh_scheduled = True
+        QTimer.singleShot(0, self._on_debounced_theme_change)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        if self._applying_theme_styles:
+            return
+        self._applying_theme_styles = True
+        try:
+            tokens = get_theme_tokens()
+
+            if self._hub_icon_label is not None:
+                try:
+                    self._hub_icon_label.setPixmap(qta.icon("fa5s.users", color=tokens.accent_hex).pixmap(36, 36))
+                except Exception:
+                    pass
+
+            # Refresh status styles for the current theme.
+            try:
+                self._refresh_zaphub_state()
+            except Exception:
+                pass
+        finally:
+            self._applying_theme_styles = False
+
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
         # Обновляем статус при каждом показе страницы (после установки/обновления ZapretHub)
@@ -152,18 +205,20 @@ class SupportPage(BasePage):
         if exe and os.path.exists(exe):
             self._zaphub_installing = False
             status_label.setText("Статус: установлен")
-            status_label.setStyleSheet("color: rgba(140, 255, 180, 0.9); font-size: 11px;")
+            semantic = get_semantic_palette()
+            status_label.setStyleSheet(f"color: {semantic.success}; font-size: 11px;")
             action_btn.setText("Открыть")
-            action_btn.setIcon(qta.icon("fa5s.play", color="white"))
+            action_btn.setIcon(qta.icon("fa5s.play", color=get_theme_tokens().fg))
             action_btn.setEnabled(True)
         elif self._zaphub_installing:
             # Do not override the in-progress UI state.
             action_btn.setEnabled(False)
         else:
             status_label.setText("Статус: не установлен")
-            status_label.setStyleSheet("color: rgba(255, 255, 255, 0.55); font-size: 11px;")
+            tokens = get_theme_tokens()
+            status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
             action_btn.setText("Установить")
-            action_btn.setIcon(qta.icon("fa5s.download", color="white"))
+            action_btn.setIcon(qta.icon("fa5s.download", color=tokens.fg))
             action_btn.setEnabled(True)
 
     def _open_zaphub(self) -> None:
@@ -192,10 +247,11 @@ class SupportPage(BasePage):
         if action_btn is not None:
             action_btn.setEnabled(False)
             action_btn.setText("Установка…")
-            action_btn.setIcon(qta.icon("fa5s.spinner", color="white"))
+            action_btn.setIcon(qta.icon("fa5s.spinner", color=get_theme_tokens().fg))
         if status_label is not None:
             status_label.setText("Статус: установка запущена…")
-            status_label.setStyleSheet("color: rgba(255, 210, 120, 0.9); font-size: 11px;")
+            semantic = get_semantic_palette()
+            status_label.setStyleSheet(f"color: {semantic.warning}; font-size: 11px;")
 
         self._zaphub_installing = True
 
