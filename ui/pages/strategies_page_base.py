@@ -21,7 +21,7 @@ from strategy_menu.strategy_info import StrategyInfo
 from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
 
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, to_qcolor
 from ui.theme_semantic import get_semantic_palette
 
 
@@ -87,7 +87,7 @@ class Win11Spinner(QWidget):
         # Рисуем фоновое кольцо (серое)
         try:
             tokens = get_theme_tokens()
-            ring = QColor(tokens.divider)
+            ring = to_qcolor(tokens.divider, QColor(220, 220, 220, 30))
         except Exception:
             ring = QColor(220, 220, 220, 30)
         pen = QPen(ring)
@@ -176,6 +176,8 @@ class ResetActionButton(QPushButton):
         self._handling_theme_change = False
         self._theme_refresh_scheduled = False
         self._current_qss = ""
+        self.setProperty("uiRole", "resetActionButton")
+        self.setProperty("confirmPending", False)
 
         # Иконка
         self._update_icon()
@@ -210,41 +212,24 @@ class ResetActionButton(QPushButton):
             self.setIcon(qta.icon(icon_name, color=color))
 
     def _update_style(self):
-        """Обновляет стили кнопки"""
+        """Обновляет динамические свойства; стиль задаётся глобально в ui/theme.py"""
         if self._applying_theme_styles:
             return
 
         self._applying_theme_styles = True
         try:
-            tokens = get_theme_tokens()
-            semantic = get_semantic_palette(tokens.theme_name)
-            if self._pending:
-                success_bg = QColor(semantic.success)
-                success_bg.setAlpha(90 if self._hovered else 64)
-                bg = f"rgba({success_bg.red()}, {success_bg.green()}, {success_bg.blue()}, {success_bg.alpha()})"
-                text_color = semantic.success
-                border = f"1px solid {semantic.success_soft_border}"
-            else:
-                # Обычное состояние
-                bg = tokens.toggle_off_bg if not self._hovered else tokens.toggle_off_bg_hover
-                text_color = tokens.fg
-                border = f"1px solid {tokens.toggle_off_border}"
-
-            qss = f"""
-                QPushButton {{
-                    background-color: {bg};
-                    border: {border};
-                    border-radius: 4px;
-                    color: {text_color};
-                    padding: 0 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-            """
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
+            self._update_icon()
+            self.setProperty("confirmPending", bool(self._pending))
+            if self.styleSheet():
+                self.setStyleSheet("")
+            try:
+                style = self.style()
+                if style is not None:
+                    style.unpolish(self)
+                    style.polish(self)
+            except Exception:
+                pass
+            self.update()
         finally:
             self._applying_theme_styles = False
 
@@ -328,12 +313,10 @@ class ResetActionButton(QPushButton):
 
     def enterEvent(self, event):
         self._hovered = True
-        self._update_style()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self._hovered = False
-        self._update_style()
         super().leaveEvent(event)
 
 

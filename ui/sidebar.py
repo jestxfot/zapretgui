@@ -11,7 +11,7 @@ from PyQt6.QtGui import QFont, QIcon, QColor, QPainter, QPainterPath, QTransform
 import qtawesome as qta
 
 from ui.page_names import PageName, SectionName, SECTION_TO_PAGE, SECTION_CHILDREN, ORCHESTRA_ONLY_SECTIONS
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, to_qcolor
 from ui.theme_semantic import get_semantic_palette
 
 
@@ -277,13 +277,13 @@ class NavButton(QPushButton, ShimmerMixin, ShakeMixin):
                 self._safe_set_icon(FluentIcon.create_icon(self.icon_name, 20))
                 return
             except:
-                base_color = QColor(tokens.accent_hex)
+                base_color = to_qcolor(tokens.accent_hex, "#5caee8")
         else:
-            base_color = QColor(tokens.icon_fg_muted)
+            base_color = to_qcolor(tokens.icon_fg_muted, "#d2d7df")
 
         # Интерполируем к белому при свечении
         if brightness > 0:
-            glow_color = QColor(tokens.fg)
+            glow_color = to_qcolor(tokens.fg, "#f5f5f5")
             r = int(base_color.red() + (glow_color.red() - base_color.red()) * brightness * 0.6)
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
@@ -451,7 +451,7 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
             if self._selected:
                 bg_color = tokens.accent_soft_bg
                 border_left = f"2px solid {tokens.accent_hex}"
-                text_color = tokens.accent_hex
+                text_color = tokens.fg
             elif self._hovered:
                 bg_color = tokens.surface_bg_hover
                 border_left = "2px solid transparent"
@@ -494,13 +494,13 @@ class SubNavButton(QPushButton, ShimmerMixin, ShakeMixin):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
 
         if self._selected:
-            base_color = QColor(tokens.accent_hex)
+            base_color = to_qcolor(tokens.accent_hex, "#5caee8")
         else:
-            base_color = QColor(tokens.icon_fg_faint)
+            base_color = to_qcolor(tokens.icon_fg_faint, "#aeb5c1")
 
         # Интерполируем к белому при свечении
         if brightness > 0:
-            glow_color = QColor(tokens.fg)
+            glow_color = to_qcolor(tokens.fg, "#f5f5f5")
             r = int(base_color.red() + (glow_color.red() - base_color.red()) * brightness * 0.6)
             g = int(base_color.green() + (glow_color.green() - base_color.green()) * brightness * 0.6)
             b = int(base_color.blue() + (glow_color.blue() - base_color.blue()) * brightness * 0.6)
@@ -674,7 +674,7 @@ class CollapsibleHeader(QPushButton):
         chevron_x = self.width() - 18
         chevron_y = self.height() // 2
         tokens = self._tokens or get_theme_tokens("Темная синяя")
-        color = QColor(tokens.icon_fg_faint)
+        color = to_qcolor(tokens.icon_fg_faint, "#aeb5c1")
         painter.setPen(color)
         painter.setBrush(color)
 
@@ -779,9 +779,9 @@ class CollapsibleNavButton(NavButton):
         tokens = getattr(self, "_tokens", None) or get_theme_tokens("Темная синяя")
         # Цвет шеврона
         if self._selected:
-            color = QColor(tokens.accent_hex)
+            color = to_qcolor(tokens.accent_hex, "#5caee8")
         else:
-            color = QColor(tokens.icon_fg_faint)
+            color = to_qcolor(tokens.icon_fg_faint, "#aeb5c1")
         
         painter.setPen(color)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1752,6 +1752,7 @@ class SettingsCard(QFrame):
         super().__init__(parent)
         self.setObjectName("settingsCard")
         self.setProperty("uiSurface", "card")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         # ✅ Политика размера: растягивается по горизонтали, но не бесконечно
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         
@@ -1900,9 +1901,9 @@ class ActionButton(QPushButton):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
         semantic = get_semantic_palette(tokens.theme_name)
         if self.accent:
-            color = semantic.on_color
+            color = semantic.on_color if self.isEnabled() else tokens.icon_fg_faint
         else:
-            color = tokens.fg
+            color = tokens.fg if self.isEnabled() else tokens.icon_fg_faint
         self._safe_set_icon(qta.icon(self._icon_name, color=color))
 
     def _safe_set_icon(self, icon: QIcon) -> None:
@@ -1975,51 +1976,22 @@ class ActionButton(QPushButton):
 
         self._applying_theme_styles = True
         try:
-            tokens = self._tokens or get_theme_tokens("Темная синяя")
-            semantic = get_semantic_palette(tokens.theme_name)
-
-            if self.accent:
-                bg = tokens.accent_hex if not self._hovered else tokens.accent_hover_hex
-                pressed_bg = tokens.accent_pressed_hex
-                border = tokens.divider_strong
-                text_color = semantic.on_color
-            else:
-                bg = tokens.surface_bg if not self._hovered else tokens.surface_bg_hover
-                pressed_bg = tokens.surface_bg_pressed
-                border = tokens.surface_border
-                text_color = tokens.fg
-
             self._refresh_icon()
 
-            qss = f"""
-                QPushButton {{
-                    background-color: {bg};
-                    border: 1px solid {border};
-                    border-radius: 8px;
-                    color: {text_color};
-                    padding: 0 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:pressed {{
-                    background-color: {pressed_bg};
-                }}
-            """
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
+            # Visuals are centralized in ui/theme.py selectors:
+            # QPushButton[uiRole="actionButton"].
+            self._current_qss = ""
+            if self.styleSheet():
+                self.setStyleSheet("")
         finally:
             self._applying_theme_styles = False
 
     def enterEvent(self, event):
         self._hovered = True
-        self._update_style()
         return super().enterEvent(event)
 
     def leaveEvent(self, event):
         self._hovered = False
-        self._update_style()
         return super().leaveEvent(event)
 
 
@@ -2029,7 +2001,7 @@ class PulsingDot(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         tokens = get_theme_tokens()
-        self._color = QColor(tokens.icon_fg_faint)
+        self._color = to_qcolor(tokens.icon_fg_faint, "#aeb5c1")
         self._pulse_phase = 0.0  # 0.0 - 1.0
         self._is_pulsing = False
 
@@ -2044,7 +2016,7 @@ class PulsingDot(QWidget):
 
     def set_color(self, color: str):
         """Устанавливает цвет точки"""
-        self._color = QColor(color)
+        self._color = to_qcolor(color, self._color)
         self.update()
 
     def start_pulse(self):
@@ -2175,7 +2147,7 @@ class StatusIndicator(QWidget):
             'running': semantic.success,
             'stopped': semantic.error,
             'warning': semantic.warning,
-            'neutral': tokens.fg_faint,
+            'neutral': tokens.accent_hex,
         }
 
         color = colors.get(status, colors['neutral'])

@@ -278,7 +278,7 @@ class TTLButtonSelector(QWidget):
                 background: %(accent)s;
                 border: none;
                 color: rgba(0, 0, 0, 0.90);
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 600;
                 border-radius: 4px;
                 padding: 0 2px;
@@ -292,7 +292,7 @@ class TTLButtonSelector(QWidget):
                 background: %(bg)s;
                 border: none;
                 color: %(fg_muted)s;
-                font-size: 12px;
+                font-size: 11px;
                 border-radius: 4px;
                 padding: 0 2px;
             }
@@ -1372,6 +1372,7 @@ class StrategyDetailPage(BasePage):
         tokens = get_theme_tokens()
         menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
         menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
+        detail_text_color = tokens.fg_muted if tokens.is_light else tokens.fg
 
         # Скрываем стандартный заголовок BasePage
         self.title_label.hide()
@@ -1465,7 +1466,9 @@ class StrategyDetailPage(BasePage):
             self._subtitle_strategy.setProperty("tone", "muted")
         except Exception:
             pass
-        self._subtitle_strategy.setStyleSheet("background: transparent; padding-left: 10px;")
+        self._subtitle_strategy.setStyleSheet(
+            f"background: transparent; padding-left: 10px; color: {detail_text_color};"
+        )
         self._subtitle_strategy.hide()
         subtitle_row.addWidget(self._subtitle_strategy, 1)
 
@@ -1497,6 +1500,16 @@ class StrategyDetailPage(BasePage):
         self._toolbar_frame.setObjectName("categoryToolbarFrame")
         self._toolbar_frame.setProperty("categoryDisabled", False)
         self._toolbar_frame.setFrameShape(QFrame.Shape.NoFrame)
+        self._toolbar_frame.setStyleSheet(
+            """
+            QFrame#categoryToolbarFrame {
+                border: none;
+            }
+            QFrame#categoryToolbarFrame:hover {
+                border: none;
+            }
+            """
+        )
         self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._toolbar_frame.setVisible(False)
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
@@ -1505,7 +1518,7 @@ class StrategyDetailPage(BasePage):
 
         # NEW: Режим фильтрации row
         self._filter_mode_frame = QFrame()
-        self._filter_mode_frame.setStyleSheet("QFrame { background: transparent; }")
+        self._filter_mode_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         filter_mode_layout = QHBoxLayout(self._filter_mode_frame)
         filter_mode_layout.setContentsMargins(0, 6, 0, 6)  # Match Win11ToggleRow margins
         filter_mode_layout.setSpacing(12)
@@ -1531,7 +1544,9 @@ class StrategyDetailPage(BasePage):
             filter_desc.setProperty("tone", "muted")
         except Exception:
             pass
-        filter_desc.setStyleSheet("font-size: 11px; background: transparent;")
+        filter_desc.setStyleSheet(
+            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        )
         filter_text_layout.addWidget(filter_title)
         filter_text_layout.addWidget(filter_desc)
         filter_mode_layout.addLayout(filter_text_layout)
@@ -1549,7 +1564,7 @@ class StrategyDetailPage(BasePage):
         # OUT RANGE SETTINGS
         # ═══════════════════════════════════════════════════════════════
         self._out_range_frame = QFrame()
-        self._out_range_frame.setStyleSheet("QFrame { background: transparent; }")
+        self._out_range_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         out_range_main_layout = QHBoxLayout(self._out_range_frame)
         out_range_main_layout.setContentsMargins(0, 6, 0, 6)
         out_range_main_layout.setSpacing(12)
@@ -1575,7 +1590,9 @@ class StrategyDetailPage(BasePage):
             out_range_desc.setProperty("tone", "muted")
         except Exception:
             pass
-        out_range_desc.setStyleSheet("font-size: 11px; background: transparent;")
+        out_range_desc.setStyleSheet(
+            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        )
         out_range_text_layout.addWidget(out_range_title)
         out_range_text_layout.addWidget(out_range_desc)
         out_range_main_layout.addLayout(out_range_text_layout)
@@ -1629,6 +1646,7 @@ class StrategyDetailPage(BasePage):
                 border-radius: 4px;
                 padding: 4px 8px;
                 color: {tokens.fg};
+                font-size: 11px;
                 min-width: 60px;
             }}
             QSpinBox:hover {{
@@ -1644,7 +1662,7 @@ class StrategyDetailPage(BasePage):
         # SEND SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
         self._send_frame = QFrame()
-        self._send_frame.setStyleSheet("QFrame { background: transparent; }")
+        self._send_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         send_layout = QVBoxLayout(self._send_frame)
         send_layout.setContentsMargins(0, 6, 0, 6)
         send_layout.setSpacing(8)
@@ -1671,7 +1689,9 @@ class StrategyDetailPage(BasePage):
             send_desc.setProperty("tone", "muted")
         except Exception:
             pass
-        send_desc.setStyleSheet("font-size: 11px; background: transparent;")
+        send_desc.setStyleSheet(
+            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        )
         send_title_layout.addWidget(send_title)
         send_title_layout.addWidget(send_desc)
         send_header.addLayout(send_title_layout)
@@ -1704,7 +1724,7 @@ class StrategyDetailPage(BasePage):
         # Settings panel (shown when enabled)
         self._send_settings = QFrame()
         self._send_settings.setVisible(False)
-        self._send_settings.setStyleSheet("QFrame { background: transparent; }")
+        self._send_settings.setStyleSheet("QFrame { background: transparent; border: none; }")
         send_settings_layout = QVBoxLayout(self._send_settings)
         send_settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
         send_settings_layout.setSpacing(8)
@@ -1718,7 +1738,7 @@ class StrategyDetailPage(BasePage):
                 color: {tokens.fg};
                 padding: 4px 8px;
                 min-width: 140px;
-                font-size: 12px;
+                font-size: 11px;
             }}
             QComboBox:hover {{
                 background: {tokens.surface_bg_hover};
@@ -1751,6 +1771,7 @@ class StrategyDetailPage(BasePage):
                 border-radius: 4px;
                 padding: 4px 8px;
                 color: {tokens.fg};
+                font-size: 11px;
             }}
             QSpinBox:hover {{
                 background: {tokens.surface_bg_hover};
@@ -1885,7 +1906,7 @@ class StrategyDetailPage(BasePage):
         # SYNDATA SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
         self._syndata_frame = QFrame()
-        self._syndata_frame.setStyleSheet("QFrame { background: transparent; }")
+        self._syndata_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         syndata_layout = QVBoxLayout(self._syndata_frame)
         syndata_layout.setContentsMargins(0, 6, 0, 6)
         syndata_layout.setSpacing(8)
@@ -1912,7 +1933,9 @@ class StrategyDetailPage(BasePage):
             syndata_desc.setProperty("tone", "muted")
         except Exception:
             pass
-        syndata_desc.setStyleSheet("font-size: 11px; background: transparent;")
+        syndata_desc.setStyleSheet(
+            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        )
         syndata_title_layout.addWidget(syndata_title)
         syndata_title_layout.addWidget(syndata_desc)
         syndata_header.addLayout(syndata_title_layout)
@@ -1945,7 +1968,7 @@ class StrategyDetailPage(BasePage):
         # Settings panel (shown when enabled)
         self._syndata_settings = QFrame()
         self._syndata_settings.setVisible(False)
-        self._syndata_settings.setStyleSheet("QFrame { background: transparent; }")
+        self._syndata_settings.setStyleSheet("QFrame { background: transparent; border: none; }")
         settings_layout = QVBoxLayout(self._syndata_settings)
         settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
         settings_layout.setSpacing(8)
@@ -1959,7 +1982,7 @@ class StrategyDetailPage(BasePage):
                 color: {tokens.fg};
                 padding: 4px 8px;
                 min-width: 140px;
-                font-size: 12px;
+                font-size: 11px;
             }}
             QComboBox:hover {{
                 background: {tokens.surface_bg_hover};
@@ -3448,7 +3471,7 @@ class StrategyDetailPage(BasePage):
                 background: %(accent)s;
                 border: none;
                 color: rgba(0, 0, 0, 0.90);
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 600;
                 border-radius: 4px;
                 padding: 0 4px;
@@ -3462,7 +3485,7 @@ class StrategyDetailPage(BasePage):
                 background: %(bg)s;
                 border: none;
                 color: %(fg_muted)s;
-                font-size: 12px;
+                font-size: 11px;
                 border-radius: 4px;
                 padding: 0 4px;
             }

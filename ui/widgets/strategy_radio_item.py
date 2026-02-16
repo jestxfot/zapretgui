@@ -5,7 +5,7 @@
 """
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QEvent
 from PyQt6.QtGui import QFont, QCursor
 import qtawesome as qta
 from typing import Optional
@@ -50,6 +50,7 @@ class StrategyRadioItem(QFrame):
         self._tooltip = tooltip
         self._list_type = list_type
         self._icon_label = None
+        self._desc_label = None
 
         # Текущая стратегия
         self._strategy_id = "none"
@@ -106,11 +107,11 @@ class StrategyRadioItem(QFrame):
 
         # Описание (protocol | ports)
         if self._description:
-            desc_label = QLabel(self._description)
-            desc_label.setFont(QFont("Segoe UI", 9))
-            desc_label.setProperty("tone", "muted")
-            desc_label.setStyleSheet("background: transparent;")
-            self._layout.addWidget(desc_label)
+            self._desc_label = QLabel(self._description)
+            self._desc_label.setFont(QFont("Segoe UI", 9))
+            self._desc_label.setProperty("tone", "muted")
+            self._desc_label.setStyleSheet("background: transparent;")
+            self._layout.addWidget(self._desc_label)
 
         # Badge для hostlist/ipset
         self._list_badge = None
@@ -170,6 +171,20 @@ class StrategyRadioItem(QFrame):
         """Применяет стили к кнопке"""
         # Colors/background are handled by global theme QSS.
         self.setStyleSheet("")
+        try:
+            tokens = get_theme_tokens()
+        except Exception:
+            return
+
+        self._name_label.setStyleSheet(f"background: transparent; color: {tokens.fg};")
+        if self._desc_label is not None:
+            self._desc_label.setStyleSheet(f"background: transparent; color: {tokens.fg_muted};")
+        self._strategy_label.setStyleSheet(f"background: transparent; color: {tokens.fg};")
+
+        if self.is_active():
+            self._status_dot.setStyleSheet("color: #6ccb5f; background: transparent;")
+        else:
+            self._status_dot.setStyleSheet(f"color: {tokens.fg_faint}; background: transparent;")
 
     def _apply_icon_color(self):
         """Обновляет цвет иконки категории по активности."""
@@ -200,14 +215,9 @@ class StrategyRadioItem(QFrame):
         # Обновляем UI
         self._strategy_label.setText(strategy_name)
 
-        # Обновляем цвет точки
-        if self.is_active():
-            self._status_dot.setStyleSheet("color: #6ccb5f; background: transparent;")
-        else:
-            self._status_dot.setStyleSheet("color: #888888; background: transparent;")
-
         # Неактивные категории показываем светло-серой иконкой.
         self._apply_icon_color()
+        self._apply_style()
 
     def set_list_type(self, list_type: str | None):
         """Updates the hostlist/ipset badge."""
@@ -250,6 +260,15 @@ class StrategyRadioItem(QFrame):
     def leaveEvent(self, event):  # noqa: N802 (Qt override)
         self._pressed = False
         return super().leaveEvent(event)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                self._apply_style()
+                self._apply_icon_color()
+        except Exception:
+            pass
+        return super().changeEvent(event)
 
     def set_visible_by_filter(self, visible: bool):
         """Устанавливает видимость (для фильтрации)"""

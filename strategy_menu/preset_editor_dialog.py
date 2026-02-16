@@ -181,7 +181,7 @@ class PresetEditorDialog(QDialog):
             scroll = "rgba(0, 0, 0, 0.20)"
             scroll_hover = "rgba(0, 0, 0, 0.30)"
         else:
-            editor_bg = "rgba(0, 0, 0, 0.30)"
+            editor_bg = "rgba(12, 16, 24, 0.92)"
             editor_border = "rgba(255, 255, 255, 0.10)"
             scroll = "rgba(255, 255, 255, 0.20)"
             scroll_hover = "rgba(255, 255, 255, 0.30)"

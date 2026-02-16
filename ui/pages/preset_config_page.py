@@ -7,16 +7,16 @@ from datetime import datetime
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel
 )
 from PyQt6.QtGui import QFont
-import qtawesome as qta
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from config import MAIN_DIRECTORY
 from config.config import ZAPRET2_MODES, ZAPRET1_DIRECT_MODES
 from strategy_menu import get_strategy_launch_method
 from ui.theme import get_theme_tokens
+from ui.sidebar import ActionButton
 from log import log
 from utils.process_status import format_expected_process_status
 
@@ -59,14 +59,6 @@ class PresetConfigPage(BasePage):
         # Подписываемся на глобальный монитор процессов (асинхронно, без фризов UI)
         self._connect_process_monitor()
         self._sync_process_status_from_cache()
-
-    def showEvent(self, event):  # noqa: N802 (Qt override)
-        super().showEvent(event)
-        if event.spontaneous():
-            return
-        if not self._loaded_once:
-            self._load_file()
-            self._loaded_once = True
 
     def _get_current_preset_path(self) -> tuple[str, str]:
         """Returns (preset_path, display_name) based on current mode"""
@@ -126,23 +118,9 @@ class PresetConfigPage(BasePage):
         buttons_layout.setSpacing(8)
 
         # Кнопка "Открыть в блокноте"
-        self.notepad_btn = QPushButton()
-        self.notepad_btn.setIcon(qta.icon("mdi.open-in-new", color=tokens.fg))
-        self.notepad_btn.setText("Открыть в блокноте")
+        self.notepad_btn = ActionButton("Открыть в блокноте", "mdi.open-in-new", accent=False)
+        self.notepad_btn.setProperty("uiVariant", "compact")
         self.notepad_btn.setFixedHeight(32)
-        self.notepad_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {tokens.toggle_off_bg};
-                border: none;
-                border-radius: 4px;
-                color: {tokens.fg};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background-color: {tokens.toggle_off_bg_hover}; }}
-            QPushButton:pressed {{ background-color: {tokens.surface_bg_pressed}; }}
-        """)
         self.notepad_btn.clicked.connect(self._open_in_notepad)
         buttons_layout.addWidget(self.notepad_btn)
 
@@ -374,8 +352,18 @@ class PresetConfigPage(BasePage):
         except Exception:
             pass
 
-    def showEvent(self, event):
+    def showEvent(self, event):  # noqa: N802 (Qt override)
         super().showEvent(event)
+
+        try:
+            spontaneous = bool(event.spontaneous())
+        except Exception:
+            spontaneous = False
+
+        if (not spontaneous) and (not self._loaded_once):
+            self._load_file()
+            self._loaded_once = True
+
         self._connect_process_monitor()
         if not self._tick_timer.isActive():
             self._tick_timer.start(1000)

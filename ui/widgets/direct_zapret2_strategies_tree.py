@@ -6,7 +6,7 @@ import time
 from typing import Dict, Iterable, Optional, Set
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSize, QTimer, QPoint, QRect
-from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QIcon, QPainter, QPainterPath, QPixmap, QCursor
+from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QIcon, QPainter, QPainterPath, QPixmap, QCursor, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractScrollArea,
@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ui.theme import get_theme_tokens, get_cached_qta_pixmap
+from ui.theme import get_theme_tokens, get_cached_qta_pixmap, to_qcolor
 from ui.theme_semantic import get_semantic_palette
 
 
@@ -146,7 +146,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             self.setStyleSheet("")
 
             try:
-                section_brush = QBrush(QColor(tokens.fg_muted))
+                section_brush = QBrush(QColor("#636b78" if tokens.is_light else "#e8edf5"))
                 if hasattr(self, "_fav_root") and self._fav_root is not None:
                     self._fav_root.setForeground(0, section_brush)
                 if hasattr(self, "_all_root") and self._all_root is not None:
@@ -426,6 +426,14 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         opt = QStyleOptionViewItem(options)
         opt.state &= ~QStyle.StateFlag.State_Selected
         opt.state &= ~QStyle.StateFlag.State_MouseOver
+        try:
+            if not tokens.is_light:
+                white_text = QColor(245, 245, 245, 240)
+                opt.palette.setColor(QPalette.ColorRole.Text, white_text)
+                opt.palette.setColor(QPalette.ColorRole.WindowText, white_text)
+                opt.palette.setColor(QPalette.ColorRole.HighlightedText, white_text)
+        except Exception:
+            pass
         return super().drawRow(painter, opt, index)
 
     def _add_section(self, title: str) -> QTreeWidgetItem:
@@ -434,7 +442,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         root.setText(0, title)
         root.setFont(0, self._section_font)
         tokens = self._tokens or get_theme_tokens("Темная синяя")
-        root.setForeground(0, QBrush(QColor(tokens.fg_muted)))
+        root.setForeground(0, QBrush(QColor("#636b78" if tokens.is_light else "#e8edf5")))
         root.setFlags(Qt.ItemFlag.NoItemFlags)
         root.setExpanded(True)
         root.setHidden(True)
@@ -724,6 +732,12 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
         item.setText(1, row.name)
         item.setFont(1, self._name_font)
+        try:
+            tokens = self._tokens or get_theme_tokens("Темная синяя")
+            row_text_color = QColor("#111111" if tokens.is_light else "#f5f5f5")
+            item.setForeground(1, QBrush(row_text_color))
+        except Exception:
+            pass
         item.setToolTip(1, "Наведение — показать args")
         if row.strategy_id != "none":
             techniques = self._infer_techniques(row.strategy_id, args_joined.lower())
@@ -981,7 +995,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             favorite_color = QColor(semantic.warning)
             favorite_color.setAlpha(235)
         else:
-            favorite_color = QColor(tokens.fg_faint)
+            favorite_color = to_qcolor(tokens.fg_faint, "#aeb5c1")
             favorite_color.setAlpha(120)
         item.setForeground(0, QBrush(favorite_color))
 

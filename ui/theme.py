@@ -796,7 +796,7 @@ def load_cached_css_sync(theme_name: str | None = None) -> str | None:
             # В старых версиях в кеше мог быть уже финальный CSS с маркером.
             # Сейчас в кеше хранится базовый CSS qt_material (без оверлеев) —
             # финальный собираем синхронно, чтобы ускорить старт.
-            if "/* THEME_VERSION:v3 */" in cached_css:
+            if "/* THEME_VERSION:v7 */" in cached_css:
                 log(f"📦 Загружен финальный CSS из кеша: {len(cached_css)} символов для '{theme_name}'", "DEBUG")
                 return cached_css
 
@@ -1037,11 +1037,11 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         scrollbar_handle = "rgba(0, 0, 0, 0.18)"
         scrollbar_handle_hover = "rgba(0, 0, 0, 0.28)"
 
-        toggle_off_bg = "rgba(0, 0, 0, 0.08)"
-        toggle_off_bg_hover = "rgba(0, 0, 0, 0.11)"
-        toggle_off_border = "rgba(0, 0, 0, 0.16)"
-        toggle_off_disabled_bg = "rgba(0, 0, 0, 0.04)"
-        toggle_off_disabled_border = "rgba(0, 0, 0, 0.08)"
+        toggle_off_bg = "rgba(142, 148, 158, 0.42)"
+        toggle_off_bg_hover = "rgba(134, 141, 151, 0.52)"
+        toggle_off_border = "rgba(120, 127, 138, 0.64)"
+        toggle_off_disabled_bg = "rgba(154, 160, 170, 0.26)"
+        toggle_off_disabled_border = "rgba(138, 145, 156, 0.34)"
     else:
         fg = "rgba(255, 255, 255, 0.92)"
         fg_muted = "rgba(255, 255, 255, 0.65)"
@@ -1067,11 +1067,11 @@ def get_theme_tokens(theme_name: str | None = None) -> ThemeTokens:
         scrollbar_handle = "rgba(255, 255, 255, 0.15)"
         scrollbar_handle_hover = "rgba(255, 255, 255, 0.25)"
 
-        toggle_off_bg = "rgba(255, 255, 255, 0.10)"
-        toggle_off_bg_hover = "rgba(255, 255, 255, 0.15)"
-        toggle_off_border = "rgba(255, 255, 255, 0.20)"
-        toggle_off_disabled_bg = "rgba(255, 255, 255, 0.05)"
-        toggle_off_disabled_border = "rgba(255, 255, 255, 0.10)"
+        toggle_off_bg = "rgba(132, 140, 154, 0.58)"
+        toggle_off_bg_hover = "rgba(144, 152, 166, 0.70)"
+        toggle_off_border = "rgba(170, 178, 192, 0.84)"
+        toggle_off_disabled_bg = "rgba(122, 130, 144, 0.34)"
+        toggle_off_disabled_border = "rgba(150, 158, 172, 0.48)"
 
     accent_soft_bg = f"rgba({accent_rgb_str}, 0.15)"
     accent_soft_bg_hover = f"rgba({accent_rgb_str}, 0.20)"
@@ -1174,6 +1174,22 @@ def _to_qcolor(value) -> QColor | None:
     return None
 
 
+def to_qcolor(value, fallback=None) -> QColor:
+    """Parses theme/QSS color strings (including rgba with fractional alpha).
+
+    Always returns a valid QColor (falls back to black if both values are invalid).
+    """
+    color = _to_qcolor(value)
+    if color is not None and color.isValid():
+        return QColor(color)
+
+    fb = _to_qcolor(fallback)
+    if fb is not None and fb.isValid():
+        return QColor(fb)
+
+    return QColor(0, 0, 0)
+
+
 def _qcolor_to_qss_rgba(color: QColor) -> str:
     return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()})"
 
@@ -1202,11 +1218,11 @@ def get_card_gradient_qss(theme_name: str | None = None, *, hover: bool = False)
     # even without neutral borders.
     if tokens.theme_name == "Темная синяя":
         if hover:
-            top = "rgba(255, 255, 255, 0.122)"
-            bottom = "rgba(255, 255, 255, 0.084)"
+            top = "rgba(255, 255, 255, 0.186)"
+            bottom = "rgba(255, 255, 255, 0.142)"
         else:
-            top = "rgba(255, 255, 255, 0.098)"
-            bottom = "rgba(255, 255, 255, 0.062)"
+            top = "rgba(255, 255, 255, 0.156)"
+            bottom = "rgba(255, 255, 255, 0.116)"
         return build_vertical_gradient_qss(top, bottom)
 
     # Dark themes: derive gradient from theme surface tokens (no hardcoded #252B3B).
@@ -1484,6 +1500,24 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
             neutral_card_disabled_border = tokens.surface_border_disabled
             neutral_list_border = tokens.surface_border
 
+    if tokens.is_light:
+        action_button_border = f"1px solid {tokens.surface_border}"
+        action_button_border_hover = f"1px solid {tokens.surface_border_hover}"
+        action_button_accent_border = f"1px solid {tokens.divider_strong}"
+        action_button_bg = tokens.surface_bg
+        action_button_bg_hover = tokens.surface_bg_hover
+        action_button_bg_pressed = tokens.surface_bg_pressed
+    else:
+        action_button_border = "none"
+        action_button_border_hover = "none"
+        action_button_accent_border = "none"
+        action_button_bg = "rgba(255, 255, 255, 0.050)"
+        action_button_bg_hover = "rgba(255, 255, 255, 0.088)"
+        action_button_bg_pressed = "rgba(255, 255, 255, 0.120)"
+
+    reset_pending_bg = tokens.accent_soft_bg_hover if tokens.is_light else tokens.accent_soft_bg
+    reset_pending_border = f"1px solid {tokens.accent_hex}" if tokens.is_light else "none"
+
     return f"""
 /* === ПЕРЕКРЫВАЕМ ДЕФОЛТНЫЕ СТИЛИ qt_material === */
 QWidget {{
@@ -1728,10 +1762,14 @@ QFrame#dnsCard[selected="true"]:hover {{
 }}
 
 /* Zapret2 category blocks */
-QFrame#categoryToolbarFrame,
-QWidget#categoryStrategiesBlock {{
+QFrame#categoryToolbarFrame {{
     background: {card_gradient} !important;
     border: 1px solid {neutral_card_border} !important;
+    border-radius: 8px !important;
+}}
+QWidget#categoryStrategiesBlock {{
+    background: {card_gradient} !important;
+    border: 1px solid transparent !important;
     border-radius: 8px !important;
 }}
 QWidget#presetPopoverContainer {{
@@ -1740,15 +1778,18 @@ QWidget#presetPopoverContainer {{
     border-radius: 12px !important;
 }}
 QFrame#categoryToolbarFrame:hover,
-QWidget#categoryStrategiesBlock:hover,
 QWidget#presetPopoverContainer:hover {{
     background: {card_gradient_hover} !important;
     border: 1px solid {neutral_card_border_hover} !important;
 }}
+QWidget#categoryStrategiesBlock:hover {{
+    background: {card_gradient_hover} !important;
+    border: 1px solid transparent !important;
+}}
 QFrame#categoryToolbarFrame[categoryDisabled="true"],
 QWidget#categoryStrategiesBlock[categoryDisabled="true"] {{
     background: {disabled_card_gradient} !important;
-    border: 1px solid {neutral_card_disabled_border} !important;
+    border: 1px solid transparent !important;
 }}
 
 /* Zapret2 strategies tree host */
@@ -1766,10 +1807,8 @@ QTreeWidget#directZapret2StrategiesTree:hover {{
 
 /* ActionButton (ui.sidebar.ActionButton) */
 QPushButton[uiRole="actionButton"] {{
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 {control_grad_top},
-                                stop:1 {control_grad_bottom});
-    border: 1px solid {neutral_card_border};
+    background-color: {action_button_bg};
+    border: {action_button_border};
     border-radius: 8px;
     color: {tokens.fg};
     padding: 0 16px;
@@ -1779,16 +1818,33 @@ QPushButton[uiRole="actionButton"] {{
     min-height: 32px;
 }}
 QPushButton[uiRole="actionButton"]:hover {{
-    background: {card_gradient_hover};
-    border: 1px solid {neutral_card_border_hover};
+    background-color: {action_button_bg_hover};
+    border: {action_button_border_hover};
 }}
 QPushButton[uiRole="actionButton"]:pressed {{
-    background-color: {tokens.surface_bg_pressed};
+    background-color: {action_button_bg_pressed};
+}}
+QPushButton[uiRole="actionButton"]:disabled {{
+    background-color: {tokens.surface_bg_disabled};
+    border: {action_button_border};
+    color: {tokens.fg_faint};
+}}
+QPushButton[uiRole="actionButton"][uiVariant="big"] {{
+    min-height: 48px;
+    border-radius: 6px;
+    padding: 0 24px;
+    font-size: 14px;
+}}
+QPushButton[uiRole="actionButton"][uiVariant="compact"] {{
+    min-height: 32px;
+    border-radius: 6px;
+    padding: 0 14px;
+    font-size: 12px;
 }}
 
 QPushButton[uiRole="actionButton"][accent="true"] {{
     background-color: {tokens.accent_hex};
-    border: 1px solid {tokens.divider_strong};
+    border: {action_button_accent_border};
     color: {tokens.accent_fg};
 }}
 QPushButton[uiRole="actionButton"][accent="true"]:hover {{
@@ -1796,6 +1852,45 @@ QPushButton[uiRole="actionButton"][accent="true"]:hover {{
 }}
 QPushButton[uiRole="actionButton"][accent="true"]:pressed {{
     background-color: {tokens.accent_pressed_hex};
+}}
+QPushButton[uiRole="actionButton"][accent="true"]:disabled {{
+    background-color: {tokens.surface_bg_disabled};
+    border: {action_button_accent_border};
+    color: {tokens.fg_faint};
+}}
+
+/* ResetActionButton (ui.pages.strategies_page_base.ResetActionButton) */
+QPushButton[uiRole="resetActionButton"] {{
+    background-color: {action_button_bg};
+    border: {action_button_border};
+    border-radius: 8px;
+    color: {tokens.fg};
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: {tokens.font_family_qss};
+    min-height: 32px;
+}}
+QPushButton[uiRole="resetActionButton"]:hover {{
+    background-color: {action_button_bg_hover};
+    border: {action_button_border_hover};
+}}
+QPushButton[uiRole="resetActionButton"]:pressed {{
+    background-color: {action_button_bg_pressed};
+}}
+QPushButton[uiRole="resetActionButton"]:disabled {{
+    background-color: {tokens.surface_bg_disabled};
+    border: {action_button_border};
+    color: {tokens.fg_faint};
+}}
+QPushButton[uiRole="resetActionButton"][confirmPending="true"] {{
+    background-color: {reset_pending_bg};
+    border: {reset_pending_border};
+    color: {tokens.accent_hex};
+}}
+QPushButton[uiRole="resetActionButton"][confirmPending="true"]:hover {{
+    background-color: {tokens.accent_soft_bg_hover};
+    border: {reset_pending_border};
 }}
 
 /* Appearance page: theme cards */
@@ -1905,7 +2000,7 @@ def _assemble_final_css(
     is_rkn_tyan_2: bool = False,
 ) -> str:
     """Собирает финальный CSS из базового qt_material CSS + оверлеев."""
-    dynamic_styles = [_build_dynamic_style_sheet(theme_name), "/* THEME_VERSION:v3 */"]
+    dynamic_styles = [_build_dynamic_style_sheet(theme_name), "/* THEME_VERSION:v7 */"]
 
     if is_rkn_tyan or is_rkn_tyan_2:
         dynamic_styles.append(

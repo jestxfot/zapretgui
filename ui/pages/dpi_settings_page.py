@@ -9,7 +9,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss, to_qcolor
 from log import log
 
 
@@ -88,9 +88,15 @@ class Win11ToggleSwitch(QCheckBox):
         
         # Фон
         if self.isChecked():
-            bg_color = QColor(tokens.accent_hex)
+            bg_color = to_qcolor(tokens.accent_hex, "#5caee8")
         else:
-            bg_color = QColor(tokens.toggle_off_bg)
+            if self.isEnabled():
+                bg_color = to_qcolor(
+                    tokens.toggle_off_bg_hover if self.underMouse() else tokens.toggle_off_bg,
+                    "#8f97a4",
+                )
+            else:
+                bg_color = to_qcolor(tokens.toggle_off_disabled_bg, "#7c8594")
             
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 11, 11)
@@ -100,11 +106,17 @@ class Win11ToggleSwitch(QCheckBox):
         if self.isChecked():
             painter.setPen(Qt.GlobalColor.transparent)
         else:
-            painter.setPen(QColor(tokens.toggle_off_border))
+            border_color = tokens.toggle_off_border if self.isEnabled() else tokens.toggle_off_disabled_border
+            painter.setPen(to_qcolor(border_color, "#9fa8b7"))
         painter.drawPath(path)
         
         # Круг
-        circle_color = QColor(tokens.accent_hex).lighter(230 if tokens.is_light else 260)
+        if self.isChecked():
+            circle_color = to_qcolor(tokens.accent_hex, "#5caee8").lighter(230 if tokens.is_light else 260)
+        else:
+            circle_color = QColor(250, 250, 250) if tokens.is_light else QColor(236, 241, 247)
+        if not self.isEnabled():
+            circle_color.setAlpha(200 if tokens.is_light else 185)
         painter.setBrush(circle_color)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(QRectF(self._circle_position, 4, 14, 14))

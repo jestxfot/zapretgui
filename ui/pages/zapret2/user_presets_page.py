@@ -684,6 +684,7 @@ class _PresetActionPopover(QDialog):
         self._container = QWidget(self)
         self._container.setObjectName("presetPopoverContainer")
         self._container.setProperty("noDrag", True)
+        self._container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._shadow = QGraphicsDropShadowEffect(self._container)
         self._shadow.setBlurRadius(38)
@@ -902,8 +903,25 @@ class _PresetActionPopover(QDialog):
         )
 
         self._shadow.setColor(shadow_color)
-        # Container surface is styled globally in ui/theme.py.
-        self._container.setStyleSheet("")
+        popover_bg = _color_with_alpha(
+            tokens.surface_bg,
+            248 if is_light else 252,
+            "#f3f6fb" if is_light else "#1f2633",
+        )
+        popover_border = _color_with_alpha(
+            tokens.surface_border,
+            220 if is_light else 236,
+            "#b9c4d6" if is_light else "#3d4c64",
+        )
+        self._container.setStyleSheet(
+            f"""
+            QWidget#presetPopoverContainer {{
+                background: {popover_bg};
+                border: 1px solid {popover_border};
+                border-radius: {self._BORDER_RADIUS}px;
+            }}
+            """
+        )
 
         # Inner widgets (theme-aware colors).
         try:

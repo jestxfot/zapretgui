@@ -67,44 +67,19 @@ class BigActionButton(ActionButton):
     
     def __init__(self, text: str, icon_name: str = None, accent: bool = False, parent=None):
         super().__init__(text, icon_name, accent, parent)
+        self.setProperty("uiVariant", "big")
         self.setFixedHeight(48)
         self.setIconSize(QSize(20, 20))
-        
-    def _update_style(self):
-        tokens = getattr(self, "_tokens", None) or get_theme_tokens()
-
-        if self.accent:
-            bg = tokens.accent_hover_hex if self._hovered else tokens.accent_hex
-            pressed_bg = tokens.accent_pressed_hex
-            text_color = _accent_fg_for_tokens(tokens)
-            border = f"1px solid {tokens.divider_strong}"
-        else:
-            bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
-            pressed_bg = tokens.surface_bg_pressed
-            text_color = tokens.fg
-            border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
-
         try:
-            if getattr(self, "_icon_name", None):
-                self.setIcon(qta.icon(self._icon_name, color=text_color))
+            style = self.style()
+            if style is not None:
+                style.unpolish(self)
+                style.polish(self)
         except Exception:
             pass
-             
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background: {bg};
-                border: {border};
-                border-radius: 6px;
-                color: {text_color};
-                padding: 0 24px;
-                font-size: 14px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-            QPushButton:pressed {{
-                background: {pressed_bg};
-            }}
-        """)
+
+    def _update_style(self):
+        super()._update_style()
 
 
 class StopButton(BigActionButton):
@@ -756,29 +731,10 @@ class ControlPage(BasePage):
         self.stop_winws_btn.setEnabled(not loading)
         self.stop_and_exit_btn.setEnabled(not loading)
         
-        # Обновляем стиль заблокированных кнопок
-        if loading:
-            tokens = get_theme_tokens()
-            disabled_style = f"""
-                QPushButton {{
-                    background: {tokens.surface_bg_disabled};
-                    border: 1px solid {tokens.surface_border_disabled};
-                    border-radius: 6px;
-                    color: {tokens.fg_faint};
-                    padding: 0 24px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-            """
-            self.start_btn.setStyleSheet(disabled_style)
-            self.stop_winws_btn.setStyleSheet(disabled_style)
-            self.stop_and_exit_btn.setStyleSheet(disabled_style)
-        else:
-            # Восстанавливаем стили
-            self.start_btn._update_style()
-            self.stop_winws_btn._update_style()
-            self.stop_and_exit_btn._update_style()
+        # Visual disabled state is handled globally in ui/theme.py.
+        self.start_btn._update_style()
+        self.stop_winws_btn._update_style()
+        self.stop_and_exit_btn._update_style()
         
     def update_status(self, is_running: bool):
         """Обновляет отображение статуса"""
