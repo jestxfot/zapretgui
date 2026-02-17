@@ -23,6 +23,52 @@ _THEME_NAME_SUFFIXES = (
     " (Pure Black Premium)",
 )
 
+_DEFAULT_CARD_GRADIENT_STOPS = ("#292B37", "#252A3E")
+_DEFAULT_CARD_GRADIENT_STOPS_HOVER = ("#2D3040", "#2A2F45")
+_DEFAULT_CARD_DISABLED_GRADIENT_STOPS = ("#1E2232", "#171B29")
+_DEFAULT_DNS_SELECTED_GRADIENT_STOPS = (
+    "rgba(95, 205, 254, 0.26)",
+    "rgba(95, 205, 254, 0.18)",
+)
+_DEFAULT_DNS_SELECTED_GRADIENT_STOPS_HOVER = (
+    "rgba(95, 205, 254, 0.34)",
+    "rgba(95, 205, 254, 0.24)",
+)
+_DEFAULT_DNS_SELECTED_BORDER = "rgba(95, 205, 254, 0.50)"
+_DEFAULT_DNS_SELECTED_BORDER_HOVER = "rgba(95, 205, 254, 0.64)"
+_DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_LIGHT = (
+    "rgba(82, 196, 119, 0.18)",
+    "rgba(46, 160, 92, 0.12)",
+)
+_DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_HOVER_LIGHT = (
+    "rgba(82, 196, 119, 0.24)",
+    "rgba(46, 160, 92, 0.16)",
+)
+_DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_DARK = (
+    "rgba(98, 214, 129, 0.22)",
+    "rgba(54, 148, 88, 0.16)",
+)
+_DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_HOVER_DARK = (
+    "rgba(108, 224, 139, 0.30)",
+    "rgba(64, 158, 98, 0.22)",
+)
+_DEFAULT_CONTROL_GRADIENT_STOPS_LIGHT = ("rgba(255, 255, 255, 0.92)", "rgba(243, 246, 251, 0.82)")
+_DEFAULT_CONTROL_GRADIENT_STOPS_DARK = ("rgba(255, 255, 255, 0.080)", "rgba(255, 255, 255, 0.040)")
+_DEFAULT_LIST_GRADIENT_STOPS_LIGHT = ("rgba(255, 255, 255, 0.88)", "rgba(244, 247, 252, 0.74)")
+_DEFAULT_LIST_GRADIENT_STOPS_DARK = ("rgba(255, 255, 255, 0.075)", "rgba(255, 255, 255, 0.030)")
+_DEFAULT_ITEM_HOVER_BG_LIGHT = "rgba(0, 0, 0, 0.055)"
+_DEFAULT_ITEM_HOVER_BG_DARK = "rgba(255, 255, 255, 0.080)"
+_DEFAULT_ITEM_SELECTED_BG_LIGHT = "rgba(68, 136, 217, 0.22)"
+_DEFAULT_ITEM_SELECTED_BG_DARK = "rgba(95, 205, 254, 0.25)"
+_DEFAULT_NEUTRAL_CARD_BORDER_LIGHT = "rgba(0, 0, 0, 0.10)"
+_DEFAULT_NEUTRAL_CARD_BORDER_HOVER_LIGHT = "rgba(0, 0, 0, 0.16)"
+_DEFAULT_NEUTRAL_CARD_BORDER_DISABLED_LIGHT = "rgba(0, 0, 0, 0.06)"
+_DEFAULT_NEUTRAL_LIST_BORDER_LIGHT = "rgba(0, 0, 0, 0.10)"
+_DEFAULT_NEUTRAL_CARD_BORDER_DARK = "rgba(255, 255, 255, 0.12)"
+_DEFAULT_NEUTRAL_CARD_BORDER_HOVER_DARK = "rgba(255, 255, 255, 0.20)"
+_DEFAULT_NEUTRAL_CARD_BORDER_DISABLED_DARK = "rgba(255, 255, 255, 0.06)"
+_DEFAULT_NEUTRAL_LIST_BORDER_DARK = "rgba(255, 255, 255, 0.12)"
+
 _QTA_PIXMAP_CACHE_MAX = 512
 _QTA_PIXMAP_CACHE: OrderedDict[tuple[str, str, int], QPixmap] = OrderedDict()
 
@@ -158,33 +204,435 @@ def finish_theme_switch_metrics(
 THEMES = {
     # Мягкие пастельные оттенки в стиле Windows 11
     # Темная синяя - оставляем оригинальный тёмно-серый фон
-    "Темная синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "95, 205, 254", "bg_color": "31, 32, 32"},
+    "Темная синяя": {
+        "file": "dark_blue.xml",
+        "status_color": "#ffffff",
+        "button_color": "95, 205, 254",
+        "bg_color": "26, 31, 50",
+        "card_gradient_top": "#292B37",
+        "card_gradient_bottom": "#252A3E",
+        "card_gradient_hover_top": "#2D3040",
+        "card_gradient_hover_bottom": "#2A2F45",
+        "card_gradient_disabled_top": "#1E2232",
+        "card_gradient_disabled_bottom": "#171B29",
+        "dns_selected_gradient_top": "rgba(95, 205, 254, 0.26)",
+        "dns_selected_gradient_bottom": "rgba(95, 205, 254, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(95, 205, 254, 0.34)",
+        "dns_selected_gradient_hover_bottom": "rgba(95, 205, 254, 0.24)",
+        "dns_selected_border": "rgba(95, 205, 254, 0.50)",
+        "dns_selected_border_hover": "rgba(95, 205, 254, 0.64)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(95, 205, 254, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
     # Бирюзовая - тёмный бирюзовый фон
-    "Темная бирюзовая": {"file": "dark_cyan.xml", "status_color": "#ffffff", "button_color": "56, 178, 205", "bg_color": "20, 35, 38"},
+    "Темная бирюзовая": {
+        "file": "dark_cyan.xml",
+        "status_color": "#ffffff",
+        "button_color": "56, 178, 205",
+        "bg_color": "20, 35, 38",
+        "card_gradient_top": "#274043",
+        "card_gradient_bottom": "#20373B",
+        "card_gradient_hover_top": "#2E4B4F",
+        "card_gradient_hover_bottom": "#274247",
+        "card_gradient_disabled_top": "#1A2C31",
+        "card_gradient_disabled_bottom": "#142429",
+        "dns_selected_gradient_top": "rgba(56, 178, 205, 0.26)",
+        "dns_selected_gradient_bottom": "rgba(56, 178, 205, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(56, 178, 205, 0.34)",
+        "dns_selected_gradient_hover_bottom": "rgba(56, 178, 205, 0.24)",
+        "dns_selected_border": "rgba(56, 178, 205, 0.50)",
+        "dns_selected_border_hover": "rgba(56, 178, 205, 0.64)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(56, 178, 205, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
     # Янтарная - тёмный янтарный/коричневый фон
-    "Темная янтарная": {"file": "dark_amber.xml", "status_color": "#ffffff", "button_color": "234, 162, 62", "bg_color": "38, 32, 20"},
+    "Темная янтарная": {
+        "file": "dark_amber.xml",
+        "status_color": "#ffffff",
+        "button_color": "234, 162, 62",
+        "bg_color": "38, 32, 20",
+        "card_gradient_top": "#443829",
+        "card_gradient_bottom": "#3A2F23",
+        "card_gradient_hover_top": "#4F422F",
+        "card_gradient_hover_bottom": "#43372A",
+        "card_gradient_disabled_top": "#31271D",
+        "card_gradient_disabled_bottom": "#271F17",
+        "dns_selected_gradient_top": "rgba(234, 162, 62, 0.26)",
+        "dns_selected_gradient_bottom": "rgba(234, 162, 62, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(234, 162, 62, 0.34)",
+        "dns_selected_gradient_hover_bottom": "rgba(234, 162, 62, 0.24)",
+        "dns_selected_border": "rgba(234, 162, 62, 0.50)",
+        "dns_selected_border_hover": "rgba(234, 162, 62, 0.64)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(234, 162, 62, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
     # Розовая - тёмный розовато-фиолетовый фон
-    "Темная розовая": {"file": "dark_pink.xml", "status_color": "#ffffff", "button_color": "232, 121, 178", "bg_color": "38, 24, 32"},
+    "Темная розовая": {
+        "file": "dark_pink.xml",
+        "status_color": "#ffffff",
+        "button_color": "232, 121, 178",
+        "bg_color": "38, 24, 32",
+        "card_gradient_top": "#463041",
+        "card_gradient_bottom": "#392737",
+        "card_gradient_hover_top": "#51384B",
+        "card_gradient_hover_bottom": "#433043",
+        "card_gradient_disabled_top": "#322631",
+        "card_gradient_disabled_bottom": "#281F28",
+        "dns_selected_gradient_top": "rgba(232, 121, 178, 0.26)",
+        "dns_selected_gradient_bottom": "rgba(232, 121, 178, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(232, 121, 178, 0.34)",
+        "dns_selected_gradient_hover_bottom": "rgba(232, 121, 178, 0.24)",
+        "dns_selected_border": "rgba(232, 121, 178, 0.50)",
+        "dns_selected_border_hover": "rgba(232, 121, 178, 0.64)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(232, 121, 178, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
     # Светлые темы
-    "Светлая синяя": {"file": "light_blue.xml", "status_color": "#000000", "button_color": "68, 136, 217", "bg_color": "230, 235, 245"},
-    "Светлая бирюзовая": {"file": "light_cyan.xml", "status_color": "#000000", "button_color": "48, 185, 206", "bg_color": "225, 242, 245"},
+    "Светлая синяя": {
+        "file": "light_blue.xml",
+        "status_color": "#000000",
+        "button_color": "68, 136, 217",
+        "bg_color": "230, 235, 245",
+        "card_gradient_top": "#FFFFFF",
+        "card_gradient_bottom": "#EDF3FC",
+        "card_gradient_hover_top": "#FFFFFF",
+        "card_gradient_hover_bottom": "#E6EEFA",
+        "card_gradient_disabled_top": "#F3F7FD",
+        "card_gradient_disabled_bottom": "#E6EEF9",
+        "dns_selected_gradient_top": "rgba(68, 136, 217, 0.22)",
+        "dns_selected_gradient_bottom": "rgba(68, 136, 217, 0.14)",
+        "dns_selected_gradient_hover_top": "rgba(68, 136, 217, 0.30)",
+        "dns_selected_gradient_hover_bottom": "rgba(68, 136, 217, 0.20)",
+        "dns_selected_border": "rgba(68, 136, 217, 0.42)",
+        "dns_selected_border_hover": "rgba(68, 136, 217, 0.56)",
+        "success_gradient_top": "rgba(82, 196, 119, 0.18)",
+        "success_gradient_bottom": "rgba(46, 160, 92, 0.12)",
+        "success_gradient_hover_top": "rgba(82, 196, 119, 0.24)",
+        "success_gradient_hover_bottom": "rgba(46, 160, 92, 0.16)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.92)",
+        "control_gradient_bottom": "rgba(243, 246, 251, 0.82)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.88)",
+        "list_gradient_bottom": "rgba(244, 247, 252, 0.74)",
+        "item_hover_bg": "rgba(0, 0, 0, 0.055)",
+        "item_selected_bg": "rgba(68, 136, 217, 0.22)",
+        "neutral_card_border": "rgba(0, 0, 0, 0.10)",
+        "neutral_card_border_hover": "rgba(0, 0, 0, 0.16)",
+        "neutral_card_disabled_border": "rgba(0, 0, 0, 0.06)",
+        "neutral_list_border": "rgba(0, 0, 0, 0.10)",
+    },
+    "Светлая бирюзовая": {
+        "file": "light_cyan.xml",
+        "status_color": "#000000",
+        "button_color": "48, 185, 206",
+        "bg_color": "225, 242, 245",
+        "card_gradient_top": "#FFFFFF",
+        "card_gradient_bottom": "#EAF6F8",
+        "card_gradient_hover_top": "#FFFFFF",
+        "card_gradient_hover_bottom": "#E2F0F4",
+        "card_gradient_disabled_top": "#F1F8FA",
+        "card_gradient_disabled_bottom": "#E3F0F4",
+        "dns_selected_gradient_top": "rgba(48, 185, 206, 0.22)",
+        "dns_selected_gradient_bottom": "rgba(48, 185, 206, 0.14)",
+        "dns_selected_gradient_hover_top": "rgba(48, 185, 206, 0.30)",
+        "dns_selected_gradient_hover_bottom": "rgba(48, 185, 206, 0.20)",
+        "dns_selected_border": "rgba(48, 185, 206, 0.42)",
+        "dns_selected_border_hover": "rgba(48, 185, 206, 0.56)",
+        "success_gradient_top": "rgba(82, 196, 119, 0.18)",
+        "success_gradient_bottom": "rgba(46, 160, 92, 0.12)",
+        "success_gradient_hover_top": "rgba(82, 196, 119, 0.24)",
+        "success_gradient_hover_bottom": "rgba(46, 160, 92, 0.16)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.92)",
+        "control_gradient_bottom": "rgba(243, 246, 251, 0.82)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.88)",
+        "list_gradient_bottom": "rgba(244, 247, 252, 0.74)",
+        "item_hover_bg": "rgba(0, 0, 0, 0.055)",
+        "item_selected_bg": "rgba(48, 185, 206, 0.22)",
+        "neutral_card_border": "rgba(0, 0, 0, 0.10)",
+        "neutral_card_border_hover": "rgba(0, 0, 0, 0.16)",
+        "neutral_card_disabled_border": "rgba(0, 0, 0, 0.06)",
+        "neutral_list_border": "rgba(0, 0, 0, 0.10)",
+    },
     # РКН Тян - используют кастомный фон (изображения)
-    "РКН Тян": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "99, 117, 198", "bg_color": "32, 32, 32"},
-    "РКН Тян 2": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "186, 125, 186", "bg_color": "32, 32, 32"},
+    "РКН Тян": {
+        "file": "dark_blue.xml",
+        "status_color": "#ffffff",
+        "button_color": "99, 117, 198",
+        "bg_color": "32, 32, 32",
+        "card_gradient_top": "#31364A",
+        "card_gradient_bottom": "#292F43",
+        "card_gradient_hover_top": "#3A4055",
+        "card_gradient_hover_bottom": "#31384D",
+        "card_gradient_disabled_top": "#252C3F",
+        "card_gradient_disabled_bottom": "#1F2536",
+        "dns_selected_gradient_top": "rgba(99, 117, 198, 0.26)",
+        "dns_selected_gradient_bottom": "rgba(99, 117, 198, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(99, 117, 198, 0.34)",
+        "dns_selected_gradient_hover_bottom": "rgba(99, 117, 198, 0.24)",
+        "dns_selected_border": "rgba(99, 117, 198, 0.50)",
+        "dns_selected_border_hover": "rgba(99, 117, 198, 0.64)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(99, 117, 198, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
+    "РКН Тян 2": {
+        "file": "dark_purple.xml",
+        "status_color": "#ffffff",
+        "button_color": "186, 125, 186",
+        "bg_color": "32, 32, 32",
+        "card_gradient_top": "#3B324C",
+        "card_gradient_bottom": "#322A43",
+        "card_gradient_hover_top": "#463C59",
+        "card_gradient_hover_bottom": "#3A324D",
+        "card_gradient_disabled_top": "#2C253C",
+        "card_gradient_disabled_bottom": "#241F33",
+        "dns_selected_gradient_top": "rgba(186, 125, 186, 0.26)",
+        "dns_selected_gradient_bottom": "rgba(186, 125, 186, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(186, 125, 186, 0.34)",
+        "dns_selected_gradient_hover_bottom": "rgba(186, 125, 186, 0.24)",
+        "dns_selected_border": "rgba(186, 125, 186, 0.50)",
+        "dns_selected_border_hover": "rgba(186, 125, 186, 0.64)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(186, 125, 186, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
     
     # Премиум AMOLED темы - чёрный фон для экономии энергии
-    "AMOLED Синяя": {"file": "dark_blue.xml", "status_color": "#ffffff", "button_color": "62, 148, 255", "amoled": True, "bg_color": "0, 0, 0"},
-    "AMOLED Зеленая": {"file": "dark_teal.xml", "status_color": "#ffffff", "button_color": "76, 217, 147", "amoled": True, "bg_color": "0, 0, 0"},
-    "AMOLED Фиолетовая": {"file": "dark_purple.xml", "status_color": "#ffffff", "button_color": "178, 142, 246", "amoled": True, "bg_color": "0, 0, 0"},
-    "AMOLED Красная": {"file": "dark_red.xml", "status_color": "#ffffff", "button_color": "235, 108, 108", "amoled": True, "bg_color": "0, 0, 0"},
+    "AMOLED Синяя": {
+        "file": "dark_blue.xml",
+        "status_color": "#ffffff",
+        "button_color": "62, 148, 255",
+        "amoled": True,
+        "bg_color": "0, 0, 0",
+        "card_gradient_top": "#1A2238",
+        "card_gradient_bottom": "#11182C",
+        "card_gradient_hover_top": "#23304A",
+        "card_gradient_hover_bottom": "#18243A",
+        "card_gradient_disabled_top": "#101629",
+        "card_gradient_disabled_bottom": "#0A1020",
+        "dns_selected_gradient_top": "rgba(62, 148, 255, 0.30)",
+        "dns_selected_gradient_bottom": "rgba(62, 148, 255, 0.20)",
+        "dns_selected_gradient_hover_top": "rgba(62, 148, 255, 0.38)",
+        "dns_selected_gradient_hover_bottom": "rgba(62, 148, 255, 0.28)",
+        "dns_selected_border": "rgba(62, 148, 255, 0.56)",
+        "dns_selected_border_hover": "rgba(62, 148, 255, 0.70)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(62, 148, 255, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
+    "AMOLED Зеленая": {
+        "file": "dark_teal.xml",
+        "status_color": "#ffffff",
+        "button_color": "76, 217, 147",
+        "amoled": True,
+        "bg_color": "0, 0, 0",
+        "card_gradient_top": "#1B2B24",
+        "card_gradient_bottom": "#121E18",
+        "card_gradient_hover_top": "#243930",
+        "card_gradient_hover_bottom": "#182820",
+        "card_gradient_disabled_top": "#111D18",
+        "card_gradient_disabled_bottom": "#0B1511",
+        "dns_selected_gradient_top": "rgba(76, 217, 147, 0.30)",
+        "dns_selected_gradient_bottom": "rgba(76, 217, 147, 0.20)",
+        "dns_selected_gradient_hover_top": "rgba(76, 217, 147, 0.38)",
+        "dns_selected_gradient_hover_bottom": "rgba(76, 217, 147, 0.28)",
+        "dns_selected_border": "rgba(76, 217, 147, 0.56)",
+        "dns_selected_border_hover": "rgba(76, 217, 147, 0.70)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(76, 217, 147, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
+    "AMOLED Фиолетовая": {
+        "file": "dark_purple.xml",
+        "status_color": "#ffffff",
+        "button_color": "178, 142, 246",
+        "amoled": True,
+        "bg_color": "0, 0, 0",
+        "card_gradient_top": "#2A233A",
+        "card_gradient_bottom": "#1D182C",
+        "card_gradient_hover_top": "#362D49",
+        "card_gradient_hover_bottom": "#281F3A",
+        "card_gradient_disabled_top": "#191629",
+        "card_gradient_disabled_bottom": "#110F1E",
+        "dns_selected_gradient_top": "rgba(178, 142, 246, 0.30)",
+        "dns_selected_gradient_bottom": "rgba(178, 142, 246, 0.20)",
+        "dns_selected_gradient_hover_top": "rgba(178, 142, 246, 0.38)",
+        "dns_selected_gradient_hover_bottom": "rgba(178, 142, 246, 0.28)",
+        "dns_selected_border": "rgba(178, 142, 246, 0.56)",
+        "dns_selected_border_hover": "rgba(178, 142, 246, 0.70)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(178, 142, 246, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
+    "AMOLED Красная": {
+        "file": "dark_red.xml",
+        "status_color": "#ffffff",
+        "button_color": "235, 108, 108",
+        "amoled": True,
+        "bg_color": "0, 0, 0",
+        "card_gradient_top": "#352021",
+        "card_gradient_bottom": "#251516",
+        "card_gradient_hover_top": "#44292A",
+        "card_gradient_hover_bottom": "#321E1F",
+        "card_gradient_disabled_top": "#221313",
+        "card_gradient_disabled_bottom": "#170C0C",
+        "dns_selected_gradient_top": "rgba(235, 108, 108, 0.30)",
+        "dns_selected_gradient_bottom": "rgba(235, 108, 108, 0.20)",
+        "dns_selected_gradient_hover_top": "rgba(235, 108, 108, 0.38)",
+        "dns_selected_gradient_hover_bottom": "rgba(235, 108, 108, 0.28)",
+        "dns_selected_border": "rgba(235, 108, 108, 0.56)",
+        "dns_selected_border_hover": "rgba(235, 108, 108, 0.70)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(235, 108, 108, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
+    },
     
     # Полностью черная тема (премиум)
     "Полностью черная": {
-        "file": "dark_blue.xml", 
-        "status_color": "#ffffff", 
+        "file": "dark_blue.xml",
+        "status_color": "#ffffff",
         "button_color": "48, 48, 48",
         "pure_black": True,
-        "bg_color": "0, 0, 0"
+        "bg_color": "0, 0, 0",
+        "card_gradient_top": "#222428",
+        "card_gradient_bottom": "#14161A",
+        "card_gradient_hover_top": "#2E3136",
+        "card_gradient_hover_bottom": "#202328",
+        "card_gradient_disabled_top": "#141619",
+        "card_gradient_disabled_bottom": "#0C0E11",
+        "dns_selected_gradient_top": "rgba(96, 96, 96, 0.28)",
+        "dns_selected_gradient_bottom": "rgba(96, 96, 96, 0.18)",
+        "dns_selected_gradient_hover_top": "rgba(96, 96, 96, 0.36)",
+        "dns_selected_gradient_hover_bottom": "rgba(96, 96, 96, 0.24)",
+        "dns_selected_border": "rgba(96, 96, 96, 0.52)",
+        "dns_selected_border_hover": "rgba(96, 96, 96, 0.66)",
+        "success_gradient_top": "rgba(98, 214, 129, 0.22)",
+        "success_gradient_bottom": "rgba(54, 148, 88, 0.16)",
+        "success_gradient_hover_top": "rgba(108, 224, 139, 0.30)",
+        "success_gradient_hover_bottom": "rgba(64, 158, 98, 0.22)",
+        "control_gradient_top": "rgba(255, 255, 255, 0.080)",
+        "control_gradient_bottom": "rgba(255, 255, 255, 0.040)",
+        "list_gradient_top": "rgba(255, 255, 255, 0.075)",
+        "list_gradient_bottom": "rgba(255, 255, 255, 0.030)",
+        "item_hover_bg": "rgba(255, 255, 255, 0.080)",
+        "item_selected_bg": "rgba(96, 96, 96, 0.25)",
+        "neutral_card_border": "rgba(255, 255, 255, 0.12)",
+        "neutral_card_border_hover": "rgba(255, 255, 255, 0.20)",
+        "neutral_card_disabled_border": "rgba(255, 255, 255, 0.06)",
+        "neutral_list_border": "rgba(255, 255, 255, 0.12)",
     },
 }
 
@@ -1202,37 +1650,276 @@ def build_vertical_gradient_qss(top_color: str, bottom_color: str) -> str:
     )
 
 
-def get_card_gradient_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
-    """Returns canonical card gradient used across framed surfaces."""
-    tokens = get_theme_tokens(theme_name)
-    if tokens.is_light:
-        if hover:
-            top = "rgba(255, 255, 255, 239)"
-            bottom = "rgba(242, 246, 252, 219)"
-        else:
-            top = "rgba(255, 255, 255, 224)"
-            bottom = "rgba(244, 247, 252, 194)"
-        return build_vertical_gradient_qss(top, bottom)
+def _get_theme_gradient_stops_from_keys(
+    theme_name: str,
+    *,
+    top_key: str,
+    bottom_key: str,
+    fallback: tuple[str, str],
+    hover: bool = False,
+    hover_top_key: str | None = None,
+    hover_bottom_key: str | None = None,
+    hover_fallback: tuple[str, str] | None = None,
+) -> tuple[str, str]:
+    """Returns a validated top/bottom pair from THEMES with optional hover override."""
+    info = THEMES.get(theme_name, {})
+    top = None
+    bottom = None
 
-    # Dark blue theme: use a stronger, smooth card fill so surfaces stay visible
-    # even without neutral borders.
-    if tokens.theme_name == "Темная синяя":
-        if hover:
-            top = "rgba(255, 255, 255, 0.186)"
-            bottom = "rgba(255, 255, 255, 0.142)"
-        else:
-            top = "rgba(255, 255, 255, 0.156)"
-            bottom = "rgba(255, 255, 255, 0.116)"
-        return build_vertical_gradient_qss(top, bottom)
+    if hover and hover_top_key and hover_bottom_key:
+        top = info.get(hover_top_key)
+        bottom = info.get(hover_bottom_key)
 
-    # Dark themes: derive gradient from theme surface tokens (no hardcoded #252B3B).
-    # This keeps cards consistent across all dark themes and avoids fixed foreign tint.
-    base_surface = tokens.surface_bg_hover if hover else tokens.surface_bg
-    return get_tinted_surface_gradient_qss(
-        base_surface,
-        theme_name=tokens.theme_name,
+    if not isinstance(top, str) or not isinstance(bottom, str):
+        top = info.get(top_key)
+        bottom = info.get(bottom_key)
+
+    if not isinstance(top, str) or not isinstance(bottom, str):
+        return hover_fallback if hover and hover_fallback is not None else fallback
+
+    top_clean = top.strip()
+    bottom_clean = bottom.strip()
+    if not top_clean or not bottom_clean:
+        return hover_fallback if hover and hover_fallback is not None else fallback
+
+    return top_clean, bottom_clean
+
+
+def _get_theme_card_gradient_stops(theme_name: str, *, hover: bool = False) -> tuple[str, str]:
+    """Returns centralized card gradient stops for a theme."""
+    return _get_theme_gradient_stops_from_keys(
+        theme_name,
+        top_key="card_gradient_top",
+        bottom_key="card_gradient_bottom",
+        fallback=_DEFAULT_CARD_GRADIENT_STOPS,
         hover=hover,
+        hover_top_key="card_gradient_hover_top",
+        hover_bottom_key="card_gradient_hover_bottom",
+        hover_fallback=_DEFAULT_CARD_GRADIENT_STOPS_HOVER,
     )
+
+
+def _get_theme_card_disabled_gradient_stops(theme_name: str) -> tuple[str, str]:
+    """Returns centralized disabled-card gradient stops for a theme."""
+    return _get_theme_gradient_stops_from_keys(
+        theme_name,
+        top_key="card_gradient_disabled_top",
+        bottom_key="card_gradient_disabled_bottom",
+        fallback=_DEFAULT_CARD_DISABLED_GRADIENT_STOPS,
+    )
+
+
+def _get_theme_dns_selected_gradient_stops(
+    theme_name: str,
+    *,
+    hover: bool = False,
+) -> tuple[str, str]:
+    """Returns centralized DNS selected gradient stops for a theme."""
+    return _get_theme_gradient_stops_from_keys(
+        theme_name,
+        top_key="dns_selected_gradient_top",
+        bottom_key="dns_selected_gradient_bottom",
+        fallback=_DEFAULT_DNS_SELECTED_GRADIENT_STOPS,
+        hover=hover,
+        hover_top_key="dns_selected_gradient_hover_top",
+        hover_bottom_key="dns_selected_gradient_hover_bottom",
+        hover_fallback=_DEFAULT_DNS_SELECTED_GRADIENT_STOPS_HOVER,
+    )
+
+
+def _get_theme_dns_selected_border_color(theme_name: str, *, hover: bool = False) -> str:
+    """Returns centralized DNS selected border color for a theme."""
+    info = THEMES.get(theme_name, {})
+    key = "dns_selected_border_hover" if hover else "dns_selected_border"
+    value = info.get(key)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            return cleaned
+    return _DEFAULT_DNS_SELECTED_BORDER_HOVER if hover else _DEFAULT_DNS_SELECTED_BORDER
+
+
+def _get_theme_success_gradient_stops(theme_name: str, *, hover: bool = False) -> tuple[str, str]:
+    """Returns centralized success-surface gradient stops for a theme."""
+    is_light = _is_light_theme_name(theme_name)
+    fallback = (
+        _DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_LIGHT
+        if is_light
+        else _DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_DARK
+    )
+    hover_fallback = (
+        _DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_HOVER_LIGHT
+        if is_light
+        else _DEFAULT_SUCCESS_SURFACE_GRADIENT_STOPS_HOVER_DARK
+    )
+    return _get_theme_gradient_stops_from_keys(
+        theme_name,
+        top_key="success_gradient_top",
+        bottom_key="success_gradient_bottom",
+        fallback=fallback,
+        hover=hover,
+        hover_top_key="success_gradient_hover_top",
+        hover_bottom_key="success_gradient_hover_bottom",
+        hover_fallback=hover_fallback,
+    )
+
+
+def _is_light_theme_name(theme_name: str) -> bool:
+    return str(theme_name).startswith("Светлая")
+
+
+def _get_theme_color_value(theme_name: str, key: str, fallback: str) -> str:
+    info = THEMES.get(theme_name, {})
+    value = info.get(key)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            return cleaned
+    return fallback
+
+
+def _get_theme_control_gradient_stops(theme_name: str) -> tuple[str, str]:
+    """Returns centralized header/control gradient stops for a theme."""
+    is_light = _is_light_theme_name(theme_name)
+    fallback = _DEFAULT_CONTROL_GRADIENT_STOPS_LIGHT if is_light else _DEFAULT_CONTROL_GRADIENT_STOPS_DARK
+    return _get_theme_gradient_stops_from_keys(
+        theme_name,
+        top_key="control_gradient_top",
+        bottom_key="control_gradient_bottom",
+        fallback=fallback,
+    )
+
+
+def _get_theme_list_gradient_stops(theme_name: str) -> tuple[str, str]:
+    """Returns centralized list/tree/table gradient stops for a theme."""
+    is_light = _is_light_theme_name(theme_name)
+    fallback = _DEFAULT_LIST_GRADIENT_STOPS_LIGHT if is_light else _DEFAULT_LIST_GRADIENT_STOPS_DARK
+    return _get_theme_gradient_stops_from_keys(
+        theme_name,
+        top_key="list_gradient_top",
+        bottom_key="list_gradient_bottom",
+        fallback=fallback,
+    )
+
+
+def _get_theme_item_hover_bg(theme_name: str) -> str:
+    """Returns centralized item hover background for a theme."""
+    fallback = _DEFAULT_ITEM_HOVER_BG_LIGHT if _is_light_theme_name(theme_name) else _DEFAULT_ITEM_HOVER_BG_DARK
+    return _get_theme_color_value(theme_name, "item_hover_bg", fallback)
+
+
+def _get_theme_item_selected_bg(theme_name: str) -> str:
+    """Returns centralized item selected background for a theme."""
+    fallback = _DEFAULT_ITEM_SELECTED_BG_LIGHT if _is_light_theme_name(theme_name) else _DEFAULT_ITEM_SELECTED_BG_DARK
+    return _get_theme_color_value(theme_name, "item_selected_bg", fallback)
+
+
+def _get_theme_neutral_card_border_color(
+    theme_name: str,
+    *,
+    hover: bool = False,
+    disabled: bool = False,
+) -> str:
+    """Returns centralized neutral card border colors for a theme."""
+    is_light = _is_light_theme_name(theme_name)
+    if disabled:
+        key = "neutral_card_disabled_border"
+        fallback = _DEFAULT_NEUTRAL_CARD_BORDER_DISABLED_LIGHT if is_light else _DEFAULT_NEUTRAL_CARD_BORDER_DISABLED_DARK
+    elif hover:
+        key = "neutral_card_border_hover"
+        fallback = _DEFAULT_NEUTRAL_CARD_BORDER_HOVER_LIGHT if is_light else _DEFAULT_NEUTRAL_CARD_BORDER_HOVER_DARK
+    else:
+        key = "neutral_card_border"
+        fallback = _DEFAULT_NEUTRAL_CARD_BORDER_LIGHT if is_light else _DEFAULT_NEUTRAL_CARD_BORDER_DARK
+    return _get_theme_color_value(theme_name, key, fallback)
+
+
+def _get_theme_neutral_list_border_color(theme_name: str) -> str:
+    """Returns centralized neutral list border color for a theme."""
+    fallback = _DEFAULT_NEUTRAL_LIST_BORDER_LIGHT if _is_light_theme_name(theme_name) else _DEFAULT_NEUTRAL_LIST_BORDER_DARK
+    return _get_theme_color_value(theme_name, "neutral_list_border", fallback)
+
+
+def get_card_gradient_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
+    """Returns centralized card gradient used across framed surfaces."""
+    theme = get_theme_tokens(theme_name).theme_name
+    top, bottom = _get_theme_card_gradient_stops(theme, hover=hover)
+    return build_vertical_gradient_qss(top, bottom)
+
+
+def get_control_gradient_qss(theme_name: str | None = None) -> str:
+    """Returns centralized control/header gradient."""
+    theme = get_theme_tokens(theme_name).theme_name
+    top, bottom = _get_theme_control_gradient_stops(theme)
+    return build_vertical_gradient_qss(top, bottom)
+
+
+def get_list_gradient_qss(theme_name: str | None = None) -> str:
+    """Returns centralized list/tree/table gradient."""
+    theme = get_theme_tokens(theme_name).theme_name
+    top, bottom = _get_theme_list_gradient_stops(theme)
+    return build_vertical_gradient_qss(top, bottom)
+
+
+def get_item_hover_bg_qss(theme_name: str | None = None) -> str:
+    """Returns centralized item hover background color."""
+    theme = get_theme_tokens(theme_name).theme_name
+    return _get_theme_item_hover_bg(theme)
+
+
+def get_item_selected_bg_qss(theme_name: str | None = None) -> str:
+    """Returns centralized item selected background color."""
+    theme = get_theme_tokens(theme_name).theme_name
+    return _get_theme_item_selected_bg(theme)
+
+
+def get_neutral_card_border_qss(
+    theme_name: str | None = None,
+    *,
+    hover: bool = False,
+    disabled: bool = False,
+) -> str:
+    """Returns centralized neutral card border color."""
+    theme = get_theme_tokens(theme_name).theme_name
+    return _get_theme_neutral_card_border_color(theme, hover=hover, disabled=disabled)
+
+
+def get_neutral_list_border_qss(theme_name: str | None = None) -> str:
+    """Returns centralized neutral list border color."""
+    theme = get_theme_tokens(theme_name).theme_name
+    return _get_theme_neutral_list_border_color(theme)
+
+
+def get_card_disabled_gradient_qss(theme_name: str | None = None) -> str:
+    """Returns centralized disabled card gradient used across framed surfaces."""
+    theme = get_theme_tokens(theme_name).theme_name
+    top, bottom = _get_theme_card_disabled_gradient_stops(theme)
+    return build_vertical_gradient_qss(top, bottom)
+
+
+def get_dns_selected_gradient_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
+    """Returns centralized DNS selected gradient used by DNS cards."""
+    theme = get_theme_tokens(theme_name).theme_name
+    top, bottom = _get_theme_dns_selected_gradient_stops(theme, hover=hover)
+    return build_vertical_gradient_qss(top, bottom)
+
+
+def get_dns_selected_border_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
+    """Returns centralized DNS selected border color."""
+    theme = get_theme_tokens(theme_name).theme_name
+    return _get_theme_dns_selected_border_color(theme, hover=hover)
+
+
+def get_selected_surface_gradient_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
+    """Returns centralized selected/accent surface gradient."""
+    return get_dns_selected_gradient_qss(theme_name, hover=hover)
+
+
+def get_success_surface_gradient_qss(theme_name: str | None = None, *, hover: bool = False) -> str:
+    """Returns centralized success surface gradient."""
+    theme = get_theme_tokens(theme_name).theme_name
+    top, bottom = _get_theme_success_gradient_stops(theme, hover=hover)
+    return build_vertical_gradient_qss(top, bottom)
 
 
 def get_tinted_surface_gradient_qss(
@@ -1440,65 +2127,22 @@ def _build_dynamic_style_sheet(theme_name: str) -> str:
     tooltip_border = "rgba(0, 0, 0, 0.12)" if tokens.is_light else "rgba(255, 255, 255, 0.12)"
     tooltip_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(255, 255, 255, 0.95)"
 
-    is_dark_blue_theme = tokens.theme_name == "Темная синяя"
-
     card_gradient = get_card_gradient_qss(tokens.theme_name)
     card_gradient_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
-    disabled_card_gradient = get_tinted_surface_gradient_qss(
-        tokens.surface_bg_disabled,
-        theme_name=tokens.theme_name,
-    )
+    disabled_card_gradient = get_card_disabled_gradient_qss(tokens.theme_name)
+    dns_selected_gradient = get_dns_selected_gradient_qss(tokens.theme_name)
+    dns_selected_gradient_hover = get_dns_selected_gradient_qss(tokens.theme_name, hover=True)
+    dns_selected_border = get_dns_selected_border_qss(tokens.theme_name)
+    dns_selected_border_hover = get_dns_selected_border_qss(tokens.theme_name, hover=True)
 
-    dns_selected_gradient = get_tinted_surface_gradient_qss(
-        tokens.accent_soft_bg,
-        theme_name=tokens.theme_name,
-    )
-    dns_selected_gradient_hover = get_tinted_surface_gradient_qss(
-        tokens.accent_soft_bg_hover,
-        theme_name=tokens.theme_name,
-        hover=True,
-    )
-
-    if tokens.is_light:
-        control_grad_top = "rgba(255, 255, 255, 0.92)"
-        control_grad_bottom = "rgba(243, 246, 251, 0.82)"
-        list_gradient = build_vertical_gradient_qss(
-            "rgba(255, 255, 255, 0.88)",
-            "rgba(244, 247, 252, 0.74)",
-        )
-        item_hover_bg = "rgba(0, 0, 0, 0.055)"
-        item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.22)"
-        neutral_card_border = tokens.surface_border
-        neutral_card_border_hover = tokens.surface_border_hover
-        neutral_card_disabled_border = tokens.surface_border_disabled
-        neutral_list_border = tokens.surface_border
-    else:
-        if is_dark_blue_theme:
-            control_grad_top = "rgba(255, 255, 255, 0.060)"
-            control_grad_bottom = "rgba(255, 255, 255, 0.040)"
-            list_gradient = build_vertical_gradient_qss(
-                "rgba(255, 255, 255, 0.094)",
-                "rgba(255, 255, 255, 0.066)",
-            )
-            item_hover_bg = "rgba(255, 255, 255, 0.072)"
-            item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.22)"
-            neutral_card_border = "transparent"
-            neutral_card_border_hover = "transparent"
-            neutral_card_disabled_border = "transparent"
-            neutral_list_border = "transparent"
-        else:
-            control_grad_top = "rgba(255, 255, 255, 0.080)"
-            control_grad_bottom = "rgba(255, 255, 255, 0.040)"
-            list_gradient = build_vertical_gradient_qss(
-                "rgba(255, 255, 255, 0.075)",
-                "rgba(255, 255, 255, 0.030)",
-            )
-            item_hover_bg = "rgba(255, 255, 255, 0.080)"
-            item_selected_bg = f"rgba({tokens.accent_rgb_str}, 0.25)"
-            neutral_card_border = tokens.surface_border
-            neutral_card_border_hover = tokens.surface_border_hover
-            neutral_card_disabled_border = tokens.surface_border_disabled
-            neutral_list_border = tokens.surface_border
+    control_grad_top, control_grad_bottom = _get_theme_control_gradient_stops(tokens.theme_name)
+    list_gradient = get_list_gradient_qss(tokens.theme_name)
+    item_hover_bg = get_item_hover_bg_qss(tokens.theme_name)
+    item_selected_bg = get_item_selected_bg_qss(tokens.theme_name)
+    neutral_card_border = get_neutral_card_border_qss(tokens.theme_name)
+    neutral_card_border_hover = get_neutral_card_border_qss(tokens.theme_name, hover=True)
+    neutral_card_disabled_border = get_neutral_card_border_qss(tokens.theme_name, disabled=True)
+    neutral_list_border = get_neutral_list_border_qss(tokens.theme_name)
 
     if tokens.is_light:
         action_button_border = f"1px solid {tokens.surface_border}"
@@ -1752,12 +2396,12 @@ QFrame[uiSurface="card"]:hover {{
 /* Global DNS card styling (state overlays on top of shared card surface) */
 QFrame#dnsCard[selected="true"] {{
     background: {dns_selected_gradient} !important;
-    border: 1px solid rgba({tokens.accent_rgb_str}, 0.48) !important;
+    border: 1px solid {dns_selected_border} !important;
     border-radius: 10px !important;
 }}
 QFrame#dnsCard[selected="true"]:hover {{
     background: {dns_selected_gradient_hover} !important;
-    border: 1px solid rgba({tokens.accent_rgb_str}, 0.60) !important;
+    border: 1px solid {dns_selected_border_hover} !important;
     border-radius: 10px !important;
 }}
 

@@ -4,27 +4,113 @@
 """
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QComboBox, QFrame, QStackedWidget, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget
 )
-from PyQt6.QtGui import QIcon, QFont
+from importlib import import_module
 
-from ui.theme import THEMES, BUTTON_STYLE, COMMON_STYLE, BUTTON_HEIGHT
-from ui.sidebar import SideNavBar, SettingsCard, ActionButton
+from ui.sidebar import SideNavBar
 from ui.custom_titlebar import DraggableWidget
-from ui.pages import (
-    HomePage, ControlPage, HostlistPage, NetrogatPage, CustomDomainsPage, BlobsPage, CustomIpSetPage, EditorPage, DpiSettingsPage,
-    AutostartPage, NetworkPage, HostsPage, BlockcheckPage, AppearancePage, AboutPage, LogsPage, PremiumPage,
-    HelpPage, SupportPage, ServersPage, ConnectionTestPage, DNSCheckPage, OrchestraPage, OrchestraLockedPage, OrchestraBlockedPage, OrchestraWhitelistPage, OrchestraRatingsPage,
-    PresetConfigPage, StrategySortPage, Zapret2OrchestraStrategiesPage,
-    Zapret2DirectControlPage, Zapret2StrategiesPageNew, Zapret2UserPresetsPage, StrategyDetailPage,
-    Zapret1DirectStrategiesPage, BatStrategiesPage, MyCategoriesPage
-)
+from config import MIN_WIDTH
+from ui.page_names import PageName, SectionName
 
-import qtawesome as qta
-import sys, os
-from config import APP_VERSION, CHANNEL, MIN_WIDTH
-from ui.page_names import PageName, SectionName, SECTION_TO_PAGE
+
+_PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
+    PageName.HOME: ("home_page", "ui.pages.home_page", "HomePage"),
+    PageName.CONTROL: ("control_page", "ui.pages.control_page", "ControlPage"),
+    PageName.ZAPRET2_DIRECT_CONTROL: (
+        "zapret2_direct_control_page",
+        "ui.pages.zapret2.direct_control_page",
+        "Zapret2DirectControlPage",
+    ),
+    PageName.ZAPRET2_DIRECT: (
+        "zapret2_strategies_page",
+        "ui.pages.zapret2.direct_zapret2_page",
+        "Zapret2StrategiesPageNew",
+    ),
+    PageName.STRATEGY_DETAIL: (
+        "strategy_detail_page",
+        "ui.pages.zapret2.strategy_detail_page",
+        "StrategyDetailPage",
+    ),
+    PageName.ZAPRET2_ORCHESTRA: (
+        "zapret2_orchestra_strategies_page",
+        "ui.pages.zapret2_orchestra_strategies_page",
+        "Zapret2OrchestraStrategiesPage",
+    ),
+    PageName.ZAPRET1_DIRECT: (
+        "zapret1_strategies_page",
+        "ui.pages.zapret1_direct_strategies_page",
+        "Zapret1DirectStrategiesPage",
+    ),
+    PageName.BAT_STRATEGIES: ("bat_strategies_page", "ui.pages.bat_strategies_page", "BatStrategiesPage"),
+    PageName.STRATEGY_SORT: ("strategy_sort_page", "ui.pages.strategy_sort_page", "StrategySortPage"),
+    PageName.PRESET_CONFIG: ("preset_config_page", "ui.pages.preset_config_page", "PresetConfigPage"),
+    PageName.MY_CATEGORIES: ("my_categories_page", "ui.pages.my_categories_page", "MyCategoriesPage"),
+    PageName.HOSTLIST: ("hostlist_page", "ui.pages.hostlist_page", "HostlistPage"),
+    PageName.BLOBS: ("blobs_page", "ui.pages.blobs_page", "BlobsPage"),
+    PageName.EDITOR: ("editor_page", "ui.pages.editor_page", "EditorPage"),
+    PageName.DPI_SETTINGS: ("dpi_settings_page", "ui.pages.dpi_settings_page", "DpiSettingsPage"),
+    PageName.ZAPRET2_USER_PRESETS: (
+        "zapret2_user_presets_page",
+        "ui.pages.zapret2.user_presets_page",
+        "Zapret2UserPresetsPage",
+    ),
+    PageName.NETROGAT: ("netrogat_page", "ui.pages.netrogat_page", "NetrogatPage"),
+    PageName.CUSTOM_DOMAINS: ("custom_domains_page", "ui.pages.custom_domains_page", "CustomDomainsPage"),
+    PageName.CUSTOM_IPSET: ("custom_ipset_page", "ui.pages.custom_ipset_page", "CustomIpSetPage"),
+    PageName.AUTOSTART: ("autostart_page", "ui.pages.autostart_page", "AutostartPage"),
+    PageName.NETWORK: ("network_page", "ui.pages.network_page", "NetworkPage"),
+    PageName.CONNECTION_TEST: ("connection_page", "ui.pages.connection_page", "ConnectionTestPage"),
+    PageName.DNS_CHECK: ("dns_check_page", "ui.pages.dns_check_page", "DNSCheckPage"),
+    PageName.HOSTS: ("hosts_page", "ui.pages.hosts_page", "HostsPage"),
+    PageName.BLOCKCHECK: ("blockcheck_page", "ui.pages.blockcheck_page", "BlockcheckPage"),
+    PageName.APPEARANCE: ("appearance_page", "ui.pages.appearance_page", "AppearancePage"),
+    PageName.PREMIUM: ("premium_page", "ui.pages.premium_page", "PremiumPage"),
+    PageName.LOGS: ("logs_page", "ui.pages.logs_page", "LogsPage"),
+    PageName.SERVERS: ("servers_page", "ui.pages.servers_page", "ServersPage"),
+    PageName.ABOUT: ("about_page", "ui.pages.about_page", "AboutPage"),
+    PageName.SUPPORT: ("support_page", "ui.pages.support_page", "SupportPage"),
+    PageName.HELP: ("help_page", "ui.pages.help_page", "HelpPage"),
+    PageName.ORCHESTRA: ("orchestra_page", "ui.pages.orchestra_page", "OrchestraPage"),
+    PageName.ORCHESTRA_LOCKED: (
+        "orchestra_locked_page",
+        "ui.pages.orchestra_locked_page",
+        "OrchestraLockedPage",
+    ),
+    PageName.ORCHESTRA_BLOCKED: (
+        "orchestra_blocked_page",
+        "ui.pages.orchestra_blocked_page",
+        "OrchestraBlockedPage",
+    ),
+    PageName.ORCHESTRA_WHITELIST: (
+        "orchestra_whitelist_page",
+        "ui.pages.orchestra_whitelist_page",
+        "OrchestraWhitelistPage",
+    ),
+    PageName.ORCHESTRA_RATINGS: (
+        "orchestra_ratings_page",
+        "ui.pages.orchestra_ratings_page",
+        "OrchestraRatingsPage",
+    ),
+}
+
+_PAGE_ALIASES: dict[PageName, PageName] = {
+    PageName.IPSET: PageName.HOSTLIST,
+    PageName.PRESETS: PageName.ZAPRET2_USER_PRESETS,
+}
+
+_EAGER_PAGE_NAMES: tuple[PageName, ...] = (
+    # Критичные для первого кадра + сигналов InitializationManager.
+    PageName.HOME,
+    PageName.CONTROL,
+    PageName.ZAPRET2_DIRECT_CONTROL,
+    PageName.AUTOSTART,
+    PageName.DPI_SETTINGS,
+    PageName.PRESET_CONFIG,
+    PageName.APPEARANCE,
+    PageName.ABOUT,
+    PageName.PREMIUM,
+)
 
 class MainWindowUI:
     """
@@ -84,6 +170,7 @@ class MainWindowUI:
         # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
         
         # Создаем страницы
+        self._page_signal_bootstrap_complete = False
         self._create_pages()
 
         content_layout.addWidget(self.pages_stack)
@@ -96,6 +183,7 @@ class MainWindowUI:
         
         # Подключаем сигналы
         self._connect_page_signals()
+        self._page_signal_bootstrap_complete = True
 
         # Session memory: remember last opened direct_zapret2 category detail page.
         # (Used to restore context when re-opening the Strategies section.)
@@ -105,241 +193,146 @@ class MainWindowUI:
             self._direct_zapret2_restore_detail_on_open = False  # type: ignore[attr-defined]
         
     def _create_pages(self):
-        """Создает все страницы контента"""
+        """Создает реестр страниц и инициализирует только критичные страницы."""
         import time as _time
         from log import log
 
         _t_pages_total = _time.perf_counter()
 
-        # Главная страница
-        self.home_page = HomePage(self)
-        self.pages_stack.addWidget(self.home_page)
-        
-        # Управление
-        self.control_page = ControlPage(self)
-        self.pages_stack.addWidget(self.control_page)
+        self.pages: dict[PageName, QWidget] = {}
+        self._page_aliases: dict[PageName, PageName] = dict(_PAGE_ALIASES)
+        self._lazy_signal_connections: set[str] = set()
 
-        # Zapret 2 Direct: управление (главная вкладка "Стратегии" для direct_zapret2)
-        self.zapret2_direct_control_page = Zapret2DirectControlPage(self)
-        self.pages_stack.addWidget(self.zapret2_direct_control_page)
+        for page_name in _EAGER_PAGE_NAMES:
+            self._ensure_page(page_name)
 
-        # Zapret 2 Direct стратегии (NEW UI)
-        self.zapret2_strategies_page = Zapret2StrategiesPageNew(self)
-        self.pages_stack.addWidget(self.zapret2_strategies_page)
-
-        # Strategy Detail Page (for category drill-down)
-        _t_strategy_detail = _time.perf_counter()
-        self.strategy_detail_page = StrategyDetailPage(self)
-        self.pages_stack.addWidget(self.strategy_detail_page)
         log(
-            f"⏱ Startup: StrategyDetailPage init {( _time.perf_counter() - _t_strategy_detail ) * 1000:.0f}ms",
+            f"⏱ Startup: _create_pages core {( _time.perf_counter() - _t_pages_total ) * 1000:.0f}ms",
             "DEBUG",
         )
 
-        # Zapret 2 Orchestra стратегии
-        self.zapret2_orchestra_strategies_page = Zapret2OrchestraStrategiesPage(self)
-        self.pages_stack.addWidget(self.zapret2_orchestra_strategies_page)
+    def _resolve_page_name(self, name: PageName) -> PageName:
+        return self._page_aliases.get(name, name)
 
-        # Zapret 1 Direct стратегии
-        self.zapret1_strategies_page = Zapret1DirectStrategiesPage(self)
-        self.pages_stack.addWidget(self.zapret1_strategies_page)
+    def _connect_signal_once(self, key: str, signal_obj, slot_obj) -> None:
+        if key in self._lazy_signal_connections:
+            return
+        try:
+            signal_obj.connect(slot_obj)
+            self._lazy_signal_connections.add(key)
+        except Exception:
+            pass
 
-        # BAT стратегии
-        self.bat_strategies_page = BatStrategiesPage(self)
-        self.pages_stack.addWidget(self.bat_strategies_page)
+    def _connect_strategy_sort_signal_bridges(self) -> None:
+        sort_page = getattr(self, "strategy_sort_page", None)
+        strategies_page = getattr(self, "zapret2_strategies_page", None)
+        if sort_page is None or strategies_page is None:
+            return
 
-        # Сортировка стратегий
-        self.strategy_sort_page = StrategySortPage(self)
-        self.pages_stack.addWidget(self.strategy_sort_page)
+        if hasattr(strategies_page, "on_external_filters_changed") and hasattr(sort_page, "filters_changed"):
+            self._connect_signal_once(
+                "strategy_sort.filters_changed",
+                sort_page.filters_changed,
+                strategies_page.on_external_filters_changed,
+            )
 
-        # Конфиг preset-zapret2.txt
-        self.preset_config_page = PresetConfigPage(self)
-        self.pages_stack.addWidget(self.preset_config_page)
+        if hasattr(strategies_page, "on_external_sort_changed") and hasattr(sort_page, "sort_changed"):
+            self._connect_signal_once(
+                "strategy_sort.sort_changed",
+                sort_page.sort_changed,
+                strategies_page.on_external_sort_changed,
+            )
 
-        # Мои категории (общий файл для direct режимов)
-        _t_my_categories = _time.perf_counter()
-        self.my_categories_page = MyCategoriesPage(self)
-        self.pages_stack.addWidget(self.my_categories_page)
-        log(
-            f"⏱ Startup: MyCategoriesPage init {( _time.perf_counter() - _t_my_categories ) * 1000:.0f}ms",
-            "DEBUG",
-        )
+    def _connect_lazy_page_signals(self, page_name: PageName, page: QWidget) -> None:
+        if page_name in (
+            PageName.ZAPRET1_DIRECT,
+            PageName.ZAPRET2_DIRECT,
+            PageName.ZAPRET2_ORCHESTRA,
+            PageName.BAT_STRATEGIES,
+        ):
+            if hasattr(page, "strategy_selected"):
+                self._connect_signal_once(
+                    f"strategy_selected.{page_name.name}",
+                    page.strategy_selected,
+                    self._on_strategy_selected_from_page,
+                )
 
-        # Листы (hostlist + ipset)
-        self.hostlist_page = HostlistPage(self)
-        self.pages_stack.addWidget(self.hostlist_page)
+        if page_name == PageName.ZAPRET2_DIRECT and hasattr(page, "open_category_detail"):
+            self._connect_signal_once(
+                "z2_direct.open_category_detail",
+                page.open_category_detail,
+                self._on_open_category_detail,
+            )
+
+        if page_name == PageName.STRATEGY_DETAIL:
+            if hasattr(page, "back_clicked"):
+                self._connect_signal_once(
+                    "strategy_detail.back_clicked",
+                    page.back_clicked,
+                    self._on_strategy_detail_back,
+                )
+            if hasattr(page, "strategy_selected"):
+                self._connect_signal_once(
+                    "strategy_detail.strategy_selected",
+                    page.strategy_selected,
+                    self._on_strategy_detail_selected,
+                )
+            if hasattr(page, "filter_mode_changed"):
+                self._connect_signal_once(
+                    "strategy_detail.filter_mode_changed",
+                    page.filter_mode_changed,
+                    self._on_strategy_detail_filter_mode_changed,
+                )
+
+        if page_name == PageName.ORCHESTRA and hasattr(page, "clear_learned_requested"):
+            self._connect_signal_once(
+                "orchestra.clear_learned_requested",
+                page.clear_learned_requested,
+                self._on_clear_learned_requested,
+            )
+
+        self._connect_strategy_sort_signal_bridges()
+
+    def _ensure_page(self, name: PageName) -> QWidget | None:
+        resolved_name = self._resolve_page_name(name)
+        page = self.pages.get(resolved_name)
+        if page is not None:
+            return page
+
+        spec = _PAGE_CLASS_SPECS.get(resolved_name)
+        if spec is None:
+            return None
+
+        attr_name, module_name, class_name = spec
+        try:
+            module = import_module(module_name)
+            page_cls = getattr(module, class_name)
+            page = page_cls(self)
+        except Exception as e:
+            from log import log
+            log(f"Ошибка lazy-инициализации страницы {resolved_name}: {e}", "ERROR")
+            return None
+
+        self.pages_stack.addWidget(page)
+        self.pages[resolved_name] = page
+        setattr(self, attr_name, page)
 
         # Legacy alias: keep old references to ipset_page valid.
-        self.ipset_page = self.hostlist_page
+        if resolved_name == PageName.HOSTLIST:
+            self.ipset_page = page
 
-        # Блобы - управление бинарными данными для Zapret 2
-        self.blobs_page = BlobsPage(self)
-        self.pages_stack.addWidget(self.blobs_page)
+        if bool(getattr(self, "_page_signal_bootstrap_complete", False)):
+            self._connect_lazy_page_signals(resolved_name, page)
 
-        # Редактор стратегий
-        _t_editor = _time.perf_counter()
-        self.editor_page = EditorPage(self)
-        self.pages_stack.addWidget(self.editor_page)
-        log(
-            f"⏱ Startup: EditorPage init {( _time.perf_counter() - _t_editor ) * 1000:.0f}ms",
-            "DEBUG",
-        )
-
-        # Настройки DPI
-        self.dpi_settings_page = DpiSettingsPage(self)
-        self.pages_stack.addWidget(self.dpi_settings_page)
-
-        # Presets (direct_zapret2)
-        self.zapret2_user_presets_page = Zapret2UserPresetsPage(self)
-        self.pages_stack.addWidget(self.zapret2_user_presets_page)
-
-        # === МОИ СПИСКИ ===
-        # Исключения netrogat.txt
-        self.netrogat_page = NetrogatPage(self)
-        self.pages_stack.addWidget(self.netrogat_page)
-
-        # Мои домены - управление other.txt
-        self.custom_domains_page = CustomDomainsPage(self)
-        self.pages_stack.addWidget(self.custom_domains_page)
-
-        # Мои IP - управление my-ipset.txt
-        self.custom_ipset_page = CustomIpSetPage(self)
-        self.pages_stack.addWidget(self.custom_ipset_page)
-        # === КОНЕЦ МОИ СПИСКИ ===
-
-        # Автозапуск
-        self.autostart_page = AutostartPage(self)
-        self.pages_stack.addWidget(self.autostart_page)
-
-        # Сеть
-        self.network_page = NetworkPage(self)
-        self.pages_stack.addWidget(self.network_page)
-
-        # Диагностика соединения
-        self.connection_page = ConnectionTestPage(self)
-        self.pages_stack.addWidget(self.connection_page)
-
-        # DNS подмена - подпункт диагностики
-        self.dns_check_page = DNSCheckPage(self)
-        self.pages_stack.addWidget(self.dns_check_page)
-
-        # Hosts - разблокировка сервисов
-        _t_hosts = _time.perf_counter()
-        self.hosts_page = HostsPage(self)
-        self.pages_stack.addWidget(self.hosts_page)
-        log(
-            f"⏱ Startup: HostsPage init {( _time.perf_counter() - _t_hosts ) * 1000:.0f}ms",
-            "DEBUG",
-        )
-
-        # BlockCheck
-        self.blockcheck_page = BlockcheckPage(self)
-        self.pages_stack.addWidget(self.blockcheck_page)
-
-        # Оформление
-        self.appearance_page = AppearancePage(self)
-        self.pages_stack.addWidget(self.appearance_page)
-
-        # Premium
-        self.premium_page = PremiumPage(self)
-        self.pages_stack.addWidget(self.premium_page)
-
-        # Логи
-        self.logs_page = LogsPage(self)
-        self.pages_stack.addWidget(self.logs_page)
-
-        # Серверы обновлений
-        self.servers_page = ServersPage(self)
-        self.pages_stack.addWidget(self.servers_page)
-
-        # Поддержка (подпункт "О программе")
-        self.support_page = SupportPage(self)
-        self.pages_stack.addWidget(self.support_page)
-
-        # О программе
-        self.about_page = AboutPage(self)
-        self.pages_stack.addWidget(self.about_page)
-
-        # Справка (подпункт "О программе")
-        self.help_page = HelpPage(self)
-        self.pages_stack.addWidget(self.help_page)
-
-        # Оркестр - автообучение (скрытая вкладка)
-        self.orchestra_page = OrchestraPage(self)
-        self.pages_stack.addWidget(self.orchestra_page)
-
-        # Залоченные стратегии оркестратора (вместо Hostlist при оркестраторе)
-        self.orchestra_locked_page = OrchestraLockedPage(self)
-        self.pages_stack.addWidget(self.orchestra_locked_page)
-
-        # Заблокированные стратегии оркестратора (вместо IPset при оркестраторе)
-        self.orchestra_blocked_page = OrchestraBlockedPage(self)
-        self.pages_stack.addWidget(self.orchestra_blocked_page)
-
-        # Белый список оркестратора (вместо Исключений при оркестраторе)
-        self.orchestra_whitelist_page = OrchestraWhitelistPage(self)
-        self.pages_stack.addWidget(self.orchestra_whitelist_page)
-
-        # История стратегий с рейтингами
-        self.orchestra_ratings_page = OrchestraRatingsPage(self)
-        self.pages_stack.addWidget(self.orchestra_ratings_page)
-
-        # Реестр страниц по имени (для навигации без индексов)
-        self.pages: dict[PageName, QWidget] = {
-            PageName.HOME: self.home_page,
-            PageName.CONTROL: self.control_page,
-            PageName.ZAPRET2_DIRECT_CONTROL: self.zapret2_direct_control_page,
-            PageName.ZAPRET2_DIRECT: self.zapret2_strategies_page,
-            PageName.STRATEGY_DETAIL: self.strategy_detail_page,
-            PageName.ZAPRET2_ORCHESTRA: self.zapret2_orchestra_strategies_page,
-            PageName.ZAPRET1_DIRECT: self.zapret1_strategies_page,
-            PageName.BAT_STRATEGIES: self.bat_strategies_page,
-            PageName.STRATEGY_SORT: self.strategy_sort_page,
-            PageName.PRESET_CONFIG: self.preset_config_page,
-            PageName.MY_CATEGORIES: self.my_categories_page,
-            PageName.HOSTLIST: self.hostlist_page,
-            PageName.IPSET: self.hostlist_page,
-            PageName.BLOBS: self.blobs_page,
-            PageName.EDITOR: self.editor_page,
-            PageName.DPI_SETTINGS: self.dpi_settings_page,
-            # Legacy alias: keep PageName.PRESETS working.
-            PageName.PRESETS: self.zapret2_user_presets_page,
-            PageName.ZAPRET2_USER_PRESETS: self.zapret2_user_presets_page,
-            PageName.NETROGAT: self.netrogat_page,
-            PageName.CUSTOM_DOMAINS: self.custom_domains_page,
-            PageName.CUSTOM_IPSET: self.custom_ipset_page,
-            PageName.AUTOSTART: self.autostart_page,
-            PageName.NETWORK: self.network_page,
-            PageName.CONNECTION_TEST: self.connection_page,
-            PageName.DNS_CHECK: self.dns_check_page,
-            PageName.HOSTS: self.hosts_page,
-            PageName.BLOCKCHECK: self.blockcheck_page,
-            PageName.APPEARANCE: self.appearance_page,
-            PageName.PREMIUM: self.premium_page,
-            PageName.LOGS: self.logs_page,
-            PageName.SERVERS: self.servers_page,
-            PageName.ABOUT: self.about_page,
-            PageName.SUPPORT: self.support_page,
-            PageName.HELP: self.help_page,
-            PageName.ORCHESTRA: self.orchestra_page,
-            PageName.ORCHESTRA_LOCKED: self.orchestra_locked_page,
-            PageName.ORCHESTRA_BLOCKED: self.orchestra_blocked_page,
-            PageName.ORCHESTRA_WHITELIST: self.orchestra_whitelist_page,
-            PageName.ORCHESTRA_RATINGS: self.orchestra_ratings_page,
-        }
-
-        log(
-            f"⏱ Startup: _create_pages total {( _time.perf_counter() - _t_pages_total ) * 1000:.0f}ms",
-            "DEBUG",
-        )
+        return page
 
     def get_page(self, name: PageName) -> QWidget:
         """Возвращает виджет страницы по имени"""
-        return self.pages.get(name)
+        return self._ensure_page(name)
 
     def show_page(self, name: PageName) -> bool:
         """Переключает на указанную страницу. Возвращает True при успехе."""
-        page = self.pages.get(name)
+        page = self._ensure_page(name)
         if page:
             self.pages_stack.setCurrentWidget(page)
             return True
@@ -464,15 +457,8 @@ class MainWindowUI:
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
 
-        # Связываем страницу сортировки со страницей стратегий (асинхронное обновление фильтров)
-        if hasattr(self.zapret2_strategies_page, 'on_external_filters_changed'):
-            self.strategy_sort_page.filters_changed.connect(
-                self.zapret2_strategies_page.on_external_filters_changed
-            )
-        if hasattr(self.zapret2_strategies_page, 'on_external_sort_changed'):
-            self.strategy_sort_page.sort_changed.connect(
-                self.zapret2_strategies_page.on_external_sort_changed
-            )
+        # Связываем сортировку и страницу стратегий, если обе уже созданы.
+        self._connect_strategy_sort_signal_bridges()
 
         # Presets: subscribe to central PresetStore for all preset events.
         # This replaces per-page signal connections — all preset switches
@@ -1210,8 +1196,9 @@ class MainWindowUI:
                 return
 
             # Show the detail page with category data
-            if hasattr(self.strategy_detail_page, 'show_category'):
-                self.strategy_detail_page.show_category(
+            detail_page = self._ensure_page(PageName.STRATEGY_DETAIL)
+            if detail_page and hasattr(detail_page, 'show_category'):
+                detail_page.show_category(
                     category_key,
                     category_info,
                     current_strategy_id
@@ -1333,7 +1320,8 @@ class MainWindowUI:
                     try:
                         from strategy_menu.strategies_registry import registry
                         category_info = registry.get_category_info(last_key)
-                        if category_info and hasattr(self, "strategy_detail_page") and hasattr(self.strategy_detail_page, "show_category"):
+                        detail_page = self._ensure_page(PageName.STRATEGY_DETAIL)
+                        if category_info and detail_page and hasattr(detail_page, "show_category"):
                             # Get current selection from preset (source of truth).
                             try:
                                 from preset_zapret2 import PresetManager
@@ -1343,7 +1331,7 @@ class MainWindowUI:
                             except Exception:
                                 current_strategy_id = "none"
 
-                            self.strategy_detail_page.show_category(last_key, category_info, current_strategy_id)
+                            detail_page.show_category(last_key, category_info, current_strategy_id)
                             target_page = PageName.STRATEGY_DETAIL
                         else:
                             target_page = PageName.ZAPRET2_DIRECT_CONTROL

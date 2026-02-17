@@ -1,5 +1,7 @@
 # managers/initialization_manager.py
 
+import threading
+
 from PyQt6.QtCore import QTimer, QThread, QObject, pyqtSignal
 from log import log
 
@@ -38,16 +40,17 @@ class InitializationManager:
         - DPI Controller → управление DPI
         - Меню и сигналы → UI готов к взаимодействию
         
-        ФАЗА 2 (60-100ms): Менеджеры (параллельно где возможно)
+        ФАЗА 2 (50-300ms): Менеджеры ядра и быстрые UI-зависимости
         - Core: DPI Manager, Process Monitor
-        - Network: Discord, Hosts, DNS
         - Content: Strategy Manager
         - Theme: ThemeManager (асинхронная генерация CSS)
-        
-        ФАЗА 3 (100-200ms): Фоновые сервисы
-        - Tray, Logger, Update Manager
-        
-        ФАЗА 4 (200+ms): Отложенные проверки
+        - Service: автозапуск/службы
+
+        ФАЗА 3 (600ms+): Idle-инициализация тяжёлых/необязательных менеджеров
+        - Network: Discord, Hosts, DNS
+        - Tray, Logger, прогрев кэша
+
+        ФАЗА 4 (1800ms+): Отложенные фоновые проверки
         - Hostlists, IPsets (не критичны для UI)
         - Подписка
         """
@@ -70,29 +73,29 @@ class InitializationManager:
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
             (50,  self._init_core_managers),      # DPI, Process Monitor
-            (60,  self._init_network_managers),   # Discord, Hosts, DNS
             (70,  self._init_strategy_manager),   # Стратегии (локально)
-            (80,  self._init_theme_manager),      # Тема (асинхронно)
-            (90,  self._init_service_managers),   # Service, Update
+            (90,  self._init_theme_manager),      # Тема (асинхронно)
+            (220, self._init_service_managers),   # Service, Update
         ])
         
         # ═══════════════════════════════════════════════════════════════
         # ФАЗА 3: Фоновые сервисы (не критичны для UI)
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
-            (100, self._init_tray),               # Системный трей
-            (1200, self._init_strategy_cache),    # Отложенный прогрев кэша (не блокирует ранний старт)
-            (150, self._init_logger),             # Логирование
-            (200, self._finalize_managers_init),  # Финализация
+            (300, self._finalize_managers_init),  # Финализация
+            (600, self._init_network_managers),   # Discord, Hosts, DNS (idle)
+            (900, self._init_tray),               # Системный трей (idle)
+            (1500, self._init_logger),            # Логирование (idle)
+            (1700, self._init_strategy_cache),    # Отложенный прогрев кэша
         ])
         
         # ═══════════════════════════════════════════════════════════════
         # ФАЗА 4: Отложенные проверки (могут быть медленными)
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
-            (300,  self._init_hostlists_check),   # Проверка hostlists
-            (400,  self._init_ipsets_check),      # Проверка ipsets
-            (2000, self._init_subscription_check),# Проверка подписки (сеть)
+            (1800, self._init_hostlists_check),   # Проверка hostlists (в фоне)
+            (2000, self._init_ipsets_check),      # Проверка ipsets (в фоне)
+            (2600, self._init_subscription_check),# Проверка подписки (сеть)
         ])
 
         for delay, task in init_tasks:
@@ -232,34 +235,45 @@ class InitializationManager:
                     log(f"Ошибка при обновлении UI (fallback): {e}", "❌ ERROR")
 
     def _init_hostlists_check(self):
-        """Синхронная проверка и создание хостлистов"""
-        try:
-            log("🔧 Начинаем проверку хостлистов", "DEBUG")
-            from utils.hostlists_manager import startup_hostlists_check
-            result = startup_hostlists_check()
-            if result:
-                log("✅ Хостлисты проверены и готовы", "SUCCESS")
-            else:
-                log("⚠️ Проблемы с хостлистами, создаем минимальные", "WARNING")
-            self.init_tasks_completed.add('hostlists')
-        except Exception as e:
-            log(f"❌ Ошибка проверки хостлистов: {e}", "ERROR")
+        """Фоновая проверка и создание хостлистов (не блокирует GUI)."""
+
+        def _worker() -> None:
+            try:
+                log("🔧 Начинаем проверку хостлистов (background)", "DEBUG")
+                from utils.hostlists_manager import startup_hostlists_check
+
+                result = startup_hostlists_check()
+                if result:
+                    log("✅ Хостлисты проверены и готовы", "SUCCESS")
+                else:
+                    log("⚠️ Проблемы с хостлистами, создаем минимальные", "WARNING")
+                self.init_tasks_completed.add('hostlists')
+            except Exception as e:
+                log(f"❌ Ошибка проверки хостлистов: {e}", "ERROR")
+
+        threading.Thread(target=_worker, daemon=True, name="HostlistsCheckWorker").start()
 
     def _init_ipsets_check(self):
-        """Синхронная проверка IPsets"""
-        try:
-            log("🔧 Начинаем проверку IPsets", "DEBUG")
-            from utils.ipsets_manager import startup_ipsets_check
-            result = startup_ipsets_check()
-            if result:
-                log("✅ IPsets проверены и готовы", "SUCCESS")
-            else:
-                log("⚠️ Проблемы с IPsets, создаем минимальные", "WARNING")
-            self.init_tasks_completed.add('ipsets')
-        except Exception as e:
-            log(f"❌ Ошибка проверки IPsets: {e}", "ERROR")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
+        """Фоновая проверка IPsets (не блокирует GUI)."""
+
+        def _worker() -> None:
+            try:
+                log("🔧 Начинаем проверку IPsets (background)", "DEBUG")
+                from utils.ipsets_manager import startup_ipsets_check
+
+                result = startup_ipsets_check()
+                if result:
+                    log("✅ IPsets проверены и готовы", "SUCCESS")
+                else:
+                    log("⚠️ Проблемы с IPsets, создаем минимальные", "WARNING")
+                self.init_tasks_completed.add('ipsets')
+            except Exception as e:
+                log(f"❌ Ошибка проверки IPsets: {e}", "ERROR")
+                import traceback
+
+                log(traceback.format_exc(), "DEBUG")
+
+        threading.Thread(target=_worker, daemon=True, name="IPsetsCheckWorker").start()
 
     def _init_dpi_controller(self):
         """Инициализация DPI контроллера"""
@@ -326,6 +340,13 @@ class InitializationManager:
                 self.app.appearance_page.opacity_changed.connect(self.app.set_window_opacity)
 
             self.init_tasks_completed.add('signals')
+
+            # Фиксируем метрику "interactive": базовые сигналы UI уже подключены.
+            try:
+                if hasattr(self.app, '_mark_startup_interactive'):
+                    self.app._mark_startup_interactive("signals_connected")
+            except Exception:
+                pass
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
 
@@ -425,8 +446,9 @@ class InitializationManager:
             ensure_required_files()
             
             # DPI Manager
-            from managers.dpi_manager import DPIManager
-            self.app.dpi_manager = DPIManager(self.app)
+            if not getattr(self.app, 'dpi_manager', None):
+                from managers.dpi_manager import DPIManager
+                self.app.dpi_manager = DPIManager(self.app)
             
             # Process Monitor
             if hasattr(self.app, 'process_monitor_manager'):
@@ -445,22 +467,26 @@ class InitializationManager:
             t0 = _t.perf_counter()
             
             # Discord Manager
-            from discord.discord import DiscordManager
-            self.app.discord_manager = DiscordManager(status_callback=self.app.set_status)
+            if not getattr(self.app, 'discord_manager', None):
+                from discord.discord import DiscordManager
+                self.app.discord_manager = DiscordManager(status_callback=self.app.set_status)
             
             # Hosts Manager
-            from hosts.hosts import HostsManager
-            self.app.hosts_manager = HostsManager(status_callback=self.app.set_status)
+            if not getattr(self.app, 'hosts_manager', None):
+                from hosts.hosts import HostsManager
+                self.app.hosts_manager = HostsManager(status_callback=self.app.set_status)
             
             # DNS UI Manager
-            from dns import DNSUIManager, DNSStartupManager
-            self.app.dns_ui_manager = DNSUIManager(
-                parent=self.app,
-                status_callback=self.app.set_status
-            )
-            
-            # Применяем DNS при запуске (асинхронно)
-            DNSStartupManager.apply_dns_on_startup_async(status_callback=self.app.set_status)
+            if not getattr(self.app, 'dns_ui_manager', None):
+                from dns import DNSUIManager, DNSStartupManager
+
+                self.app.dns_ui_manager = DNSUIManager(
+                    parent=self.app,
+                    status_callback=self.app.set_status
+                )
+
+                # Применяем DNS при запуске (асинхронно)
+                DNSStartupManager.apply_dns_on_startup_async(status_callback=self.app.set_status)
             
             log(f"✅ Network managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
             self.init_tasks_completed.add('network_managers')
@@ -562,6 +588,11 @@ class InitializationManager:
         try:
             import time as _t
             t0 = _t.perf_counter()
+
+            if getattr(self.app, 'service_manager', None):
+                self.init_tasks_completed.add('service_managers')
+                log("Service managers уже инициализированы, пропускаем", "DEBUG")
+                return
             
             # Service Manager (автозапуск)
             from autostart.checker import CheckerManager
@@ -631,6 +662,11 @@ class InitializationManager:
     def _init_tray(self):
         """Инициализация системного трея"""
         try:
+            if getattr(self.app, 'tray_manager', None):
+                self.init_tasks_completed.add('tray')
+                log("Системный трей уже инициализирован, пропускаем", "DEBUG")
+                return
+
             from tray import SystemTrayManager
             from config import ICON_PATH, ICON_TEST_PATH, APP_VERSION, CHANNEL
             from PyQt6.QtGui import QIcon
@@ -659,6 +695,10 @@ class InitializationManager:
     def _init_logger(self):
         """Инициализация отправки логов"""
         try:
+            if getattr(self.app, 'log_sender', None):
+                log("Логгер уже инициализирован, пропускаем", "DEBUG")
+                return
+
             from log import global_logger
             from tgram import FullLogDaemon
 
@@ -811,6 +851,12 @@ class InitializationManager:
         """
         log("Менеджеры инициализированы", "✅ SUCCESS")
         try:
+            if hasattr(self.app, '_mark_startup_managers_ready'):
+                self.app._mark_startup_managers_ready("initialization_manager")
+        except Exception:
+            pass
+
+        try:
             self.app.set_status("Инициализация завершена")
         except Exception:
             pass
@@ -823,12 +869,14 @@ class InitializationManager:
         if self._post_init_scheduled:
             return
         self._post_init_scheduled = True
+        post_init_metric_source = "post_init_ok"
 
         try:
             # Проверка winws.exe
             if not self._check_winws_exists():
                 log("winws.exe не найден", "❌ ERROR")
                 self.app.set_status("❌ winws.exe не найден")
+                post_init_metric_source = "post_init_winws_missing"
                 return
 
             log("✅ winws.exe найден", "DEBUG")
@@ -849,9 +897,16 @@ class InitializationManager:
             # Обновления проверяются вручную на вкладке "Серверы"
 
         except Exception as e:
+            post_init_metric_source = f"post_init_error:{type(e).__name__}"
             log(f"Ошибка post-init задач: {e}", "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+        finally:
+            try:
+                if hasattr(self.app, '_mark_startup_post_init_done'):
+                    self.app._mark_startup_post_init_done(post_init_metric_source)
+            except Exception:
+                pass
 
     def _check_winws_exists(self) -> bool:
         """Проверка наличия winws.exe"""

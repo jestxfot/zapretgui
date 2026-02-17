@@ -1,5 +1,13 @@
 # main.py
 import sys, os
+import time as _startup_clock
+
+
+_STARTUP_T0 = _startup_clock.perf_counter()
+
+
+def _startup_elapsed_ms() -> int:
+    return int((_startup_clock.perf_counter() - _STARTUP_T0) * 1000)
 
 
 def _is_startup_debug_enabled() -> bool:
@@ -127,6 +135,11 @@ from ui.theme import install_qtawesome_icon_theme_patch
 
 # DNS настройки теперь интегрированы в network_page
 from log import log, is_verbose_logging_enabled
+
+
+def _log_startup_metric(marker: str, details: str = "") -> None:
+    suffix = f" | {details}" if details else ""
+    log(f"⏱ Startup {marker}: {_startup_elapsed_ms()}ms{suffix}", "⏱ STARTUP")
 
 from config import CHANNEL
 from ui.page_names import PageName, SectionName
@@ -799,6 +812,14 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._startup_container_overlay = None
         self._startup_container_overlay_anim = None
         self._startup_container_overlay_fading = False
+        self._startup_ttff_logged = False
+        self._startup_ttff_ms = None
+        self._startup_interactive_logged = False
+        self._startup_interactive_ms = None
+        self._startup_managers_ready_logged = False
+        self._startup_managers_ready_ms = None
+        self._startup_post_init_done_logged = False
+        self._startup_post_init_done_ms = None
 
         self._create_startup_bootstrap_overlay()
         self._create_startup_container_overlay()
@@ -856,13 +877,11 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         from managers.subscription_manager import SubscriptionManager
         from managers.process_monitor_manager import ProcessMonitorManager
         from managers.ui_manager import UIManager
-        from managers.dpi_manager import DPIManager
 
         self.initialization_manager = InitializationManager(self)
         self.subscription_manager = SubscriptionManager(self)
         self.process_monitor_manager = ProcessMonitorManager(self)
         self.ui_manager = UIManager(self)
-        self.dpi_manager = DPIManager(self)
         log(f"⏱ Startup: managers init {( _time.perf_counter() - _t_mgr ) * 1000:.0f}ms", "DEBUG")
 
         # Инициализируем donate checker
@@ -875,6 +894,59 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
         QTimer.singleShot(0, self._fade_out_startup_container_overlay)
         log(f"⏱ Startup: deferred init total {( _time.perf_counter() - _t_total ) * 1000:.0f}ms", "DEBUG")
+
+    def _mark_startup_interactive(self, source: str = "ui_signals_connected") -> None:
+        if self._startup_interactive_logged:
+            return
+
+        self._startup_interactive_logged = True
+        interactive_ms = _startup_elapsed_ms()
+        self._startup_interactive_ms = interactive_ms
+
+        ttff_ms = self._startup_ttff_ms
+        if isinstance(ttff_ms, int):
+            delta_ms = max(0, interactive_ms - ttff_ms)
+            _log_startup_metric("Interactive", f"{source}, +{delta_ms}ms after TTFF")
+        else:
+            _log_startup_metric("Interactive", source)
+
+    def _mark_startup_managers_ready(self, source: str = "managers_init_done") -> None:
+        if self._startup_managers_ready_logged:
+            return
+
+        self._startup_managers_ready_logged = True
+        managers_ready_ms = _startup_elapsed_ms()
+        self._startup_managers_ready_ms = managers_ready_ms
+
+        details = source
+        interactive_ms = self._startup_interactive_ms
+        if isinstance(interactive_ms, int):
+            delta_ms = max(0, managers_ready_ms - interactive_ms)
+            details = f"{source}, +{delta_ms}ms after Interactive"
+        elif isinstance(self._startup_ttff_ms, int):
+            delta_ms = max(0, managers_ready_ms - self._startup_ttff_ms)
+            details = f"{source}, +{delta_ms}ms after TTFF"
+
+        _log_startup_metric("ManagersReady", details)
+
+    def _mark_startup_post_init_done(self, source: str = "post_init_tasks") -> None:
+        if self._startup_post_init_done_logged:
+            return
+
+        self._startup_post_init_done_logged = True
+        post_init_ms = _startup_elapsed_ms()
+        self._startup_post_init_done_ms = post_init_ms
+
+        details = source
+        managers_ready_ms = self._startup_managers_ready_ms
+        if isinstance(managers_ready_ms, int):
+            delta_ms = max(0, post_init_ms - managers_ready_ms)
+            details = f"{source}, +{delta_ms}ms after ManagersReady"
+        elif isinstance(self._startup_interactive_ms, int):
+            delta_ms = max(0, post_init_ms - self._startup_interactive_ms)
+            details = f"{source}, +{delta_ms}ms after Interactive"
+
+        _log_startup_metric("PostInitDone", details)
 
     def _create_startup_bootstrap_overlay(self) -> None:
         """Лёгкий placeholder поверх main_widget до построения реального UI."""
@@ -1910,6 +1982,12 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
     def showEvent(self, event):
         """Устанавливаем геометрию декораций при первом показе окна"""
         super().showEvent(event)
+
+        if not self._startup_ttff_logged:
+            self._startup_ttff_logged = True
+            self._startup_ttff_ms = _startup_elapsed_ms()
+            _log_startup_metric("TTFF", "first showEvent")
+
         self._update_startup_bootstrap_geometry()
         self._update_startup_container_overlay_geometry()
         self._update_garland_geometry()
@@ -2056,7 +2134,6 @@ def main():
 
     # ---------------- Проверка single instance ----------------
     from startup.single_instance import create_mutex, release_mutex
-    from startup.kaspersky import _check_kaspersky_antivirus, show_kaspersky_warning
     from startup.ipc_manager import IPCManager
     
     mutex_handle, already_running = create_mutex("ZapretSingleInstance")
@@ -2070,33 +2147,6 @@ def main():
         sys.exit(0)
     
     atexit.register(lambda: release_mutex(mutex_handle))
-
-    # ✅ Проверки перед созданием QApplication (не блокируют запуск)
-    from startup.check_start import check_goodbyedpi, check_mitmproxy
-    from startup.check_start import _native_message
-    
-    critical_warnings = []
-    
-    # Проверка GoodbyeDPI: пытаемся удалить службы, но не блокируем запуск
-    has_gdpi, gdpi_msg = check_goodbyedpi()
-    if has_gdpi:
-        log("WARNING: GoodbyeDPI обнаружен - продолжим работу после предупреждения", "⚠ WARNING")
-        if gdpi_msg:
-            critical_warnings.append(gdpi_msg)
-    
-    # Проверка mitmproxy: только предупреждаем
-    has_mitmproxy, mitmproxy_msg = check_mitmproxy()
-    if has_mitmproxy:
-        log("WARNING: mitmproxy обнаружен - продолжим работу после предупреждения", "⚠ WARNING")
-        if mitmproxy_msg:
-            critical_warnings.append(mitmproxy_msg)
-    
-    if critical_warnings:
-        _native_message(
-            "Предупреждение",
-            "\n\n".join(critical_warnings),
-            0x30  # MB_ICONWARNING
-        )
 
     # ---------------- Создаём QApplication ----------------
     try:
@@ -2135,21 +2185,6 @@ def main():
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
 
-    # ---------- проверяем Касперского + показываем диалог -----------------
-    try:
-        kaspersky_detected = _check_kaspersky_antivirus(None)
-    except Exception:
-        kaspersky_detected = False
-
-    if kaspersky_detected:
-        log("Обнаружен антивирус Kaspersky", "⚠️ KASPERSKY")
-        try:
-            from startup.kaspersky import show_kaspersky_warning
-            show_kaspersky_warning()
-        except Exception as e:
-            log(f"Не удалось показать предупреждение Kaspersky: {e}",
-                "⚠️ KASPERSKY")
-
     # СОЗДАЁМ ОКНО
     window = LupiDPIApp(start_in_tray=start_in_tray)
 
@@ -2175,17 +2210,28 @@ def main():
 
     _startup_bridge = _StartupChecksBridge()
 
+    def _native_message_safe(title: str, message: str, flags: int) -> int:
+        try:
+            from startup.check_start import _native_message
+            return int(_native_message(title, message, flags))
+        except Exception:
+            try:
+                return int(ctypes.windll.user32.MessageBoxW(None, str(message), str(title), int(flags)))
+            except Exception:
+                return 0
+
     def _on_startup_checks_finished(payload: dict) -> None:
         try:
             fatal_error = payload.get("fatal_error")
             warnings = payload.get("warnings") or []
             ok = bool(payload.get("ok", True))
+            kaspersky_detected = bool(payload.get("kaspersky_detected", False))
 
             if fatal_error:
                 try:
                     QMessageBox.critical(window, "Ошибка", str(fatal_error))
                 except Exception:
-                    _native_message("Ошибка", str(fatal_error), 0x10)
+                    _native_message_safe("Ошибка", str(fatal_error), 0x10)
                 QApplication.quit()
                 return
 
@@ -2201,8 +2247,16 @@ def main():
                     )
                     ok = (result == QMessageBox.StandardButton.Yes)
                 except Exception:
-                    btn = _native_message("Предупреждение", full_message, 0x34)  # MB_ICONWARNING | MB_YESNO
+                    btn = _native_message_safe("Предупреждение", full_message, 0x34)  # MB_ICONWARNING | MB_YESNO
                     ok = (btn == 6)  # IDYES
+
+            if kaspersky_detected:
+                log("Обнаружен антивирус Kaspersky", "⚠️ KASPERSKY")
+                try:
+                    from startup.kaspersky import show_kaspersky_warning
+                    show_kaspersky_warning(window)
+                except Exception as e:
+                    log(f"Не удалось показать предупреждение Kaspersky: {e}", "⚠️ KASPERSKY")
 
             if not ok and not start_in_tray:
                 log("Некритические проверки не пройдены, продолжаем работу после предупреждения", "⚠ WARNING")
@@ -2216,7 +2270,7 @@ def main():
     def _startup_checks_worker():
         try:
             from startup.bfe_util import preload_service_status, ensure_bfe_running, cleanup as bfe_cleanup
-            from startup.check_start import collect_startup_warnings
+            from startup.check_start import collect_startup_warnings, check_goodbyedpi, check_mitmproxy
 
             preload_service_status("BFE")
 
@@ -2224,6 +2278,23 @@ def main():
                 log("BFE не запущен, продолжаем работу после предупреждения", "⚠ WARNING")
 
             can_continue, warnings, fatal_error = collect_startup_warnings()
+            warnings = list(warnings or [])
+
+            # Нефатальные, но потенциально долгие проверки — только в фоне после показа окна.
+            has_gdpi, gdpi_msg = check_goodbyedpi()
+            if has_gdpi and gdpi_msg:
+                warnings.append(gdpi_msg)
+
+            has_mitmproxy, mitmproxy_msg = check_mitmproxy()
+            if has_mitmproxy and mitmproxy_msg:
+                warnings.append(mitmproxy_msg)
+
+            kaspersky_detected = False
+            try:
+                from startup.kaspersky import _check_kaspersky_antivirus
+                kaspersky_detected = bool(_check_kaspersky_antivirus(None))
+            except Exception:
+                kaspersky_detected = False
 
             if is_verbose_logging_enabled():
                 from startup.admin_check_debug import debug_admin_status
@@ -2240,6 +2311,7 @@ def main():
                     "ok": bool(can_continue),
                     "warnings": warnings,
                     "fatal_error": fatal_error,
+                    "kaspersky_detected": kaspersky_detected,
                 }
             )
         except Exception as e:

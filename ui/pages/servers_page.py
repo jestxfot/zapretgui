@@ -14,7 +14,7 @@ from datetime import datetime
 
 from .base_page import BasePage
 from ui.sidebar import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_selected_surface_gradient_qss
 from ui.theme_semantic import get_semantic_palette
 from config import APP_VERSION, CHANNEL
 from log import log
@@ -1019,7 +1019,7 @@ class ChangelogCard(QFrame):
             self._tokens = get_theme_tokens(theme_name)
             tokens = self._tokens
             semantic = get_semantic_palette(tokens.theme_name)
-            card_bg = get_tinted_surface_gradient_qss(tokens.accent_soft_bg, theme_name=tokens.theme_name)
+            card_bg = get_selected_surface_gradient_qss(tokens.theme_name)
 
             self.setStyleSheet(
                 "QFrame#changelogCard {"

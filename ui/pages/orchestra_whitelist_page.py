@@ -14,7 +14,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.sidebar import SettingsCard
 from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_card_disabled_gradient_qss
 from log import log
 
 
@@ -118,10 +118,7 @@ class WhitelistDomainRow(QFrame):
             tokens = self._tokens or get_theme_tokens("Темная синяя")
 
             if self.is_default:
-                disabled_bg = get_tinted_surface_gradient_qss(
-                    tokens.surface_bg_disabled,
-                    theme_name=tokens.theme_name,
-                )
+                disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
                 qss = f"""
                     WhitelistDomainRow {{
                         background: {disabled_bg};

@@ -16,7 +16,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.sidebar import ActionButton, SettingsCard
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss
+from ui.theme import get_theme_tokens, get_card_gradient_qss, get_selected_surface_gradient_qss
 from log import log
 
 
@@ -628,13 +628,9 @@ class PresetCard(QFrame):
 
         if self._is_active:
             if self._hovered:
-                bg = get_tinted_surface_gradient_qss(
-                    tokens.accent_soft_bg_hover,
-                    theme_name=tokens.theme_name,
-                    hover=True,
-                )
+                bg = get_selected_surface_gradient_qss(tokens.theme_name, hover=True)
             else:
-                bg = get_tinted_surface_gradient_qss(tokens.accent_soft_bg, theme_name=tokens.theme_name)
+                bg = get_selected_surface_gradient_qss(tokens.theme_name)
             border = f"1px solid {tokens.accent_hex}"
         else:
             bg = get_card_gradient_qss(tokens.theme_name, hover=self._hovered)

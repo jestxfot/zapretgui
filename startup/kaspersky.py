@@ -1,11 +1,11 @@
 # startup/kaspersky.py
 from __future__ import annotations
-import os, sys, ctypes, subprocess
-from PyQt6.QtCore import QUrl
-from PyQt6.QtGui  import QDesktopServices
-from utils import run_hidden, get_system_exe
+import os
+import sys
 
 def _open_url(url: str):
+    from PyQt6.QtCore import QUrl
+    from PyQt6.QtGui import QDesktopServices
     QDesktopServices.openUrl(QUrl(url))
 
 def _check_kaspersky_antivirus(self):
