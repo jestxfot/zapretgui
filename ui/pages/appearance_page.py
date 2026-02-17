@@ -13,7 +13,7 @@ from PyQt6.QtGui import QWheelEvent, QPainter, QColor
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 
 
@@ -467,7 +467,7 @@ class AppearancePage(BasePage):
         premium_layout.addLayout(premium_themes_layout)
         
         # Кнопка подписки
-        from ui.sidebar import ActionButton
+        from ui.compat_widgets import ActionButton
         sub_btn_layout = QHBoxLayout()
         
         self.subscription_btn = ActionButton("Управление подпиской", "fa5s.star")

@@ -2731,13 +2731,16 @@ class ThemeBuildWorker(QObject):
                     log(f"⚠ Ошибка чтения кеша: {e}", "WARNING")
                     base_css = None
             
-            # 2. Если кеша нет - генерируем через qt_material и оптимизируем
+            # 2. Если кеша нет - генерируем через qt_material (legacy) или пустой CSS
             if not base_css:
-                import qt_material
-                self.progress.emit("Генерация CSS темы...")
-                log(f"🎨 ThemeBuildWorker: генерация CSS для {self.theme_file}", "DEBUG")
-                
-                base_css = qt_material.build_stylesheet(theme=self.theme_file)
+                try:
+                    import qt_material
+                    self.progress.emit("Генерация CSS темы...")
+                    log(f"🎨 ThemeBuildWorker: генерация CSS для {self.theme_file}", "DEBUG")
+                    base_css = qt_material.build_stylesheet(theme=self.theme_file)
+                except ImportError:
+                    log("🎨 qt_material не установлен, используем qfluentwidgets для стилизации", "DEBUG")
+                    base_css = ""  # qfluentwidgets handles styling
                 original_size = len(base_css)
                 
                 # === ОПТИМИЗАЦИЯ CSS ===

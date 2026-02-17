@@ -8,26 +8,29 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgress
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, SettingsRow, ActionButton, StatusIndicator, PulsingDot
+from ui.sidebar import SettingsRow, PulsingDot
+from ui.compat_widgets import SettingsCard, ActionButton, StatusIndicator
 from ui.pages.strategies_page_base import ResetActionButton
-from ui.theme import get_theme_tokens
 
-
-def _accent_fg_for_tokens(tokens) -> str:
-    try:
-        r, g, b = tokens.accent_rgb
-        yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
-    except Exception:
-        return "rgba(18, 18, 18, 0.90)"
+try:
+    from qfluentwidgets import themeColor, isDarkTheme
+    HAS_FLUENT = True
+except ImportError:
+    HAS_FLUENT = False
 
 
 def _build_progress_style() -> str:
-    tokens = get_theme_tokens()
-    accent = tokens.accent_hex
+    accent = "#60cdff"
+    bg = "rgba(255,255,255,0.06)"
+    if HAS_FLUENT:
+        try:
+            accent = themeColor().name()
+            bg = "rgba(255,255,255,0.04)" if isDarkTheme() else "rgba(0,0,0,0.04)"
+        except Exception:
+            pass
     return f"""
     QProgressBar {{
-        background-color: {tokens.surface_bg};
+        background-color: {bg};
         border: none;
         border-radius: 2px;
         height: 4px;
@@ -64,30 +67,21 @@ class _CertificateInstallWorker(QObject):
 
 class BigActionButton(ActionButton):
     """Большая кнопка действия"""
-    
+
     def __init__(self, text: str, icon_name: str = None, accent: bool = False, parent=None):
         super().__init__(text, icon_name, accent, parent)
         self.setProperty("uiVariant", "big")
         self.setFixedHeight(48)
         self.setIconSize(QSize(20, 20))
-        try:
-            style = self.style()
-            if style is not None:
-                style.unpolish(self)
-                style.polish(self)
-        except Exception:
-            pass
 
     def _update_style(self):
-        super()._update_style()
+        """No-op: qfluentwidgets handles styling."""
+        pass
 
 
 class StopButton(BigActionButton):
     """Кнопка остановки (нейтральная)"""
-    
-    def _update_style(self):
-        # Keep StopButton visuals identical to the neutral BigActionButton.
-        super()._update_style()
+    pass
 
 
 class ControlPage(BasePage):
@@ -225,7 +219,8 @@ class ControlPage(BasePage):
             from ui.fluent_icons import fluent_pixmap
             self.strategy_icon.setPixmap(fluent_pixmap('fa5s.cog', 20))
         except:
-            self.strategy_icon.setPixmap(qta.icon('fa5s.cog', color=get_theme_tokens().accent_hex).pixmap(20, 20))
+            accent = themeColor().name() if HAS_FLUENT else "#60cdff"
+            self.strategy_icon.setPixmap(qta.icon('fa5s.cog', color=accent).pixmap(20, 20))
         self.strategy_icon.setFixedSize(24, 24)
         strategy_layout.addWidget(self.strategy_icon)
         

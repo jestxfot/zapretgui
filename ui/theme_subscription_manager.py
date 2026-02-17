@@ -13,17 +13,16 @@ from ui.theme import get_theme_tokens
 def apply_initial_theme(app):
     """
     Применяет начальную тему при запуске приложения.
-    
+
     Args:
         app: Экземпляр QApplication
     """
     try:
-        import qt_material
-        qt_material.apply_stylesheet(app, 'dark_blue.xml')
-        log("Начальная тема применена", "INFO")
+        from qfluentwidgets import setTheme, Theme
+        setTheme(Theme.DARK)
+        log("Начальная тема применена (qfluentwidgets DARK)", "INFO")
     except Exception as e:
         log(f"Ошибка применения начальной темы: {e}", "❌ ERROR")
-        # Fallback - используем базовые стили Qt
         app.setStyleSheet("")
 
 
@@ -220,5 +219,5 @@ class ThemeSubscriptionManager:
         """Инициализирует theme_handler после создания theme_manager"""
         if not hasattr(self, 'theme_handler'):
             from ui.theme import ThemeHandler
-            self.theme_handler = ThemeHandler(self, target_widget=self.main_widget)
+            self.theme_handler = ThemeHandler(self, target_widget=self)
             log("ThemeHandler инициализирован", "DEBUG")

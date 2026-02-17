@@ -18,10 +18,15 @@ from PyQt6.QtGui import QFont
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, StatusIndicator, ActionButton
-from ui.theme import get_theme_tokens, get_card_gradient_qss
-from ui.theme_semantic import get_semantic_palette
+from ui.compat_widgets import SettingsCard, StatusIndicator, ActionButton
 from log import log
+
+try:
+    from qfluentwidgets import CardWidget, isDarkTheme, themeColor
+    HAS_FLUENT = True
+except ImportError:
+    HAS_FLUENT = False
+    CardWidget = QFrame
 
 
 class AutostartCheckWorker(QThread):
@@ -46,12 +51,19 @@ class AutostartCheckWorker(QThread):
 
 
 def _build_progress_style() -> str:
-    """Indeterminate progress bar style (theme-aware)."""
-    tokens = get_theme_tokens()
-    accent = tokens.accent_hex
+    """Indeterminate progress bar style."""
+    accent = "#60cdff"
+    bg = "rgba(255,255,255,0.06)"
+    if HAS_FLUENT:
+        try:
+            c = themeColor()
+            accent = c.name()
+            bg = "rgba(255,255,255,0.04)" if isDarkTheme() else "rgba(0,0,0,0.04)"
+        except Exception:
+            pass
     return f"""
     QProgressBar {{
-        background-color: {tokens.surface_bg};
+        background-color: {bg};
         border: none;
         border-radius: 2px;
         height: 4px;
@@ -71,132 +83,66 @@ def _build_progress_style() -> str:
     """
 
 
-class StatusCard(QFrame):
+def _accent_hex() -> str:
+    """Get current accent color hex."""
+    if HAS_FLUENT:
+        try:
+            return themeColor().name()
+        except Exception:
+            pass
+    return "#60cdff"
+
+
+class StatusCard(CardWidget if HAS_FLUENT else QFrame):
     """Большая карточка статуса на главной странице"""
 
-    clicked = pyqtSignal()  # Сигнал клика по карточке
+    clicked = pyqtSignal()
 
     def __init__(self, icon_name: str, title: str, parent=None):
         super().__init__(parent)
         self._icon_name = icon_name
         self._use_fluent_icon = False
-        self._applying_theme_styles = False
         self.setObjectName("statusCard")
         self.setMinimumHeight(120)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)  # Курсор "рука" при наведении
-        
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(8)
-        
-        # Верхняя строка: иконка + заголовок
+
+        # Top row: icon + title
         top_layout = QHBoxLayout()
         top_layout.setSpacing(12)
-        
-        # Иконка (объёмная с градиентом)
+
         self.icon_label = QLabel()
         try:
             from ui.fluent_icons import fluent_pixmap
             self.icon_label.setPixmap(fluent_pixmap(icon_name, 28))
             self._use_fluent_icon = True
-        except:
-            self.icon_label.setPixmap(qta.icon(icon_name, color=get_theme_tokens().accent_hex).pixmap(28, 28))
+        except Exception:
+            self.icon_label.setPixmap(qta.icon(icon_name, color=_accent_hex()).pixmap(28, 28))
         self.icon_label.setFixedSize(32, 32)
         top_layout.addWidget(self.icon_label)
-        
-        # Заголовок
+
         title_label = QLabel(title)
-        try:
-            title_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                font-weight: 500;
-            }
-        """)
+        title_label.setStyleSheet("QLabel { font-size: 12px; font-weight: 500; }")
         top_layout.addWidget(title_label)
         top_layout.addStretch()
-        
+
         layout.addLayout(top_layout)
-        
-        # Значение (большой текст)
-        self.value_label = QLabel("—")
-        try:
-            self.value_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.value_label.setStyleSheet("""
-            QLabel {
-                font-size: 18px;
-                font-weight: 600;
-            }
-        """)
+
+        # Value (large text)
+        self.value_label = QLabel("\u2014")
+        self.value_label.setStyleSheet("QLabel { font-size: 18px; font-weight: 600; }")
         layout.addWidget(self.value_label)
-        
-        # Дополнительная информация
+
+        # Additional info
         self.info_label = QLabel("")
-        try:
-            self.info_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.info_label.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
-            }
-        """)
+        self.info_label.setStyleSheet("QLabel { font-size: 11px; }")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
-        
+
         layout.addStretch()
-        
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            card_bg = get_card_gradient_qss(tokens.theme_name)
-            card_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
-            self.setStyleSheet(
-                f"""
-                QFrame#statusCard {{
-                    background: {card_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 8px;
-                }}
-                QFrame#statusCard:hover {{
-                    background: {card_bg_hover};
-                    border: 1px solid {tokens.surface_border_hover};
-                }}
-                """
-            )
-
-            if not bool(self._use_fluent_icon):
-                try:
-                    self.icon_label.setPixmap(
-                        qta.icon(self._icon_name, color=tokens.accent_hex).pixmap(28, 28)
-                    )
-                except Exception:
-                    pass
-        finally:
-            self._applying_theme_styles = False
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
-                    return super().changeEvent(event)
-                self._apply_theme()
-        except Exception:
-            pass
-        super().changeEvent(event)
         
     def set_value(self, value: str, info: str = ""):
         """Устанавливает текстовое значение"""
@@ -258,7 +204,7 @@ class StatusCard(QFrame):
                     pixmap = qta.icon(icon_name, color=icon_color).pixmap(20, 20)
                     icon_label.setPixmap(pixmap)
                 except:
-                    pixmap = qta.icon('fa5s.globe', color=get_theme_tokens().accent_hex).pixmap(20, 20)
+                    pixmap = qta.icon('fa5s.globe', color=_accent_hex()).pixmap(20, 20)
                     icon_label.setPixmap(pixmap)
                 icon_label.setFixedSize(22, 22)
                 icon_label.setToolTip(icon_name.split('.')[-1].replace('-', ' ').title())
@@ -276,18 +222,16 @@ class StatusCard(QFrame):
                     w.deleteLater()
             
             extra_label = QLabel(f"+{active_count - 9}")
-            tokens = get_theme_tokens()
             extra_label.setStyleSheet(
-                f"""
-                QLabel {{
-                    color: {tokens.fg_muted};
+                """
+                QLabel {
                     font-size: 11px;
                     font-weight: 600;
                     padding: 2px 6px;
-                    background: {tokens.surface_bg};
-                    border: 1px solid {tokens.surface_border};
+                    background: rgba(255,255,255,0.06);
+                    border: 1px solid rgba(255,255,255,0.08);
                     border-radius: 8px;
-                }}
+                }
                 """
             )
             self.icons_layout.addWidget(extra_label)
@@ -297,16 +241,11 @@ class StatusCard(QFrame):
         
     def set_status_color(self, status: str):
         """Меняет цвет иконки по статусу"""
-        semantic = get_semantic_palette()
-        try:
-            neutral = get_theme_tokens().accent_hex
-        except Exception:
-            neutral = get_theme_tokens("Темная синяя").accent_hex
         colors = {
-            'running': semantic.success,
-            'stopped': semantic.error,
-            'warning': semantic.warning,
-            'neutral': neutral,
+            'running': '#4caf50',
+            'stopped': '#f44336',
+            'warning': '#ff9800',
+            'neutral': _accent_hex(),
         }
         color = colors.get(status, colors['neutral'])
         # Для простоты меняем только цвет value_label

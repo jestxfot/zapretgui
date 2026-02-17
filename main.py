@@ -91,14 +91,14 @@ def _preload_slow_modules():
     
     def _preload():
         try:
-            # Порядок важен! PyQt должен быть загружен до qt_material
+            # Порядок важен! PyQt должен быть загружен до qfluentwidgets
             import PyQt6.QtWidgets  # ~17ms
             import PyQt6.QtCore
             import PyQt6.QtGui
-            import jinja2            # ~1ms, но нужен qt_material
+            import jinja2            # ~1ms
             import requests          # ~99ms
             import qtawesome         # ~115ms (нужен после PyQt)
-            import qt_material       # ~90ms (нужен после PyQt)
+            import qfluentwidgets     # ~90ms (нужен после PyQt)
             import psutil            # ~10ms
             import json              # для config и API
             import winreg            # для реестра Windows
@@ -119,9 +119,11 @@ from PyQt6.QtCore    import QTimer, QEvent, Qt
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
 
 from ui.main_window import MainWindowUI
-from ui.custom_titlebar import CustomTitleBar, FramelessWindowMixin
-from ui.garland_widget import GarlandWidget
-from ui.snowflakes_widget import SnowflakesWidget
+from ui.fluent_app_window import ZapretFluentWindow
+
+# Garland/Snowflakes are deferred (premium decorations, can be re-added later)
+# from ui.garland_widget import GarlandWidget
+# from ui.snowflakes_widget import SnowflakesWidget
 
 from startup.admin_check import is_admin
 
@@ -198,8 +200,8 @@ if TYPE_CHECKING:
     from managers.subscription_manager import SubscriptionManager
     from managers.initialization_manager import InitializationManager
 
-class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindowMixin):
-    """Главное окно приложения с поддержкой тем и подписок"""
+class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
+    """Главное окно приложения — FluentWindow + навигация + подписки."""
 
     from ui.theme import ThemeHandler
     # ✅ ДОБАВЛЯЕМ TYPE HINTS для менеджеров
@@ -656,34 +658,32 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.set_status(f"Ошибка при установке стратегии: {str(e)}")
 
     def __init__(self, start_in_tray=False):
-        # ✅ Вызываем super().__init__() ОДИН раз - он инициализирует все базовые классы
+        # ZapretFluentWindow.__init__ handles: titlebar, icon, dark theme, min size
         super().__init__()
-        
-        # ✅ ИНИЦИАЛИЗИРУЕМ МЕТОД ЗАПУСКА ПРИ ПЕРВОМ ЗАПУСКЕ
+
         from strategy_menu import get_strategy_launch_method
         current_method = get_strategy_launch_method()
         log(f"Метод запуска стратегий: {current_method}", "INFO")
-        
+
         self.start_in_tray = start_in_tray
-        
-        # Флаги для защиты от двойных вызовов
+
+        # Flags
         self._dpi_autostart_initiated = False
         self._is_exiting = False
-        self._stop_dpi_on_exit = False  # True только для "Выход и остановить DPI"
+        self._stop_dpi_on_exit = False
         self._closing_completely = False
         self._deferred_init_started = False
 
-        # ✅ Современное сохранение/восстановление геометрии окна (debounce)
+        # Window geometry persistence (debounce)
         self._geometry_restore_in_progress = False
         self._geometry_persistence_enabled = False
         self._pending_restore_maximized = False
         self._applied_saved_maximize_state = False
-        self._last_normal_geometry = None  # (x, y, w, h) для normal state
+        self._last_normal_geometry = None
         self._last_persisted_geometry = None
         self._last_persisted_maximized = None
         self._pending_window_maximized_state = None
 
-        # Явная state-machine управления состояниями окна: normal/maximized/minimized
         self._window_fsm_active = False
         self._window_fsm_target_mode = None
         self._window_fsm_retry_count = 0
@@ -705,104 +705,17 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._window_maximized_persist_timer.setInterval(140)
         self._window_maximized_persist_timer.timeout.connect(self._persist_window_maximized_state_now)
 
-        # ✅ FRAMELESS WINDOW - убираем стандартную рамку
-        from PyQt6.QtCore import Qt
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.WindowSystemMenuHint |
-            Qt.WindowType.WindowMinMaxButtonsHint
-        )
-        # Включаем прозрачный фон для скругленных углов
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
-        # Устанавливаем основные параметры окна
+        # FluentWindow handles: frameless, titlebar, acrylic, resize, drag
+        # We only need to set title and restore geometry
         self.setWindowTitle(f"Zapret2 v{APP_VERSION} - загрузка...")
-
-        # ✅ УСТАНАВЛИВАЕМ ПРАВИЛЬНЫЙ МИНИМАЛЬНЫЙ РАЗМЕР ОКНА (компактный)
         self.setMinimumSize(MIN_WIDTH, 400)
-
-        # ✅ Восстанавливаем сохраненную геометрию окна (размер/позиция/развернутость)
         self.restore_window_geometry()
-                
-        # Устанавливаем иконку
-        icon_path = ICON_TEST_PATH if CHANNEL == "test" else ICON_PATH
-        self._app_icon = None
-        if os.path.exists(icon_path):
-            from PyQt6.QtGui import QIcon
-            self._app_icon = QIcon(icon_path)
-            self.setWindowIcon(self._app_icon)
-            QApplication.instance().setWindowIcon(self._app_icon)
-        
-        from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy
-        
-        # ✅ ГЛАВНЫЙ КОНТЕЙНЕР со скругленными углами и полупрозрачным фоном (Windows 11 style)
-        self.container = QFrame(self)
-        self.container.setObjectName("mainContainer")
-        # Временный стартовый цвет даём через overlay, чтобы он не "залипал" как inline-style
-        # и после старта полностью уступал управление цветами теме.
 
-        # Инициализируем функционал безрамочного resize
-        # Важно: делаем resize-оверлеи дочерними контейнера, иначе "прозрачные" оверлеи
-        # могут давать визуальные щели по краям (особенно при WA_TranslucentBackground).
-        self.init_frameless(resize_target=self.container)
-        
-        # Layout для контейнера
-        container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(0)
-        
-        # ✅ КАСТОМНЫЙ TITLEBAR
-        self.title_bar = CustomTitleBar(
-            self, 
-            title=f"Zapret2 v{APP_VERSION} - загрузка..."
-        )
-        if self._app_icon:
-            self.title_bar.set_icon(self._app_icon)
-        container_layout.addWidget(self.title_bar)
-        
-        # ✅ НОВОГОДНЯЯ ГИРЛЯНДА (Premium) - поверх всего контента
-        self.garland = GarlandWidget(self.container)
-        self.garland.setGeometry(0, 32, self.container.width(), self.garland.maximumHeight())  # Под title bar
-        self.garland.raise_()  # Поверх всех виджетов
-        
-        # ✅ СНЕЖИНКИ (Premium) - поверх всего окна (как "живой" фон)
-        # Важно: делаем оверлеем, иначе их может перекрывать viewport QScrollArea/QAbstractScrollArea.
-        self.snowflakes = SnowflakesWidget(self)
-        self.snowflakes.raise_()
-
-        # Обновляем зоны resize после создания titlebar,
-        # иначе верхний правый угол будет рассчитан без учёта кнопок
-        self._update_resize_handles()
-        
-        # Создаем QStackedWidget для переключения между экранами
-        self.stacked_widget = QStackedWidget()
-        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
-        container_layout.addWidget(self.stacked_widget)
-        
-        # Главный layout окна
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(self.container)
-        
-        # Создаем основной виджет (с родителем чтобы не было отдельного окна!)
-        self.main_widget = QWidget(self.stacked_widget)  # ✅ Родитель = stacked_widget
-        # ⚠️ НЕ применяем inline стили - они будут из темы QApplication
-        # ✅ Только минимальная ширина, высота динамическая
-        self.main_widget.setMinimumWidth(MIN_WIDTH)
-
-        # ✅ НЕ СОЗДАЕМ theme_handler ЗДЕСЬ - создадим его после theme_manager
-
-        # Добавляем main_widget в stack
-        self.main_index = self.stacked_widget.addWidget(self.main_widget)
-        self.stacked_widget.setCurrentIndex(self.main_index)
-        
-        # Splash удалён: окно показываем сразу (если не стартуем в трее)
+        # Splash / startup state
         self._css_applied_at_startup = False
         self._startup_theme = None
-        
         self.splash = None
-        
-        # Инициализируем атрибуты
+
         self.process_monitor = None
         self.first_start = True
         self.current_strategy_id = None
@@ -821,21 +734,16 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._startup_post_init_done_logged = False
         self._startup_post_init_done_ms = None
 
-        self._create_startup_bootstrap_overlay()
-        self._create_startup_container_overlay()
-
-        # Показываем главное окно сразу (если не стартуем в трее)
+        # Show window right away (FluentWindow handles rendering)
         if not self.start_in_tray and not self.isVisible():
             self.show()
-            log("Основное окно показано (каркас, init в фоне)", "DEBUG")
+            log("Основное окно показано (FluentWindow, init в фоне)", "DEBUG")
 
-        # Для обычного старта даем окну отрисовать первый кадр, и только потом
-        # запускаем тяжелую инициализацию. Для --tray оставляем моментальный старт.
         deferred_init_delay_ms = 0 if self.start_in_tray else 60
         QTimer.singleShot(deferred_init_delay_ms, self._deferred_init)
 
     def _deferred_init(self) -> None:
-        """Тяжёлая инициализация, запускается после первого показа окна."""
+        """Heavy initialization — runs after first frame is shown."""
         if self._deferred_init_started:
             return
         self._deferred_init_started = True
@@ -844,34 +752,21 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         _t_total = _time.perf_counter()
         log("⏱ Startup: deferred init started", "DEBUG")
 
-        # CSS из кеша (может быть тяжелым из-за импорта ui.theme)
-        self._set_startup_bootstrap_message("Применение темы...")
-        _t_css = _time.perf_counter()
-        try:
-            self._apply_cached_css_at_startup()
-        except Exception:
-            pass
-        log(f"⏱ Startup: cached CSS step {( _time.perf_counter() - _t_css ) * 1000:.0f}ms", "DEBUG")
-
-        # Теперь строим UI в main_widget (не в self)
-        self._set_startup_bootstrap_message("Построение интерфейса...")
+        # Build UI: create pages & register with FluentWindow navigation
         _t_build = _time.perf_counter()
         try:
-            self._build_main_ui()
-            self._clear_startup_bootstrap_overlay()
+            self.build_ui(WIDTH, HEIGHT)
         except Exception as e:
-            log(f"❌ Startup: build_main_ui failed: {e}", "ERROR")
+            log(f"Startup: build_ui failed: {e}", "ERROR")
             try:
                 import traceback
                 log(traceback.format_exc(), "DEBUG")
             except Exception:
                 pass
-            self._set_startup_bootstrap_message("Ошибка загрузки интерфейса")
             return
-        log(f"⏱ Startup: build_main_ui {( _time.perf_counter() - _t_build ) * 1000:.0f}ms", "DEBUG")
+        log(f"⏱ Startup: build_ui {(_time.perf_counter() - _t_build) * 1000:.0f}ms", "DEBUG")
 
-        # Создаем менеджеры
-        self._set_startup_bootstrap_message("Запуск служб...")
+        # Create managers
         _t_mgr = _time.perf_counter()
         from managers.initialization_manager import InitializationManager
         from managers.subscription_manager import SubscriptionManager
@@ -949,11 +844,15 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         _log_startup_metric("PostInitDone", details)
 
     def _create_startup_bootstrap_overlay(self) -> None:
-        """Лёгкий placeholder поверх main_widget до построения реального UI."""
+        """No-op: FluentWindow shows content directly."""
+        pass
+
+    def _create_startup_bootstrap_overlay_DISABLED(self) -> None:
+        """OLD: Лёгкий placeholder поверх main_widget до построения реального UI."""
         try:
             from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar, QSizePolicy
 
-            overlay = QFrame(self.main_widget)
+            overlay = QFrame(self)
             overlay.setObjectName("startupBootstrapOverlay")
             overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             overlay.setStyleSheet(
@@ -1066,14 +965,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             log(f"Не удалось создать bootstrap overlay: {e}", "DEBUG")
 
     def _update_startup_bootstrap_geometry(self) -> None:
-        overlay = getattr(self, "_startup_bootstrap_overlay", None)
-        if overlay is None:
-            return
-        try:
-            overlay.setGeometry(self.main_widget.rect())
-            overlay.raise_()
-        except Exception:
-            pass
+        pass
 
     def _set_startup_bootstrap_message(self, text: str) -> None:
         label = getattr(self, "_startup_bootstrap_hint_label", None)
@@ -1097,101 +989,21 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         self._startup_bootstrap_hint_label = None
 
     def _create_startup_container_overlay(self) -> None:
-        """Создаёт временный стартовый фон-контейнер (до полной отрисовки темы)."""
-        try:
-            from PyQt6.QtWidgets import QFrame
-
-            overlay = QFrame(self.container)
-            overlay.setObjectName("startupContainerOverlay")
-            overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            overlay.setStyleSheet(
-                """
-                QFrame#startupContainerOverlay {
-                    background-color: rgba(26, 32, 44, 246);
-                    border-radius: 10px;
-                    border: 1px solid rgba(92, 108, 132, 190);
-                }
-                """
-            )
-            overlay.setGeometry(self.container.rect())
-            overlay.lower()
-            overlay.show()
-            self._startup_container_overlay = overlay
-        except Exception as e:
-            self._startup_container_overlay = None
-            log(f"Не удалось создать startup overlay контейнера: {e}", "DEBUG")
+        """No-op: FluentWindow handles initial rendering."""
+        pass
 
     def _update_startup_container_overlay_geometry(self) -> None:
-        overlay = getattr(self, "_startup_container_overlay", None)
-        if overlay is None:
-            return
-        try:
-            overlay.setGeometry(self.container.rect())
-            overlay.lower()
-        except Exception:
-            pass
+        pass
 
     def _fade_out_startup_container_overlay(self) -> None:
-        """Плавно убирает стартовый цвет, чтобы проявилась реальная тема."""
-        if bool(getattr(self, "_startup_container_overlay_fading", False)):
-            return
-
-        overlay = getattr(self, "_startup_container_overlay", None)
-        if overlay is None:
-            return
-
-        self._startup_container_overlay_fading = True
-        try:
-            from PyQt6.QtWidgets import QGraphicsOpacityEffect
-            from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
-
-            effect = QGraphicsOpacityEffect(overlay)
-            effect.setOpacity(1.0)
-            overlay.setGraphicsEffect(effect)
-
-            anim = QPropertyAnimation(effect, b"opacity", self)
-            anim.setDuration(460)
-            anim.setStartValue(1.0)
-            anim.setEndValue(0.0)
-            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            self._startup_container_overlay_anim = anim
-
-            def _finish() -> None:
-                try:
-                    overlay.setGraphicsEffect(None)
-                except Exception:
-                    pass
-                try:
-                    effect.deleteLater()
-                except Exception:
-                    pass
-                try:
-                    overlay.hide()
-                    overlay.deleteLater()
-                except Exception:
-                    pass
-                self._startup_container_overlay = None
-                self._startup_container_overlay_anim = None
-                self._startup_container_overlay_fading = False
-
-            anim.finished.connect(_finish)
-            anim.start()
-        except Exception as e:
-            log(f"Не удалось выполнить fade startup overlay: {e}", "DEBUG")
-            try:
-                overlay.hide()
-                overlay.deleteLater()
-            except Exception:
-                pass
-            self._startup_container_overlay = None
-            self._startup_container_overlay_anim = None
-            self._startup_container_overlay_fading = False
+        """No-op: FluentWindow handles rendering."""
+        pass
 
     def init_theme_handler(self):
         """Инициализирует theme_handler после создания theme_manager"""
         if not hasattr(self, 'theme_handler'):
             from ui.theme import ThemeHandler
-            self.theme_handler = ThemeHandler(self, target_widget=self.main_widget)
+            self.theme_handler = ThemeHandler(self, target_widget=self)
             
             # Если theme_manager уже создан, устанавливаем его
             if hasattr(self, 'theme_manager'):
@@ -1200,61 +1012,18 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             log("ThemeHandler инициализирован", "DEBUG")
 
     def _apply_cached_css_at_startup(self) -> None:
-        """Быстро применяет CSS из кеша на старте (если доступен)."""
-        try:
-            from PyQt6.QtWidgets import QApplication
-            from PyQt6.QtGui import QPalette
-            import time as _time
-
-            app = QApplication.instance()
-            if app is None:
-                return
-
-            # Импортируем лениво: большой модуль, но нужен только на старте.
-            from ui.theme import THEMES, get_selected_theme, load_cached_css_sync
-
-            selected = get_selected_theme("Темная синяя") or "Темная синяя"
-            if selected not in THEMES:
-                selected = "Темная синяя"
-
-            # Премиум темы не применяем до проверки подписки (поведение ThemeManager).
-            info = THEMES.get(selected, {})
-            is_premium_theme = (
-                selected in ("РКН Тян", "РКН Тян 2", "Полностью черная")
-                or selected.startswith("AMOLED")
-                or info.get("amoled", False)
-                or info.get("pure_black", False)
-            )
-            theme_to_apply = "Темная синяя" if is_premium_theme else selected
-
-            css = load_cached_css_sync(theme_to_apply)
-            if not css:
-                return
-
-            t0 = _time.perf_counter()
-            app.setStyleSheet(css)
-            # Сбрасываем палитру чтобы стили гарантированно применились
-            self.setPalette(QPalette())
-            elapsed_ms = (_time.perf_counter() - t0) * 1000
-
-            self._css_applied_at_startup = True
-            self._startup_theme = theme_to_apply
-            self._startup_css_hash = hash(css)
-
-            log(f"🎨 Startup CSS applied from cache: {elapsed_ms:.0f}ms (theme='{theme_to_apply}')", "DEBUG")
-
-        except Exception as e:
-            log(f"Ошибка применения CSS из кеша при старте: {e}", "DEBUG")
+        """No-op: qfluentwidgets handles styling via setTheme(). Legacy qt_material CSS not needed."""
+        self._css_applied_at_startup = True
+        self._startup_theme = "dark"
+        self._startup_css_hash = 0
 
     # ═══════════════════════════════════════════════════════════════════════
     # FRAMELESS WINDOW: Обработчики событий мыши для изменения размера
     # ═══════════════════════════════════════════════════════════════════════
     
     def setWindowTitle(self, title: str):
-        """Переопределяем setWindowTitle для обновления кастомного titlebar"""
+        """Override to update FluentWindow's built-in titlebar."""
         super().setWindowTitle(title)
-        if hasattr(self, 'title_bar'):
-            self.title_bar.set_title(title)
 
     def _enable_geometry_persistence(self) -> None:
         if getattr(self, "_geometry_persistence_enabled", False):
@@ -1306,8 +1075,7 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         if hasattr(self, "_set_handles_visible"):
             self._set_handles_visible(not zoomed)
 
-        if hasattr(self, "title_bar") and hasattr(self.title_bar, "maximize_btn"):
-            self.title_bar.maximize_btn.set_maximized(zoomed)
+        # FluentWindow handles maximize button state automatically
 
     def _schedule_window_maximized_persist(self, is_zoomed: bool) -> None:
         """Debounce сохранения maximize-флага, чтобы убрать дребезг True/False/True."""
@@ -1696,47 +1464,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         super().mouseReleaseEvent(event)
 
     def _build_main_ui(self) -> None:
-        """Строит основной UI в main_widget"""
-        # Временно меняем self на main_widget для build_ui
-        old_layout = self.main_widget.layout()
-        if old_layout is not None:
-            while old_layout.count():
-                item = old_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            # ✅ Удаляем layout напрямую (НЕ через QWidget() - это создаёт призрачное окно!)
-            old_layout.deleteLater()
-        
-        # ⚠️ НЕ применяем inline стили к main_widget - они будут из темы QApplication
-        
-        # Вызываем build_ui но с модификацией - все виджеты создаются как дети main_widget
-        # Для этого временно подменяем методы
-        original_method = self.build_ui
-        
-        # Создаем модифицированный build_ui
-        def modified_build_ui(width, height):
-            # Сохраняем оригинальные методы
-            original_setStyleSheet = self.setStyleSheet
-            original_setMinimumSize = self.setMinimumSize
-            original_layout = self.layout
-            
-            # Временно перенаправляем на main_widget
-            self.setStyleSheet = self.main_widget.setStyleSheet
-            self.setMinimumSize = self.main_widget.setMinimumSize
-            self.layout = self.main_widget.layout
-            
-            # Вызываем оригинальный build_ui
-            original_method(width, height)
-            
-            # Восстанавливаем методы
-            self.setStyleSheet = original_setStyleSheet
-            self.setMinimumSize = original_setMinimumSize
-            self.layout = original_layout
-        
-        # Вызываем модифицированный метод
-        modified_build_ui(WIDTH, HEIGHT)
-
-    # Splash удалён: _on_splash_complete больше не используется
+        """Legacy stub — build_ui is now called directly in _deferred_init."""
+        self.build_ui(WIDTH, HEIGHT)
     
     def _apply_deferred_css_if_needed(self) -> None:
         """Применяет отложенный полный CSS (вызывается через 300ms после показа окна)"""
@@ -1861,40 +1590,20 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             self.set_status(f"Ошибка: {e}")
 
     def set_garland_enabled(self, enabled: bool) -> None:
-        """Включает или выключает новогоднюю гирлянду (Premium функция)"""
-        try:
-            if hasattr(self, 'garland'):
-                self._update_garland_geometry()
-                self.garland.set_enabled(enabled)
-                self.garland.raise_()  # Поднимаем поверх всего
-                log(f"Гирлянда {'включена' if enabled else 'выключена'}", "DEBUG")
-        except Exception as e:
-            log(f"Ошибка при изменении состояния гирлянды: {e}", "❌ ERROR")
-    
+        """No-op: garland not available in FluentWindow shell (can be re-added later)."""
+        pass
+
     def _update_garland_geometry(self) -> None:
-        """Обновляет позицию и размер гирлянды"""
-        if hasattr(self, 'garland') and hasattr(self, 'container'):
-            # Позиционируем под title bar на всю ширину контейнера
-            self.garland.setGeometry(0, 32, self.container.width(), self.garland.maximumHeight())
-            self.garland.raise_()
-    
+        """No-op: garland not available in FluentWindow shell."""
+        pass
+
     def set_snowflakes_enabled(self, enabled: bool) -> None:
-        """Включает или выключает снежинки (Premium функция)"""
-        try:
-            if hasattr(self, 'snowflakes'):
-                self._update_snowflakes_geometry()
-                self.snowflakes.set_enabled(enabled)
-                self.snowflakes.raise_()  # Оверлей поверх контента
-                log(f"Снежинки {'включены' if enabled else 'выключены'}", "DEBUG")
-        except Exception as e:
-            log(f"Ошибка при изменении состояния снежинок: {e}", "❌ ERROR")
-    
+        """No-op: snowflakes not available in FluentWindow shell (can be re-added later)."""
+        pass
+
     def _update_snowflakes_geometry(self) -> None:
-        """Обновляет позицию и размер снежинок"""
-        if hasattr(self, 'snowflakes'):
-            # Покрываем всё окно полностью
-            self.snowflakes.setGeometry(0, 0, self.width(), self.height())
-            self.snowflakes.raise_()
+        """No-op: snowflakes not available in FluentWindow shell."""
+        pass
 
     def set_blur_effect_enabled(self, enabled: bool) -> None:
         """Включает или выключает эффект размытия окна (Acrylic/Mica)"""
@@ -1934,69 +1643,22 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
             log(f"❌ Ошибка при установке прозрачности окна: {e}", "ERROR")
 
     def _update_container_opacity(self, blur_enabled: bool) -> None:
-        """Обновляет прозрачность контейнера в зависимости от состояния blur"""
-        try:
-            if not hasattr(self, 'container'):
-                return
-
-            # Определяем непрозрачность: меньше для blur, полностью непрозрачно без него
-            opacity = 180 if blur_enabled else 255
-
-            # Получаем текущие цвета темы
-            from ui.theme import ThemeManager
-            theme_manager = ThemeManager.instance()
-            if theme_manager and hasattr(theme_manager, '_current_theme'):
-                theme_name = theme_manager._current_theme
-                theme_config = theme_manager._themes.get(theme_name, {})
-                theme_bg = theme_config.get('theme_bg', '30, 30, 30')
-                border_color = "rgba(80, 80, 80, 200)" if 'Светлая' not in theme_name else "rgba(200, 200, 200, 220)"
-            else:
-                theme_bg = '30, 30, 30'
-                border_color = "rgba(80, 80, 80, 200)"
-
-            self.container.setStyleSheet(f"""
-                QFrame#mainContainer {{
-                    background-color: rgba({theme_bg}, {opacity});
-                    border-radius: 10px;
-                    border: 1px solid {border_color};
-                }}
-            """)
-            log(f"Контейнер обновлён: opacity={opacity}", "DEBUG")
-        except Exception as e:
-            log(f"Ошибка обновления контейнера: {e}", "WARNING")
+        """No-op: FluentWindow handles container styling."""
+        pass
 
     def resizeEvent(self, event):
-        """Обновляем декорации при изменении размера окна"""
+        """Обновляем геометрию при изменении размера окна"""
         super().resizeEvent(event)
-        try:
-            if hasattr(self, "_update_resize_handles"):
-                self._update_resize_handles()
-        except Exception:
-            pass
-        self._update_startup_bootstrap_geometry()
-        self._update_startup_container_overlay_geometry()
-        self._update_garland_geometry()
-        self._update_snowflakes_geometry()
         self._on_window_geometry_changed()
     
     def showEvent(self, event):
-        """Устанавливаем геометрию декораций при первом показе окна"""
+        """Первый показ окна"""
         super().showEvent(event)
 
         if not self._startup_ttff_logged:
             self._startup_ttff_logged = True
             self._startup_ttff_ms = _startup_elapsed_ms()
             _log_startup_metric("TTFF", "first showEvent")
-
-        self._update_startup_bootstrap_geometry()
-        self._update_startup_container_overlay_geometry()
-        self._update_garland_geometry()
-        self._update_snowflakes_geometry()
-
-        # Отключаем системное скругление углов на Windows 11.
-        # Импорт ui.theme может быть тяжёлым, поэтому откладываем его,
-        # чтобы первый кадр окна отрисовался без задержек.
-        QTimer.singleShot(150, self._disable_win11_rounding_if_needed)
 
         # Применяем сохранённое maximized состояние при первом показе
         self._apply_saved_maximized_state_if_needed()
@@ -2005,12 +1667,8 @@ class LupiDPIApp(QWidget, MainWindowUI, ThemeSubscriptionManager, FramelessWindo
         QTimer.singleShot(350, self._enable_geometry_persistence)
 
     def _disable_win11_rounding_if_needed(self) -> None:
-        try:
-            from ui.theme import BlurEffect
-            hwnd = int(self.winId())
-            BlurEffect.disable_window_rounding(hwnd)
-        except Exception:
-            pass
+        """No-op: FluentWindow handles window rounding."""
+        pass
 
     def _init_garland_from_registry(self) -> None:
         """Загружает состояние гирлянды и снежинок из реестра при старте"""

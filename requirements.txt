@@ -76,5 +76,5 @@ python-telegram
 python-telegram-bot
 qtawesome
 pytz
-qt_material
+PyQt6-Fluent-Widgets
 wmi

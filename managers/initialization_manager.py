@@ -513,7 +513,7 @@ class InitializationManager:
             )
             
             # Handler и привязка
-            self.app.theme_handler = ThemeHandler(self.app, target_widget=self.app.main_widget)
+            self.app.theme_handler = ThemeHandler(self.app, target_widget=self.app)
             self.app.theme_handler.set_theme_manager(self.app.theme_manager)
             self.app.theme_handler.update_available_themes()
             

@@ -8,7 +8,7 @@ from PyQt6.QtGui import QPainter, QColor, QPainterPath, QFont
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss, to_qcolor
 from log import log
 
