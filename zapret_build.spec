@@ -80,11 +80,19 @@ a = Analysis(
         'startup.admin_check',
         'startup.single_instance',
         'startup.kaspersky',
-        'startup.ipc_manager',
         'startup.check_start',
         'startup.bfe_util',
         'startup.remove_terminal',
         'startup.admin_check_debug',
+        'startup.entry',
+        'startup.args',
+        'startup.preflight',
+        'startup.guards',
+        'startup.updater',
+        'startup.qt_runtime',
+        'startup.window',
+        'startup.profiler',
+        'startup.exit_codes',
         'startup.certificate_installer',  # ✅ Автоустановка сертификата
         
         # Windows API
