@@ -1,26 +1,74 @@
 # ui/compat_widgets.py
 """
-Compatibility shim: re-exports old custom widgets or their qfluentwidgets replacements.
-Pages that import SettingsCard, ActionButton, StatusIndicator from ui.sidebar
-can gradually switch to importing from here instead.
+Compatibility widgets: re-exports old custom widgets or their qfluentwidgets replacements.
+All pages should import SettingsCard, ActionButton, StatusIndicator, SettingsRow, PulsingDot
+from here.
+
+New in this version:
+  - PrimaryActionButton  — proper PrimaryPushButton-based accent button
+  - Re-exports: SwitchButton, LineEdit, ComboBox, CheckBox, IndeterminateProgressBar
+  - InfoBarHelper        — one-liner InfoBar.success/warning/error/info
 """
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QEvent, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QSizePolicy, QPushButton,
 )
-from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtGui import QIcon, QFont, QColor, QPainter
 
 try:
     from qfluentwidgets import (
         CardWidget, SimpleCardWidget, PrimaryPushButton, PushButton,
         TransparentPushButton, BodyLabel, StrongBodyLabel, CaptionLabel,
         SubtitleLabel, TitleLabel, IndeterminateProgressBar, FluentIcon,
-        ProgressBar, InfoBar, SwitchButton,
+        ProgressBar, InfoBar, InfoBarPosition, SwitchButton, isDarkTheme, themeColor,
+        LineEdit, ComboBox, CheckBox,
+        ToolTipFilter, ToolTipPosition,
     )
     HAS_FLUENT = True
 except ImportError:
     HAS_FLUENT = False
+    ToolTipFilter = None    # type: ignore[assignment,misc]
+    ToolTipPosition = None  # type: ignore[assignment,misc]
+
+
+# ---------------------------------------------------------------------------
+# Re-export native qfluentwidgets inputs so pages can import from one place
+# ---------------------------------------------------------------------------
+if not HAS_FLUENT:
+    # Fallbacks when qfluentwidgets is not installed
+    from PyQt6.QtWidgets import QLineEdit as LineEdit       # type: ignore[assignment]
+    from PyQt6.QtWidgets import QComboBox as ComboBox       # type: ignore[assignment]
+    from PyQt6.QtWidgets import QCheckBox as CheckBox       # type: ignore[assignment]
+    SwitchButton = None  # type: ignore[assignment,misc]
+
+
+# ---------------------------------------------------------------------------
+# set_tooltip — installs qfluentwidgets ToolTipFilter + sets tooltip text
+# ---------------------------------------------------------------------------
+
+def set_tooltip(widget, text: str, *, position=None, delay: int = 300) -> None:
+    """Set a Fluent-styled tooltip on *widget*.
+
+    Installs ``ToolTipFilter`` exactly once per widget (safe to call multiple
+    times — subsequent calls only update the text). Falls back to the native
+    Qt tooltip when qfluentwidgets is not available.
+
+    Args:
+        widget:   Any QWidget.
+        text:     Tooltip text (empty string hides the tooltip).
+        position: ``ToolTipPosition`` value; defaults to ``TOP``.
+        delay:    Hover-to-show delay in milliseconds (default 300).
+    """
+    widget.setToolTip(text)
+    if ToolTipFilter is None:
+        return
+    # Install only once — skip if already done for this widget.
+    if getattr(widget, "_fluent_tooltip_filter", None) is None:
+        pos = position if position is not None else ToolTipPosition.TOP
+        f = ToolTipFilter(widget, showDelay=delay, position=pos)
+        widget.installEventFilter(f)
+        widget._fluent_tooltip_filter = f  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +81,7 @@ class SettingsCard(CardWidget if HAS_FLUENT else QFrame):
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("settingsCard")
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(16, 16, 16, 16)
@@ -53,89 +101,424 @@ class SettingsCard(CardWidget if HAS_FLUENT else QFrame):
 
 
 # ---------------------------------------------------------------------------
-# ActionButton — wraps PrimaryPushButton / PushButton
+# ActionButton — non-accent PushButton (use PrimaryActionButton for accent)
 # ---------------------------------------------------------------------------
 
-class ActionButton(PrimaryPushButton if HAS_FLUENT else QPushButton):
-    """Action button matching the old ActionButton(text, icon_name, accent) API."""
+class ActionButton(PushButton if HAS_FLUENT else QPushButton):
+    """Non-accent action button using qfluentwidgets PushButton.
+
+    For accent (primary) buttons, use PrimaryActionButton instead.
+    Note: PushButton.__init__ takes (parent=None) only — text is set via setText().
+    Subclasses (StopButton etc.) rely on this being a real class.
+    """
 
     def __init__(self, text: str, icon_name: str | None = None, accent: bool = False, parent=None):
-        if HAS_FLUENT:
-            if accent:
-                PrimaryPushButton.__init__(self, text, parent)
-            else:
-                # Fall back to regular PushButton for non-accent
-                PushButton.__init__(self, text, parent)
+        super().__init__(parent)
+        self.setText(text)
+        self.accent = accent
+        self._icon_name = icon_name
+        self.setFixedHeight(32)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        if icon_name:
+            self.setIconSize(QSize(16, 16))
+            try:
+                import qtawesome as qta
+                from qfluentwidgets import isDarkTheme as _idt
+                _icon_color = "#cccccc" if _idt() else "#555555"
+                self.setIcon(qta.icon(icon_name, color=_icon_color))
+            except Exception:
+                pass
+
+    def _update_style(self):
+        """Update icon tint when theme changes."""
+        if self._icon_name:
+            try:
+                import qtawesome as qta
+                from qfluentwidgets import isDarkTheme as _idt
+                _color = "#cccccc" if _idt() else "#555555"
+                self.setIcon(qta.icon(self._icon_name, color=_color))
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# RefreshButton — ActionButton with WinUI-style spinning animation
+# ---------------------------------------------------------------------------
+
+class RefreshButton(ActionButton):
+    """Refresh / reload button with WinUI-style icon spin during loading.
+
+    Usage:
+        btn = RefreshButton()          # default "Обновить" + sync icon
+        btn = RefreshButton("Обновить статус")
+        btn.set_loading(True)          # start spin, disable button
+        btn.set_loading(False)         # stop spin, re-enable button
+    """
+
+    def __init__(self, text: str = "Обновить", icon_name: str = "fa5s.sync-alt", parent=None):
+        super().__init__(text, icon_name, parent=parent)
+        self._loading = False
+        self._spin_angle = 0.0
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(40)  # ~25 fps
+        self._spin_timer.timeout.connect(self._spin_tick)
+
+    def set_loading(self, loading: bool) -> None:
+        """Start or stop the spinning loading animation."""
+        if self._loading == loading:
+            return
+        self._loading = loading
+        self.setEnabled(not loading)
+        if loading:
+            self._spin_angle = 0.0
+            self._spin_timer.start()
         else:
-            super().__init__(text, parent)
+            self._spin_timer.stop()
+            self._set_icon_at(0.0)
 
-        self.accent = accent
-        self._icon_name = icon_name
-        self.setFixedHeight(32)
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+    def _spin_tick(self) -> None:
+        self._spin_angle = (self._spin_angle + 12) % 360  # ~1 rotation/sec
+        self._set_icon_at(self._spin_angle)
 
-        # Try to set qtawesome icon if available
-        if icon_name:
-            self.setIconSize(QSize(16, 16))
-            try:
-                import qtawesome as qta
-                self.setIcon(qta.icon(icon_name, color="#ffffff" if accent else "#cccccc"))
-            except Exception:
-                pass
+    def _set_icon_at(self, angle: float) -> None:
+        if not self._icon_name:
+            return
+        try:
+            import qtawesome as qta
+            from qfluentwidgets import isDarkTheme as _idt
+            color = "#cccccc" if _idt() else "#555555"
+            self.setIcon(qta.icon(self._icon_name, color=color, rotated=angle))
+        except Exception:
+            self._spin_timer.stop()
 
-
-# Re-create ActionButton properly to handle accent=False case
-class ActionButton(QPushButton):
-    """Action button compatible with the old API. Uses Fluent styling."""
-
-    def __init__(self, text: str, icon_name: str | None = None, accent: bool = False, parent=None):
-        super().__init__(text, parent)
-        self.accent = accent
-        self._icon_name = icon_name
-        self.setFixedHeight(32)
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        if icon_name:
-            self.setIconSize(QSize(16, 16))
-            try:
-                import qtawesome as qta
-                self.setIcon(qta.icon(icon_name, color="#ffffff" if accent else "#cccccc"))
-            except Exception:
-                pass
-
-        if HAS_FLUENT:
-            # Apply fluent styling via property
-            self.setProperty("accent", accent)
+    def _update_style(self) -> None:
+        """Update icon tint when theme changes (only when not spinning)."""
+        if not self._loading:
+            self._set_icon_at(0.0)
 
 
 # ---------------------------------------------------------------------------
-# StatusIndicator — simple dot + label
+# PrimaryActionButton — accent PrimaryPushButton (start/confirm actions)
+# ---------------------------------------------------------------------------
+
+class PrimaryActionButton(PrimaryPushButton if HAS_FLUENT else QPushButton):
+    """Accent action button using qfluentwidgets PrimaryPushButton.
+
+    Use this for primary / confirm actions (e.g. «Запустить», «Применить»).
+    PrimaryPushButton.__init__ takes (parent=None) only — text is set via setText().
+    """
+
+    def __init__(self, text: str, icon_name: str | None = None, parent=None):
+        super().__init__(parent)
+        self.setText(text)
+        self._icon_name = icon_name
+        self.setFixedHeight(32)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        if icon_name:
+            self.setIconSize(QSize(16, 16))
+            try:
+                import qtawesome as qta
+                self.setIcon(qta.icon(icon_name, color="#ffffff"))
+            except Exception:
+                pass
+
+    def _update_style(self):
+        """No-op: qfluentwidgets handles styling."""
+        pass
+
+
+# ---------------------------------------------------------------------------
+# SettingsRow — icon + title/description left, control right
+# ---------------------------------------------------------------------------
+
+class SettingsRow(QWidget):
+    """Settings row (icon + text on the left, control widget on the right)."""
+
+    def __init__(self, icon_name: str, title: str, description: str = "", parent=None):
+        super().__init__(parent)
+
+        self._icon_name = icon_name
+        self._icon_label = None
+        self._icon_update_scheduled = False
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(12)
+
+        # Icon
+        icon_label = QLabel()
+        self._icon_label = icon_label
+        self._refresh_icon()
+        icon_label.setFixedSize(24, 24)
+        layout.addWidget(icon_label)
+
+        # Text
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+
+        if HAS_FLUENT:
+            title_label = BodyLabel(title)
+        else:
+            title_label = QLabel(title)
+            title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
+        text_layout.addWidget(title_label)
+
+        if description:
+            if HAS_FLUENT:
+                desc_label = CaptionLabel(description)
+            else:
+                desc_label = QLabel(description)
+                desc_label.setStyleSheet("font-size: 11px;")
+            desc_label.setWordWrap(True)
+            text_layout.addWidget(desc_label)
+
+        layout.addLayout(text_layout, 1)
+
+        # Control container (populated externally via set_control)
+        self.control_container = QHBoxLayout()
+        self.control_container.setSpacing(8)
+        layout.addLayout(self.control_container)
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if not self._icon_update_scheduled:
+                    self._icon_update_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._icon_update_scheduled = False
+        self._refresh_icon()
+
+    def _refresh_icon(self) -> None:
+        if self._icon_label is None:
+            return
+        try:
+            import qtawesome as qta
+            color = themeColor().name() if HAS_FLUENT else "#5fcffe"
+            self._icon_label.setPixmap(qta.icon(self._icon_name, color=color).pixmap(20, 20))
+        except Exception:
+            pass
+
+    def set_control(self, widget: QWidget):
+        """Adds a control widget on the right side."""
+        self.control_container.addWidget(widget)
+
+
+# ---------------------------------------------------------------------------
+# PulsingDot — animated status indicator dot with glow effect
+# ---------------------------------------------------------------------------
+
+class PulsingDot(QWidget):
+    """Pulsing dot indicator with glow effect for status display."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._color = QColor("#aeb5c1")
+        self._pulse_phase = 0.0  # 0.0 - 1.0
+        self._is_pulsing = False
+
+        self.setFixedSize(28, 28)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate)
+        self._timer.setInterval(30)  # ~33 FPS
+
+    def set_color(self, color: str):
+        """Sets the dot color from a CSS color string."""
+        c = QColor(color)
+        if c.isValid():
+            self._color = c
+        self.update()
+
+    def start_pulse(self):
+        """Starts the pulsing animation."""
+        if not self._is_pulsing:
+            self._is_pulsing = True
+            self._pulse_phase = 0.0
+            self._timer.start()
+
+    def stop_pulse(self):
+        """Stops the pulsing animation."""
+        self._is_pulsing = False
+        self._timer.stop()
+        self._pulse_phase = 0.0
+        self.update()
+
+    def _animate(self):
+        self._pulse_phase += 0.025
+        if self._pulse_phase >= 1.0:
+            self._pulse_phase = 0.0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        base_radius = 5
+
+        # Pulsing rings (when active)
+        if self._is_pulsing:
+            phase1 = self._pulse_phase
+            opacity1 = max(0, 0.5 * (1.0 - phase1))
+            radius1 = base_radius + (10 * phase1)
+
+            pulse_color1 = QColor(self._color)
+            pulse_color1.setAlphaF(opacity1)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(pulse_color1)
+            painter.drawEllipse(
+                int(center_x - radius1), int(center_y - radius1),
+                int(radius1 * 2), int(radius1 * 2),
+            )
+
+            phase2 = (self._pulse_phase + 0.5) % 1.0
+            opacity2 = max(0, 0.5 * (1.0 - phase2))
+            radius2 = base_radius + (10 * phase2)
+
+            pulse_color2 = QColor(self._color)
+            pulse_color2.setAlphaF(opacity2)
+            painter.setBrush(pulse_color2)
+            painter.drawEllipse(
+                int(center_x - radius2), int(center_y - radius2),
+                int(radius2 * 2), int(radius2 * 2),
+            )
+
+        # Static outer glow
+        glow_color = QColor(self._color)
+        glow_color.setAlphaF(0.3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(glow_color)
+        painter.drawEllipse(
+            int(center_x - base_radius - 2), int(center_y - base_radius - 2),
+            int((base_radius + 2) * 2), int((base_radius + 2) * 2),
+        )
+
+        # Main dot
+        painter.setBrush(self._color)
+        painter.drawEllipse(
+            int(center_x - base_radius), int(center_y - base_radius),
+            int(base_radius * 2), int(base_radius * 2),
+        )
+
+        # Highlight for 3D effect
+        highlight = QColor(255, 255, 255, 90)
+        painter.setBrush(highlight)
+        painter.drawEllipse(int(center_x - 2), int(center_y - 3), 3, 3)
+
+
+# ---------------------------------------------------------------------------
+# StatusIndicator — PulsingDot + label, theme-aware status colors
 # ---------------------------------------------------------------------------
 
 class StatusIndicator(QWidget):
-    """Status dot + label widget."""
+    """Status indicator (pulsing dot + text) with theme-aware colors."""
 
-    def __init__(self, text: str = "", parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
+        self._current_status = "neutral"
+        self._theme_refresh_scheduled = False
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
-        self._dot = QFrame(self)
-        self._dot.setFixedSize(8, 8)
-        self._dot.setStyleSheet(
-            "QFrame { background: #888; border-radius: 4px; }"
-        )
-        layout.addWidget(self._dot)
+        self.dot = PulsingDot()
+        layout.addWidget(self.dot)
 
-        self._label = CaptionLabel(text, self) if HAS_FLUENT else QLabel(text)
-        layout.addWidget(self._label)
+        if HAS_FLUENT:
+            self.text = BodyLabel("...")
+        else:
+            self.text = QLabel("...")
+            self.text.setStyleSheet("font-size: 13px;")
+        layout.addWidget(self.text)
         layout.addStretch()
 
-    def set_status(self, text: str, color: str = "#888"):
-        self._label.setText(text)
-        self._dot.setStyleSheet(
-            f"QFrame {{ background: {color}; border-radius: 4px; }}"
-        )
+    def set_status(self, text: str, status: str = "neutral"):
+        """Sets status. status: 'running', 'stopped', 'warning', 'neutral'"""
+        self.text.setText(text)
+        self._current_status = status
+
+        colors = self._get_status_colors()
+        color = colors.get(status, colors["neutral"])
+        self.dot.set_color(color)
+
+        if status == "running":
+            self.dot.start_pulse()
+        else:
+            self.dot.stop_pulse()
+
+    def _get_status_colors(self) -> dict[str, str]:
+        """Returns status->color mapping using semantic palette if available."""
+        try:
+            from ui.theme_semantic import get_semantic_palette
+            palette = get_semantic_palette()
+            return {
+                "running": palette.success,
+                "stopped": palette.error,
+                "warning": palette.warning,
+                "neutral": themeColor().name() if HAS_FLUENT else "#5fcffe",
+            }
+        except Exception:
+            return {
+                "running": "#52c477",
+                "stopped": "#e05454",
+                "warning": "#e0a854",
+                "neutral": "#5fcffe",
+            }
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        self._theme_refresh_scheduled = False
+        self.set_status(self.text.text(), self._current_status)
+
+
+# ---------------------------------------------------------------------------
+# InfoBarHelper — one-liner InfoBar notifications
+# ---------------------------------------------------------------------------
+
+class InfoBarHelper:
+    """Convenience wrapper for qfluentwidgets InfoBar notifications."""
+
+    @staticmethod
+    def success(parent: QWidget, title: str, content: str = "", duration: int = 3000):
+        if HAS_FLUENT:
+            InfoBar.success(title, content, duration=duration,
+                            position=InfoBarPosition.TOP_RIGHT, parent=parent)
+
+    @staticmethod
+    def warning(parent: QWidget, title: str, content: str = "", duration: int = 4000):
+        if HAS_FLUENT:
+            InfoBar.warning(title, content, duration=duration,
+                            position=InfoBarPosition.TOP_RIGHT, parent=parent)
+
+    @staticmethod
+    def error(parent: QWidget, title: str, content: str = "", duration: int = 5000):
+        if HAS_FLUENT:
+            InfoBar.error(title, content, duration=duration,
+                          position=InfoBarPosition.TOP_RIGHT, parent=parent)
+
+    @staticmethod
+    def info(parent: QWidget, title: str, content: str = "", duration: int = 3000):
+        if HAS_FLUENT:
+            InfoBar.info(title, content, duration=duration,
+                         position=InfoBarPosition.TOP_RIGHT, parent=parent)

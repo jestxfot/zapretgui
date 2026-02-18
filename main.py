@@ -80,50 +80,61 @@ if os.environ.get("ZAPRET_DISABLE_CRASH_HANDLER") != "1":
 
 # ──────────────────────────────────────────────────────────────
 # Предзагрузка медленных модулей в фоне (ускоряет старт на ~300ms)
+# НЕ включает qfluentwidgets/qtawesome — они создают Qt объекты
+# и должны импортироваться только в главном потоке после QApplication.
 # ──────────────────────────────────────────────────────────────
 def _preload_slow_modules():
     """Загружает медленные модули в фоновом потоке.
-    
+
     Когда основной код дойдёт до импорта этих модулей,
     они уже будут в sys.modules - импорт будет мгновенным.
     """
     import threading
-    
+
     def _preload():
         try:
-            # Порядок важен! PyQt должен быть загружен до qfluentwidgets
-            import PyQt6.QtWidgets  # ~17ms
-            import PyQt6.QtCore
-            import PyQt6.QtGui
             import jinja2            # ~1ms
             import requests          # ~99ms
-            import qtawesome         # ~115ms (нужен после PyQt)
-            import qfluentwidgets     # ~90ms (нужен после PyQt)
             import psutil            # ~10ms
             import json              # для config и API
             import winreg            # для реестра Windows
         except Exception:
             pass  # Ошибки при предзагрузке не критичны
-    
+
     t = threading.Thread(target=_preload, daemon=True)
     t.start()
 
 _preload_slow_modules()
 
 # ──────────────────────────────────────────────────────────────
-# дальше можно импортировать всё остальное
+# QApplication MUST exist before importing qfluentwidgets
+# (it creates Qt objects at import time: icons, theme singletons, etc.)
 # ──────────────────────────────────────────────────────────────
 import subprocess, time
 
-from PyQt6.QtCore    import QTimer, QEvent, Qt
+from PyQt6.QtCore    import QTimer, QEvent, Qt, QCoreApplication
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
+
+os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+os.environ["QT_API"] = "pyqt6"  # Force qtpy/qtawesome to use PyQt6 (not PyQt5)
+
+def _set_attr_if_exists(name: str, on: bool = True) -> None:
+    """Безопасно включает атрибут, если он есть в текущей версии Qt."""
+    attr = getattr(Qt.ApplicationAttribute, name, None)
+    if attr is None:
+        attr = getattr(Qt, name, None)
+    if attr is not None:
+        QCoreApplication.setAttribute(attr, on)
+
+_set_attr_if_exists("AA_EnableHighDpiScaling")
+_set_attr_if_exists("AA_UseHighDpiPixmaps")
+
+# Create QApplication early — qfluentwidgets requires it at import time
+_app = QApplication.instance() or QApplication(sys.argv)
 
 from ui.main_window import MainWindowUI
 from ui.fluent_app_window import ZapretFluentWindow
 
-# Garland/Snowflakes are deferred (premium decorations, can be re-added later)
-# from ui.garland_widget import GarlandWidget
-# from ui.snowflakes_widget import SnowflakesWidget
 
 from startup.admin_check import is_admin
 
@@ -149,19 +160,13 @@ from ui.page_names import PageName, SectionName
 # Global icon policy (theme-aware + rgba() normalization for qtawesome).
 install_qtawesome_icon_theme_patch()
 
-def _set_attr_if_exists(name: str, on: bool = True) -> None:
-    """Безопасно включает атрибут, если он есть в текущей версии Qt."""
-    from PyQt6.QtCore import QCoreApplication
-    from PyQt6.QtCore import Qt
-    
-    # 1) PyQt6 ‑ ищем в Qt.ApplicationAttribute
-    attr = getattr(Qt.ApplicationAttribute, name, None)
-    # 2) PyQt5 ‑ там всё лежит прямо в Qt
-    if attr is None:
-        attr = getattr(Qt, name, None)
+# Connect qfluentwidgets accent signal → invalidate tokens cache so all pages
+# recompute CSS with the new accent color when setThemeColor() is called.
+from ui.theme import connect_qfluent_accent_signal
+connect_qfluent_accent_signal()
 
-    if attr is not None:
-        QCoreApplication.setAttribute(attr, on)
+
+# _set_attr_if_exists defined earlier (before QApplication creation)
 
 def _handle_update_mode():
     """updater.py запускает: main.py --update <old_exe> <new_exe>"""
@@ -1576,10 +1581,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
     def open_connection_test(self) -> None:
         """Переключает на вкладку диагностики соединений."""
         try:
-            # Используем новый API навигации через PageName
-            if self.show_page(PageName.CONNECTION_TEST):
-                if hasattr(self, "side_nav"):
-                    self.side_nav.set_page_by_name(PageName.CONNECTION_TEST, emit_signal=False)
+            if self.show_page(PageName.DIAGNOSTICS_TAB):
                 try:
                     self.connection_page.start_btn.setFocus()
                 except Exception:
@@ -1605,33 +1607,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         """No-op: snowflakes not available in FluentWindow shell."""
         pass
 
-    def set_blur_effect_enabled(self, enabled: bool) -> None:
-        """Включает или выключает эффект размытия окна (Acrylic/Mica)"""
-        try:
-            from ui.theme import BlurEffect
-
-            # Получаем HWND окна
-            hwnd = int(self.winId())
-
-            if enabled:
-                success = BlurEffect.enable(hwnd, blur_type="acrylic")
-                if success:
-                    log("✅ Эффект размытия включён", "INFO")
-                else:
-                    log("⚠️ Не удалось включить эффект размытия", "WARNING")
-            else:
-                BlurEffect.disable(hwnd)
-                log("✅ Эффект размытия выключен", "INFO")
-
-            # Переприменяем тему чтобы обновить все стили с учётом нового состояния blur
-            if hasattr(self, 'theme_manager') and self.theme_manager:
-                current_theme = self.theme_manager.current_theme
-                if current_theme:
-                    self.theme_manager.apply_theme_async(current_theme, persist=False)
-
-        except Exception as e:
-            log(f"❌ Ошибка при изменении эффекта размытия: {e}", "ERROR")
-
     def set_window_opacity(self, value: int) -> None:
         """Устанавливает прозрачность окна (0-100%)"""
         try:
@@ -1641,10 +1616,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             log(f"Прозрачность окна установлена: {value}%", "DEBUG")
         except Exception as e:
             log(f"❌ Ошибка при установке прозрачности окна: {e}", "ERROR")
-
-    def _update_container_opacity(self, blur_enabled: bool) -> None:
-        """No-op: FluentWindow handles container styling."""
-        pass
 
     def resizeEvent(self, event):
         """Обновляем геометрию при изменении размера окна"""
@@ -1701,15 +1672,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 self.set_snowflakes_enabled(True)
             if hasattr(self, 'appearance_page'):
                 self.appearance_page.set_snowflakes_state(should_enable_snowflakes)
-
-            # Эффект размытия (не зависит от премиума)
-            from config.reg import get_blur_effect_enabled
-            blur_saved = get_blur_effect_enabled()
-            log(f"🔮 Инициализация: blur={blur_saved}", "DEBUG")
-            if blur_saved:
-                self.set_blur_effect_enabled(True)
-            if hasattr(self, 'appearance_page'):
-                self.appearance_page.set_blur_effect_state(blur_saved)
 
             # Прозрачность окна (не зависит от премиума)
             from config.reg import get_window_opacity
@@ -1806,14 +1768,9 @@ def main():
     
     atexit.register(lambda: release_mutex(mutex_handle))
 
-    # ---------------- Создаём QApplication ----------------
+    # ---------------- QApplication (уже создан на уровне модуля) ----------------
+    app = QApplication.instance()
     try:
-        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        _set_attr_if_exists("AA_EnableHighDpiScaling")
-        _set_attr_if_exists("AA_UseHighDpiPixmaps")
-
-        app = QApplication(sys.argv)
-
         # На Windows принудительно отключаем "transient/overlay" скроллбары
         # (иначе они могут не отображаться/быть практически невидимыми).
         try:
@@ -1832,19 +1789,62 @@ def main():
             pass
 
         app.setQuitOnLastWindowClosed(False)
-        
+
         # Устанавливаем Qt crash handler
         from log.crash_handler import install_qt_crash_handler
         install_qt_crash_handler(app)
-        
-        # Тема применяется позже в ThemeManager.__init__ - убран дублирующий вызов
-        
+
     except Exception as e:
         ctypes.windll.user32.MessageBoxW(None,
             f"Ошибка инициализации Qt: {e}", "Zapret", 0x10)
 
+    # Apply display mode and accent color via native qfluentwidgets API.
+    from qfluentwidgets import setTheme, Theme
+    from qfluentwidgets.common.config import qconfig
+    from PyQt6.QtGui import QColor as _QColor
+
+    try:
+        from config.reg import get_display_mode
+        _display_mode = get_display_mode()
+    except Exception:
+        _display_mode = "dark"
+
+    if _display_mode == "light":
+        setTheme(Theme.LIGHT)
+    elif _display_mode == "system":
+        setTheme(Theme.AUTO)
+    else:
+        setTheme(Theme.DARK)
+
+    # Accent color: Windows system accent takes priority, then saved custom, then default.
+    try:
+        from config.reg import (get_follow_windows_accent, get_windows_system_accent,
+                                 get_accent_color, set_accent_color)
+        if get_follow_windows_accent():
+            _hex = get_windows_system_accent()
+        else:
+            _hex = get_accent_color()
+        if _hex:
+            _c = _QColor(_hex)
+            if _c.isValid():
+                qconfig.set(qconfig.themeColor, _c)
+                if get_follow_windows_accent():
+                    set_accent_color(_hex)
+    except Exception:
+        pass
+
     # СОЗДАЁМ ОКНО
     window = LupiDPIApp(start_in_tray=start_in_tray)
+
+    # ✅ ПРИМЕНЯЕМ ПРЕСЕТ ФОНА (amoled / rkn_chan / standard)
+    try:
+        from config.reg import get_background_preset
+        from ui.theme import apply_window_background
+        _bg_preset = get_background_preset()
+        if _bg_preset != "standard":
+            apply_window_background(window, preset=_bg_preset)
+    except Exception:
+        pass
 
     # ✅ ЗАПУСКАЕМ IPC СЕРВЕР
     ipc_manager = IPCManager()
@@ -1987,7 +1987,86 @@ def main():
         threading.Thread(target=_startup_checks_worker, daemon=True).start()
 
     QTimer.singleShot(100, _start_startup_checks)
-    
+
+    # ─── Автопроверка обновлений при запуске ───────────────────────────────────
+
+    class _UpdateCheckBridge(QObject):
+        update_found = pyqtSignal(str, str)   # version, release_notes
+        no_update    = pyqtSignal(str)        # current_version
+        check_error  = pyqtSignal(str)        # error_message
+
+    _update_bridge = _UpdateCheckBridge()
+
+    def _on_update_found(version: str, release_notes: str) -> None:
+        try:
+            from qfluentwidgets import MessageBox as _MsgBox
+            box = _MsgBox(
+                "Доступно обновление",
+                f"Выпущена версия {version}. Скачать и установить сейчас?",
+                window,
+            )
+            box.yesButton.setText("Скачать и установить")
+            box.cancelButton.setText("Позже")
+            if not box.exec():
+                return
+            # Переходим на страницу обновлений и запускаем скачивание
+            from ui.page_names import PageName as _PageName
+            window.show_page(_PageName.SERVERS)
+            sp = window.pages.get(_PageName.SERVERS)
+            if sp is not None:
+                sp._remote_version = version
+                sp._release_notes = release_notes
+                sp._found_update = True
+                try:
+                    sp.changelog_card.show_update(version, release_notes)
+                except Exception:
+                    pass
+                QTimer.singleShot(300, sp._install_update)
+        except Exception as e:
+            log(f"Ошибка при показе диалога обновления: {e}", "❌ ERROR")
+
+    def _on_no_update(current_version: str) -> None:
+        try:
+            from qfluentwidgets import InfoBar as _InfoBar, InfoBarPosition as _IBPos
+            _InfoBar.success(
+                title="Обновлений нет",
+                content=f"Установлена актуальная версия {current_version}",
+                parent=window,
+                duration=4000,
+                position=_IBPos.TOP_RIGHT,
+            )
+        except Exception as e:
+            log(f"Ошибка при показе InfoBar: {e}", "❌ ERROR")
+
+    def _on_update_check_error(error: str) -> None:
+        log(f"Не удалось проверить обновления при запуске: {error}", "⚠️ UPDATE")
+
+    _update_bridge.update_found.connect(_on_update_found)
+    _update_bridge.no_update.connect(_on_no_update)
+    _update_bridge.check_error.connect(_on_update_check_error)
+
+    def _startup_update_worker():
+        try:
+            from updater.startup_update_check import check_for_update_sync
+            result = check_for_update_sync()
+            if result.get('error'):
+                _update_bridge.check_error.emit(result['error'])
+            elif result.get('has_update'):
+                _update_bridge.update_found.emit(
+                    result.get('version') or '',
+                    result.get('release_notes') or '',
+                )
+            else:
+                _update_bridge.no_update.emit(result.get('version') or '')
+        except Exception as e:
+            log(f"Ошибка воркера проверки обновлений: {e}", "❌ ERROR")
+
+    def _schedule_startup_update_check():
+        import threading
+        threading.Thread(target=_startup_update_worker, daemon=True).start()
+
+    QTimer.singleShot(4000, _schedule_startup_update_check)
+
     # Exception handler
     def global_exception_handler(exctype, value, tb_obj):
         import traceback as tb

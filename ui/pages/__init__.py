@@ -13,11 +13,9 @@ from .zapret2 import (
     Zapret2UserPresetsPage,
     StrategyDetailPage,
 )
-from .strategy_sort_page import StrategySortPage
 from .hostlist_page import HostlistPage
 from .ipset_page import IpsetPage
 from .blobs_page import BlobsPage
-from .editor_page import EditorPage
 from .dpi_settings_page import DpiSettingsPage
 from .autostart_page import AutostartPage
 from .network_page import NetworkPage
@@ -35,6 +33,7 @@ from .custom_ipset_page import CustomIpSetPage  # Страница управл�
 from .netrogat_page import NetrogatPage  # Страница управления netrogat.txt
 from .connection_page import ConnectionTestPage
 from .dns_check_page import DNSCheckPage
+from .diagnostics_tab_page import DiagnosticsTabPage
 from .orchestra_page import OrchestraPage
 from .orchestra_locked_page import OrchestraLockedPage
 from .orchestra_blocked_page import OrchestraBlockedPage
@@ -42,7 +41,6 @@ from .orchestra_whitelist_page import OrchestraWhitelistPage
 from .orchestra_ratings_page import OrchestraRatingsPage
 from .preset_config_page import PresetConfigPage
 from .presets_page import PresetsPage
-from .my_categories_page import MyCategoriesPage
 
 __all__ = [
     'HomePage',
@@ -55,11 +53,9 @@ __all__ = [
     'Zapret2DirectControlPage',  # Управление для direct_zapret2 (вкладка внутри "Стратегии")
     'Zapret2UserPresetsPage',  # Пользовательские пресеты (direct_zapret2)
     'StrategyDetailPage',  # Страница детального просмотра стратегии
-    'StrategySortPage',  # Страница сортировки и фильтров стратегий
     'HostlistPage',
     'IpsetPage',
     'BlobsPage',  # Управление блобами для Zapret 2
-    'EditorPage',
     'DpiSettingsPage',
     'AutostartPage',
     'NetworkPage',
@@ -77,6 +73,7 @@ __all__ = [
     'NetrogatPage',  # Страница управления netrogat.txt
     'ConnectionTestPage',
     'DNSCheckPage',  # Страница проверки DNS подмены
+    'DiagnosticsTabPage',  # Объединённая страница диагностики с вкладками
     'OrchestraPage',  # Страница оркестратора автообучения
     'OrchestraLockedPage',  # Страница залоченных стратегий оркестратора
     'OrchestraBlockedPage',  # Страница заблокированных стратегий оркестратора
@@ -84,5 +81,4 @@ __all__ = [
     'OrchestraRatingsPage',  # Страница истории стратегий с рейтингами
     'PresetConfigPage',  # Страница редактора preset-zapret2.txt
     'PresetsPage',  # Страница управления пресетами (только direct_zapret2)
-    'MyCategoriesPage',  # Страница управления пользовательскими категориями
 ]

@@ -55,7 +55,14 @@
       "Bash(then head -20 \"/mnt/h/Privacy/zapretgui/preset-zapret2.txt\")",
       "Bash(else echo \"Файл не существует\")",
       "Bash(fi)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "Bash(pip show:*)",
+      "Bash(git -C \"H:/Privacy/zapretgui\" log --oneline)",
+      "Bash(git -C \"H:\\\\Privacy\\\\zapretgui\" log --oneline)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(pip uninstall:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

@@ -5,23 +5,82 @@ import os
 import re
 import webbrowser
 
-from PyQt6.QtCore import QSize, Qt, QObject, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QProgressBar,
     QSizePolicy,
-    QMessageBox,
 )
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.pages.strategies_page_base import ResetActionButton
-from ui.sidebar import ActionButton, PulsingDot, SettingsCard, SettingsRow
+from ui.compat_widgets import ActionButton, PrimaryActionButton, PulsingDot, SettingsCard, SettingsRow, set_tooltip
 from ui.theme import get_theme_tokens
+
+try:
+    from qfluentwidgets import (
+        CaptionLabel, StrongBodyLabel, SubtitleLabel, BodyLabel,
+        IndeterminateProgressBar, MessageBox, InfoBar,
+        SegmentedWidget, MessageBoxBase, CardWidget,
+        PushButton, TransparentPushButton, FluentIcon,
+    )
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    from PyQt6.QtWidgets import QProgressBar as IndeterminateProgressBar  # type: ignore[assignment]
+    MessageBox = None
+    InfoBar = None
+    MessageBoxBase = object  # type: ignore[assignment]
+    SegmentedWidget = None  # type: ignore[assignment]
+    CardWidget = None  # type: ignore[assignment]
+    PushButton = None  # type: ignore[assignment]
+    TransparentPushButton = None  # type: ignore[assignment]
+    FluentIcon = None  # type: ignore[assignment]
+    _HAS_FLUENT_LABELS = False
+
+
+class DirectLaunchModeDialog(MessageBoxBase):
+    """Диалог выбора Basic / Advanced режима прямого запуска."""
+
+    def __init__(self, current_mode: str, parent=None):
+        super().__init__(parent)
+        self.titleLabel = SubtitleLabel("Режим прямого запуска", self.widget)
+        self.mode_seg = SegmentedWidget(self.widget)
+        self.mode_seg.addItem("basic", "Basic")
+        self.mode_seg.addItem("advanced", "Advanced")
+        self.mode_seg.setCurrentItem(
+            current_mode if current_mode in ("basic", "advanced") else "basic"
+        )
+        self.basic_desc = BodyLabel(
+            "Прямой запуск поддерживает несколько режимов: упрощенный и расширенный для профи. Настройки не сохраняются между режимами Вы можете выбрать любой. Рекомендуем начать с базового. Бывает что базовый из-за готовых стратегий плохо пробивает сайты, тогда рекомендуем попробовать продвинутый в котором можно более тонко настроить техники дурения.",
+            self.widget,
+        )
+        self.basic_desc = BodyLabel(
+            "Basic (базовый) — готовая таблица стратегий без понятия фаз. "
+            "Собирать свои стратегии нельзя.",
+            self.widget,
+        )
+        self.adv_desc = BodyLabel(
+            "Advanced (продвинутый) — каждая функция настраивается индивидуально, "
+            "можно выбирать несколько фаз и смешивать их друг с другом.",
+            self.widget,
+        )
+        self.basic_desc.setWordWrap(True)
+        self.adv_desc.setWordWrap(True)
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addSpacing(8)
+        self.viewLayout.addWidget(self.mode_seg)
+        self.viewLayout.addSpacing(8)
+        self.viewLayout.addWidget(self.basic_desc)
+        self.viewLayout.addWidget(self.adv_desc)
+        self.yesButton.setText("Применить")
+        self.cancelButton.setText("Отмена")
+        self.widget.setMinimumWidth(440)
+
+    def get_mode(self) -> str:
+        return self.mode_seg.currentRouteKey()
 
 
 def _accent_fg_for_tokens(tokens) -> str:
@@ -33,32 +92,9 @@ def _accent_fg_for_tokens(tokens) -> str:
         return "rgba(0, 0, 0, 0.90)"
 
 
-def _build_progress_style() -> str:
-    tokens = get_theme_tokens()
-    accent = tokens.accent_hex
-    return f"""
-    QProgressBar {{
-        background-color: {tokens.surface_bg};
-        border: none;
-        border-radius: 2px;
-        height: 4px;
-        text-align: center;
-    }}
-    QProgressBar::chunk {{
-        background: qlineargradient(
-            x1:0, y1:0, x2:1, y2:0,
-            stop:0 transparent,
-            stop:0.3 {accent},
-            stop:0.5 {accent},
-            stop:0.7 {accent},
-            stop:1 transparent
-        );
-        border-radius: 2px;
-    }}
-    """
-
-
 _LIST_FILE_ARG_RE = re.compile(r"--(?:hostlist|ipset|hostlist-exclude|ipset-exclude)=([^\s]+)")
+# Display only hostlist files (not ipset) in the preset card widget
+_HOSTLIST_DISPLAY_RE = re.compile(r"--(?:hostlist|hostlist-exclude)=([^\s]+)")
 
 
 class _CertificateInstallWorker(QObject):
@@ -75,35 +111,27 @@ class _CertificateInstallWorker(QObject):
             self.finished.emit(False, str(e))
 
 
-class BigActionButton(ActionButton):
-    """Большая кнопка действия"""
+class BigActionButton(PrimaryActionButton):
+    """Большая кнопка запуска (акцентная, PrimaryPushButton)."""
+
+    def __init__(self, text: str, icon_name: str | None = None, accent: bool = True, parent=None):
+        super().__init__(text, icon_name, parent)
+
+
+class StopButton(ActionButton):
+    """Кнопка остановки (нейтральная, PushButton)."""
 
     def __init__(self, text: str, icon_name: str | None = None, accent: bool = False, parent=None):
-        super().__init__(text, icon_name, accent, parent)
-        self.setProperty("uiVariant", "big")
-        self.setFixedHeight(48)
-        self.setIconSize(QSize(20, 20))
-        try:
-            style = self.style()
-            if style is not None:
-                style.unpolish(self)
-                style.polish(self)
-        except Exception:
-            pass
-
-    def _update_style(self):
-        super()._update_style()
-
-
-class StopButton(BigActionButton):
-    """Кнопка остановки (нейтральная)"""
-
-    def _update_style(self):
-        super()._update_style()
+        super().__init__(text, icon_name, accent=False, parent=parent)
 
 
 class Zapret2DirectControlPage(BasePage):
     """Страница управления для direct_zapret2 (главная вкладка раздела "Стратегии")."""
+
+    navigate_to_presets = pyqtSignal()        # → PageName.ZAPRET2_USER_PRESETS
+    navigate_to_direct_launch = pyqtSignal()  # → PageName.ZAPRET2_DIRECT
+    navigate_to_blobs = pyqtSignal()          # → PageName.BLOBS
+    direct_mode_changed = pyqtSignal(str)     # "basic" | "advanced"
 
     def __init__(self, parent=None):
         super().__init__(
@@ -115,7 +143,6 @@ class Zapret2DirectControlPage(BasePage):
 
         self._cert_install_thread: QThread | None = None
         self._cert_install_worker: _CertificateInstallWorker | None = None
-        self._direct_launch_mode = "advanced"
 
         self._build_ui()
         self._update_stop_winws_button_text()
@@ -126,48 +153,16 @@ class Zapret2DirectControlPage(BasePage):
             self._sync_program_settings()
         except Exception:
             pass
-
         try:
             self._load_advanced_settings()
         except Exception:
             pass
-
         try:
-            self._sync_direct_launch_mode_from_settings()
+            self._refresh_direct_mode_label()
         except Exception:
             pass
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if hasattr(self, "progress_bar") and self.progress_bar is not None:
-                    self.progress_bar.setStyleSheet(_build_progress_style())
-                try:
-                    self._update_direct_launch_mode_styles()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        super().changeEvent(event)
 
     def _build_ui(self):
-        # Быстрый доступ к документации
-        docs_widget = QWidget()
-        docs_row = QHBoxLayout(docs_widget)
-        docs_row.setContentsMargins(0, 0, 0, 0)
-        docs_row.setSpacing(0)
-        docs_row.addStretch(1)
-
-        self.docs_btn = ActionButton("Документация", "fa5s.book")
-        self.docs_btn.setProperty("noDrag", True)
-        self.docs_btn.setFixedHeight(36)
-        self.docs_btn.clicked.connect(self._open_docs)
-        docs_row.addWidget(self.docs_btn)
-
-        self.add_widget(docs_widget)
-
         # Статус работы
         self.add_section_title("Статус работы")
 
@@ -178,42 +173,22 @@ class Zapret2DirectControlPage(BasePage):
         self.status_dot = PulsingDot()
         status_layout.addWidget(self.status_dot)
 
-        status_text_widget = QWidget()
-        status_text_widget.setStyleSheet("background: transparent;")
-        status_text = QVBoxLayout(status_text_widget)
+        status_text = QVBoxLayout()
         status_text.setContentsMargins(0, 0, 0, 0)
         status_text.setSpacing(2)
 
-        self.status_title = QLabel("Проверка...")
-        try:
-            self.status_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.status_title.setStyleSheet(
-            """
-            QLabel {
-                font-size: 15px;
-                font-weight: 600;
-            }
-            """
-        )
+        if _HAS_FLUENT_LABELS:
+            self.status_title = StrongBodyLabel("Проверка...")
+            self.status_desc = CaptionLabel("Определение состояния процесса")
+        else:
+            self.status_title = QLabel("Проверка...")
+            self.status_title.setStyleSheet("QLabel { font-size: 15px; font-weight: 600; }")
+            self.status_desc = QLabel("Определение состояния процесса")
+            self.status_desc.setStyleSheet("QLabel { font-size: 12px; }")
         status_text.addWidget(self.status_title)
-
-        self.status_desc = QLabel("Определение состояния процесса")
-        try:
-            self.status_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.status_desc.setStyleSheet(
-            """
-            QLabel {
-                font-size: 12px;
-            }
-            """
-        )
         status_text.addWidget(self.status_desc)
 
-        status_layout.addWidget(status_text_widget, 1)
+        status_layout.addLayout(status_text, 1)
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
 
@@ -225,28 +200,15 @@ class Zapret2DirectControlPage(BasePage):
         control_card = SettingsCard()
 
         # Индикатор загрузки (бегающая полоска) - показываем рядом с кнопками управления
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(_build_progress_style())
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(0)
+        self.progress_bar = IndeterminateProgressBar(self)
         self.progress_bar.setVisible(False)
         control_card.add_widget(self.progress_bar)
 
-        self.loading_label = QLabel("")
-        try:
-            self.loading_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.loading_label.setStyleSheet(
-            """
-            QLabel {
-                font-size: 12px;
-                padding-top: 4px;
-            }
-            """
-        )
+        if _HAS_FLUENT_LABELS:
+            self.loading_label = CaptionLabel("")
+        else:
+            self.loading_label = QLabel("")
+            self.loading_label.setStyleSheet("QLabel { font-size: 12px; padding-top: 4px; }")
         self.loading_label.setVisible(False)
         control_card.add_widget(self.loading_label)
 
@@ -270,155 +232,113 @@ class Zapret2DirectControlPage(BasePage):
 
         self.add_spacing(16)
 
-        self.add_section_title("Активный пресет (стандартный набор стратегий из готового списка)")
+        # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
+        self.add_section_title("Сменить пресет обхода блокировок")
 
-        active_preset_card = SettingsCard()
-        active_preset_layout = QHBoxLayout()
-        active_preset_layout.setSpacing(12)
+        # Card A — Активный пресет (single-row: icon | text | button)
+        preset_card = CardWidget()
+        preset_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        preset_row = QHBoxLayout(preset_card)
+        preset_row.setContentsMargins(16, 14, 16, 14)
+        preset_row.setSpacing(12)
 
-        self.active_preset_icon = QLabel()
-        try:
-            from ui.fluent_icons import fluent_pixmap
+        preset_icon_lbl = QLabel()
+        preset_icon_lbl.setPixmap(qta.icon("fa5s.star", color="#ffc107").pixmap(20, 20))
+        preset_icon_lbl.setFixedSize(24, 24)
+        preset_row.addWidget(preset_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
-            self.active_preset_icon.setPixmap(fluent_pixmap("fa5s.star", 20))
-        except Exception:
-            self.active_preset_icon.setPixmap(qta.icon("fa5s.star", color=get_theme_tokens().accent_hex).pixmap(20, 20))
-        self.active_preset_icon.setFixedSize(24, 24)
-        active_preset_layout.addWidget(self.active_preset_icon)
-
-        active_preset_text_widget = QWidget()
-        active_preset_text_widget.setStyleSheet("background: transparent;")
-        active_preset_text_layout = QVBoxLayout(active_preset_text_widget)
-        active_preset_text_layout.setContentsMargins(0, 0, 0, 0)
-        active_preset_text_layout.setSpacing(2)
-
-        self.active_preset_label = QLabel("Не выбран")
-        try:
-            self.active_preset_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.active_preset_label.setStyleSheet(
-            """
-            QLabel {
-                font-size: 14px;
-                font-weight: 500;
-            }
-            """
-        )
-        self.active_preset_label.setWordWrap(True)
-        self.active_preset_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        active_preset_text_layout.addWidget(self.active_preset_label)
-
-        self.active_preset_desc = QLabel("Выберите пресет в разделе «Активный пресет»")
-        try:
-            self.active_preset_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.active_preset_desc.setStyleSheet(
-            """
-            QLabel {
-                font-size: 11px;
-            }
-            """
-        )
-        active_preset_text_layout.addWidget(self.active_preset_desc)
-
-        active_preset_layout.addWidget(active_preset_text_widget, 1)
-        active_preset_card.add_layout(active_preset_layout)
-        self.add_widget(active_preset_card)
-
-        self.add_spacing(16)
-
-        self.add_section_title("Хотите свою стратегию для каждого сайта? Перейдите во вкладку «Прямой запуск» чтобы изменить шаблонный пресет")
-
-        strategy_card = SettingsCard()
-
-        # Текст про выбор режима прямого запуска (в одном виджете с активными списками)
-        mode_row = SettingsRow(
-            "fa5s.sliders-h",
-            "Режим прямого запуска",
-            "Basic — нет понятия фаз, предоставляется простая готовая таблица со стратегиями которые можно перетыкивать. Собирать свои стратегии нельзя\nAdvanced — каждая функция настраивается индивидуально, можно выбрать несколько фаз и смешивать их друг с другом",
-        )
-
-        mode_control = QWidget()
-        mode_ctl_layout = QHBoxLayout(mode_control)
-        mode_ctl_layout.setContentsMargins(0, 0, 0, 0)
-        mode_ctl_layout.setSpacing(0)
-
-        self._direct_launch_mode_basic_btn = QPushButton("Basic")
-        self._direct_launch_mode_advanced_btn = QPushButton("Advanced")
-        for btn in (self._direct_launch_mode_basic_btn, self._direct_launch_mode_advanced_btn):
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
-
-        self._direct_launch_mode_basic_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("basic"))
-        self._direct_launch_mode_advanced_btn.clicked.connect(lambda: self._on_direct_launch_mode_selected("advanced"))
-
-        mode_ctl_layout.addWidget(self._direct_launch_mode_basic_btn)
-        mode_ctl_layout.addWidget(self._direct_launch_mode_advanced_btn)
-
-        mode_row.set_control(mode_control)
-        strategy_card.add_widget(mode_row)
-
-        try:
-            self._sync_direct_launch_mode_from_settings()
-        except Exception:
-            pass
-
-        strategy_layout = QHBoxLayout()
-        strategy_layout.setSpacing(12)
-
-        self.strategy_icon = QLabel()
-        try:
-            from ui.fluent_icons import fluent_pixmap
-
-            self.strategy_icon.setPixmap(fluent_pixmap("fa5s.cog", 20))
-        except Exception:
-            self.strategy_icon.setPixmap(qta.icon("fa5s.cog", color=get_theme_tokens().accent_hex).pixmap(20, 20))
-        self.strategy_icon.setFixedSize(24, 24)
-        strategy_layout.addWidget(self.strategy_icon)
-
-        strategy_text_widget = QWidget()
-        strategy_text_widget.setStyleSheet("background: transparent;")
-        strategy_text_layout = QVBoxLayout(strategy_text_widget)
-        strategy_text_layout.setContentsMargins(0, 0, 0, 0)
-        strategy_text_layout.setSpacing(2)
-
-        self.strategy_label = QLabel("Не выбрана")
-        try:
-            self.strategy_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.strategy_label.setStyleSheet(
-            """
-            QLabel {
-                font-size: 14px;
-                font-weight: 500;
-            }
-            """
-        )
+        preset_col = QVBoxLayout()
+        preset_col.setSpacing(2)
+        self.preset_name_label = StrongBodyLabel("Не выбран")
+        self.active_preset_label = self.preset_name_label  # backward-compat alias
+        if _HAS_FLUENT_LABELS:
+            self.strategy_label = CaptionLabel("Нет активных листов")
+        else:
+            self.strategy_label = QLabel("Нет активных листов")
+            self.strategy_label.setStyleSheet("QLabel { font-size: 11px; }")
         self.strategy_label.setWordWrap(True)
-        self.strategy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        strategy_text_layout.addWidget(self.strategy_label)
+        self.strategy_label.setVisible(False)
+        preset_col.addWidget(self.preset_name_label)
+        preset_col.addWidget(CaptionLabel("Текущий активный пресет"))
+        preset_row.addLayout(preset_col, 1)
 
-        self.strategy_desc = QLabel("Выберите стратегию в разделе «Прямой запуск»")
-        try:
-            self.strategy_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.strategy_desc.setStyleSheet(
-            """
-            QLabel {
-                font-size: 11px;
-            }
-            """
-        )
-        strategy_text_layout.addWidget(self.strategy_desc)
+        presets_btn = PushButton()
+        presets_btn.setText("Мои пресеты")
+        presets_btn.setIcon(FluentIcon.FOLDER)
+        presets_btn.clicked.connect(self.navigate_to_presets.emit)
+        preset_row.addWidget(presets_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.add_widget(preset_card)
 
-        strategy_layout.addWidget(strategy_text_widget, 1)
-        strategy_card.add_layout(strategy_layout)
-        self.add_widget(strategy_card)
+        self.add_spacing(8)
+
+        # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
+        self.add_section_title("Настройте пресет более тонко через прямой запуск")
+
+        # Card B — Прямой запуск (single-row: icon | text | buttons)
+        direct_card = CardWidget()
+        direct_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        direct_row = QHBoxLayout(direct_card)
+        direct_row.setContentsMargins(16, 14, 16, 14)
+        direct_row.setSpacing(12)
+
+        direct_icon_lbl = QLabel()
+        direct_icon_lbl.setPixmap(qta.icon("fa5s.play", color="#60cdff").pixmap(20, 20))
+        direct_icon_lbl.setFixedSize(24, 24)
+        direct_row.addWidget(direct_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        direct_col = QVBoxLayout()
+        direct_col.setSpacing(2)
+        self.direct_mode_label = StrongBodyLabel("Basic")
+        direct_col.addWidget(self.direct_mode_label)
+        direct_col.addWidget(CaptionLabel("Режим прямого запуска"))
+        direct_row.addLayout(direct_col, 1)
+
+        direct_btns = QHBoxLayout()
+        direct_btns.setSpacing(4)
+        open_btn = PushButton()
+        open_btn.setText("Открыть")
+        open_btn.setIcon(FluentIcon.PLAY)
+        open_btn.clicked.connect(self.navigate_to_direct_launch.emit)
+        mode_btn = TransparentPushButton()
+        mode_btn.setText("Изменить режим")
+        mode_btn.clicked.connect(self._open_direct_mode_dialog)
+        direct_btns.addWidget(open_btn)
+        direct_btns.addWidget(mode_btn)
+        direct_row.addLayout(direct_btns)
+        self.add_widget(direct_card)
+
+        self.add_spacing(8)
+
+        # Card C — Блобы (ссылка на страницу)
+        blobs_card = CardWidget()
+        blobs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        blobs_row = QHBoxLayout(blobs_card)
+        blobs_row.setContentsMargins(16, 14, 16, 14)
+        blobs_row.setSpacing(12)
+
+        blobs_icon_lbl = QLabel()
+        blobs_icon_lbl.setPixmap(qta.icon("fa5s.file-archive", color="#9c27b0").pixmap(20, 20))
+        blobs_icon_lbl.setFixedSize(24, 24)
+        blobs_row.addWidget(blobs_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        blobs_col = QVBoxLayout()
+        blobs_col.setSpacing(2)
+        blobs_col.addWidget(StrongBodyLabel("Блобы"))
+        blobs_col.addWidget(CaptionLabel("Бинарные данные (.bin / hex) для стратегий"))
+        blobs_row.addLayout(blobs_col, 1)
+
+        blobs_open_btn = PushButton()
+        blobs_open_btn.setText("Открыть")
+        blobs_open_btn.setIcon(FluentIcon.FOLDER)
+        blobs_open_btn.clicked.connect(self.navigate_to_blobs.emit)
+        blobs_row.addWidget(blobs_open_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.add_widget(blobs_card)
+
+        # Backward-compat hidden attributes
+        self.active_preset_desc = CaptionLabel("")
+        self.active_preset_desc.setVisible(False)
+        self.strategy_desc = CaptionLabel("")
+        self.strategy_desc.setVisible(False)
 
         self.add_spacing(16)
 
@@ -500,8 +420,8 @@ class Zapret2DirectControlPage(BasePage):
         advanced_layout = QVBoxLayout()
         advanced_layout.setSpacing(6)
 
-        advanced_desc = QLabel("⚠ Изменяйте только если знаете что делаете")
-        advanced_desc.setStyleSheet("color: #ff9800; font-size: 11px; padding-bottom: 8px;")
+        advanced_desc = CaptionLabel("⚠ Изменяйте только если знаете что делаете") if _HAS_FLUENT_LABELS else QLabel("⚠ Изменяйте только если знаете что делаете")
+        advanced_desc.setStyleSheet("color: #ff9800; padding-bottom: 8px;")
         advanced_layout.addWidget(advanced_desc)
 
         try:
@@ -563,6 +483,9 @@ class Zapret2DirectControlPage(BasePage):
         extra_layout.addWidget(self.test_btn)
         self.folder_btn = ActionButton("Открыть папку", "fa5s.folder-open")
         extra_layout.addWidget(self.folder_btn)
+        self.docs_btn = ActionButton("Документация", "fa5s.book")
+        self.docs_btn.clicked.connect(self._open_docs)
+        extra_layout.addWidget(self.docs_btn)
         extra_layout.addStretch()
         extra_card.add_layout(extra_layout)
         self.add_widget(extra_card)
@@ -576,26 +499,23 @@ class Zapret2DirectControlPage(BasePage):
         try:
             from startup.certificate_installer import is_certificate_installed
         except Exception as e:
-            QMessageBox.critical(self, "Сертификат", f"Не удалось загрузить установщик сертификата:\n\n{e}")
+            InfoBar.error(title="Сертификат", content=f"Не удалось загрузить установщик сертификата: {e}", parent=self.window())
             return
 
         thumbprint = "F507DDA6CB772F4332ECC2C5686623F39D9DA450"
         if is_certificate_installed(thumbprint):
-            QMessageBox.information(self, "Сертификат", "Сертификат уже установлен.")
+            InfoBar.info(title="Сертификат", content="Сертификат уже установлен.", parent=self.window())
             return
 
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Установка сертификата")
-        msg_box.setIcon(QMessageBox.Icon.Warning)
-        msg_box.setText("Установить корневой сертификат Zapret Developer?")
-        msg_box.setInformativeText(
+        box = MessageBox(
+            "Установка сертификата",
+            "Установить корневой сертификат Zapret Developer?\n\n"
             "Это необязательно. После установки Windows будет доверять сертификатам, "
             "выпущенным этим центром сертификации, для текущего пользователя.\n\n"
-            "Продолжить?"
+            "Продолжить?",
+            self.window(),
         )
-        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-        if msg_box.exec() != QMessageBox.StandardButton.Yes:
+        if not box.exec():
             return
 
         if self._cert_install_thread is not None:
@@ -618,10 +538,10 @@ class Zapret2DirectControlPage(BasePage):
 
                 if success:
                     self._set_status("Сертификат установлен")
-                    QMessageBox.information(self, "Сертификат", message or "Сертификат установлен")
+                    InfoBar.success(title="Сертификат", content=message or "Сертификат установлен", parent=self.window())
                 else:
                     self._set_status("Не удалось установить сертификат")
-                    QMessageBox.critical(self, "Сертификат", message or "Не удалось установить сертификат")
+                    InfoBar.error(title="Сертификат", content=message or "Не удалось установить сертификат", parent=self.window())
             finally:
                 thr = self._cert_install_thread
                 worker = self._cert_install_worker
@@ -726,69 +646,28 @@ class Zapret2DirectControlPage(BasePage):
         return "advanced"
 
     def _sync_direct_launch_mode_from_settings(self) -> None:
-        self._direct_launch_mode = self._get_direct_launch_mode_setting()
-        self._update_direct_launch_mode_styles()
+        self._refresh_direct_mode_label()
 
-    def _update_direct_launch_mode_styles(self) -> None:
-        if not hasattr(self, "_direct_launch_mode_basic_btn") or not hasattr(self, "_direct_launch_mode_advanced_btn"):
+    def _open_direct_mode_dialog(self) -> None:
+        try:
+            from strategy_menu import get_direct_zapret2_ui_mode
+        except ImportError:
             return
+        current = get_direct_zapret2_ui_mode()
+        dlg = DirectLaunchModeDialog(current, self.window())
+        if dlg.exec():
+            new_mode = dlg.get_mode()
+            if new_mode != current:
+                self._on_direct_launch_mode_selected(new_mode)
+                self.direct_mode_changed.emit(new_mode)
 
-        tokens = get_theme_tokens()
-        active_style = """
-            QPushButton {
-                background: %(accent)s;
-                border: none;
-                color: %(accent_fg)s;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: %(accent_hover)s;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: %(bg)s;
-                border: none;
-                color: %(fg_muted)s;
-                font-size: 11px;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: %(bg_hover)s;
-            }
-        """
-
-        active_style = active_style % {
-            "accent": tokens.accent_hex,
-            "accent_hover": tokens.accent_hover_hex,
-            "accent_fg": _accent_fg_for_tokens(tokens),
-        }
-        inactive_style = inactive_style % {
-            "bg": tokens.surface_bg,
-            "bg_hover": tokens.surface_bg_hover,
-            "fg_muted": tokens.fg_muted,
-        }
-
-        left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
-        right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
-
-        mode = (getattr(self, "_direct_launch_mode", "advanced") or "advanced").strip().lower()
-        if mode == "basic":
-            self._direct_launch_mode_basic_btn.setStyleSheet(active_style.replace("}", left_radius + "}"))
-            self._direct_launch_mode_basic_btn.setChecked(True)
-            self._direct_launch_mode_advanced_btn.setStyleSheet(
-                inactive_style.replace("QPushButton {", "QPushButton { " + right_radius)
-            )
-            self._direct_launch_mode_advanced_btn.setChecked(False)
-        else:
-            self._direct_launch_mode_basic_btn.setStyleSheet(
-                inactive_style.replace("QPushButton {", "QPushButton { " + left_radius)
-            )
-            self._direct_launch_mode_basic_btn.setChecked(False)
-            self._direct_launch_mode_advanced_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
-            self._direct_launch_mode_advanced_btn.setChecked(True)
+    def _refresh_direct_mode_label(self) -> None:
+        try:
+            from strategy_menu import get_direct_zapret2_ui_mode
+            mode = get_direct_zapret2_ui_mode()
+            self.direct_mode_label.setText("Basic" if mode == "basic" else "Advanced")
+        except Exception:
+            pass
 
     def _on_direct_launch_mode_selected(self, mode: str) -> None:
         wanted = str(mode or "").strip().lower()
@@ -916,7 +795,7 @@ class Zapret2DirectControlPage(BasePage):
                 else "Автозагрузка DPI отключена"
             )
             self._set_status(msg)
-            QMessageBox.information(self, "Автозагрузка DPI", msg)
+            InfoBar.success(title="Автозагрузка DPI", content=msg, parent=self.window())
         finally:
             self._sync_program_settings()
 
@@ -924,12 +803,7 @@ class Zapret2DirectControlPage(BasePage):
         import ctypes
 
         if not ctypes.windll.shell32.IsUserAnAdmin():
-            QMessageBox.critical(
-                self,
-                "Требуются права администратора",
-                "Для управления Windows Defender требуются права администратора.\n\n"
-                "Перезапустите программу от имени администратора.",
-            )
+            InfoBar.error(title="Требуются права администратора", content="Для управления Windows Defender требуются права администратора. Перезапустите программу от имени администратора.", parent=self.window())
             self._set_toggle_checked(self.defender_toggle, not disable)
             return
 
@@ -939,21 +813,17 @@ class Zapret2DirectControlPage(BasePage):
             manager = WindowsDefenderManager(status_callback=self._set_status)
 
             if disable:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Отключение Windows Defender")
-                msg_box.setIcon(QMessageBox.Icon.Warning)
-                msg_box.setText("Вы действительно хотите отключить Windows Defender?\n\n")
-                msg_box.setInformativeText(
+                box = MessageBox(
+                    "Отключение Windows Defender",
+                    "Вы действительно хотите отключить Windows Defender?\n\n"
                     "Отключение Windows Defender:\n"
                     "• Отключит защиту в реальном времени\n"
                     "• Отключит облачную защиту\n"
                     "• Отключит автоматическую отправку образцов\n"
-                    "• Может потребовать перезагрузки для полного применения\n\n"
+                    "• Может потребовать перезагрузки для полного применения",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.defender_toggle, False)
                     return
 
@@ -962,33 +832,18 @@ class Zapret2DirectControlPage(BasePage):
 
                 if success:
                     set_defender_disabled(True)
-                    QMessageBox.information(
-                        self,
-                        "Windows Defender отключен",
-                        "Windows Defender успешно отключен.\n"
-                        f"Применено {count} настроек.\n\n"
-                        "Для полного применения изменений может потребоваться перезагрузка.",
-                    )
+                    InfoBar.success(title="Windows Defender отключен", content=f"Windows Defender успешно отключен. Применено {count} настроек. Может потребоваться перезагрузка.", parent=self.window())
                 else:
-                    QMessageBox.critical(
-                        self,
-                        "Ошибка",
-                        "Не удалось отключить Windows Defender.\n"
-                        "Возможно, некоторые настройки заблокированы системой.",
-                    )
+                    InfoBar.error(title="Ошибка", content="Не удалось отключить Windows Defender. Возможно, некоторые настройки заблокированы системой.", parent=self.window())
                     self._set_toggle_checked(self.defender_toggle, False)
             else:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Включение Windows Defender")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(
+                box = MessageBox(
+                    "Включение Windows Defender",
                     "Включить Windows Defender обратно?\n\n"
-                    "Это восстановит защиту вашего компьютера."
+                    "Это восстановит защиту вашего компьютера.",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.defender_toggle, True)
                     return
 
@@ -997,29 +852,14 @@ class Zapret2DirectControlPage(BasePage):
 
                 if success:
                     set_defender_disabled(False)
-                    QMessageBox.information(
-                        self,
-                        "Windows Defender включен",
-                        "Windows Defender успешно включен.\n"
-                        f"Выполнено {count} операций.\n\n"
-                        "Защита вашего компьютера восстановлена.",
-                    )
+                    InfoBar.success(title="Windows Defender включен", content="Windows Defender успешно включен. Защита вашего компьютера восстановлена.", parent=self.window())
                 else:
-                    QMessageBox.warning(
-                        self,
-                        "Частичный успех",
-                        "Windows Defender включен частично.\n"
-                        "Для полного восстановления может потребоваться перезагрузка.",
-                    )
+                    InfoBar.warning(title="Частичный успех", content="Windows Defender включен частично. Некоторые настройки могут потребовать ручного исправления.", parent=self.window())
 
             self._set_status("Готово")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Произошла ошибка при изменении настроек Windows Defender:\n{e}",
-            )
+            InfoBar.error(title="Ошибка", content=f"Произошла ошибка при изменении настроек Windows Defender: {e}", parent=self.window())
         finally:
             self._sync_program_settings()
 
@@ -1030,55 +870,45 @@ class Zapret2DirectControlPage(BasePage):
             manager = MaxBlockerManager(status_callback=self._set_status)
 
             if enable:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Блокировка MAX")
-                msg_box.setIcon(QMessageBox.Icon.Information)
-                msg_box.setText("Включить блокировку установки и работы программы MAX?\n\nЭто действие:")
-                msg_box.setInformativeText(
+                box = MessageBox(
+                    "Блокировка MAX",
+                    "Включить блокировку установки и работы программы MAX?\n\n"
                     "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
-                    "• Создаст файлы-блокировки в папках установки\n"
-                    "• Добавит правила блокировки в Windows Firewall (при наличии прав)\n"
-                    "• Заблокирует домены MAX в файле hosts\n\n"
-                    "В итоге даже если мессенджер Max поставиться будет тёмный экран, в результате чего он будет выглядеть так, будто не может подключиться к своим серверам."
+                    "• Добавит правила блокировки в Windows Firewall\n"
+                    "• Заблокирует домены MAX в файле hosts",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.max_block_toggle, False)
                     return
 
                 success, message = manager.enable_blocking()
                 if success:
-                    QMessageBox.information(self, "Блокировка включена", message)
+                    InfoBar.success(title="Блокировка включена", content=message, parent=self.window())
                 else:
-                    QMessageBox.warning(self, "Ошибка", f"Не удалось полностью включить блокировку:\n{message}")
+                    InfoBar.warning(title="Ошибка", content=f"Не удалось полностью включить блокировку: {message}", parent=self.window())
                     self._set_toggle_checked(self.max_block_toggle, False)
             else:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Отключение блокировки MAX")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(
+                box = MessageBox(
+                    "Отключение блокировки MAX",
                     "Отключить блокировку программы MAX?\n\n"
-                    "Это удалит все созданные блокировки и правила."
+                    "Это удалит все созданные блокировки и правила.",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.max_block_toggle, True)
                     return
 
                 success, message = manager.disable_blocking()
                 if success:
-                    QMessageBox.information(self, "Блокировка отключена", message)
+                    InfoBar.success(title="Блокировка отключена", content=message, parent=self.window())
                 else:
-                    QMessageBox.warning(self, "Ошибка", f"Не удалось полностью отключить блокировку:\n{message}")
+                    InfoBar.warning(title="Ошибка", content=f"Не удалось полностью отключить блокировку: {message}", parent=self.window())
 
             self._set_status("Готово")
 
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Ошибка при переключении блокировки MAX:\n{e}")
+            InfoBar.error(title="Ошибка", content=f"Ошибка при переключении блокировки MAX: {e}", parent=self.window())
         finally:
             self._sync_program_settings()
 
@@ -1091,7 +921,7 @@ class Zapret2DirectControlPage(BasePage):
             log("Кэш проверок запуска очищен пользователем", "INFO")
             self._set_status("Кэш проверок запуска очищен")
         except Exception as e:
-            QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось очистить кэш: {e}", parent=self.window())
             log(f"Ошибка очистки кэша: {e}", "❌ ERROR")
         finally:
             self._sync_program_settings()
@@ -1108,6 +938,11 @@ class Zapret2DirectControlPage(BasePage):
             self.stop_winws_btn.setText("Остановить только winws.exe")
 
     def set_loading(self, loading: bool, text: str = ""):
+        if _HAS_FLUENT_LABELS:
+            if loading:
+                self.progress_bar.start()
+            else:
+                self.progress_bar.stop()
         self.progress_bar.setVisible(loading)
         self.loading_label.setVisible(loading and bool(text))
         self.loading_label.setText(text)
@@ -1115,11 +950,6 @@ class Zapret2DirectControlPage(BasePage):
         self.start_btn.setEnabled(not loading)
         self.stop_winws_btn.setEnabled(not loading)
         self.stop_and_exit_btn.setEnabled(not loading)
-
-        # Visual disabled state is handled globally in ui/theme.py.
-        self.start_btn._update_style()
-        self.stop_winws_btn._update_style()
-        self.stop_and_exit_btn._update_style()
 
     def update_status(self, is_running: bool):
         if is_running:
@@ -1176,7 +1006,7 @@ class Zapret2DirectControlPage(BasePage):
                         continue
 
                     args = registry.get_strategy_args_safe(cat_key, sid) or ""
-                    for value in _LIST_FILE_ARG_RE.findall(args):
+                    for value in _HOSTLIST_DISPLAY_RE.findall(args):
                         list_path = value.strip().strip('"').strip("'")
                         if not list_path:
                             continue
@@ -1194,28 +1024,24 @@ class Zapret2DirectControlPage(BasePage):
 
                 if not active_lists:
                     name = "Не выбрана"
-                    self.strategy_label.setToolTip("")
+                    set_tooltip(self.strategy_label, "")
                 else:
                     name = " • ".join(active_lists)
-                    self.strategy_label.setToolTip("\n".join(active_lists))
+                    set_tooltip(self.strategy_label, "\n".join(active_lists))
         except Exception:
             pass
 
         if active_preset_name:
-            self.active_preset_label.setText(active_preset_name)
-            self.active_preset_label.setToolTip(active_preset_name)
-            self.active_preset_desc.setText("Текущий активный пресет")
+            self.preset_name_label.setText(active_preset_name)
+            set_tooltip(self.preset_name_label, active_preset_name)
         else:
-            self.active_preset_label.setText("Не выбран")
-            self.active_preset_label.setToolTip("")
-            self.active_preset_desc.setText("Выберите пресет в разделе «Активный пресет»")
+            self.preset_name_label.setText("Не выбран")
+            set_tooltip(self.preset_name_label, "")
 
         if name and name != "Автостарт DPI отключен":
             self.strategy_label.setText(name)
-            self.strategy_desc.setText("Активные hostlist/ipset" if show_filter_lists else "Активная стратегия обхода")
         else:
-            self.strategy_label.setText("Не выбрана")
-            self.strategy_desc.setText("Выберите стратегию в разделе «Прямой запуск»")
+            self.strategy_label.setText("Нет активных листов")
 
     def _open_docs(self) -> None:
         try:
@@ -1223,4 +1049,4 @@ class Zapret2DirectControlPage(BasePage):
 
             webbrowser.open(DOCS_URL)
         except Exception as e:
-            QMessageBox.warning(self.window(), "Документация", f"Не удалось открыть документацию:\n{e}")
+            InfoBar.warning(title="Документация", content=f"Не удалось открыть документацию: {e}", parent=self.window())

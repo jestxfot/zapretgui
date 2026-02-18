@@ -6,14 +6,13 @@
 
 from PyQt6.QtCore import Qt, QTimer, QThread
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QFrame, QScrollArea, QPushButton,
-                             QSizePolicy, QMessageBox,
-                             QButtonGroup)
+                             QFrame, QScrollArea,
+                             QSizePolicy, QButtonGroup)
 import qtawesome as qta
 
 from .strategies_page_base import (StrategiesPageBase, ScrollBlockingScrollArea,
                                    Win11Spinner, ResetActionButton)
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton, set_tooltip
 from ui.theme import get_theme_tokens
 from ui.widgets import StrategySearchBar
 from log import log
@@ -93,9 +92,9 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(8)
 
-            reload_btn = ActionButton("Обновить", "fa5s.sync-alt")
-            reload_btn.clicked.connect(self._reload_strategies)
-            actions_layout.addWidget(reload_btn)
+            self._reload_btn = RefreshButton()
+            self._reload_btn.clicked.connect(self._reload_strategies)
+            actions_layout.addWidget(self._reload_btn)
 
             folder_btn = ActionButton("Папка", "fa5s.folder-open")
             folder_btn.clicked.connect(self._open_folder)
@@ -383,14 +382,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             tokens = get_theme_tokens()
-            scroll.setStyleSheet(
-                (
-                    "QScrollArea{background:transparent;border:none}"
-                    f"QScrollBar:vertical{{background:{tokens.surface_bg};width:6px}}"
-                    f"QScrollBar::handle:vertical{{background:{tokens.scrollbar_handle};border-radius:3px}}"
-                    f"QScrollBar::handle:vertical:hover{{background:{tokens.scrollbar_handle_hover};}}"
-                )
-            )
+            scroll.setStyleSheet("QScrollArea{background:transparent;border:none}")
 
             content = QWidget()
             content.setStyleSheet("background:transparent")
@@ -667,7 +659,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             from strategy_menu.strategies_registry import registry
 
             if get_strategy_launch_method() != "direct_zapret1":
-                self.current_strategy_label.setToolTip("")
+                set_tooltip(self.current_strategy_label, "")
                 self.current_strategy_label.show()
                 self.current_strategy_container.hide()
                 self._has_hidden_strategies = False
@@ -719,7 +711,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
                         pixmap = qta.icon('fa5s.globe', color=get_theme_tokens().accent_hex).pixmap(16, 16)
                         icon_label.setPixmap(pixmap)
                     icon_label.setFixedSize(18, 18)
-                    icon_label.setToolTip(f"{strat_name}")
+                    set_tooltip(icon_label, f"{strat_name}")
                     self.current_icons_layout.addWidget(icon_label)
 
                 self._has_hidden_strategies = len(icons_data) > 3  # Тултип если > 3
@@ -729,7 +721,7 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
                 self.current_strategy_container.hide()
                 self.current_strategy_label.show()
                 self.current_strategy_label.setText("Не выбрана")
-                self.current_strategy_label.setToolTip("")
+                set_tooltip(self.current_strategy_label, "")
                 self._has_hidden_strategies = False
 
         except Exception as e:
@@ -741,6 +733,8 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
 
     def _reload_strategies(self):
         """Перезагружает стратегии (direct режим)"""
+        if hasattr(self, '_reload_btn'):
+            self._reload_btn.set_loading(True)
         try:
             from strategy_menu.strategies_registry import registry
 
@@ -763,11 +757,15 @@ class Zapret1DirectStrategiesPage(StrategiesPageBase):
             self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.content_layout.addWidget(self.loading_label)
 
-            # Загружаем сразу
+            # Загружаем сразу (_load_content показывает свой индикатор загрузки)
+            if hasattr(self, '_reload_btn'):
+                self._reload_btn.set_loading(False)
             QTimer.singleShot(0, self._load_content)
 
         except Exception as e:
             log(f"Ошибка перезагрузки: {e}", "ERROR")
+            if hasattr(self, '_reload_btn'):
+                self._reload_btn.set_loading(False)
 
     def _open_folder(self):
         """Открывает папку стратегий"""

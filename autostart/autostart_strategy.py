@@ -131,7 +131,7 @@ def _create_task_scheduler_job(
     Args:
         task_name : Имя задачи (напр. "ZapretStrategy")
         bat_path  : Полный путь к .bat
-        ui_error_cb : callback для вывода ошибки в GUI (QMessageBox/label)
+        ui_error_cb : callback для вывода ошибки в GUI (InfoBar/label)
 
     Returns:
         True  – задача успешно создана/обновлена

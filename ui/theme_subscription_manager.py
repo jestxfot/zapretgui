@@ -10,21 +10,6 @@ from log import log
 from config import APP_VERSION
 from ui.theme import get_theme_tokens
 
-def apply_initial_theme(app):
-    """
-    Применяет начальную тему при запуске приложения.
-
-    Args:
-        app: Экземпляр QApplication
-    """
-    try:
-        from qfluentwidgets import setTheme, Theme
-        setTheme(Theme.DARK)
-        log("Начальная тема применена (qfluentwidgets DARK)", "INFO")
-    except Exception as e:
-        log(f"Ошибка применения начальной темы: {e}", "❌ ERROR")
-        app.setStyleSheet("")
-
 
 class ThemeSubscriptionManager:
     """

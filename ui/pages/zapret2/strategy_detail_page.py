@@ -7,19 +7,55 @@
 import re
 import json
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-    QFrame, QPushButton, QScrollArea, QLineEdit, QMenu, QComboBox, QSpinBox,
-    QCheckBox, QPlainTextEdit, QSizePolicy, QTabBar, QWidgetAction, QGraphicsOpacityEffect
+    QFrame, QMenu,
+    QSizePolicy, QGraphicsOpacityEffect
 )
-from PyQt6.QtGui import QFont, QFontMetrics, QColor, QPainter, QFontMetricsF
+from PyQt6.QtGui import QFont, QFontMetrics, QColor
 import qtawesome as qta
 
+try:
+    from qfluentwidgets import (
+        BodyLabel, CaptionLabel, StrongBodyLabel, SubtitleLabel,
+        ComboBox, CheckBox, SpinBox, LineEdit, TextEdit, HorizontalSeparator,
+        ToolButton, TransparentToolButton, SwitchButton, SegmentedWidget, TogglePushButton,
+        PixmapLabel,
+        TitleLabel, TransparentPushButton, IndeterminateProgressRing, RoundMenu, Action,
+        MessageBoxBase, InfoBar, FluentIcon,
+    )
+    _HAS_FLUENT = True
+except ImportError:
+    from PyQt6.QtWidgets import (
+        QComboBox as ComboBox, QCheckBox as CheckBox, QSpinBox as SpinBox,
+        QLineEdit as LineEdit, QTextEdit as TextEdit, QFrame as HorizontalSeparator, QPushButton,
+        QDialog as MessageBoxBase,
+    )
+    BodyLabel = QLabel
+    CaptionLabel = QLabel
+    StrongBodyLabel = QLabel
+    SubtitleLabel = QLabel
+    TitleLabel = QLabel
+    ToolButton = QPushButton
+    TransparentToolButton = QPushButton
+    SwitchButton = QPushButton
+    TransparentPushButton = QPushButton
+    SegmentedWidget = QWidget
+    TogglePushButton = QPushButton
+    TextEdit = QWidget
+    PixmapLabel = QLabel
+    IndeterminateProgressRing = QWidget
+    RoundMenu = QMenu
+    Action = lambda *a, **kw: None
+    InfoBar = None
+    FluentIcon = None
+    _HAS_FLUENT = False
+
 from ui.pages.base_page import BasePage
+from ui.compat_widgets import ActionButton, PrimaryActionButton, SettingsRow, set_tooltip
 from ui.pages.dpi_settings_page import Win11ToggleRow
 from ui.pages.strategies_page_base import ResetActionButton
-from ui.widgets.win11_spinner import Win11Spinner
 from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
 from strategy_menu.args_preview_dialog import ArgsPreviewDialog
 from launcher_common.blobs import get_blobs_info
@@ -27,6 +63,52 @@ from preset_zapret2 import PresetManager, SyndataSettings
 from ui.zapret2_strategy_marks import DirectZapret2MarksStore, DirectZapret2FavoritesStore
 from ui.theme import get_theme_tokens
 from log import log
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ДИАЛОГ РЕДАКТИРОВАНИЯ АРГУМЕНТОВ (MessageBoxBase)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ArgsEditorDialog(MessageBoxBase):
+    """Диалог редактирования аргументов стратегии на базе MessageBoxBase."""
+
+    def __init__(self, initial_text: str = "", parent=None):
+        super().__init__(parent)
+        if _HAS_FLUENT:
+            from qfluentwidgets import SubtitleLabel as _SubLabel
+            self._title_lbl = _SubLabel("Аргументы стратегии")
+        else:
+            self._title_lbl = QLabel("Аргументы стратегии")
+        self.viewLayout.addWidget(self._title_lbl)
+
+        if _HAS_FLUENT:
+            from qfluentwidgets import CaptionLabel as _Cap
+            hint = _Cap("Один аргумент на строку. Изменяет только выбранную категорию.")
+        else:
+            hint = QLabel("Один аргумент на строку.")
+        self.viewLayout.addWidget(hint)
+
+        self._text_edit = TextEdit()
+        self._text_edit.setPlaceholderText(
+            "Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1"
+        )
+        self._text_edit.setMinimumWidth(420)
+        self._text_edit.setMinimumHeight(120)
+        self._text_edit.setMaximumHeight(220)
+        if _HAS_FLUENT:
+            from PyQt6.QtGui import QFont
+            self._text_edit.setFont(QFont("Consolas", 10))
+        self._text_edit.setText(initial_text)
+        self.viewLayout.addWidget(self._text_edit)
+
+        self.yesButton.setText("Сохранить")
+        self.cancelButton.setText("Отмена")
+
+    def validate(self) -> bool:
+        return True
+
+    def get_text(self) -> str:
+        return self._text_edit.toPlainText()
 
 
 TCP_PHASE_TAB_ORDER: list[tuple[str, str]] = [
@@ -116,117 +198,6 @@ def _normalize_args_text(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-class FilterModeSelector(QWidget):
-    """Селектор режима фильтрации (Hostlist/IPset)"""
-    mode_changed = pyqtSignal(str)  # emits "hostlist" or "ipset"
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._current_mode = "hostlist"
-        self._setup_ui()
-
-    def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self._hostlist_btn = QPushButton("Hostlist")
-        self._ipset_btn = QPushButton("IPset")
-
-        for btn in [self._hostlist_btn, self._ipset_btn]:
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
-
-        self._hostlist_btn.clicked.connect(lambda: self._select("hostlist"))
-        self._ipset_btn.clicked.connect(lambda: self._select("ipset"))
-
-        # Стили
-        self._update_styles()
-
-        layout.addWidget(self._hostlist_btn)
-        layout.addWidget(self._ipset_btn)
-
-    def _select(self, mode: str):
-        if mode != self._current_mode:
-            self._current_mode = mode
-            self._update_styles()
-            self.mode_changed.emit(mode)
-
-    def _update_styles(self):
-        tokens = get_theme_tokens()
-        active_style = """
-            QPushButton {
-                background: %(accent)s;
-                border: none;
-                color: rgba(0, 0, 0, 0.90);
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: %(accent_hover)s;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: %(bg)s;
-                border: none;
-                color: %(fg_muted)s;
-                font-size: 11px;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: %(bg_hover)s;
-            }
-        """
-
-        active_style = active_style % {
-            "accent": tokens.accent_hex,
-            "accent_hover": tokens.accent_hover_hex,
-        }
-        inactive_style = inactive_style % {
-            "bg": tokens.surface_bg,
-            "bg_hover": tokens.surface_bg_hover,
-            "fg_muted": tokens.fg_muted,
-        }
-
-        # Left button - rounded left corners only
-        left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
-        # Right button - rounded right corners only
-        right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
-
-        if self._current_mode == "hostlist":
-            self._hostlist_btn.setStyleSheet(active_style.replace("}", left_radius + "}"))
-            self._hostlist_btn.setChecked(True)
-            self._ipset_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + right_radius))
-            self._ipset_btn.setChecked(False)
-        else:
-            self._hostlist_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + left_radius))
-            self._hostlist_btn.setChecked(False)
-            self._ipset_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
-            self._ipset_btn.setChecked(True)
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._update_styles()
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-    def setCurrentMode(self, mode: str, block_signals: bool = False):
-        """Set mode without emitting signal if block_signals=True"""
-        if mode in ("hostlist", "ipset"):
-            self._current_mode = mode
-            self._update_styles()
-            if not block_signals:
-                self.mode_changed.emit(mode)
-
-    def currentMode(self) -> str:
-        return self._current_mode
-
-
 class TTLButtonSelector(QWidget):
     """
     Универсальный селектор значения через ряд кнопок.
@@ -251,80 +222,29 @@ class TTLButtonSelector(QWidget):
     def _setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)  # Маленький отступ между кнопками
+        layout.setSpacing(2)
 
         for i, (value, label) in enumerate(zip(self._values, self._labels)):
-            btn = QPushButton(label)
-            btn.setFixedSize(36, 24)  # Увеличено с 28 для видимости текста
+            btn = TogglePushButton(self)
+            btn.setText(label)
+            btn.setFixedSize(36, 24)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
             btn.clicked.connect(lambda checked, v=value: self._select(v))
             self._buttons.append((btn, value))
             layout.addWidget(btn)
 
         layout.addStretch()
-        self._update_styles()
+        self._sync_checked_states()
 
     def _select(self, value: int):
         if value != self._current_value:
             self._current_value = value
-            self._update_styles()
+            self._sync_checked_states()
             self.value_changed.emit(value)
 
-    def _update_styles(self):
-        tokens = get_theme_tokens()
-        active_style = """
-            QPushButton {
-                background: %(accent)s;
-                border: none;
-                color: rgba(0, 0, 0, 0.90);
-                font-size: 11px;
-                font-weight: 600;
-                border-radius: 4px;
-                padding: 0 2px;
-            }
-            QPushButton:hover {
-                background: %(accent_hover)s;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: %(bg)s;
-                border: none;
-                color: %(fg_muted)s;
-                font-size: 11px;
-                border-radius: 4px;
-                padding: 0 2px;
-            }
-            QPushButton:hover {
-                background: %(bg_hover)s;
-            }
-        """
-
-        active_style = active_style % {
-            "accent": tokens.accent_hex,
-            "accent_hover": tokens.accent_hover_hex,
-        }
-        inactive_style = inactive_style % {
-            "bg": tokens.surface_bg,
-            "bg_hover": tokens.surface_bg_hover,
-            "fg_muted": tokens.fg_muted,
-        }
+    def _sync_checked_states(self):
         for btn, value in self._buttons:
-            if value == self._current_value:
-                btn.setStyleSheet(active_style)
-                btn.setChecked(True)
-            else:
-                btn.setStyleSheet(inactive_style)
-                btn.setChecked(False)
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._update_styles()
-        except Exception:
-            pass
-        super().changeEvent(event)
+            btn.setChecked(value == self._current_value)
 
     def setValue(self, value: int, block_signals: bool = False):
         """Устанавливает значение программно"""
@@ -332,80 +252,13 @@ class TTLButtonSelector(QWidget):
             if block_signals:
                 self.blockSignals(True)
             self._current_value = value
-            self._update_styles()
+            self._sync_checked_states()
             if block_signals:
                 self.blockSignals(False)
 
     def value(self) -> int:
         """Возвращает текущее значение"""
         return self._current_value
-
-
-class ClickableLabel(QLabel):
-    """Кликабельный label для breadcrumb навигации в стиле Windows 11"""
-
-    clicked = pyqtSignal()
-
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self._applying_theme_styles = False
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_style(False)
-        # Устанавливаем свойство для предотвращения перетаскивания окна
-        self.setProperty("clickable", True)
-        self.setProperty("noDrag", True)
-
-    def _update_style(self, hovered):
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            color = tokens.accent_hover_hex if hovered else tokens.accent_hex
-            deco = "text-decoration: underline;" if hovered else ""
-            self.setStyleSheet(f"""
-                QLabel {{
-                    color: {color};
-                    {deco}
-                    font-size: 22px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-                    background: transparent;
-                }}
-            """)
-        finally:
-            self._applying_theme_styles = False
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
-                    return super().changeEvent(event)
-                self._update_style(False)
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-    def enterEvent(self, event):
-        self._update_style(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._update_style(False)
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event):
-        """Принимаем событие нажатия чтобы предотвратить перетаскивание окна"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            event.accept()  # Важно: принимаем событие
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-            event.accept()
-        super().mouseReleaseEvent(event)
 
 
 class ElidedLabel(QLabel):
@@ -456,8 +309,8 @@ class ElidedLabel(QLabel):
             return
 
 
-class ArgsPreview(QLabel):
-    """Превью args на 2-3 строки (лёгкий QLabel вместо QTextEdit на каждой строке)."""
+class ArgsPreview(CaptionLabel):
+    """Превью args на 2-3 строки (лёгкий label вместо QTextEdit на каждой строке)."""
 
     def __init__(self, max_lines: int = 3, parent=None):
         super().__init__(parent)
@@ -467,23 +320,13 @@ class ArgsPreview(QLabel):
         self.setWordWrap(True)
         self.setTextFormat(Qt.TextFormat.PlainText)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        try:
-            self.setProperty("tone", "faint")
-        except Exception:
-            pass
-        self.setStyleSheet("""
-            QLabel {
-                background: transparent;
-                padding: 0 4px;
-                font-size: 9px;
-                font-family: 'Consolas', monospace;
-            }
-        """)
+        self.setFont(QFont("Consolas", 9))
+        self.setContentsMargins(4, 0, 4, 0)
         self._sync_height()
 
     def set_full_text(self, text: str):
         self._full_text = text or ""
-        self.setToolTip((self._full_text or "").replace("\n", "<br>"))
+        set_tooltip(self, (self._full_text or "").replace("\n", "<br>"))
         self.setText(self._wrap_friendly(self._full_text))
 
     def full_text(self) -> str:
@@ -512,620 +355,62 @@ class ArgsPreview(QLabel):
         )
 
 
-class StrategyRow(QFrame):
-    """Строка выбора стратегии с избранным"""
+class _PresetNameDialog(MessageBoxBase):
+    """WinUI-style modal dialog for preset create / rename (uses qfluentwidgets MessageBoxBase)."""
 
-    clicked = pyqtSignal()  # Клик по строке (выбор активной)
-    favorite_toggled = pyqtSignal(str, bool)  # (strategy_id, is_favorite)
-    marked_working = pyqtSignal(str, object)  # (strategy_id, is_working) where is_working is bool|None
-
-    def __init__(self, strategy_id: str, name: str, args: list = None, parent=None):
+    def __init__(self, mode: str, old_name: str = "", parent=None):
         super().__init__(parent)
-        self._strategy_id = strategy_id
-        self._name = name
-        self._args = args or []
-        self._selected = False  # Активная (применённая) стратегия
-        self._favorite = False  # Избранная (звезда)
-        self._is_working = None
-        self._applying_theme_styles = False
+        self._mode = mode  # "create" | "rename"
 
-        self.setObjectName("strategyRow")
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        title_text = "Создать пресет" if mode == "create" else "Переименовать пресет"
+        self.titleLabel = SubtitleLabel(title_text, self.widget)
 
-        self._build_ui()
-        self._update_style()
-
-    @property
-    def strategy_id(self) -> str:
-        return self._strategy_id
-
-    def _build_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 4, 10, 4)
-        main_layout.setSpacing(0)
-
-        # Таймер для анимации загрузки
-        self._loading_timer = None
-
-        # Верхняя строка: звезда + название + индикатор
-        top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(8)
-
-        # Звезда избранного (отдельная от выбора)
-        self._star_btn = QPushButton()
-        self._star_btn.setFixedSize(18, 18)
-        self._star_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._star_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
-        self._star_btn.clicked.connect(self._on_star_clicked)
-        self._update_star_icon()
-        top_row.addWidget(self._star_btn)
-
-        # Название стратегии
-        self._name_label = QLabel(self._name)
-        try:
-            self._name_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self._name_label.setStyleSheet("""
-            QLabel {
-                background: transparent;
-                font-size: 12px;
-                font-family: 'Segoe UI', sans-serif;
-            }
-        """)
-        top_row.addWidget(self._name_label, 1)
-
-        # Индикатор рабочей/нерабочей
-        self._working_label = QLabel()
-        self._working_label.setStyleSheet("background: transparent;")
-        self._working_label.setFixedWidth(16)
-        self._working_label.hide()
-        top_row.addWidget(self._working_label)
-
-        # Индикатор загрузки (синий спиннер)
-        self._loading_label = QLabel()
-        self._loading_label.setFixedWidth(20)
-        self._loading_label.setStyleSheet("background: transparent;")
-        self._loading_label.hide()
-        top_row.addWidget(self._loading_label)
-
-        main_layout.addLayout(top_row)
-
-        # Нижняя строка: args (видимые, но не редактируемые)
-        self._args_view = None
-        if self._strategy_id != "none":
-            args_row = QHBoxLayout()
-            args_row.setContentsMargins(22, 0, 0, 0)
-            args_row.setSpacing(0)
-
-            self._args_view = ArgsPreview(max_lines=3)
-            self._args_view.set_full_text(self._format_args_multiline(self._args))
-            args_row.addWidget(self._args_view, 1)
-            main_layout.addLayout(args_row)
-
-    @staticmethod
-    def _format_args_multiline(args: list) -> str:
-        parts: list[str] = []
-        for part in (args or []):
-            if part is None:
-                continue
-            text = str(part).strip()
-            if not text:
-                continue
-            parts.append(text)
-        return "\n".join(parts)
-
-    def _on_star_clicked(self):
-        """Переключает избранное"""
-        self._favorite = not self._favorite
-        self._update_star_icon()
-        self.favorite_toggled.emit(self._strategy_id, self._favorite)
-
-    def mousePressEvent(self, event):
-        """Клик по строке - выбор активной стратегии"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            # Не обрабатываем если клик по звезде или полю ввода
-            child = self.childAt(event.pos())
-            if child not in (self._star_btn, self._args_view):
-                self.clicked.emit()
-        super().mousePressEvent(event)
-
-    def set_args(self, args: list):
-        self._args = args or []
-        # UI редактора аргументов вынесен на уровень страницы (см. StrategyDetailPage)
-        if self._args_view:
-            if isinstance(self._args_view, ArgsPreview):
-                self._args_view.set_full_text(self._format_args_multiline(self._args))
-            else:
-                self._args_view.setPlainText("\n".join(self._args))
-
-    def set_selected(self, selected: bool):
-        """Устанавливает активную (применённую) стратегию"""
-        self._selected = selected
-        self._update_style()
-
-    def set_favorite(self, favorite: bool):
-        """Устанавливает избранное"""
-        self._favorite = favorite
-        self._update_star_icon()
-
-    def is_selected(self) -> bool:
-        return self._selected
-
-    def is_favorite(self) -> bool:
-        return self._favorite
-
-    def _update_style(self):
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            if self._selected:
-                self.setStyleSheet(
-                    """
-                    QFrame#strategyRow {
-                        background: %(accent_soft)s;
-                        border: none;
-                        border-radius: 6px;
-                    }
-                    """
-                    % {"accent_soft": tokens.accent_soft_bg}
-                )
-            else:
-                self.setStyleSheet(
-                    """
-                    QFrame#strategyRow {
-                        background: transparent;
-                        border: none;
-                        border-radius: 6px;
-                    }
-                    QFrame#strategyRow:hover {
-                        background: %(bg_hover)s;
-                    }
-                    """
-                    % {"bg_hover": tokens.surface_bg_hover}
-                )
-        finally:
-            self._applying_theme_styles = False
-
-    def _update_star_icon(self):
-        """Звезда зависит от избранного, не от выбора"""
-        icon = self._get_star_icon(active=self._favorite)
-        if icon is not None:
-            self._star_btn.setIcon(icon)
-        self._star_btn.setIconSize(QSize(14, 14))
-
-    @staticmethod
-    def _get_star_icon(active: bool):
-        """Lazy-cache qtawesome icons to avoid per-row icon construction cost."""
-        try:
-            tokens = get_theme_tokens()
-            cache = getattr(StrategyRow, "_STAR_ICON_CACHE", None)
-            if cache is None:
-                cache = {}
-                setattr(StrategyRow, "_STAR_ICON_CACHE", cache)
-
-            if bool(active):
-                key = (True, "#ffd700")
-                if key not in cache:
-                    cache[key] = qta.icon("fa5s.star", color="#ffd700")
-                return cache[key]
-
-            inactive_color = tokens.fg_muted
-            key = (False, str(inactive_color))
-            if key not in cache:
-                cache[key] = qta.icon("mdi.star-outline", color=inactive_color)
-            return cache[key]
-        except Exception:
-            return None
-
-    def set_loading(self, loading: bool):
-        """Показывает/скрывает индикатор загрузки"""
-        if loading:
-            if not self._loading_timer:
-                self._loading_timer = QTimer(self)
-                self._loading_timer.timeout.connect(self._animate_row_loading)
-            self._loading_timer.start(50)
-            self._working_label.hide()  # Скрываем working label пока loading
-            self._loading_label.show()
-            self._animate_row_loading()
+        if mode == "rename" and old_name:
+            from_label = CaptionLabel(f"Текущее имя: {old_name}", self.widget)
+            self.viewLayout.addWidget(self.titleLabel)
+            self.viewLayout.addWidget(from_label)
         else:
-            if self._loading_timer:
-                self._loading_timer.stop()
-            self._loading_label.hide()
+            self.viewLayout.addWidget(self.titleLabel)
 
-    def _animate_row_loading(self):
-        """Анимация спиннера в строке"""
-        # Используем qtawesome Spin animation
+        name_label = BodyLabel("Название", self.widget)
+        self.name_edit = LineEdit(self.widget)
+        self.name_edit.setPlaceholderText("Введите название пресета…")
+        if mode == "rename" and old_name:
+            self.name_edit.setText(old_name)
+        self.name_edit.returnPressed.connect(self._validate_and_accept)
+
+        self._error_label = CaptionLabel("", self.widget)
         try:
-            accent = get_theme_tokens().accent_hex
+            from qfluentwidgets import isDarkTheme as _idt
+            _err_clr = "#ff6b6b" if _idt() else "#dc2626"
         except Exception:
-            accent = get_theme_tokens("Темная синяя").accent_hex
-        icon = qta.icon('fa5s.circle-notch', color=accent, animation=qta.Spin(self._loading_label))
-        pixmap = icon.pixmap(14, 14)
-        self._loading_label.setPixmap(pixmap)
+            _err_clr = "#dc2626"
+        self._error_label.setStyleSheet(f"color: {_err_clr};")
+        self._error_label.hide()
 
-    def _update_working_indicator(self):
-        if self._is_working is True:
-            self._working_label.setText("✓")
-            self._working_label.setStyleSheet("background: transparent; color: #4ade80; font-size: 12px;")
-            self._working_label.show()
-        elif self._is_working is False:
-            self._working_label.setText("✗")
-            self._working_label.setStyleSheet("background: transparent; color: #f87171; font-size: 12px;")
-            self._working_label.show()
-        else:
-            self._working_label.hide()
+        self.viewLayout.addWidget(name_label)
+        self.viewLayout.addWidget(self.name_edit)
+        self.viewLayout.addWidget(self._error_label)
 
-    def set_working_state(self, is_working):
-        self._is_working = is_working
-        self._update_working_indicator()
+        self.yesButton.setText("Создать" if mode == "create" else "Переименовать")
+        self.cancelButton.setText("Отмена")
+        self.widget.setMinimumWidth(360)
 
-    def contextMenuEvent(self, event):
-        """Контекстное меню для пометки стратегии как рабочей/нерабочей"""
-        if self._strategy_id == "none":
-            return  # Для "Отключено" меню не нужно
+    def _validate_and_accept(self):
+        if self.validate():
+            self.accept()
 
-        menu = QMenu(self)
-        try:
-            tokens = get_theme_tokens()
-            menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
-            menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
-            menu.setStyleSheet(f"""
-                QMenu {{
-                    background: {menu_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 8px;
-                    padding: 4px;
-                }}
-                QMenu::item {{
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    color: {menu_fg};
-                }}
-                QMenu::item:selected {{
-                    background: {tokens.accent_soft_bg_hover};
-                }}
-            """)
-        except Exception:
-            pass
+    def validate(self) -> bool:
+        name = self.name_edit.text().strip()
+        if not name:
+            self._error_label.setText("Введите название пресета")
+            self._error_label.show()
+            return False
+        self._error_label.hide()
+        return True
 
-        mark_working = menu.addAction("✓ Пометить как рабочую")
-        mark_not_working = menu.addAction("✗ Пометить как нерабочую")
-
-        action = menu.exec(event.globalPos())
-
-        if action == mark_working:
-            new_state = None if self._is_working is True else True
-            self._is_working = new_state
-            self.marked_working.emit(self._strategy_id, new_state)
-            self._update_working_indicator()
-        elif action == mark_not_working:
-            new_state = None if self._is_working is False else False
-            self._is_working = new_state
-            self.marked_working.emit(self._strategy_id, new_state)
-            self._update_working_indicator()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
-                    return super().changeEvent(event)
-                self._update_style()
-                self._update_star_icon()
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-
-class FilterChip(QPushButton):
-    """Чип фильтра по технике"""
-
-    toggled_filter = pyqtSignal(str, bool)  # (technique, is_active)
-
-    def __init__(
-        self,
-        text: str,
-        technique: str,
-        parent=None,
-        *,
-        selected_radius: int | None = None,
-        selected_style: str = "active",
-    ):
-        super().__init__(text, parent)
-        self._technique = technique
-        self._active_marker = False
-        self._base_radius = 14
-        self._selected_radius = int(selected_radius) if selected_radius is not None else self._base_radius
-        self._selected_style = str(selected_style or "active").strip().lower() or "active"
-        self._applying_theme_styles = False
-        self.setCheckable(True)
-        self.setFixedHeight(28)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_style()
-        # Use `toggled` instead of `clicked` so programmatic state changes
-        # (e.g. exclusive tab groups) keep visuals in sync.
-        self.toggled.connect(self._on_toggled)
-
-    def set_active_marker(self, active: bool) -> None:
-        """Marks chip as 'active' (blue) even when it's not checked."""
-        want = bool(active)
-        if want == bool(self._active_marker):
-            return
-        self._active_marker = want
-        self._update_style()
-
-    def _on_toggled(self, checked: bool):
-        self._update_style()
-        self.toggled_filter.emit(self._technique, bool(checked))
-
-    def _update_style(self):
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            is_selected = bool(self.isChecked())
-            radius = self._selected_radius if is_selected else self._base_radius
-
-        # "neutral" style is used for phase tabs:
-        # - the *selected* (currently viewed) tab should NOT change color; only shape changes
-        # - phases that "contribute args" are marked via `_active_marker` (blue), selected or not
-            if self._selected_style == "neutral":
-                if bool(self._active_marker):
-                    self.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {tokens.accent_soft_bg};
-                        border: 1px solid {tokens.accent_hex};
-                        border-radius: {radius}px;
-                        color: {tokens.accent_hex};
-                        padding: 0 12px;
-                        font-size: 12px;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.accent_soft_bg_hover};
-                    }}
-                """)
-                    return
-
-            # Same visuals as "inactive", but with a different radius when selected.
-                self.setStyleSheet(f"""
-                QPushButton {{
-                    background: {tokens.surface_bg};
-                    border: none;
-                    border-radius: {radius}px;
-                    color: {tokens.fg_muted};
-                    padding: 0 12px;
-                    font-size: 12px;
-                }}
-                QPushButton:hover {{
-                    background: {tokens.surface_bg_hover};
-                }}
-            """)
-                return
-
-            if is_selected or bool(self._active_marker):
-                self.setStyleSheet(f"""
-                QPushButton {{
-                    background: {tokens.accent_soft_bg};
-                    border: 1px solid {tokens.accent_hex};
-                    border-radius: {radius}px;
-                    color: {tokens.accent_hex};
-                    padding: 0 12px;
-                    font-size: 12px;
-                }}
-                QPushButton:hover {{
-                    background: {tokens.accent_soft_bg_hover};
-                }}
-            """)
-            else:
-                self.setStyleSheet(f"""
-                QPushButton {{
-                    background: {tokens.surface_bg};
-                    border: none;
-                    border-radius: {radius}px;
-                    color: {tokens.fg_muted};
-                    padding: 0 12px;
-                    font-size: 12px;
-                }}
-                QPushButton:hover {{
-                    background: {tokens.surface_bg_hover};
-                }}
-            """)
-        finally:
-            self._applying_theme_styles = False
-
-    def reset(self):
-        self._active_marker = False
-        self.setChecked(False)
-        self._update_style()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
-                    return super().changeEvent(event)
-                self._update_style()
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-
-class PhaseTabBar(QTabBar):
-    """
-    Phase tabs for direct_zapret2 TCP multi-phase UI.
-
-    Design (per `.claude/agents/ui-designer.md`):
-    - Selected tab: thin cyan underline
-    - Active phases (contributing args): cyan text
-    - Inactive phases: white text
-    - Horizontal scrolling when not fitting: QTabBar scroll buttons
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._active_keys: set[str] = set()
-        self._hover_index: int = -1
-
-        f = QFont("Segoe UI Variable", 10)
-        try:
-            f.setWeight(QFont.Weight.DemiBold)
-        except Exception:
-            pass
-        try:
-            self.setFont(f)
-        except Exception:
-            pass
-
-        try:
-            self.setMouseTracking(True)
-        except Exception:
-            pass
-
-    def set_active_keys(self, keys: set[str]) -> None:
-        try:
-            self._active_keys = {str(k or "").strip().lower() for k in (keys or set()) if str(k or "").strip()}
-        except Exception:
-            self._active_keys = set()
-        self.update()
-
-    def _tab_key(self, index: int) -> str:
-        try:
-            return str(self.tabData(index) or "").strip().lower()
-        except Exception:
-            return ""
-
-    def leaveEvent(self, event):  # noqa: N802 (Qt override)
-        self._hover_index = -1
-        try:
-            self.update()
-        except Exception:
-            pass
-        super().leaveEvent(event)
-
-    def mouseMoveEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            idx = int(self.tabAt(event.pos()))
-        except Exception:
-            idx = -1
-        if idx != int(self._hover_index):
-            self._hover_index = idx
-            try:
-                self.update()
-            except Exception:
-                pass
-        super().mouseMoveEvent(event)
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self.update()
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-    def paintEvent(self, event):  # noqa: N802 (Qt override)
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        fm = QFontMetricsF(self.font())
-
-        pad_x = 10.0
-        pad_y = 6.0
-        underline_h = 2.0
-        underline_radius = 1.0
-        hover_radius = 6.0
-
-        for i in range(self.count()):
-            try:
-                if not bool(self.isTabVisible(i)):
-                    continue
-            except Exception:
-                pass
-
-            r = self.tabRect(i)
-            if r.isNull():
-                continue
-
-            is_selected = int(i) == int(self.currentIndex())
-            is_hover = int(i) == int(self._hover_index)
-            key = self._tab_key(i)
-            is_active = bool(key) and (key in (self._active_keys or set()))
-
-            try:
-                tokens = get_theme_tokens()
-                accent = QColor(tokens.accent_hex)
-            except Exception:
-                accent = QColor(92, 174, 232)
-
-            try:
-                text_primary = self.palette().color(self.foregroundRole())
-            except Exception:
-                text_primary = QColor(255, 255, 255)
-            text_secondary = QColor(text_primary)
-            try:
-                text_secondary.setAlphaF(0.70)
-            except Exception:
-                pass
-            hover_bg = QColor(text_primary)
-            try:
-                hover_bg.setAlphaF(0.06)
-            except Exception:
-                pass
-
-            # Hover background (subtle)
-            if is_hover:
-                try:
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(hover_bg)
-                    p.drawRoundedRect(r.adjusted(0, 1, 0, -2), hover_radius, hover_radius)
-                except Exception:
-                    pass
-
-            # Selected underline
-            if is_selected:
-                try:
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(accent)
-                    underline_y = float(r.bottom()) - underline_h + 1.0
-                    p.drawRoundedRect(
-                        QRectF(float(r.left()), float(underline_y), float(r.width()), float(underline_h)),
-                        underline_radius,
-                        underline_radius,
-                    )
-                except Exception:
-                    pass
-
-            # Text
-            try:
-                text = str(self.tabText(i) or "").strip()
-            except Exception:
-                text = ""
-
-            try:
-                color = accent if is_active else text_secondary
-                if is_selected and not is_active:
-                    color = text_primary
-                p.setPen(color)
-            except Exception:
-                pass
-
-            tr = r.adjusted(int(pad_x), int(pad_y), -int(pad_x), -int(pad_y))
-            try:
-                elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, float(max(1, tr.width())))
-            except Exception:
-                elided = text
-            try:
-                p.drawText(tr, int(Qt.AlignmentFlag.AlignCenter), elided)
-            except Exception:
-                pass
-
-        p.end()
+    def get_name(self) -> str:
+        return self.name_edit.text().strip()
 
 
 class StrategyDetailPage(BasePage):
@@ -1144,6 +429,7 @@ class StrategyDetailPage(BasePage):
     args_changed = pyqtSignal(str, str, list)  # category_key, strategy_id, new_args
     strategy_marked = pyqtSignal(str, str, object)  # category_key, strategy_id, is_working (bool|None)
     back_clicked = pyqtSignal()
+    navigate_to_root = pyqtSignal()  # → PageName.ZAPRET2_DIRECT_CONTROL (skip strategies list)
 
     def __init__(self, parent=None):
         super().__init__(
@@ -1177,7 +463,7 @@ class StrategyDetailPage(BasePage):
         self._active_filters = set()  # Активные фильтры по технике
         # TCP multi-phase UI state (direct_zapret2, tcp.txt + tcp_fake.txt)
         self._tcp_phase_mode = False
-        self._phase_tabbar: PhaseTabBar | None = None
+        self._phase_tabbar: SegmentedWidget | None = None
         self._phase_tab_index_by_key: dict[str, int] = {}
         self._phase_tab_key_by_index: dict[int, str] = {}
         self._active_phase_key = None
@@ -1367,16 +653,40 @@ class StrategyDetailPage(BasePage):
                 category_key=self._category_key
             )
 
+    def _on_breadcrumb_item_changed(self, route_key: str) -> None:
+        """Breadcrumb click handler: navigate up the hierarchy."""
+        # BreadcrumbBar physically deletes trailing items on click —
+        # restore the full path immediately so the widget is correct when we return.
+        if self._breadcrumb is not None and self._category_key:
+            cat_name = ""
+            try:
+                cat_name = self._category_info.full_name if self._category_info else ""
+            except Exception:
+                pass
+            self._breadcrumb.blockSignals(True)
+            try:
+                self._breadcrumb.clear()
+                self._breadcrumb.addItem("control", "Управление")
+                self._breadcrumb.addItem("strategies", "Стратегии DPI")
+                self._breadcrumb.addItem("detail", cat_name or "Категория")
+            finally:
+                self._breadcrumb.blockSignals(False)
+
+        if route_key == "control":
+            self.navigate_to_root.emit()
+        elif route_key == "strategies":
+            self.back_clicked.emit()
+        # "detail" = current page, nothing to do
+
     def _build_content(self):
         """Строит содержимое страницы"""
         tokens = get_theme_tokens()
-        menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
-        menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
         detail_text_color = tokens.fg_muted if tokens.is_light else tokens.fg
 
         # Скрываем стандартный заголовок BasePage
-        self.title_label.hide()
-        if hasattr(self, 'subtitle_label'):
+        if self.title_label is not None:
+            self.title_label.hide()
+        if self.subtitle_label is not None:
             self.subtitle_label.hide()
 
         # Хедер с breadcrumb-навигацией в стиле Windows 11 Settings
@@ -1387,50 +697,35 @@ class StrategyDetailPage(BasePage):
         header_layout.setContentsMargins(0, 0, 0, 16)
         header_layout.setSpacing(4)
 
-        # Breadcrumb: "Стратегии DPI > Название категории"
-        breadcrumb_layout = QHBoxLayout()
-        breadcrumb_layout.setContentsMargins(0, 0, 0, 0)
-        breadcrumb_layout.setSpacing(0)
-
-        # Кликабельная часть: "Стратегии DPI"
-        self._parent_link = ClickableLabel("Стратегии DPI")
-        self._parent_link.clicked.connect(self.back_clicked.emit)
-        breadcrumb_layout.addWidget(self._parent_link)
-
-        # Разделитель ">"
-        self._separator = QLabel("  >  ")
+        # Breadcrumb navigation: Управление › Стратегии DPI › [Category]
+        self._breadcrumb = None
         try:
-            self._separator.setProperty("tone", "faint")
+            from qfluentwidgets import BreadcrumbBar as _BreadcrumbBar
+            self._breadcrumb = _BreadcrumbBar(self)
+            self._breadcrumb.blockSignals(True)
+            self._breadcrumb.addItem("control", "Управление")
+            self._breadcrumb.addItem("strategies", "Стратегии DPI")
+            self._breadcrumb.addItem("detail", "Категория")
+            self._breadcrumb.blockSignals(False)
+            self._breadcrumb.currentItemChanged.connect(self._on_breadcrumb_item_changed)
+            header_layout.addWidget(self._breadcrumb)
         except Exception:
-            pass
-        self._separator.setStyleSheet("""
-            QLabel {
-                font-size: 22px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-                background: transparent;
-            }
-        """)
-        breadcrumb_layout.addWidget(self._separator)
+            # Fallback: original back button
+            back_row = QHBoxLayout()
+            back_row.setContentsMargins(0, 0, 0, 0)
+            back_row.setSpacing(4)
+            self._parent_link = TransparentPushButton(parent=self)
+            self._parent_link.setText("Стратегии DPI")
+            self._parent_link.setIcon(qta.icon('fa5s.chevron-left', color=tokens.fg_muted))
+            self._parent_link.setIconSize(QSize(12, 12))
+            self._parent_link.clicked.connect(self.back_clicked.emit)
+            back_row.addWidget(self._parent_link)
+            back_row.addStretch()
+            header_layout.addLayout(back_row)
 
-        # Название категории (не кликабельное)
-        self._title = QLabel("Выберите категорию")
-        try:
-            self._title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self._title.setStyleSheet("""
-            QLabel {
-                font-size: 22px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-                background: transparent;
-            }
-        """)
-        breadcrumb_layout.addWidget(self._title)
-
-        breadcrumb_layout.addStretch()
-        header_layout.addLayout(breadcrumb_layout)
+        # Current page title
+        self._title = TitleLabel("Выберите категорию")
+        header_layout.addWidget(self._title)
 
         # Строка с галочкой и подзаголовком
         subtitle_row = QHBoxLayout()
@@ -1438,25 +733,20 @@ class StrategyDetailPage(BasePage):
         subtitle_row.setSpacing(6)
 
         # Спиннер загрузки
-        self._spinner = Win11Spinner(size=16, color=tokens.accent_hex)
+        self._spinner = IndeterminateProgressRing(start=False)
+        self._spinner.setFixedSize(16, 16)
+        self._spinner.setStrokeWidth(2)
         self._spinner.hide()
         subtitle_row.addWidget(self._spinner)
 
         # Галочка успеха (показывается после загрузки)
-        self._success_icon = QLabel()
+        self._success_icon = PixmapLabel()
         self._success_icon.setFixedSize(16, 16)
-        self._success_icon.setStyleSheet("background: transparent;")
         self._success_icon.hide()
         subtitle_row.addWidget(self._success_icon)
 
         # Подзаголовок (протокол | порты)
-        self._subtitle = QLabel("")
-        self._subtitle.setFont(QFont("Segoe UI", 11))
-        try:
-            self._subtitle.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self._subtitle.setStyleSheet("background: transparent;")
+        self._subtitle = BodyLabel("")
         subtitle_row.addWidget(self._subtitle)
 
         # Выбранная стратегия (мелким шрифтом, справа от портов)
@@ -1480,7 +770,6 @@ class StrategyDetailPage(BasePage):
         # ВКЛЮЧЕНИЕ КАТЕГОРИИ + НАСТРОЙКИ
         # ═══════════════════════════════════════════════════════════════
         self._settings_host = QWidget()
-        self._settings_host.setStyleSheet("background: transparent;")
         settings_host_layout = QVBoxLayout(self._settings_host)
         settings_host_layout.setContentsMargins(0, 0, 0, 0)
         settings_host_layout.setSpacing(6)
@@ -1513,148 +802,54 @@ class StrategyDetailPage(BasePage):
         self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._toolbar_frame.setVisible(False)
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
-        toolbar_layout.setContentsMargins(12, 8, 12, 8)
+        toolbar_layout.setContentsMargins(0, 4, 0, 4)
         toolbar_layout.setSpacing(6)
 
-        # NEW: Режим фильтрации row
-        self._filter_mode_frame = QFrame()
-        self._filter_mode_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
-        filter_mode_layout = QHBoxLayout(self._filter_mode_frame)
-        filter_mode_layout.setContentsMargins(0, 6, 0, 6)  # Match Win11ToggleRow margins
-        filter_mode_layout.setSpacing(12)
-
-        # Icon FIRST
-        self._filter_icon = QLabel()
-        self._filter_icon.setFixedSize(22, 22)  # Match Win11ToggleRow icon size
-        self._filter_icon.setPixmap(qta.icon("fa5s.filter", color=tokens.accent_hex).pixmap(18, 18))
-        self._filter_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        filter_mode_layout.addWidget(self._filter_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        # Text
-        filter_text_layout = QVBoxLayout()
-        filter_text_layout.setSpacing(2)
-        filter_title = QLabel("Режим фильтрации")
-        try:
-            filter_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        filter_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
-        filter_desc = QLabel("Hostlist - по доменам, IPset - по IP")
-        try:
-            filter_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        filter_desc.setStyleSheet(
-            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        # Режим фильтрации row
+        self._filter_mode_frame = SettingsRow(
+            "fa5s.filter",
+            "Режим фильтрации",
+            "Hostlist - по доменам, IPset - по IP",
         )
-        filter_text_layout.addWidget(filter_title)
-        filter_text_layout.addWidget(filter_desc)
-        filter_mode_layout.addLayout(filter_text_layout)
-
-        filter_mode_layout.addStretch()
-
-        # Selector
-        self._filter_mode_selector = FilterModeSelector()
-        self._filter_mode_selector.mode_changed.connect(self._on_filter_mode_changed)
-        filter_mode_layout.addWidget(self._filter_mode_selector)
+        self._filter_mode_selector = SwitchButton(parent=self)
+        self._filter_mode_selector.setOnText("IPset")
+        self._filter_mode_selector.setOffText("Hostlist")
+        self._filter_mode_selector.checkedChanged.connect(
+            lambda checked: self._on_filter_mode_changed("ipset" if checked else "hostlist")
+        )
+        self._filter_mode_frame.set_control(self._filter_mode_selector)
 
         toolbar_layout.addWidget(self._filter_mode_frame)
 
         # ═══════════════════════════════════════════════════════════════
         # OUT RANGE SETTINGS
         # ═══════════════════════════════════════════════════════════════
-        self._out_range_frame = QFrame()
-        self._out_range_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
-        out_range_main_layout = QHBoxLayout(self._out_range_frame)
-        out_range_main_layout.setContentsMargins(0, 6, 0, 6)
-        out_range_main_layout.setSpacing(12)
-
-        # Icon
-        out_range_icon = QLabel()
-        out_range_icon.setFixedSize(22, 22)
-        out_range_icon.setPixmap(qta.icon("fa5s.filter", color=tokens.accent_hex).pixmap(18, 18))
-        out_range_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        out_range_main_layout.addWidget(out_range_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        # Text
-        out_range_text_layout = QVBoxLayout()
-        out_range_text_layout.setSpacing(2)
-        out_range_title = QLabel("Out Range")
-        try:
-            out_range_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        out_range_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
-        out_range_desc = QLabel("Ограничение исходящих пакетов для обработки")
-        try:
-            out_range_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        out_range_desc.setStyleSheet(
-            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        self._out_range_frame = SettingsRow(
+            "fa5s.sliders-h",
+            "Out Range",
+            "Ограничение исходящих пакетов для обработки",
         )
-        out_range_text_layout.addWidget(out_range_title)
-        out_range_text_layout.addWidget(out_range_desc)
-        out_range_main_layout.addLayout(out_range_text_layout)
 
-        out_range_main_layout.addStretch()
+        mode_label = BodyLabel("Режим:")
+        self._out_range_frame.control_container.addWidget(mode_label)
 
-        # Mode selector (n/d buttons)
-        mode_label = QLabel("Режим:")
-        try:
-            mode_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        mode_label.setStyleSheet("font-size: 12px; background: transparent;")
-        out_range_main_layout.addWidget(mode_label)
-
-        self._out_range_mode_n = QPushButton("n")
-        self._out_range_mode_d = QPushButton("d")
-        for btn in [self._out_range_mode_n, self._out_range_mode_d]:
-            btn.setFixedSize(36, 28)  # Увеличил ширину для видимости букв
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
-            btn.setToolTip("n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными (исключая SYN-ACK-SYN рукопожатие)")
-
-        self._out_range_mode_n.clicked.connect(lambda: self._select_out_range_mode("n"))
-        self._out_range_mode_d.clicked.connect(lambda: self._select_out_range_mode("d"))
-
-        # Set initial state
+        self._out_range_seg = SegmentedWidget()
+        self._out_range_seg.addItem("n", "n", lambda: self._select_out_range_mode("n"))
+        self._out_range_seg.addItem("d", "d", lambda: self._select_out_range_mode("d"))
+        set_tooltip(self._out_range_seg, "n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными (исключая SYN-ACK-SYN рукопожатие)")
         self._out_range_mode = "n"
-        self._update_out_range_mode_styles()
+        self._out_range_seg.setCurrentItem("n")
+        self._out_range_frame.control_container.addWidget(self._out_range_seg)
 
-        out_range_main_layout.addWidget(self._out_range_mode_n)
-        out_range_main_layout.addWidget(self._out_range_mode_d)
+        value_label = BodyLabel("Значение:")
+        self._out_range_frame.control_container.addWidget(value_label)
 
-        # Value spinbox
-        value_label = QLabel("Значение:")
-        try:
-            value_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        value_label.setStyleSheet("font-size: 12px; background: transparent; margin-left: 12px;")
-        out_range_main_layout.addWidget(value_label)
-
-        self._out_range_spin = QSpinBox()
+        self._out_range_spin = SpinBox()
         self._out_range_spin.setRange(1, 999)
         self._out_range_spin.setValue(8)
-        self._out_range_spin.setToolTip("--out-range: ограничение количества исходящих пакетов (n) или задержки (d)")
-        self._out_range_spin.setStyleSheet(f"""
-            QSpinBox {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: {tokens.fg};
-                font-size: 11px;
-                min-width: 60px;
-            }}
-            QSpinBox:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-        """)
+        set_tooltip(self._out_range_spin, "--out-range: ограничение количества исходящих пакетов (n) или задержки (d)")
         self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
-        out_range_main_layout.addWidget(self._out_range_spin)
+        self._out_range_frame.control_container.addWidget(self._out_range_spin)
 
         toolbar_layout.addWidget(self._out_range_frame)
 
@@ -1662,137 +857,35 @@ class StrategyDetailPage(BasePage):
         # SEND SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
         self._send_frame = QFrame()
-        self._send_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
+        self._send_frame.setFrameShape(QFrame.Shape.NoFrame)
         send_layout = QVBoxLayout(self._send_frame)
         send_layout.setContentsMargins(0, 6, 0, 6)
         send_layout.setSpacing(8)
 
-        # Header row with toggle
-        send_header = QHBoxLayout()
-        send_header.setSpacing(12)
-        send_icon = QLabel()
-        send_icon.setFixedSize(22, 22)
-        send_icon.setPixmap(qta.icon("fa5s.paper-plane", color=tokens.accent_hex).pixmap(18, 18))
-        send_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        send_header.addWidget(send_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        send_title_layout = QVBoxLayout()
-        send_title_layout.setSpacing(2)
-        send_title = QLabel("Send параметры")
-        try:
-            send_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        send_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
-        send_desc = QLabel("Отправка копий пакетов")
-        try:
-            send_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        send_desc.setStyleSheet(
-            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        self._send_toggle_row = Win11ToggleRow(
+            "fa5s.paper-plane", "Send параметры", "Отправка копий пакетов"
         )
-        send_title_layout.addWidget(send_title)
-        send_title_layout.addWidget(send_desc)
-        send_header.addLayout(send_title_layout)
-        send_header.addStretch()
-
-        # Enable toggle switch (Win11 style)
-        self._send_toggle = QPushButton()
-        self._send_toggle.setCheckable(True)
-        self._send_toggle.setFixedSize(44, 22)
-        self._send_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._send_toggle.toggled.connect(self._on_send_toggled)
-        self._send_toggle.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border-radius: 11px;
-                border: 1px solid {tokens.surface_border};
-            }}
-            QPushButton:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QPushButton:checked {{
-                background: {tokens.accent_hex};
-                border: none;
-            }}
-        """)
-        send_header.addWidget(self._send_toggle)
-
-        send_layout.addLayout(send_header)
+        self._send_toggle = self._send_toggle_row.toggle
+        self._send_toggle_row.toggled.connect(self._on_send_toggled)
+        send_layout.addWidget(self._send_toggle_row)
 
         # Settings panel (shown when enabled)
         self._send_settings = QFrame()
+        self._send_settings.setFrameShape(QFrame.Shape.NoFrame)
         self._send_settings.setVisible(False)
-        self._send_settings.setStyleSheet("QFrame { background: transparent; border: none; }")
         send_settings_layout = QVBoxLayout(self._send_settings)
         send_settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
         send_settings_layout.setSpacing(8)
 
-        # Combo style for Send section
-        send_combo_style = f"""
-            QComboBox {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-                padding: 4px 8px;
-                min-width: 140px;
-                font-size: 11px;
-            }}
-            QComboBox:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid {tokens.fg_muted};
-                margin-right: 8px;
-            }}
-            QComboBox QAbstractItemView {{
-                background: {menu_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {menu_fg};
-                selection-background-color: {tokens.accent_soft_bg_hover};
-            }}
-        """
-
-        # SpinBox style for Send section
-        send_spinbox_style = f"""
-            QSpinBox {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 4px;
-                padding: 4px 8px;
-                color: {tokens.fg};
-                font-size: 11px;
-            }}
-            QSpinBox:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-        """
-
         # send_repeats row
         repeats_row = QHBoxLayout()
         repeats_row.setSpacing(8)
-        repeats_label = QLabel("repeats:")
-        try:
-            repeats_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        repeats_label.setStyleSheet("font-size: 12px; background: transparent;")
+        repeats_label = BodyLabel("repeats:")
         repeats_label.setFixedWidth(60)
-        self._send_repeats_spin = QSpinBox()
+        self._send_repeats_spin = SpinBox()
         self._send_repeats_spin.setRange(0, 10)
         self._send_repeats_spin.setValue(2)
-        self._send_repeats_spin.setToolTip("Количество повторных отправок пакета (дефолт: 2)")
-        self._send_repeats_spin.setStyleSheet(send_spinbox_style)
+        set_tooltip(self._send_repeats_spin, "Количество повторных отправок пакета (дефолт: 2)")
         self._send_repeats_spin.valueChanged.connect(self._save_syndata_settings)
         repeats_row.addWidget(repeats_label)
         repeats_row.addWidget(self._send_repeats_spin)
@@ -1802,18 +895,13 @@ class StrategyDetailPage(BasePage):
         # send_ip_ttl row
         send_ip_ttl_row = QHBoxLayout()
         send_ip_ttl_row.setSpacing(8)
-        send_ip_ttl_label = QLabel("ip_ttl:")
-        try:
-            send_ip_ttl_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        send_ip_ttl_label.setStyleSheet("font-size: 12px; background: transparent;")
+        send_ip_ttl_label = BodyLabel("ip_ttl:")
         send_ip_ttl_label.setFixedWidth(60)
         self._send_ip_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
         )
-        self._send_ip_ttl_selector.setToolTip("TTL для IPv4 отправляемых пакетов (off = auto)")
+        set_tooltip(self._send_ip_ttl_selector, "TTL для IPv4 отправляемых пакетов (off = auto)")
         self._send_ip_ttl_selector.value_changed.connect(self._save_syndata_settings)
         send_ip_ttl_row.addWidget(send_ip_ttl_label)
         send_ip_ttl_row.addWidget(self._send_ip_ttl_selector)
@@ -1823,18 +911,13 @@ class StrategyDetailPage(BasePage):
         # send_ip6_ttl row
         send_ip6_ttl_row = QHBoxLayout()
         send_ip6_ttl_row.setSpacing(8)
-        send_ip6_ttl_label = QLabel("ip6_ttl:")
-        try:
-            send_ip6_ttl_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        send_ip6_ttl_label.setStyleSheet("font-size: 12px; background: transparent;")
+        send_ip6_ttl_label = BodyLabel("ip6_ttl:")
         send_ip6_ttl_label.setFixedWidth(60)
         self._send_ip6_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
         )
-        self._send_ip6_ttl_selector.setToolTip("TTL для IPv6 отправляемых пакетов (off = auto)")
+        set_tooltip(self._send_ip6_ttl_selector, "TTL для IPv6 отправляемых пакетов (off = auto)")
         self._send_ip6_ttl_selector.value_changed.connect(self._save_syndata_settings)
         send_ip6_ttl_row.addWidget(send_ip6_ttl_label)
         send_ip6_ttl_row.addWidget(self._send_ip6_ttl_selector)
@@ -1844,17 +927,11 @@ class StrategyDetailPage(BasePage):
         # send_ip_id row
         send_ip_id_row = QHBoxLayout()
         send_ip_id_row.setSpacing(8)
-        send_ip_id_label = QLabel("ip_id:")
-        try:
-            send_ip_id_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        send_ip_id_label.setStyleSheet("font-size: 12px; background: transparent;")
+        send_ip_id_label = BodyLabel("ip_id:")
         send_ip_id_label.setFixedWidth(60)
-        self._send_ip_id_combo = QComboBox()
+        self._send_ip_id_combo = ComboBox()
         self._send_ip_id_combo.addItems(["none", "seq", "rnd", "zero"])
-        self._send_ip_id_combo.setToolTip("Режим IP ID для отправляемых пакетов")
-        self._send_ip_id_combo.setStyleSheet(send_combo_style)
+        set_tooltip(self._send_ip_id_combo, "Режим IP ID для отправляемых пакетов")
         self._send_ip_id_combo.currentTextChanged.connect(self._save_syndata_settings)
         send_ip_id_row.addWidget(send_ip_id_label)
         send_ip_id_row.addWidget(self._send_ip_id_combo)
@@ -1864,35 +941,10 @@ class StrategyDetailPage(BasePage):
         # send_badsum row
         send_badsum_row = QHBoxLayout()
         send_badsum_row.setSpacing(8)
-        send_badsum_label = QLabel("badsum:")
-        try:
-            send_badsum_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        send_badsum_label.setStyleSheet("font-size: 12px; background: transparent;")
+        send_badsum_label = BodyLabel("badsum:")
         send_badsum_label.setFixedWidth(60)
-        self._send_badsum_check = QCheckBox()
-        self._send_badsum_check.setToolTip("Отправлять пакеты с неправильной контрольной суммой")
-        self._send_badsum_check.setStyleSheet(f"""
-            QCheckBox {{
-                color: {tokens.fg};
-                spacing: 8px;
-            }}
-            QCheckBox::indicator {{
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-            }}
-            QCheckBox::indicator:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QCheckBox::indicator:checked {{
-                background: {tokens.accent_hex};
-                border: none;
-            }}
-        """)
+        self._send_badsum_check = CheckBox()
+        set_tooltip(self._send_badsum_check, "Отправлять пакеты с неправильной контрольной суммой")
         self._send_badsum_check.stateChanged.connect(self._save_syndata_settings)
         send_badsum_row.addWidget(send_badsum_label)
         send_badsum_row.addWidget(self._send_badsum_check)
@@ -1906,118 +958,32 @@ class StrategyDetailPage(BasePage):
         # SYNDATA SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
         self._syndata_frame = QFrame()
-        self._syndata_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
+        self._syndata_frame.setFrameShape(QFrame.Shape.NoFrame)
         syndata_layout = QVBoxLayout(self._syndata_frame)
         syndata_layout.setContentsMargins(0, 6, 0, 6)
         syndata_layout.setSpacing(8)
 
-        # Header row with toggle
-        syndata_header = QHBoxLayout()
-        syndata_header.setSpacing(12)
-        syndata_icon = QLabel()
-        syndata_icon.setFixedSize(22, 22)
-        syndata_icon.setPixmap(qta.icon("fa5s.cog", color=tokens.accent_hex).pixmap(18, 18))
-        syndata_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        syndata_header.addWidget(syndata_icon, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        syndata_title_layout = QVBoxLayout()
-        syndata_title_layout.setSpacing(2)
-        syndata_title = QLabel("Syndata параметры")
-        try:
-            syndata_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        syndata_title.setStyleSheet("font-size: 13px; font-weight: 500; background: transparent;")
-        syndata_desc = QLabel("Дополнительные параметры обхода DPI")
-        try:
-            syndata_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        syndata_desc.setStyleSheet(
-            f"font-size: 11px; color: {detail_text_color}; background: transparent;"
+        self._syndata_toggle_row = Win11ToggleRow(
+            "fa5s.cog", "Syndata параметры", "Дополнительные параметры обхода DPI"
         )
-        syndata_title_layout.addWidget(syndata_title)
-        syndata_title_layout.addWidget(syndata_desc)
-        syndata_header.addLayout(syndata_title_layout)
-        syndata_header.addStretch()
-
-        # Enable toggle switch (Win11 style)
-        self._syndata_toggle = QPushButton()
-        self._syndata_toggle.setCheckable(True)
-        self._syndata_toggle.setFixedSize(44, 22)
-        self._syndata_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._syndata_toggle.toggled.connect(self._on_syndata_toggled)
-        self._syndata_toggle.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border-radius: 11px;
-                border: 1px solid {tokens.surface_border};
-            }}
-            QPushButton:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QPushButton:checked {{
-                background: {tokens.accent_hex};
-                border: none;
-            }}
-        """)
-        syndata_header.addWidget(self._syndata_toggle)
-
-        syndata_layout.addLayout(syndata_header)
+        self._syndata_toggle = self._syndata_toggle_row.toggle
+        self._syndata_toggle_row.toggled.connect(self._on_syndata_toggled)
+        syndata_layout.addWidget(self._syndata_toggle_row)
 
         # Settings panel (shown when enabled)
         self._syndata_settings = QFrame()
+        self._syndata_settings.setFrameShape(QFrame.Shape.NoFrame)
         self._syndata_settings.setVisible(False)
-        self._syndata_settings.setStyleSheet("QFrame { background: transparent; border: none; }")
         settings_layout = QVBoxLayout(self._syndata_settings)
         settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
         settings_layout.setSpacing(8)
 
-        # Combo style
-        combo_style = f"""
-            QComboBox {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-                padding: 4px 8px;
-                min-width: 140px;
-                font-size: 11px;
-            }}
-            QComboBox:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid {tokens.fg_muted};
-                margin-right: 8px;
-            }}
-            QComboBox QAbstractItemView {{
-                background: {menu_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {menu_fg};
-                selection-background-color: {tokens.accent_soft_bg_hover};
-            }}
-        """
-
         # Blob selector row
         blob_row = QHBoxLayout()
         blob_row.setSpacing(8)
-        blob_label = QLabel("blob:")
-        try:
-            blob_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        blob_label.setStyleSheet("font-size: 12px; background: transparent;")
+        blob_label = BodyLabel("blob:")
         blob_label.setFixedWidth(60)
-        self._blob_combo = QComboBox()
+        self._blob_combo = ComboBox()
         # Get all available blobs (system + user)
         try:
             all_blobs = get_blobs_info()
@@ -2026,7 +992,6 @@ class StrategyDetailPage(BasePage):
             # Fallback to basic list if blobs module fails
             blob_names = ["none", "tls_google", "tls7"]
         self._blob_combo.addItems(blob_names)
-        self._blob_combo.setStyleSheet(combo_style)
         self._blob_combo.currentTextChanged.connect(self._save_syndata_settings)
         blob_row.addWidget(blob_label)
         blob_row.addWidget(self._blob_combo)
@@ -2036,16 +1001,10 @@ class StrategyDetailPage(BasePage):
         # tls_mod selector row
         tls_mod_row = QHBoxLayout()
         tls_mod_row.setSpacing(8)
-        tls_mod_label = QLabel("tls_mod:")
-        try:
-            tls_mod_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        tls_mod_label.setStyleSheet("font-size: 12px; background: transparent;")
+        tls_mod_label = BodyLabel("tls_mod:")
         tls_mod_label.setFixedWidth(60)
-        self._tls_mod_combo = QComboBox()
+        self._tls_mod_combo = ComboBox()
         self._tls_mod_combo.addItems(["none", "rnd", "rndsni", "sni=google.com"])
-        self._tls_mod_combo.setStyleSheet(combo_style)
         self._tls_mod_combo.currentTextChanged.connect(self._save_syndata_settings)
         tls_mod_row.addWidget(tls_mod_label)
         tls_mod_row.addWidget(self._tls_mod_combo)
@@ -2055,12 +1014,7 @@ class StrategyDetailPage(BasePage):
         # ═══════════════════════════════════════════════════════════════
         # AUTOTTL SETTINGS (три строки с кнопками)
         # ═══════════════════════════════════════════════════════════════
-        autottl_header = QLabel("AutoTTL")
-        try:
-            autottl_header.setProperty("tone", "muted")
-        except Exception:
-            pass
-        autottl_header.setStyleSheet("font-size: 11px; background: transparent;")
+        autottl_header = CaptionLabel("AutoTTL")
         settings_layout.addWidget(autottl_header)
 
         # Контейнер для трёх строк autottl
@@ -2071,18 +1025,13 @@ class StrategyDetailPage(BasePage):
         # --- Delta row ---
         delta_row = QHBoxLayout()
         delta_row.setSpacing(8)
-        delta_label = QLabel("d:")
-        try:
-            delta_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        delta_label.setStyleSheet("font-size: 12px; background: transparent;")
+        delta_label = BodyLabel("d:")
         delta_label.setFixedWidth(30)
         self._autottl_delta_selector = TTLButtonSelector(
             values=[0, -1, -2, -3, -4, -5, -6, -7, -8, -9],
             labels=["OFF", "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"]
         )
-        self._autottl_delta_selector.setToolTip("Delta: смещение от измеренного TTL (OFF = убрать ip_autottl)")
+        set_tooltip(self._autottl_delta_selector, "Delta: смещение от измеренного TTL (OFF = убрать ip_autottl)")
         self._autottl_delta_selector.value_changed.connect(self._save_syndata_settings)
         delta_row.addWidget(delta_label)
         delta_row.addWidget(self._autottl_delta_selector)
@@ -2092,18 +1041,13 @@ class StrategyDetailPage(BasePage):
         # --- Min row ---
         min_row = QHBoxLayout()
         min_row.setSpacing(8)
-        min_label = QLabel("min:")
-        try:
-            min_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        min_label.setStyleSheet("font-size: 12px; background: transparent;")
+        min_label = BodyLabel("min:")
         min_label.setFixedWidth(30)
         self._autottl_min_selector = TTLButtonSelector(
             values=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             labels=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         )
-        self._autottl_min_selector.setToolTip("Минимальный TTL")
+        set_tooltip(self._autottl_min_selector, "Минимальный TTL")
         self._autottl_min_selector.value_changed.connect(self._save_syndata_settings)
         min_row.addWidget(min_label)
         min_row.addWidget(self._autottl_min_selector)
@@ -2113,18 +1057,13 @@ class StrategyDetailPage(BasePage):
         # --- Max row ---
         max_row = QHBoxLayout()
         max_row.setSpacing(8)
-        max_label = QLabel("max:")
-        try:
-            max_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        max_label.setStyleSheet("font-size: 12px; background: transparent;")
+        max_label = BodyLabel("max:")
         max_label.setFixedWidth(30)
         self._autottl_max_selector = TTLButtonSelector(
             values=[15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
             labels=["15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25"]
         )
-        self._autottl_max_selector.setToolTip("Максимальный TTL")
+        set_tooltip(self._autottl_max_selector, "Максимальный TTL")
         self._autottl_max_selector.value_changed.connect(self._save_syndata_settings)
         max_row.addWidget(max_label)
         max_row.addWidget(self._autottl_max_selector)
@@ -2136,16 +1075,10 @@ class StrategyDetailPage(BasePage):
         # TCP flags row
         flags_row = QHBoxLayout()
         flags_row.setSpacing(8)
-        flags_label = QLabel("tcp_flags_unset:")
-        try:
-            flags_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        flags_label.setStyleSheet("font-size: 12px; background: transparent;")
+        flags_label = BodyLabel("tcp_flags_unset:")
         flags_label.setFixedWidth(100)
-        self._tcp_flags_combo = QComboBox()
+        self._tcp_flags_combo = ComboBox()
         self._tcp_flags_combo.addItems(["none", "ack", "psh", "ack,psh"])
-        self._tcp_flags_combo.setStyleSheet(combo_style)
         self._tcp_flags_combo.currentTextChanged.connect(self._save_syndata_settings)
         flags_row.addWidget(flags_label)
         flags_row.addWidget(self._tcp_flags_combo)
@@ -2156,13 +1089,23 @@ class StrategyDetailPage(BasePage):
         toolbar_layout.addWidget(self._syndata_frame)
 
         # ═══════════════════════════════════════════════════════════════
-        # RESET SETTINGS BUTTON
+        # PRESET ACTIONS + RESET SETTINGS BUTTON
         # ═══════════════════════════════════════════════════════════════
         self._reset_row_widget = QWidget()
-        self._reset_row_widget.setStyleSheet("background: transparent;")
         reset_row = QHBoxLayout(self._reset_row_widget)
         reset_row.setContentsMargins(0, 8, 0, 0)
-        reset_row.setSpacing(0)
+        reset_row.setSpacing(8)
+
+        self._create_preset_btn = ActionButton("Создать пресет", "fa5s.plus")
+        set_tooltip(self._create_preset_btn, "Создать новый пресет на основе текущих настроек")
+        self._create_preset_btn.clicked.connect(self._on_create_preset_clicked)
+        reset_row.addWidget(self._create_preset_btn)
+
+        self._rename_preset_btn = ActionButton("Переименовать", "fa5s.pen")
+        set_tooltip(self._rename_preset_btn, "Переименовать текущий активный пресет")
+        self._rename_preset_btn.clicked.connect(self._on_rename_preset_clicked)
+        reset_row.addWidget(self._rename_preset_btn)
+
         reset_row.addStretch()
 
         self._reset_settings_btn = ResetActionButton(
@@ -2188,85 +1131,50 @@ class StrategyDetailPage(BasePage):
 
         # Поиск по стратегиям
         self._search_bar_widget = QWidget()
-        self._search_bar_widget.setStyleSheet("background: transparent;")
         search_layout = QHBoxLayout(self._search_bar_widget)
         search_layout.setContentsMargins(0, 0, 0, 8)
         # Add explicit spacing between the search input and icon buttons.
         # Previously it was 0, which made icons stick together visually.
         search_layout.setSpacing(6)
 
-        self._search_input = QLineEdit()
+        self._search_input = LineEdit()
         self._search_input.setPlaceholderText("Поиск по имени или args...")
         self._search_input.setFixedHeight(36)
-        self._search_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 8px;
-                color: {tokens.fg};
-                padding: 0 12px;
-                font-size: 13px;
-            }}
-            QLineEdit:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {tokens.accent_hex};
-            }}
-            QLineEdit::placeholder {{
-                color: {tokens.fg_faint};
-            }}
-        """)
         self._search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self._search_input)
 
         # Кнопка сортировки
-        self._sort_btn = QPushButton()
-        self._sort_btn.setIcon(qta.icon('fa5s.sort-alpha-down', color=tokens.fg_faint))
+        self._sort_btn = TransparentToolButton(parent=self)
+        self._sort_btn.setIconSize(QSize(16, 16))
         self._sort_btn.setFixedSize(36, 36)
         self._sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._sort_btn.setToolTip("Сортировка")
-        self._sort_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-        """)
+        set_tooltip(self._sort_btn, "Сортировка")
         self._sort_btn.clicked.connect(self._show_sort_menu)
         search_layout.addWidget(self._sort_btn)
 
-        # Кнопка фильтра по техникам (фильтрует только список стратегий)
-        self._filter_btn = QPushButton()
-        self._filter_btn.setFixedSize(36, 36)
-        self._filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._filter_btn.clicked.connect(self._show_technique_filter_menu)
-        search_layout.addWidget(self._filter_btn)
+        # ComboBox фильтра по технике (одиночный выбор)
+        self._filter_combo = ComboBox(parent=self)
+        self._filter_combo.setFixedHeight(36)
+        self._filter_combo.setFixedWidth(130)
+        self._filter_combo.addItem("Все техники")
+        for label, _key in STRATEGY_TECHNIQUE_FILTERS:
+            self._filter_combo.addItem(label)
+        self._filter_combo.setCurrentIndex(0)
+        self._filter_combo.currentIndexChanged.connect(self._on_technique_filter_changed)
+        search_layout.addWidget(self._filter_combo)
 
         # Кнопка редактирования args (лениво, отдельная панель)
-        self._edit_args_btn = QPushButton()
-        self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color=tokens.fg_faint))
+        try:
+            from qfluentwidgets import FluentIcon as _FIF
+            self._edit_args_btn = TransparentToolButton(_FIF.EDIT, parent=self)
+        except Exception:
+            self._edit_args_btn = TransparentToolButton(parent=self)
+            self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color=tokens.fg_faint))
+        self._edit_args_btn.setIconSize(QSize(16, 16))
         self._edit_args_btn.setFixedSize(36, 36)
         self._edit_args_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._edit_args_btn.setToolTip("Аргументы стратегии (по выбранной категории)")
+        set_tooltip(self._edit_args_btn, "Аргументы стратегии (по выбранной категории)")
         self._edit_args_btn.setEnabled(False)
-        self._edit_args_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QPushButton:disabled {{
-                background: transparent;
-                border: 1px solid {tokens.surface_border};
-            }}
-        """)
         self._edit_args_btn.clicked.connect(self._toggle_args_editor)
         search_layout.addWidget(self._edit_args_btn)
 
@@ -2276,100 +1184,10 @@ class StrategyDetailPage(BasePage):
 
         strategies_layout.addWidget(self._search_bar_widget)
 
-        # Панель редактирования args (создаём один редактор на страницу вместо QTextEdit на каждой строке)
         self._args_editor_dirty = False
-        self._args_editor_frame = QFrame()
-        self._args_editor_frame.setVisible(False)
-        self._args_editor_frame.setStyleSheet(f"""
-            QFrame {{
-                background: {tokens.surface_bg};
-                border: none;
-                border-radius: 8px;
-            }}
-        """)
-        args_editor_layout = QVBoxLayout(self._args_editor_frame)
-        args_editor_layout.setContentsMargins(12, 10, 12, 10)
-        args_editor_layout.setSpacing(8)
-
-        args_header = QHBoxLayout()
-        args_header.setContentsMargins(0, 0, 0, 0)
-        args_header.setSpacing(8)
-        args_title = QLabel("Аргументы стратегии (один аргумент на строку)")
-        try:
-            args_title.setProperty("tone", "muted")
-        except Exception:
-            pass
-        args_title.setStyleSheet("font-size: 12px; background: transparent;")
-        args_header.addWidget(args_title)
-        args_header.addStretch()
-
-        self._args_apply_btn = QPushButton("Сохранить")
-        self._args_apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._args_apply_btn.setEnabled(False)
-        self._args_apply_btn.clicked.connect(self._apply_args_editor)
-        self._args_apply_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.accent_soft_bg};
-                border: 1px solid {tokens.accent_hex};
-                border-radius: 6px;
-                color: {tokens.accent_hex};
-                padding: 6px 12px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background: {tokens.accent_soft_bg_hover}; }}
-            QPushButton:disabled {{ background: transparent; border: 1px solid {tokens.surface_border}; color: {tokens.fg_faint}; }}
-        """)
-        args_header.addWidget(self._args_apply_btn)
-
-        self._args_cancel_btn = QPushButton("Скрыть")
-        self._args_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._args_cancel_btn.clicked.connect(self._hide_args_editor)
-        self._args_cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-                padding: 6px 12px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background: {tokens.surface_bg_hover}; }}
-        """)
-        args_header.addWidget(self._args_cancel_btn)
-
-        args_editor_layout.addLayout(args_header)
-
-        self._args_editor = QPlainTextEdit()
-        self._args_editor.setPlaceholderText("Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1")
-        self._args_editor.setMinimumHeight(80)
-        self._args_editor.setMaximumHeight(160)
-        self._args_editor.setStyleSheet(f"""
-            QPlainTextEdit {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-                padding: 8px;
-                font-size: 11px;
-                font-family: 'Consolas', monospace;
-            }}
-            QPlainTextEdit:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-            QPlainTextEdit:focus {{
-                border: 1px solid {tokens.accent_hex};
-            }}
-        """)
-        self._args_editor.textChanged.connect(self._on_args_editor_changed)
-        args_editor_layout.addWidget(self._args_editor)
-
-        strategies_layout.addWidget(self._args_editor_frame)
 
         # TCP multi-phase "tabs" (shown only for tcp categories in direct_zapret2)
         self._phases_bar_widget = QWidget()
-        self._phases_bar_widget.setStyleSheet("background: transparent;")
         self._phases_bar_widget.setVisible(False)
         try:
             # Prevent frameless window drag from stealing tab clicks.
@@ -2380,53 +1198,29 @@ class StrategyDetailPage(BasePage):
         phases_layout.setContentsMargins(0, 0, 0, 8)
         phases_layout.setSpacing(0)
 
-        self._phase_tabbar = PhaseTabBar(self)
-        self._phase_tabbar.setDrawBase(False)
-        self._phase_tabbar.setExpanding(False)
-        self._phase_tabbar.setMovable(False)
-        self._phase_tabbar.setUsesScrollButtons(True)
+        # SegmentedWidget (qfluentwidgets) for TCP multi-phase tab selection.
+        self._phase_tabbar = SegmentedWidget(self)
         try:
-            self._phase_tabbar.setCursor(Qt.CursorShape.PointingHandCursor)
-        except Exception:
-            pass
-        try:
-            # Prevent frameless window drag from stealing tab clicks.
             self._phase_tabbar.setProperty("noDrag", True)
         except Exception:
             pass
 
-        # Keep scroll buttons aligned with the app style (tabs are custom-painted).
-        self._phase_tabbar.setStyleSheet(f"""
-            QTabBar {{ background: transparent; }}
-            QTabBar QToolButton {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                margin: 0 2px;
-            }}
-            QTabBar QToolButton:hover {{
-                background: {tokens.surface_bg_hover};
-            }}
-        """)
-
         self._phase_tab_index_by_key = {}
         self._phase_tab_key_by_index = {}
-        for phase_key, label in TCP_PHASE_TAB_ORDER:
-            idx = self._phase_tabbar.addTab(label)
+        for i, (phase_key, label) in enumerate(TCP_PHASE_TAB_ORDER):
             key = str(phase_key or "").strip().lower()
-            self._phase_tab_index_by_key[key] = idx
-            self._phase_tab_key_by_index[idx] = key
+            self._phase_tab_index_by_key[key] = i
+            self._phase_tab_key_by_index[i] = key
             try:
-                self._phase_tabbar.setTabData(idx, key)
+                self._phase_tabbar.addItem(
+                    key, label,
+                    onClick=lambda k=key: self._on_phase_pivot_item_clicked(k)
+                )
             except Exception:
                 pass
 
         try:
-            self._phase_tabbar.currentChanged.connect(self._on_phase_tab_changed)
-        except Exception:
-            pass
-        try:
-            self._phase_tabbar.tabBarClicked.connect(self._on_phase_tab_clicked)
+            self._phase_tabbar.currentItemChanged.connect(self._on_phase_tab_changed)
         except Exception:
             pass
 
@@ -2491,7 +1285,7 @@ class StrategyDetailPage(BasePage):
 
             try:
                 self._subtitle_strategy.set_full_text(text)
-                self._subtitle_strategy.setToolTip(text)
+                set_tooltip(self._subtitle_strategy, text)
                 self._subtitle_strategy.show()
             except Exception:
                 pass
@@ -2512,7 +1306,7 @@ class StrategyDetailPage(BasePage):
 
         try:
             self._subtitle_strategy.set_full_text(name)
-            self._subtitle_strategy.setToolTip(f"{name}\nID: {sid}")
+            set_tooltip(self._subtitle_strategy, f"{name}\nID: {sid}")
             self._subtitle_strategy.show()
         except Exception:
             pass
@@ -2547,6 +1341,17 @@ class StrategyDetailPage(BasePage):
         self._title.setText(category_info.full_name)
         self._subtitle.setText(f"{category_info.protocol}  |  порты: {category_info.ports}")
         self._update_selected_strategy_header(self._selected_strategy_id)
+
+        # Sync BreadcrumbBar with the new category
+        if self._breadcrumb is not None:
+            self._breadcrumb.blockSignals(True)
+            try:
+                self._breadcrumb.clear()
+                self._breadcrumb.addItem("control", "Управление")
+                self._breadcrumb.addItem("strategies", "Стратегии DPI")
+                self._breadcrumb.addItem("detail", category_info.full_name)
+            finally:
+                self._breadcrumb.blockSignals(False)
 
         # Determine whether to use the TCP multi-phase UI:
         # - only for TCP strategies (tcp.txt)
@@ -2619,7 +1424,9 @@ class StrategyDetailPage(BasePage):
         if has_ipset and has_hostlist:
             self._filter_mode_frame.setVisible(True)
             saved_filter_mode = self._load_category_filter_mode(category_key)
-            self._filter_mode_selector.setCurrentMode(saved_filter_mode, block_signals=True)
+            self._filter_mode_selector.blockSignals(True)
+            self._filter_mode_selector.setChecked(saved_filter_mode == "ipset")
+            self._filter_mode_selector.blockSignals(False)
         else:
             self._filter_mode_frame.setVisible(False)
 
@@ -3112,7 +1919,7 @@ class StrategyDetailPage(BasePage):
         except Exception:
             return global_pos
 
-    def _show_preview_dialog(self, strategy_id: str, global_pos, pinned: bool) -> None:
+    def _show_preview_dialog(self, strategy_id: str, global_pos) -> None:
         if not (self._category_key and strategy_id and strategy_id != "none"):
             return
 
@@ -3123,21 +1930,9 @@ class StrategyDetailPage(BasePage):
             if dlg is None:
                 return
 
-            try:
-                dlg.set_pinned(bool(pinned))
-            except Exception:
-                pass
-            try:
-                # Hover: follow cursor + do not auto-close on click. Pinned: static tool window.
-                dlg.set_hover_follow((not pinned), offset=None)
-            except Exception:
-                pass
-            self._preview_pinned = bool(pinned)
-
             dlg.set_strategy_data(
                 data,
                 strategy_id=strategy_id,
-                source_widget=(self._strategies_tree.viewport() if self._strategies_tree else self),
                 category_key=self._category_key,
                 rating_getter=self._get_preview_rating,
                 rating_toggler=self._toggle_preview_rating,
@@ -3149,18 +1944,13 @@ class StrategyDetailPage(BasePage):
             log(f"Preview dialog failed: {e}", "DEBUG")
 
     def _on_tree_preview_requested(self, strategy_id: str, global_pos):
-        # Hover preview: do not override a pinned window.
-        if self._preview_pinned:
-            return
-        self._show_preview_dialog(strategy_id, global_pos, pinned=False)
+        pass  # Hover preview disabled; use right-click (ПКМ) to open dialog.
 
     def _on_tree_preview_pinned_requested(self, strategy_id: str, global_pos):
-        # Right click pins the window (Tool window, does not auto-close on focus out).
-        self._show_preview_dialog(strategy_id, global_pos, pinned=True)
+        self._show_preview_dialog(strategy_id, global_pos)
 
     def _on_tree_preview_hide_requested(self) -> None:
-        # Hide hover preview when cursor leaves the list; keep pinned window.
-        self._close_preview_dialog(force=False)
+        pass  # No hover preview to hide.
 
     def _refresh_working_marks_for_category(self):
         if not (self._category_key and self._strategies_tree):
@@ -3460,60 +2250,11 @@ class StrategyDetailPage(BasePage):
         """Выбор режима out_range (n или d)"""
         if mode != self._out_range_mode:
             self._out_range_mode = mode
-            self._update_out_range_mode_styles()
+            try:
+                self._out_range_seg.setCurrentItem(mode)
+            except Exception:
+                pass
             self._save_syndata_settings()
-
-    def _update_out_range_mode_styles(self):
-        """Обновляет стили кнопок режима out_range"""
-        tokens = get_theme_tokens()
-        active_style = """
-            QPushButton {
-                background: %(accent)s;
-                border: none;
-                color: rgba(0, 0, 0, 0.90);
-                font-size: 11px;
-                font-weight: 600;
-                border-radius: 4px;
-                padding: 0 4px;
-            }
-            QPushButton:hover {
-                background: %(accent_hover)s;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: %(bg)s;
-                border: none;
-                color: %(fg_muted)s;
-                font-size: 11px;
-                border-radius: 4px;
-                padding: 0 4px;
-            }
-            QPushButton:hover {
-                background: %(bg_hover)s;
-            }
-        """
-
-        active_style = active_style % {
-            "accent": tokens.accent_hex,
-            "accent_hover": tokens.accent_hover_hex,
-        }
-        inactive_style = inactive_style % {
-            "bg": tokens.surface_bg,
-            "bg_hover": tokens.surface_bg_hover,
-            "fg_muted": tokens.fg_muted,
-        }
-
-        if self._out_range_mode == "n":
-            self._out_range_mode_n.setStyleSheet(active_style)
-            self._out_range_mode_n.setChecked(True)
-            self._out_range_mode_d.setStyleSheet(inactive_style)
-            self._out_range_mode_d.setChecked(False)
-        else:
-            self._out_range_mode_n.setStyleSheet(inactive_style)
-            self._out_range_mode_n.setChecked(False)
-            self._out_range_mode_d.setStyleSheet(active_style)
-            self._out_range_mode_d.setChecked(True)
 
     # ═══════════════════════════════════════════════════════════════
     # SYNDATA SETTINGS METHODS
@@ -3608,7 +2349,10 @@ class StrategyDetailPage(BasePage):
 
         # Применяем режим out_range
         self._out_range_mode = settings.get("out_range_mode", "n")
-        self._update_out_range_mode_styles()
+        try:
+            self._out_range_seg.setCurrentItem(self._out_range_mode)
+        except Exception:
+            pass
 
         tcp_flags_value = settings.get("tcp_flags_unset", "none")
         tcp_flags_index = self._tcp_flags_combo.findText(tcp_flags_value)
@@ -3650,6 +2394,103 @@ class StrategyDetailPage(BasePage):
             "tls_mod": self._tls_mod_combo.currentText(),
         }
 
+    # ======================================================================
+    # PRESET CREATE / RENAME
+    # ======================================================================
+
+    def _on_create_preset_clicked(self):
+        """Открывает WinUI-диалог создания нового пресета."""
+        try:
+            from preset_zapret2 import PresetManager as _PM
+            manager = _PM()
+        except Exception as e:
+            if InfoBar:
+                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+            return
+
+        dialog = _PresetNameDialog("create", parent=self.window())
+        if not dialog.exec():
+            return
+        name = dialog.get_name()
+        if not name:
+            return
+        try:
+            if manager.preset_exists(name):
+                if InfoBar:
+                    InfoBar.warning(
+                        title="Уже существует",
+                        content=f"Пресет '{name}' уже существует.",
+                        parent=self.window(),
+                    )
+                return
+            preset = manager.create_preset(name, from_current=True)
+            if preset:
+                log(f"Создан пресет '{name}'", "INFO")
+                if InfoBar:
+                    InfoBar.success(
+                        title="Пресет создан",
+                        content=f"Пресет '{name}' создан на основе текущих настроек.",
+                        parent=self.window(),
+                    )
+            else:
+                if InfoBar:
+                    InfoBar.warning(title="Ошибка", content="Не удалось создать пресет.", parent=self.window())
+        except Exception as e:
+            log(f"Ошибка создания пресета: {e}", "ERROR")
+            if InfoBar:
+                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+
+    def _on_rename_preset_clicked(self):
+        """Открывает WinUI-диалог переименования текущего активного пресета."""
+        try:
+            from preset_zapret2 import PresetManager as _PM
+            manager = _PM()
+            old_name = (manager.get_active_preset_name() or "").strip()
+        except Exception as e:
+            if InfoBar:
+                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+            return
+
+        if not old_name:
+            if InfoBar:
+                InfoBar.warning(
+                    title="Нет активного пресета",
+                    content="Активный пресет не найден.",
+                    parent=self.window(),
+                )
+            return
+
+        dialog = _PresetNameDialog("rename", old_name=old_name, parent=self.window())
+        if not dialog.exec():
+            return
+        new_name = dialog.get_name()
+        if not new_name or new_name == old_name:
+            return
+        try:
+            if manager.preset_exists(new_name):
+                if InfoBar:
+                    InfoBar.warning(
+                        title="Уже существует",
+                        content=f"Пресет '{new_name}' уже существует.",
+                        parent=self.window(),
+                    )
+                return
+            if manager.rename_preset(old_name, new_name):
+                log(f"Пресет '{old_name}' переименован в '{new_name}'", "INFO")
+                if InfoBar:
+                    InfoBar.success(
+                        title="Переименован",
+                        content=f"Пресет переименован: '{old_name}' → '{new_name}'.",
+                        parent=self.window(),
+                    )
+            else:
+                if InfoBar:
+                    InfoBar.warning(title="Ошибка", content="Не удалось переименовать пресет.", parent=self.window())
+        except Exception as e:
+            log(f"Ошибка переименования пресета: {e}", "ERROR")
+            if InfoBar:
+                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+
     def _on_reset_settings_confirmed(self):
         """Сбрасывает настройки категории на значения по умолчанию (встроенный шаблон)"""
         if not self._category_key:
@@ -3669,7 +2510,9 @@ class StrategyDetailPage(BasePage):
             # 3. Reset filter_mode selector to stored default
             if hasattr(self, '_filter_mode_frame') and self._filter_mode_frame.isVisible():
                 current_mode = self._preset_manager.get_category_filter_mode(self._category_key)
-                self._filter_mode_selector.setCurrentMode(current_mode, block_signals=True)
+                self._filter_mode_selector.blockSignals(True)
+                self._filter_mode_selector.setChecked(current_mode == "ipset")
+                self._filter_mode_selector.blockSignals(False)
 
             # 4. Update selected strategy highlight and enable toggle
             try:
@@ -3750,6 +2593,7 @@ class StrategyDetailPage(BasePage):
     def show_loading(self):
         """Показывает анимированный спиннер загрузки"""
         self._success_icon.hide()
+        self._spinner.show()
         self._spinner.start()
         self._waiting_for_process_start = True  # Ждём запуска DPI
         # Убедимся, что мы подключены к process_monitor
@@ -3764,6 +2608,7 @@ class StrategyDetailPage(BasePage):
     def _stop_loading(self):
         """Останавливает анимацию загрузки"""
         self._spinner.stop()
+        self._spinner.hide()
         self._waiting_for_process_start = False  # Больше не ждём
         self._stop_apply_feedback_timer()
         self._stop_fallback_timer()
@@ -3969,19 +2814,24 @@ class StrategyDetailPage(BasePage):
         if not tabbar:
             return
 
-        active_keys: set[str] = set()
+        # Update Pivot item text: prefix with "●" for active phases.
+        _label_map = {pk: lbl for pk, lbl in TCP_PHASE_TAB_ORDER}
         for key in (self._phase_tab_index_by_key or {}).keys():
             try:
                 is_active = bool(self._is_tcp_phase_active_for_ui(key))
             except Exception:
                 is_active = False
-            if is_active:
-                active_keys.add(str(key or "").strip().lower())
-
-        try:
-            tabbar.set_active_keys(active_keys)
-        except Exception:
-            pass
+            try:
+                item = (tabbar.items or {}).get(key)
+                if item is None:
+                    continue
+                orig = _label_map.get(key, key.upper())
+                new_text = f"● {orig}" if is_active else orig
+                if item.text() != new_text:
+                    item.setText(new_text)
+                    item.adjustSize()
+            except Exception:
+                pass
 
     def _load_tcp_phase_state_from_preset(self) -> None:
         """Parses current tcp_args into phase selections (best-effort)."""
@@ -4061,10 +2911,11 @@ class StrategyDetailPage(BasePage):
 
         hide_fake = bool(self._tcp_hide_fake_phase)
         try:
-            tabbar = self._phase_tabbar
-            idx = (self._phase_tab_index_by_key or {}).get("fake")
-            if tabbar is not None and idx is not None:
-                tabbar.setTabVisible(int(idx), not hide_fake)
+            pivot = self._phase_tabbar
+            if pivot is not None:
+                fake_item = (pivot.items or {}).get("fake")
+                if fake_item is not None:
+                    fake_item.setVisible(not hide_fake)
         except Exception:
             pass
 
@@ -4081,28 +2932,29 @@ class StrategyDetailPage(BasePage):
         if not (self._tcp_phase_mode and key and key in (self._phase_tab_index_by_key or {})):
             return
 
-        tabbar = self._phase_tabbar
-        if not tabbar:
+        pivot = self._phase_tabbar
+        if not pivot:
             return
 
-        # If the tab is hidden, fall back to multisplit.
+        # If the item is hidden (fake tab), fall back to multisplit.
         try:
-            idx = (self._phase_tab_index_by_key or {}).get(key)
-            if idx is None or not bool(tabbar.isTabVisible(int(idx))):
+            item = (pivot.items or {}).get(key)
+            if item is None or not item.isVisible():
                 key = "multisplit"
         except Exception:
             key = "multisplit"
 
-        idx = (self._phase_tab_index_by_key or {}).get(key)
-        if idx is None:
+        if key not in (getattr(pivot, "items", {}) or {}):
             return
 
         try:
-            tabbar.blockSignals(True)
-            tabbar.setCurrentIndex(int(idx))
+            pivot.blockSignals(True)
+            pivot.setCurrentItem(key)
+        except Exception:
+            pass
         finally:
             try:
-                tabbar.blockSignals(False)
+                pivot.blockSignals(False)
             except Exception:
                 pass
 
@@ -4351,73 +3203,50 @@ class StrategyDetailPage(BasePage):
             self._hide_args_editor(clear_text=True)
 
     def _toggle_args_editor(self):
-        if not hasattr(self, "_args_editor_frame"):
-            return
-
-        if not self._args_editor_frame.isVisible():
-            # При открытии всегда подтягиваем актуальные args из preset (категория/протокол)
-            self._load_args_into_editor()
-            self._args_editor_frame.setVisible(True)
-        else:
-            self._hide_args_editor(clear_text=False)
-
-    def _hide_args_editor(self, clear_text: bool = False):
-        if hasattr(self, "_args_editor_frame"):
-            self._args_editor_frame.setVisible(False)
-        if hasattr(self, "_args_apply_btn"):
-            self._args_apply_btn.setEnabled(False)
-        self._args_editor_dirty = False
-
-        if clear_text and hasattr(self, "_args_editor") and self._args_editor:
-            try:
-                self._args_editor.blockSignals(True)
-                self._args_editor.setPlainText("")
-            finally:
-                self._args_editor.blockSignals(False)
-
-    def _load_args_into_editor(self):
-        if not (self._category_key and hasattr(self, "_args_editor") and self._args_editor):
-            return
-
-        if (self._selected_strategy_id or "none") == "none":
-            self._hide_args_editor(clear_text=True)
-            return
-
-        text = ""
-        try:
-            preset = self._preset_manager.get_active_preset()
-            cat = preset.categories.get(self._category_key) if preset else None
-            if cat:
-                text = cat.udp_args if self._is_udp_like_category() else cat.tcp_args
-        except Exception as e:
-            log(f"Args editor: failed to load preset args: {e}", "DEBUG")
-
-        try:
-            self._args_editor.blockSignals(True)
-            self._args_editor.setPlainText((text or "").strip())
-        finally:
-            self._args_editor.blockSignals(False)
-
-        self._args_editor_dirty = False
-        if hasattr(self, "_args_apply_btn"):
-            self._args_apply_btn.setEnabled(False)
-
-    def _on_args_editor_changed(self):
-        if not hasattr(self, "_args_editor"):
-            return
-        self._args_editor_dirty = True
-        if hasattr(self, "_args_apply_btn"):
-            self._args_apply_btn.setEnabled((self._selected_strategy_id or "none") != "none")
-
-    def _apply_args_editor(self):
+        """Открывает MessageBoxBase диалог для редактирования args текущей категории."""
         if not self._category_key:
             return
         if (self._selected_strategy_id or "none") == "none":
             return
-        if not hasattr(self, "_args_editor") or not self._args_editor:
+
+        initial = self._load_args_text()
+        dlg = _ArgsEditorDialog(initial_text=initial, parent=self.window())
+        if dlg.exec():
+            self._apply_args_editor(dlg.get_text())
+
+    def _hide_args_editor(self, clear_text: bool = False):
+        """Стаб для обратной совместимости — редактор теперь диалог."""
+        self._args_editor_dirty = False
+
+    def _load_args_text(self) -> str:
+        """Возвращает текущий args текст из пресета для открытия в диалоге."""
+        if not self._category_key:
+            return ""
+        if (self._selected_strategy_id or "none") == "none":
+            return ""
+        try:
+            preset = self._preset_manager.get_active_preset()
+            cat = preset.categories.get(self._category_key) if preset else None
+            if cat:
+                return (cat.udp_args if self._is_udp_like_category() else cat.tcp_args) or ""
+        except Exception as e:
+            log(f"Args editor: failed to load preset args: {e}", "DEBUG")
+        return ""
+
+    def _load_args_into_editor(self):
+        """Стаб для обратной совместимости."""
+        pass
+
+    def _on_args_editor_changed(self):
+        """Стаб для обратной совместимости."""
+        pass
+
+    def _apply_args_editor(self, raw: str = ""):
+        if not self._category_key:
+            return
+        if (self._selected_strategy_id or "none") == "none":
             return
 
-        raw = self._args_editor.toPlainText()
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
         normalized = "\n".join(lines)
 
@@ -4427,7 +3256,6 @@ class StrategyDetailPage(BasePage):
                 return
 
             if self._category_key not in preset.categories:
-                # Fallback: category should exist after selecting a strategy, but be defensive
                 preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
 
             cat = preset.categories[self._category_key]
@@ -4441,12 +3269,7 @@ class StrategyDetailPage(BasePage):
             self._preset_manager._save_and_sync_preset(preset)
 
             self._args_editor_dirty = False
-            if hasattr(self, "_args_apply_btn"):
-                self._args_apply_btn.setEnabled(False)
-
-            # UI feedback: mimic "apply" spinner behavior
             self.show_loading()
-
             self._on_args_changed(self._selected_strategy_id, lines)
 
         except Exception as e:
@@ -4488,218 +3311,43 @@ class StrategyDetailPage(BasePage):
         except Exception:
             pass
         try:
-            btn.setToolTip(self._build_sort_tooltip())
+            set_tooltip(btn, self._build_sort_tooltip())
         except Exception:
             pass
 
-    def _build_technique_filter_tooltip(self) -> str:
-        active = sorted({str(t or "").strip().lower() for t in (self._active_filters or set()) if str(t or "").strip()})
-        active_str = ", ".join(t.upper() for t in active) if active else "нет"
-        return (
-            "Фильтр по техникам (только список)\n"
-            "Фильтрует список по технике стратегии (по args: --dpi-desync/--lua-desync).\n"
-            "Не меняет настройки категории и не влияет на запуск DPI.\n\n"
-            f"Активно: {active_str}\n"
-            "Подсказка: поиск сверху ищет по имени и args."
-        )
+    def _on_technique_filter_changed(self, index: int) -> None:
+        """Обработчик выбора техники в ComboBox фильтра."""
+        self._active_filters.clear()
+        if index > 0 and index <= len(STRATEGY_TECHNIQUE_FILTERS):
+            key = STRATEGY_TECHNIQUE_FILTERS[index - 1][1]
+            self._active_filters.add(key)
+        self._apply_filters()
 
     def _update_technique_filter_ui(self) -> None:
-        btn = getattr(self, "_filter_btn", None)
-        if not btn:
+        """Синхронизирует ComboBox с текущим состоянием _active_filters."""
+        combo = getattr(self, "_filter_combo", None)
+        if combo is None:
             return
-        is_active = bool(self._active_filters)
-        try:
-            tokens = get_theme_tokens()
-            color = tokens.accent_hex if is_active else tokens.fg_faint
-            btn.setIcon(qta.icon('fa5s.filter', color=color))
-        except Exception:
-            pass
-        try:
-            btn.setToolTip(self._build_technique_filter_tooltip())
-        except Exception:
-            pass
-
-        # Match the visual language of other icon buttons, but highlight when active.
-        if is_active:
-            try:
-                tokens = get_theme_tokens()
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {tokens.accent_soft_bg};
-                        border: 1px solid {tokens.accent_hex};
-                        border-radius: 8px;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.accent_soft_bg_hover};
-                    }}
-                """)
-            except Exception:
-                pass
-        else:
-            try:
-                tokens = get_theme_tokens()
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 8px;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.surface_bg_hover};
-                    }}
-                """)
-            except Exception:
-                pass
-
-    def _show_technique_filter_menu(self) -> None:
-        """Shows a compact popup with technique filters (checkboxes)."""
-        if not getattr(self, "_filter_btn", None):
-            return
-        if self._tcp_phase_mode:
-            return
-
-        menu = QMenu(self)
-        tokens = get_theme_tokens()
-        menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
-        menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background: {menu_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 10px;
-                padding: 6px;
-            }}
-        """)
-
-        panel = QWidget(menu)
-        panel.setStyleSheet("background: transparent;")
-        panel.setMinimumWidth(280)
-
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(10, 8, 10, 8)
-        panel_layout.setSpacing(8)
-
-        title = QLabel("Фильтр по техникам")
-        try:
-            title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        title.setStyleSheet("font-size: 13px; font-weight: 600; background: transparent;")
-        panel_layout.addWidget(title)
-
-        desc = QLabel(
-            "Ограничивает список стратегий по выбранным техникам. "
-            "Техники определяются из args (--dpi-desync/--lua-desync) и не меняют настройки категории."
-        )
-        desc.setWordWrap(True)
-        try:
-            desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        desc.setStyleSheet("font-size: 11px; background: transparent;")
-        panel_layout.addWidget(desc)
-
-        # Checkboxes (keep menu open while toggling)
-        checkboxes: dict[str, QCheckBox] = {}
-        cb_style = """
-            QCheckBox {
-                color: %(fg)s;
-                spacing: 8px;
-                font-size: 12px;
-            }
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border-radius: 4px;
-                background: %(bg)s;
-                border: 1px solid %(border)s;
-            }
-            QCheckBox::indicator:hover {
-                background: %(bg_hover)s;
-            }
-            QCheckBox::indicator:checked {
-                background: %(accent)s;
-                border: none;
-            }
-        """
-        cb_style = cb_style % {
-            "fg": menu_fg,
-            "bg": tokens.surface_bg,
-            "bg_hover": tokens.surface_bg_hover,
-            "border": tokens.surface_border,
-            "accent": tokens.accent_hex,
-        }
-
         active = {str(t or "").strip().lower() for t in (self._active_filters or set()) if str(t or "").strip()}
-        for label, key in STRATEGY_TECHNIQUE_FILTERS:
-            cb = QCheckBox(label)
-            cb.setStyleSheet(cb_style)
-            cb.setChecked(key in active)
-            cb.toggled.connect(lambda checked, t=key: self._on_filter_toggled(t, checked))
-            panel_layout.addWidget(cb)
-            checkboxes[key] = cb
+        if not active:
+            target_idx = 0
+        else:
+            technique = next(iter(active))
+            target_idx = 0
+            for i, (_label, key) in enumerate(STRATEGY_TECHNIQUE_FILTERS, start=1):
+                if key == technique:
+                    target_idx = i
+                    break
+        combo.blockSignals(True)
+        combo.setCurrentIndex(target_idx)
+        combo.blockSignals(False)
 
-        # Footer row
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        footer.setSpacing(8)
-
-        clear_btn = QPushButton("Сбросить")
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {menu_fg};
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background: {tokens.surface_bg_hover}; }}
-        """)
-
-        def _clear() -> None:
-            self._active_filters.clear()
-            for c in (checkboxes or {}).values():
-                try:
-                    c.blockSignals(True)
-                    c.setChecked(False)
-                    c.blockSignals(False)
-                except Exception:
-                    pass
-            self._update_technique_filter_ui()
-            self._apply_filters()
-
-        clear_btn.clicked.connect(_clear)
-        footer.addWidget(clear_btn)
-        footer.addStretch(1)
-
-        panel_layout.addLayout(footer)
-
-        wa = QWidgetAction(menu)
-        wa.setDefaultWidget(panel)
-        menu.addAction(wa)
-
-        try:
-            pos = self._filter_btn.mapToGlobal(self._filter_btn.rect().bottomLeft())
-        except Exception:
-            pos = None
-        if pos is None:
-            return
-        menu.exec(pos)
-
-    def _on_phase_tab_changed(self, index: int) -> None:
-        """TCP multi-phase: handler for phase tab selection (QTabBar)."""
+    def _on_phase_tab_changed(self, route_key: str) -> None:
+        """TCP multi-phase: handler for Pivot currentItemChanged signal."""
         if not self._tcp_phase_mode:
             return
 
-        try:
-            idx = int(index)
-        except Exception:
-            return
-
-        key = str((self._phase_tab_key_by_index or {}).get(idx) or "").strip().lower()
+        key = str(route_key or "").strip().lower()
         if not key:
             return
 
@@ -4714,27 +3362,17 @@ class StrategyDetailPage(BasePage):
         self._apply_filters()
         self._sync_tree_selection_to_active_phase()
 
-    def _on_phase_tab_clicked(self, index: int) -> None:
-        """
-        Ensures phase selection reacts to mouse clicks even when Qt doesn't emit
-        `currentChanged` (or when the user clicks the already-selected tab).
-        """
-        tabbar = self._phase_tabbar
-        if not tabbar:
+    def _on_phase_pivot_item_clicked(self, key: str) -> None:
+        """Called on every click on a phase pivot item (including re-click of current item)."""
+        if not self._tcp_phase_mode:
             return
-        try:
-            idx = int(index)
-        except Exception:
+        k = str(key or "").strip().lower()
+        if not k:
             return
-
-        try:
-            if int(tabbar.currentIndex()) != idx:
-                tabbar.setCurrentIndex(idx)
-                return
-        except Exception:
-            pass
-
-        self._on_phase_tab_changed(idx)
+        # If clicking the already-active tab, just refresh filters (Pivot won't emit currentItemChanged).
+        if k == (self._active_phase_key or ""):
+            self._apply_filters()
+            self._sync_tree_selection_to_active_phase()
 
     def _apply_filters(self):
         """Применяет фильтры по технике к списку стратегий"""
@@ -4784,46 +3422,35 @@ class StrategyDetailPage(BasePage):
             pass
 
     def _show_sort_menu(self):
-        """Показывает меню сортировки"""
-        menu = QMenu(self)
-        tokens = get_theme_tokens()
-        menu_bg = tokens.surface_bg if tokens.is_light else "#2d2d2d"
-        menu_fg = "rgba(18,18,18,0.90)" if tokens.is_light else "rgba(245,245,245,0.95)"
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background: {menu_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 8px 16px;
-                border-radius: 4px;
-                color: {menu_fg};
-            }}
-            QMenu::item:selected {{
-                background: {tokens.accent_soft_bg_hover};
-            }}
-        """)
+        """Показывает RoundMenu сортировки с иконками."""
+        menu = RoundMenu(parent=self)
 
-        default_action = menu.addAction("По умолчанию")
-        name_asc_action = menu.addAction("По имени (А-Я)")
-        name_desc_action = menu.addAction("По имени (Я-А)")
+        _sort_icon     = FluentIcon.SCROLL if _HAS_FLUENT else None
+        _asc_icon      = FluentIcon.UP     if _HAS_FLUENT else None
+        _desc_icon     = FluentIcon.DOWN   if _HAS_FLUENT else None
 
-        action = menu.exec(self._sort_btn.mapToGlobal(self._sort_btn.rect().bottomLeft()))
-
-        if action == default_action:
-            self._sort_mode = "default"
-        elif action == name_asc_action:
-            self._sort_mode = "name_asc"
-        elif action == name_desc_action:
-            self._sort_mode = "name_desc"
-
-        if action:
-            # Сохраняем порядок сортировки для категории в реестр
+        def _set_sort(mode: str):
+            self._sort_mode = mode
             if self._category_key:
                 self._save_category_sort(self._category_key, self._sort_mode)
             self._apply_sort()
+
+        entries = [
+            (_sort_icon, "По умолчанию",  "default"),
+            (_asc_icon,  "По имени (А-Я)", "name_asc"),
+            (_desc_icon, "По имени (Я-А)", "name_desc"),
+        ]
+        for icon, label, mode in entries:
+            act = Action(icon, label, checkable=True) if _HAS_FLUENT else Action(label)
+            act.setChecked(self._sort_mode == mode)
+            act.triggered.connect(lambda _checked, m=mode: _set_sort(m))
+            menu.addAction(act)
+
+        try:
+            pos = self._sort_btn.mapToGlobal(self._sort_btn.rect().bottomLeft())
+        except Exception:
+            return
+        menu.exec(pos)
 
     def _apply_sort(self):
         """Применяет текущую сортировку"""

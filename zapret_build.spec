@@ -1,73 +1,137 @@
 # -*- mode: python ; coding: utf-8 -*-
 import sys
-from PyInstaller.utils.hooks import collect_submodules
+import os
+import PyQt6 as _pyqt6
 
-# Собираем ВСЕ подмодули ui пакета
-ui_hiddenimports = collect_submodules('ui')
-log_hiddenimports = collect_submodules('log')
-managers_hiddenimports = collect_submodules('managers')
-strategy_hiddenimports = collect_submodules('strategy_menu')
+# Принудительно указываем PyQt6 для qtpy/qtawesome (иначе они выбирают PyQt5 если он установлен)
+os.environ['QT_API'] = 'PyQt6'
+
+# НЕ используем collect_submodules() для пакетов, которые импортируют PyQt6/qfluentwidgets!
+# collect_submodules() запускает дочерний процесс Python, который импортирует все модули пакета.
+# Модули ui, strategy_menu, managers, log импортируют PyQt6 на уровне модуля,
+# а PyQt6 требует QApplication — в подпроцессе PyInstaller его нет -> Access Violation (0xC0000005).
+# Вместо этого все модули перечислены вручную в hiddenimports ниже.
+
+# qframelesswindow (зависимость qfluentwidgets) импортирует PyQt6.QtXml на уровне модуля.
+# hook-PyQt6.QtXml.py возвращает 0 binaries — Qt6Xml.dll не попадает автоматически.
+# Явно добавляем оба файла чтобы гарантировать попадание в сборку.
+_pyqt6_dir = os.path.dirname(_pyqt6.__file__)
+_pyqt6_qt6_bin = os.path.join(_pyqt6_dir, 'Qt6', 'bin')
 
 a = Analysis(
     ['main.py'],
-    pathex=[r'H:\Privacy\zapretgui'],  # ✅ ВАЖНО: путь к проекту!
-    binaries=[],
-    datas=[(r'H:\Privacy\zapret\json\hosts.ini', r'json')],  # ✅ Включаем сертификат и другие data файлы
-	    hiddenimports=ui_hiddenimports + log_hiddenimports + managers_hiddenimports + strategy_hiddenimports + [
-	        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
-	        'ui',
-	        'ui.splash_screen',
-	        'ui.main_window', 
-	        'ui.theme',
-	        'ui.theme_subscription_manager',
-	        'ui.sidebar',
-	        'ui.custom_titlebar',
-	        'ui.dialogs',
-	        'ui.dialogs.add_category_dialog',
-	        'ui.acrylic',
-	        'ui.fluent_icons',
-	        'ui.pages',
+    pathex=[r'H:\Privacy\zapretgui'],  # ВАЖНО: путь к проекту!
+    binaries=[
+        (os.path.join(_pyqt6_dir, 'QtXml.pyd'), 'PyQt6'),
+        (os.path.join(_pyqt6_qt6_bin, 'Qt6Xml.dll'), 'PyQt6/Qt6/bin'),
+    ],
+    datas=[(r'H:\Privacy\zapret\json\hosts.ini', r'json')],  # Включаем data файлы
+    hiddenimports=[
+        # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
+        'ui',
+        'ui.main_window',
+        'ui.theme',
+        'ui.theme_semantic',
+        'ui.theme_subscription_manager',
+        'ui.compat_widgets',
+        'ui.close_dialog',
+        'ui.fluent_icons',
+        'ui.fluent_app_window',
+        'ui.page_names',
+        'ui.zapret2_strategy_marks',
+        # ui.widgets
+        'ui.widgets',
+        'ui.widgets.strategies_tooltip',
+        'ui.widgets.line_edit_icons',
+        'ui.widgets.strategy_search_bar',
+        'ui.widgets.collapsible_group',
+        'ui.widgets.direct_zapret2_strategies_tree',
+        'ui.widgets.filter_chip_button',
+        'ui.widgets.notification_banner',
+        'ui.widgets.strategy_radio_item',
+        'ui.widgets.unified_strategies_list',
+        'ui.widgets.win11_spinner',
+        # ui.pages
+        'ui.pages',
+        'ui.pages.base_page',
         'ui.pages.home_page',
         'ui.pages.control_page',
-        'ui.pages.strategies_page',
-        'ui.pages.zapret1_strategies_page',
-        'ui.pages.direct_zapret2_strategies_page',
+        'ui.pages.strategies_page_base',
+        'ui.pages.zapret1_direct_strategies_page',
+        'ui.pages.zapret2_orchestra_strategies_page',
         'ui.pages.network_page',
         'ui.pages.autostart_page',
         'ui.pages.appearance_page',
         'ui.pages.about_page',
         'ui.pages.logs_page',
-        'ui.pages.base_page',
         'ui.pages.premium_page',
-        
+        'ui.pages.help_page',
+        'ui.pages.bat_strategies_page',
+        'ui.pages.blockcheck_page',
+        'ui.pages.dpi_settings_page',
+        'ui.pages.blobs_page',
+        'ui.pages.connection_page',
+        'ui.pages.custom_domains_page',
+        'ui.pages.custom_ipset_page',
+        'ui.pages.dns_check_page',
+        'ui.pages.hostlist_page',
+        'ui.pages.hosts_page',
+        'ui.pages.ipset_page',
+        'ui.pages.netrogat_page',
+        'ui.pages.orchestra_blocked_page',
+        'ui.pages.orchestra_locked_page',
+        'ui.pages.orchestra_page',
+        'ui.pages.orchestra_ratings_page',
+        'ui.pages.orchestra_whitelist_page',
+        'ui.pages.preset_config_page',
+        'ui.pages.presets_page',
+        'ui.pages.servers_page',
+        'ui.pages.support_page',
+        # ui.pages.zapret2
+        'ui.pages.zapret2',
+        'ui.pages.zapret2.strategy_detail_page',
+        'ui.pages.zapret2.direct_control_page',
+        'ui.pages.zapret2.direct_zapret2_page',
+        'ui.pages.zapret2.user_presets_page',
+
         # ============= LOG МОДУЛИ =============
         'log',
         'log.log',
         'log.crash_handler',
         'log_tail',
-        
+
         # ============= MANAGERS =============
         'managers',
         'managers.dpi_manager',
         'managers.ui_manager',
-        'managers.heavy_init_manager',
         'managers.initialization_manager',
         'managers.process_monitor_manager',
-        
+        'managers.system_paths',
+        'managers.subscription_manager',
+
         # ============= STRATEGY MENU =============
         'strategy_menu',
-        'strategy_menu.selector',
         'strategy_menu.strategies_registry',
-        'strategy_menu.strategy_runner',
-        'strategy_menu.strategy_lists_separated',
-        'strategy_menu.animated_side_panel',
         'strategy_menu.widgets',
-        'strategy_menu.command_line_dialog',
-        'strategy_menu.constants',
+        'strategy_menu.widgets_favorites',
         'strategy_menu.workers',
-        'strategy_menu.lazy_tab_loader',
         'strategy_menu.profiler',
         'strategy_menu.strategy_table_widget_favorites',
+        'strategy_menu.strategy_table_widget',
+        'strategy_menu.table_builder',
+        'strategy_menu.categories_tab_panel',
+        'strategy_menu.args_preview_dialog',
+        'strategy_menu.dialogs',
+        'strategy_menu.hover_tooltip',
+        'strategy_menu.preset_editor_dialog',
+        'strategy_menu.filter_engine',
+        'strategy_menu.search_query',
+        'strategy_menu.strategy_adapters',
+        'strategy_menu.strategy_info',
+        'strategy_menu.strategy_matching',
+        'strategy_menu.user_categories_store',
+        'strategy_menu.strategy_loader',
+        'strategy_menu.command_builder',
         
         # ============= CRASH HANDLING =============
         'faulthandler',
@@ -83,12 +147,15 @@ a = Analysis(
         'startup.ipc_manager',
         'startup.check_start',
         'startup.bfe_util',
-        'startup.remove_terminal',
         'startup.admin_check_debug',
-        'startup.certificate_installer',  # ✅ Автоустановка сертификата
+        'startup.check_cache',
+        'startup.certificate_installer',  # Автоустановка сертификата
         
+        # PyQt6 extras needed by qfluentwidgets
+        'PyQt6.QtXml',
+
         # Windows API
-        'win32com', 
+        'win32com',
         'win32com.client', 
         'pythoncom',
         'win32api',
@@ -165,11 +232,21 @@ a = Analysis(
         'pytest',
         'setuptools',
         'pip',
-        'distutils',
         # ❌ УДАЛЕНО: 'email' - этот модуль НУЖЕН!
         # ✅ ИСКЛЮЧАЕМ: лишние Qt биндинги, чтобы PyInstaller не ругался
         'PySide6',
         'shiboken6',
+        'PySide2',
+        'shiboken2',
+        # PyQt5 — конфликтует с PyQt6 при сборке PyInstaller
+        'PyQt5',
+        'PyQt5.QtCore',
+        'PyQt5.QtGui',
+        'PyQt5.QtWidgets',
+        'PyQt5.QtNetwork',
+        'PyQt5.QtSvg',
+        'PyQt5.QtXml',
+        'PyQt5.sip',
         'http.server',
         'xmlrpc',
         'pydoc',

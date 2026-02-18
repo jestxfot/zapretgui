@@ -6,14 +6,22 @@
 from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QWidget,
-    QLineEdit, QFrame, QMessageBox
+    QWidget, QLineEdit, QFrame
 )
 import qtawesome as qta
 
+try:
+    from qfluentwidgets import LineEdit, MessageBox, InfoBar, CaptionLabel
+    _HAS_FLUENT = True
+except ImportError:
+    LineEdit = QLineEdit
+    MessageBox = None
+    InfoBar = None
+    CaptionLabel = QLabel
+    _HAS_FLUENT = False
+
 from .base_page import BasePage
-from ui.sidebar import SettingsCard
-from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from ui.theme import get_theme_tokens, get_card_gradient_qss, get_card_disabled_gradient_qss
 from log import log
 
@@ -48,7 +56,7 @@ class WhitelistDomainRow(QFrame):
         if is_default:
             lock_icon = QLabel()
             self._lock_icon_label = lock_icon
-            lock_icon.setToolTip("Системный домен (нельзя удалить)")
+            set_tooltip(lock_icon, "Системный домен (нельзя удалить)")
             lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)
 
@@ -59,25 +67,11 @@ class WhitelistDomainRow(QFrame):
 
         # Кнопка удаления (только для пользовательских)
         if not is_default:
-            delete_btn = QPushButton()
+            delete_btn = ActionButton("")
             self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
-            delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            delete_btn.setToolTip("Удалить из белого списка")
-            delete_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 107, 107, 0.2);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255, 107, 107, 0.3);
-                }
-            """)
+            set_tooltip(delete_btn, "Удалить из белого списка")
             delete_btn.clicked.connect(self._on_delete_clicked)
             layout.addWidget(delete_btn)
 
@@ -190,7 +184,7 @@ class OrchestraWhitelistPage(BasePage):
 
     def _setup_ui(self):
         # === Предупреждение о рестарте ===
-        self.restart_warning = QLabel(
+        self.restart_warning = CaptionLabel(
             "⚠️ Изменения применятся после перезапуска оркестратора"
         )
         self.restart_warning.setStyleSheet("""
@@ -212,33 +206,18 @@ class OrchestraWhitelistPage(BasePage):
         add_layout.setSpacing(8)
 
         # Поле ввода
-        self.domain_input = QLineEdit()
+        self.domain_input = LineEdit()
         self.domain_input.setPlaceholderText("example.com")
         self.domain_input.returnPressed.connect(self._add_domain)
-        # Styled in _apply_theme()
         add_layout.addWidget(self.domain_input, 1)
 
-        # Кнопка добавления (зелёная иконка +)
-        self.add_btn = QPushButton()
+        # Кнопка добавления
+        self.add_btn = ActionButton("")
         # Icon styled in _apply_theme()
         self.add_btn.setIconSize(QSize(18, 18))
         self.add_btn.setFixedSize(36, 36)
-        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_btn.setToolTip("Добавить в белый список")
+        set_tooltip(self.add_btn, "Добавить в белый список")
         self.add_btn.clicked.connect(self._add_domain)
-        self.add_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(76, 175, 80, 0.2);
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(76, 175, 80, 0.3);
-            }
-            QPushButton:pressed {
-                background-color: rgba(76, 175, 80, 0.4);
-            }
-        """)
         add_layout.addWidget(self.add_btn)
 
         add_card.add_layout(add_layout)
@@ -254,30 +233,23 @@ class OrchestraWhitelistPage(BasePage):
         top_row.setSpacing(10)
 
         # Поиск
-        self.search_input = QLineEdit()
+        self.search_input = LineEdit()
         self.search_input.setPlaceholderText("Поиск по доменам...")
         self.search_input.setClearButtonEnabled(True)
-        set_line_edit_clear_button_icon(self.search_input)
         self.search_input.textChanged.connect(self._filter_list)
-        # Styled in _apply_theme()
         top_row.addWidget(self.search_input)
 
         # Кнопка очистки пользовательских
-        self.clear_user_btn = QPushButton("Очистить пользовательские")
-        # Icon styled in _apply_theme()
-        self.clear_user_btn.setIconSize(QSize(16, 16))
-        self.clear_user_btn.setFixedHeight(32)
-        self.clear_user_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.clear_user_btn.setToolTip("Удалить все пользовательские домены (системные останутся)")
+        self.clear_user_btn = ActionButton("Очистить пользовательские", "mdi.delete-sweep")
+        set_tooltip(self.clear_user_btn, "Удалить все пользовательские домены (системные останутся)")
         self.clear_user_btn.clicked.connect(self._clear_user_domains)
-        # Styled in _apply_theme()
         top_row.addWidget(self.clear_user_btn)
         top_row.addStretch()
 
         domains_layout.addLayout(top_row)
 
         # Счётчик
-        self.count_label = QLabel()
+        self.count_label = CaptionLabel()
         domains_layout.addWidget(self.count_label)
 
         # Контейнер для рядов (без скролла - страница сама прокручивается)
@@ -324,79 +296,11 @@ class OrchestraWhitelistPage(BasePage):
         try:
             tokens = get_theme_tokens()
 
-            if hasattr(self, "domain_input") and self.domain_input is not None:
-                self.domain_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-
             if hasattr(self, "add_btn") and self.add_btn is not None:
                 self.add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
 
-            if hasattr(self, "search_input") and self.search_input is not None:
-                set_line_edit_clear_button_icon(self.search_input)
-                self.search_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        min-width: 200px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-
             if hasattr(self, "clear_user_btn") and self.clear_user_btn is not None:
                 self.clear_user_btn.setIcon(qta.icon("mdi.delete-sweep", color=tokens.fg))
-                self.clear_user_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background-color: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        color: {tokens.fg};
-                        padding: 0 16px;
-                        font-size: 12px;
-                        font-weight: 600;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {tokens.surface_bg_pressed};
-                    }}
-                    """
-                )
 
             if hasattr(self, "count_label") and self.count_label is not None:
                 self.count_label.setStyleSheet(
@@ -562,7 +466,7 @@ class OrchestraWhitelistPage(BasePage):
 
         runner = self._get_runner()
         if not runner:
-            QMessageBox.warning(self, "Ошибка", "Не удалось инициализировать оркестратор")
+            InfoBar.error(title="Ошибка", content="Не удалось инициализировать оркестратор", parent=self.window())
             return
 
         if runner.add_to_whitelist(domain):
@@ -571,7 +475,7 @@ class OrchestraWhitelistPage(BasePage):
             self._show_restart_warning()
             log(f"Добавлен в белый список: {domain}", "INFO")
         else:
-            QMessageBox.information(self, "Информация", f"Домен {domain} уже в списке")
+            InfoBar.info(title="Информация", content=f"Домен {domain} уже в списке", parent=self.window())
 
     def _on_row_delete_requested(self, domain: str):
         """Удаление при нажатии кнопки X в ряду"""
@@ -595,21 +499,19 @@ class OrchestraWhitelistPage(BasePage):
         user_domains = [entry['domain'] for entry in whitelist if not entry['is_default']]
 
         if not user_domains:
-            QMessageBox.information(
-                self,
-                "Информация",
-                "Нет пользовательских доменов для удаления.\n\nСистемные домены не удаляются.",
-                QMessageBox.StandardButton.Ok
+            InfoBar.info(
+                title="Информация",
+                content="Нет пользовательских доменов для удаления. Системные домены не удаляются.",
+                parent=self.window(),
             )
             return
 
-        reply = QMessageBox.question(
-            self,
+        box = MessageBox(
             "Подтверждение",
             f"Удалить все пользовательские домены ({len(user_domains)})?\n\nСистемные домены останутся.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            self.window(),
         )
-        if reply == QMessageBox.StandardButton.Yes:
+        if box.exec():
             for domain in user_domains:
                 runner.remove_from_whitelist(domain)
             log(f"Очищены все пользовательские домены из белого списка ({len(user_domains)})", "INFO")

@@ -4,18 +4,26 @@
 При клике на категорию открывается отдельная страница StrategyDetailPage.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout,
+    QFrame, QSizePolicy
 )
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton
 from ui.widgets import UnifiedStrategiesList
 from ui.theme import get_theme_tokens
 from log import log
+
+try:
+    from qfluentwidgets import CaptionLabel, BodyLabel, PushButton, TransparentPushButton
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    from PyQt6.QtWidgets import QLabel as BodyLabel, QLabel as CaptionLabel, QPushButton as PushButton
+    TransparentPushButton = PushButton
+    _HAS_FLUENT_LABELS = False
 
 class Zapret2StrategiesPageNew(BasePage):
     """
@@ -29,29 +37,63 @@ class Zapret2StrategiesPageNew(BasePage):
     strategies_changed = pyqtSignal(dict)  # все выборы
     launch_method_changed = pyqtSignal(str)  # для совместимости
     open_category_detail = pyqtSignal(str, str)  # category_key, current_strategy_id
+    back_clicked = pyqtSignal()
+
+    _INFO_TEXT = (
+        "Здесь Вы можете ТОНКО изменить стратегию для каждой категории. "
+        "Всего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). "
+        "Последовательность сама определяется программой.\n\n"
+        "Вы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню. "
+        "Каждая стратегия — это всего лишь набор аргументов, то есть техник (дурения или фуллинга) для того "
+        "чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство. "
+        "Чтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент."
+    )
 
     def __init__(self, parent=None):
         super().__init__(
             title="Прямой запуск Zapret 2",
-            subtitle=(
-                "Здесь Вы можете ТОНКО изменить стратегию для каждой категории. "
-                "Всего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). "
-                "Последовательность сама определяется программой. "
-                "Вы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню. "
-                "Каждая стратегия всего лишь набор аргументов, то есть техник (дурения или же фуллинга) для того "
-                "чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство. "
-                "Чтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент."
-            ),
             parent=parent
         )
         self.parent_app = parent
+
+        # Breadcrumb navigation: Управление › Прямой запуск Zapret 2
+        self._breadcrumb = None
+        try:
+            from qfluentwidgets import BreadcrumbBar as _BreadcrumbBar
+            self._breadcrumb = _BreadcrumbBar()
+            self._rebuild_breadcrumb()
+            self._breadcrumb.currentItemChanged.connect(self._on_breadcrumb_item_changed)
+            self.layout.insertWidget(0, self._breadcrumb)
+        except Exception:
+            self._breadcrumb = None
+            # Fallback: original back button
+            try:
+                import qtawesome as _qta
+                from PyQt6.QtCore import QSize as _QSize
+                from PyQt6.QtWidgets import QHBoxLayout as _QHBoxLayout, QWidget as _QWidget
+                from ui.theme import get_theme_tokens as _get_tokens
+                _tokens = _get_tokens()
+                _back_btn = TransparentPushButton()
+                _back_btn.setText("Управление")
+                _back_btn.setIcon(_qta.icon("fa5s.chevron-left", color=_tokens.fg_muted))
+                _back_btn.setIconSize(_QSize(12, 12))
+                _back_btn.clicked.connect(self.back_clicked.emit)
+                _back_layout = _QHBoxLayout()
+                _back_layout.setContentsMargins(0, 0, 0, 0)
+                _back_layout.setSpacing(0)
+                _back_layout.addWidget(_back_btn)
+                _back_layout.addStretch()
+                _back_widget = _QWidget()
+                _back_widget.setLayout(_back_layout)
+                self.layout.insertWidget(0, _back_widget)
+            except Exception:
+                pass
+
         self.category_selections = {}
         self._unified_list = None
         self._built = False
         self._build_scheduled = False
         self._strategy_set_snapshot = None
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._telegram_hint_label = None
         self._telegram_btn = None
 
@@ -60,96 +102,33 @@ class Zapret2StrategiesPageNew(BasePage):
         self.content_container = self.content
 
         # Заглушки для совместимости с main_window.py
-        self.select_strategy_btn = QPushButton()
+        self.select_strategy_btn = PushButton()
         self.select_strategy_btn.hide()
 
-        self.current_strategy_label = QLabel("Не выбрана")
-        self.current_strategy_label.setStyleSheet(
-            f"color: {get_theme_tokens().fg}; font-size: 14px; font-weight: 500;"
-        )
+        self.current_strategy_label = BodyLabel("Не выбрана")
 
-    def _telegram_button_qss(self, tokens) -> str:
-        return f"""
-            QPushButton {{
-                background-color: {tokens.toggle_off_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-                padding: 0 16px;
-                font-size: 12px;
-                font-weight: 600;
-                font-family: {tokens.font_family_qss};
-            }}
-            QPushButton:hover {{
-                background-color: {tokens.toggle_off_bg_hover};
-                border-color: {tokens.surface_border_hover};
-            }}
-            QPushButton:pressed {{
-                background-color: {tokens.surface_bg_pressed};
-            }}
-        """
-
-    def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
+    def _rebuild_breadcrumb(self) -> None:
+        """Restore full breadcrumb path (BreadcrumbBar deletes items on back-click)."""
+        if self._breadcrumb is None:
             return
-        self._applying_theme_styles = True
+        self._breadcrumb.blockSignals(True)
         try:
-            tokens = get_theme_tokens()
-            try:
-                self.current_strategy_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 14px; font-weight: 500;"
-                )
-            except Exception:
-                pass
-
-            if self._telegram_hint_label is not None:
-                try:
-                    self._telegram_hint_label.setStyleSheet(
-                        f"""
-                        QLabel {{
-                            background: transparent;
-                            color: {tokens.fg_muted};
-                            font-size: 13px;
-                            font-family: {tokens.font_family_qss};
-                        }}
-                        """
-                    )
-                except Exception:
-                    pass
-
-            if self._telegram_btn is not None:
-                try:
-                    self._telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color=tokens.fg))
-                    self._telegram_btn.setStyleSheet(self._telegram_button_qss(tokens))
-                except Exception:
-                    pass
+            self._breadcrumb.clear()
+            self._breadcrumb.addItem("control", "Управление")
+            self._breadcrumb.addItem("strategies", "Прямой запуск Zapret 2")
         finally:
-            self._applying_theme_styles = False
+            self._breadcrumb.blockSignals(False)
 
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
+    def _on_breadcrumb_item_changed(self, key: str) -> None:
+        # BreadcrumbBar already deleted the trailing item — restore immediately
+        self._rebuild_breadcrumb()
+        if key == "control":
+            self.back_clicked.emit()
 
     def showEvent(self, event):
         """При показе страницы загружаем/обновляем контент"""
         super().showEvent(event)
-        self._schedule_theme_refresh()
+        self._rebuild_breadcrumb()  # Fix state if user navigated away via breadcrumb
 
         # If the global direct_zapret2 mode (Basic/Advanced) changed elsewhere
         # (e.g. on the management page), rebuild this list on next show.
@@ -201,37 +180,23 @@ class Zapret2StrategiesPageNew(BasePage):
             telegram_layout.setSpacing(16)
 
             # Описательный текст слева
-            telegram_hint = QLabel(
-                "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
+            _hint_text = (
+                "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов "
+                "можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
             )
+            telegram_hint = CaptionLabel(_hint_text)
             self._telegram_hint_label = telegram_hint
             telegram_hint.setWordWrap(True)
             telegram_hint.setContentsMargins(12, 0, 0, 0)
-            tokens = get_theme_tokens()
-            telegram_hint.setStyleSheet(
-                f"""
-                QLabel {{
-                    background: transparent;
-                    color: {tokens.fg_muted};
-                    font-size: 13px;
-                    font-family: {tokens.font_family_qss};
-                }}
-                """
-            )
             telegram_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             telegram_hint.setMinimumWidth(0)
             telegram_layout.addWidget(telegram_hint, 1)
 
-            # Кнопка Telegram - тёмная
-            telegram_btn = QPushButton("  ОТКРЫТЬ TELEGRAM БОТА")
+            # Кнопка Telegram
+            telegram_btn = ActionButton("ОТКРЫТЬ TELEGRAM БОТА", "fa5b.telegram-plane")
             self._telegram_btn = telegram_btn
-            telegram_btn.setIcon(qta.icon("fa5b.telegram-plane", color=tokens.fg))
-            telegram_btn.setIconSize(QSize(18, 18))
             telegram_btn.setFixedHeight(36)
-            telegram_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-            telegram_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             telegram_btn.clicked.connect(self._open_custom_domains)
-            telegram_btn.setStyleSheet(self._telegram_button_qss(tokens))
             telegram_layout.addWidget(telegram_btn, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             telegram_card.add_layout(telegram_layout)
@@ -242,9 +207,9 @@ class Zapret2StrategiesPageNew(BasePage):
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(8)
 
-            reload_btn = ActionButton("Обновить", "fa5s.sync-alt")
-            reload_btn.clicked.connect(self._reload_strategies)
-            actions_layout.addWidget(reload_btn)
+            self._reload_btn = RefreshButton()
+            self._reload_btn.clicked.connect(self._reload_strategies)
+            actions_layout.addWidget(self._reload_btn)
 
             expand_btn = ActionButton("Развернуть", "fa5s.expand-alt")
             expand_btn.clicked.connect(self._expand_all)
@@ -253,6 +218,10 @@ class Zapret2StrategiesPageNew(BasePage):
             collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
             collapse_btn.clicked.connect(self._collapse_all)
             actions_layout.addWidget(collapse_btn)
+
+            info_btn = ActionButton("Что это такое?", "fa5s.question-circle", accent=False)
+            info_btn.clicked.connect(self._show_info_popup)
+            actions_layout.addWidget(info_btn)
 
             actions_layout.addStretch()
 
@@ -280,7 +249,6 @@ class Zapret2StrategiesPageNew(BasePage):
                 self._strategy_set_snapshot = None
 
             self._built = True
-            self._apply_theme()
             log("Zapret2StrategiesPageNew построена", "INFO")
 
         except Exception as e:
@@ -360,6 +328,8 @@ class Zapret2StrategiesPageNew(BasePage):
 
     def _reload_strategies(self):
         """Перезагружает стратегии"""
+        if hasattr(self, '_reload_btn'):
+            self._reload_btn.set_loading(True)
         try:
             from strategy_menu.strategies_registry import registry
 
@@ -370,9 +340,19 @@ class Zapret2StrategiesPageNew(BasePage):
             self._built = False
             self._build_scheduled = False
 
-            # Удаляем старые виджеты (кроме заголовков)
-            while self.content_layout.count() > 2:  # title + subtitle
-                item = self.content_layout.takeAt(2)
+            # Удаляем старые виджеты, сохраняя заголовки.
+            # Ищем subtitle_label динамически, т.к. back_button может быть
+            # вставлен в позицию 0, сдвигая subtitle с индекса 1 на 2.
+            _keep = 2  # fallback: title + subtitle
+            _sub = getattr(self, "subtitle_label", None)
+            if _sub is not None:
+                for _i in range(min(self.content_layout.count(), 6)):
+                    _item = self.content_layout.itemAt(_i)
+                    if _item and _item.widget() is _sub:
+                        _keep = _i + 1
+                        break
+            while self.content_layout.count() > _keep:
+                item = self.content_layout.takeAt(_keep)
                 if item.widget():
                     item.widget().deleteLater()
 
@@ -383,6 +363,9 @@ class Zapret2StrategiesPageNew(BasePage):
 
         except Exception as e:
             log(f"Ошибка перезагрузки: {e}", "ERROR")
+        finally:
+            if hasattr(self, '_reload_btn'):
+                self._reload_btn.set_loading(False)
 
     def refresh_from_preset_switch(self):
         """
@@ -483,6 +466,17 @@ class Zapret2StrategiesPageNew(BasePage):
     def reload_for_mode_change(self):
         """Совместимость: перезагружает страницу при смене режима"""
         self._reload_strategies()
+
+    def _show_info_popup(self):
+        """Показывает информационный диалог о режиме прямого запуска."""
+        try:
+            from qfluentwidgets import MessageBox
+            box = MessageBox("Прямой запуск Zapret 2", self._INFO_TEXT, self.window())
+            box.hideCancelButton()
+            box.yesButton.setText("Понятно")
+            box.exec()
+        except Exception:
+            pass
 
     def _open_custom_domains(self):
         """Открывает Telegram-бота для запроса добавления сайтов"""

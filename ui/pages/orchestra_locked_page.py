@@ -7,15 +7,27 @@
 from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QWidget,
-    QLineEdit, QSpinBox, QFrame, QMessageBox, QApplication
+    QComboBox, QWidget,
+    QSpinBox, QFrame
 )
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard
+from ui.compat_widgets import SettingsCard, LineEdit, ActionButton, RefreshButton, set_tooltip
+
+try:
+    from qfluentwidgets import ComboBox, SpinBox, MessageBox, InfoBar, CaptionLabel, BodyLabel
+    _HAS_FLUENT = True
+except ImportError:
+    ComboBox = QComboBox
+    SpinBox = QSpinBox
+    MessageBox = None
+    InfoBar = None
+    CaptionLabel = QLabel
+    BodyLabel = QLabel
+    _HAS_FLUENT = False
+
 from ui.widgets import NotificationBanner
-from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
 from ui.theme import get_theme_tokens, get_card_gradient_qss
 from log import log
 from orchestra.locked_strategies_manager import ASKEY_ALL
@@ -46,18 +58,18 @@ class LockedDomainRow(QFrame):
         layout.setSpacing(8)
 
         # Домен
-        domain_label = QLabel(domain)
+        domain_label = BodyLabel(domain)
         self._domain_label = domain_label
         layout.addWidget(domain_label, 1)
 
         # Протокол
-        proto_label = QLabel(f"[{proto.upper()}]")
+        proto_label = CaptionLabel(f"[{proto.upper()}]")
         self._proto_label = proto_label
         proto_label.setFixedWidth(45)
         layout.addWidget(proto_label)
 
         # Стратегия SpinBox
-        self.strat_spin = QSpinBox()
+        self.strat_spin = SpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(strategy)
         self.strat_spin.setFixedWidth(70)
@@ -65,25 +77,11 @@ class LockedDomainRow(QFrame):
         layout.addWidget(self.strat_spin)
 
         # Кнопка удаления (разлочить)
-        delete_btn = QPushButton()
+        delete_btn = ActionButton("")
         self._delete_btn = delete_btn
         delete_btn.setIconSize(QSize(16, 16))
         delete_btn.setFixedSize(28, 28)
-        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        delete_btn.setToolTip("Разлочить")
-        delete_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 152, 0, 0.2);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 152, 0, 0.3);
-            }
-        """)
+        set_tooltip(delete_btn, "Разлочить")
         delete_btn.clicked.connect(self._on_delete_clicked)
         layout.addWidget(delete_btn)
 
@@ -142,37 +140,11 @@ class LockedDomainRow(QFrame):
 
             if self._domain_label is not None:
                 self._domain_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 13px; border: none; background: transparent;"
+                    f"color: {tokens.fg}; font-size: 13px;"
                 )
             if self._proto_label is not None:
                 self._proto_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 11px; border: none; background: transparent;"
-                )
-
-            if hasattr(self, "strat_spin") and self.strat_spin is not None:
-                self.strat_spin.setStyleSheet(
-                    f"""
-                    QSpinBox {{
-                        background-color: {tokens.surface_bg_hover};
-                        color: {tokens.accent_hex};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 4px 8px;
-                        font-size: 13px;
-                        font-weight: 600;
-                    }}
-                    QSpinBox:hover {{
-                        background-color: {tokens.surface_bg_pressed};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QSpinBox:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QSpinBox::up-button, QSpinBox::down-button {{
-                        width: 0px;
-                        border: none;
-                    }}
-                    """
+                    f"color: {tokens.fg_muted}; font-size: 11px;"
                 )
 
             if self._delete_btn is not None:
@@ -231,47 +203,30 @@ class OrchestraLockedPage(BasePage):
         add_layout.setSpacing(8)
 
         # Домен
-        self.domain_input = QLineEdit()
+        self.domain_input = LineEdit()
         self.domain_input.setPlaceholderText("example.com")
-        # Styled in _apply_theme()
         add_layout.addWidget(self.domain_input, 1)
 
         # Протокол (askey)
-        self.proto_combo = QComboBox()
+        self.proto_combo = ComboBox()
         self.proto_combo.addItems([askey.upper() for askey in ASKEY_ALL])
         self.proto_combo.setFixedWidth(90)
-        # Styled in _apply_theme()
         add_layout.addWidget(self.proto_combo)
 
         # Стратегия
-        self.strat_spin = QSpinBox()
+        self.strat_spin = SpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(1)
         self.strat_spin.setFixedWidth(70)
-        # Styled in _apply_theme()
         add_layout.addWidget(self.strat_spin)
 
         # Кнопка добавления
-        self.lock_btn = QPushButton()
+        self.lock_btn = ActionButton("")
         # Icon styled in _apply_theme()
         self.lock_btn.setIconSize(QSize(18, 18))
         self.lock_btn.setFixedSize(36, 36)
-        self.lock_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lock_btn.setToolTip("Залочить стратегию")
+        set_tooltip(self.lock_btn, "Залочить стратегию")
         self.lock_btn.clicked.connect(self._lock_strategy)
-        self.lock_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(76, 175, 80, 0.2);
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(76, 175, 80, 0.3);
-            }
-            QPushButton:pressed {
-                background-color: rgba(76, 175, 80, 0.4);
-            }
-        """)
         add_layout.addWidget(self.lock_btn)
 
         add_card.add_layout(add_layout)
@@ -287,42 +242,30 @@ class OrchestraLockedPage(BasePage):
         top_row.setSpacing(10)
 
         # Поиск
-        self.search_input = QLineEdit()
+        self.search_input = LineEdit()
         self.search_input.setPlaceholderText("Поиск по доменам...")
         self.search_input.setClearButtonEnabled(True)
-        set_line_edit_clear_button_icon(self.search_input)
         self.search_input.textChanged.connect(self._filter_list)
-        # Styled in _apply_theme()
         top_row.addWidget(self.search_input)
 
         # Кнопка обновления списка из реестра
-        self.refresh_btn = QPushButton("Обновить")
-        # Icon styled in _apply_theme()
-        self.refresh_btn.setIconSize(QSize(16, 16))
-        self.refresh_btn.setFixedHeight(32)
-        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_btn = RefreshButton()
         self.refresh_btn.clicked.connect(self._reload_from_registry)
-        # Styled in _apply_theme()
         top_row.addWidget(self.refresh_btn)
 
-        self.unlock_all_btn = QPushButton("Разлочить все")
-        # Icon styled in _apply_theme()
-        self.unlock_all_btn.setIconSize(QSize(16, 16))
-        self.unlock_all_btn.setFixedHeight(32)
-        self.unlock_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.unlock_all_btn = ActionButton("Разлочить все", "mdi.lock-open-variant-outline")
         self.unlock_all_btn.clicked.connect(self._unlock_all)
-        # Styled in _apply_theme()
         top_row.addWidget(self.unlock_all_btn)
         top_row.addStretch()
 
         list_layout.addLayout(top_row)
 
         # Счётчик на отдельной строке (чтобы влезал в таб)
-        self.count_label = QLabel()
+        self.count_label = CaptionLabel()
         list_layout.addWidget(self.count_label)
 
         # Подсказка
-        hint_label = QLabel("Измените номер стратегии и она автоматически сохранится")
+        hint_label = CaptionLabel("Измените номер стратегии и она автоматически сохранится")
         self._hint_label = hint_label
         list_layout.addWidget(hint_label)
 
@@ -369,112 +312,9 @@ class OrchestraLockedPage(BasePage):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
-            popup_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
-
-            if hasattr(self, "domain_input") and self.domain_input is not None:
-                self.domain_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                        background-color: {tokens.surface_bg_hover};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-
-            if hasattr(self, "proto_combo") and self.proto_combo is not None:
-                selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
-                self.proto_combo.setStyleSheet(
-                    f"""
-                    QComboBox {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QComboBox:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QComboBox:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QComboBox::drop-down {{ border: none; }}
-                    QComboBox QAbstractItemView {{
-                        background-color: {popup_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        selection-background-color: {tokens.accent_soft_bg_hover};
-                        selection-color: {selection_fg};
-                    }}
-                    """
-                )
-
-            if hasattr(self, "strat_spin") and self.strat_spin is not None:
-                self.strat_spin.setStyleSheet(
-                    f"""
-                    QSpinBox {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QSpinBox:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QSpinBox:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QSpinBox::up-button, QSpinBox::down-button {{
-                        width: 0px;
-                        border: none;
-                    }}
-                    """
-                )
 
             if hasattr(self, "lock_btn") and self.lock_btn is not None:
                 self.lock_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
-
-            if hasattr(self, "search_input") and self.search_input is not None:
-                set_line_edit_clear_button_icon(self.search_input)
-                self.search_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        min-width: 200px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
 
             for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unlock_all_btn", "mdi.lock-open-variant-outline")):
                 btn = getattr(self, btn_attr, None)
@@ -482,38 +322,8 @@ class OrchestraLockedPage(BasePage):
                     continue
                 try:
                     btn.setIcon(qta.icon(icon_name, color=tokens.fg))
-                    btn.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background-color: {tokens.surface_bg};
-                            border: 1px solid {tokens.surface_border};
-                            border-radius: 4px;
-                            color: {tokens.fg};
-                            padding: 0 16px;
-                            font-size: 12px;
-                            font-weight: 600;
-                            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                        }}
-                        QPushButton:hover {{
-                            background-color: {tokens.surface_bg_hover};
-                            border-color: {tokens.surface_border_hover};
-                        }}
-                        QPushButton:pressed {{
-                            background-color: {tokens.surface_bg_pressed};
-                        }}
-                        """
-                    )
                 except Exception:
                     pass
-
-            if hasattr(self, "count_label") and self.count_label is not None:
-                self.count_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 11px;"
-                )
-            if self._hint_label is not None:
-                self._hint_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 10px; font-style: italic;"
-                )
 
             # Refresh row widgets.
             try:
@@ -571,10 +381,7 @@ class OrchestraLockedPage(BasePage):
 
     def _reload_from_registry(self):
         """Перезагружает данные из реестра и обновляет список"""
-        # Визуальный фидбек (без processEvents — избегаем реентрантность)
-        old_text = self.refresh_btn.text()
-        self.refresh_btn.setText("Загрузка...")
-        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.set_loading(True)
 
         def _do_reload():
             try:
@@ -587,8 +394,7 @@ class OrchestraLockedPage(BasePage):
                     log("Список залоченных перезагружен из реестра (direct)", "INFO")
                 self._refresh_data()
             finally:
-                self.refresh_btn.setText(old_text)
-                self.refresh_btn.setEnabled(True)
+                self.refresh_btn.set_loading(False)
 
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, _do_reload)
@@ -710,12 +516,15 @@ class OrchestraLockedPage(BasePage):
             self._refresh_data()
             # Перезапускаем оркестратор
             if runner.is_running():
-                QMessageBox.information(
-                    self,
-                    "Перезапуск оркестратора",
-                    f"Стратегия разлочена для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
-                )
                 runner.restart()
+                if InfoBar is not None:
+                    InfoBar.success(
+                        title="Применено",
+                        content=f"Стратегия разлочена для {domain}. Оркестратор перезапускается.",
+                        isClosable=True,
+                        duration=3000,
+                        parent=self.window()
+                    )
         else:
             # Без runner - удаляем напрямую из реестра
             from orchestra.locked_strategies_manager import LockedStrategiesManager
@@ -802,13 +611,17 @@ class OrchestraLockedPage(BasePage):
         if total == 0:
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Подтверждение",
-            f"Разлочить все {total} стратегий?\nОркестратор начнёт обучение заново.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        if MessageBox is not None:
+            box = MessageBox(
+                "Подтверждение",
+                f"Разлочить все {total} стратегий?\nОркестратор начнёт обучение заново.",
+                self.window()
+            )
+            confirmed = box.exec()
+        else:
+            confirmed = False  # qfluentwidgets недоступен — действие отменено
+
+        if confirmed:
             # Разлочиваем все домены по всем askey
             for askey in ASKEY_ALL:
                 for domain in list(runner.locked_manager.locked_by_askey.get(askey, {}).keys()):
@@ -817,9 +630,12 @@ class OrchestraLockedPage(BasePage):
             self._refresh_data()
             # Перезапускаем оркестратор чтобы сбросить все hrec.nstrategy
             if runner.is_running():
-                QMessageBox.information(
-                    self,
-                    "Перезапуск оркестратора",
-                    f"Разлочены все {total} стратегий.\n\nОркестратор будет перезапущен для применения изменений."
-                )
                 runner.restart()
+                if InfoBar is not None:
+                    InfoBar.success(
+                        title="Применено",
+                        content=f"Разлочены все {total} стратегий. Оркестратор перезапускается.",
+                        isClosable=True,
+                        duration=3000,
+                        parent=self.window()
+                    )

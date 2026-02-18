@@ -25,6 +25,11 @@ from PyQt6.QtWidgets import (
 from ui.theme import get_theme_tokens, get_cached_qta_pixmap, to_qcolor
 from ui.theme_semantic import get_semantic_palette
 
+try:
+    from qfluentwidgets import PushButton as _PushButton
+except ImportError:
+    _PushButton = QPushButton
+
 
 @dataclass(frozen=True)
 class StrategyTreeRow:
@@ -135,6 +140,13 @@ class DirectZapret2StrategiesTree(QTreeWidget):
 
         self.itemClicked.connect(self._on_item_clicked)
 
+        # WinUI smooth scrollbar (replaces native Qt scrollbar)
+        try:
+            from qfluentwidgets import SmoothScrollDelegate
+            self._smooth_scroll_delegate = SmoothScrollDelegate(self)
+        except Exception:
+            self._smooth_scroll_delegate = None
+
     def _apply_theme_styles(self) -> None:
         if self._applying_theme_styles:
             return
@@ -142,8 +154,12 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         self._applying_theme_styles = True
         try:
             tokens = self._tokens or get_theme_tokens("Темная синяя")
-            # Use global theme QSS (ui/theme.py) for container background/border.
-            self.setStyleSheet("")
+            # Remove borders/separators; let drawRow() handle all row painting.
+            self.setStyleSheet(
+                "QTreeWidget { border: none; background: transparent; outline: none; }"
+                "QTreeWidget::item { border: none; border-bottom: none; padding: 0; }"
+                "QTreeWidget::branch { border: none; background: transparent; }"
+            )
 
             try:
                 section_brush = QBrush(QColor("#636b78" if tokens.is_light else "#e8edf5"))
@@ -1172,11 +1188,13 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         btns = QHBoxLayout()
         btns.addStretch()
 
-        copy_btn = QPushButton("Копировать")
+        copy_btn = _PushButton()
+        copy_btn.setText("Копировать")
         copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(full))
         btns.addWidget(copy_btn)
 
-        close_btn = QPushButton("Закрыть")
+        close_btn = _PushButton()
+        close_btn.setText("Закрыть")
         close_btn.clicked.connect(dlg.accept)
         btns.addWidget(close_btn)
 

@@ -12,7 +12,6 @@ from typing import Callable, Optional
 from time import sleep
 
 from PyQt6.QtCore    import QObject, QThread, pyqtSignal, QTimer
-from PyQt6.QtWidgets import QMessageBox
 from packaging import version
 from utils import run_hidden, get_system_exe
 

@@ -2001,7 +2001,7 @@ class BuildReleaseGUI:
 
     def fast_deploy_exe(self, channel: str) -> None:
         """
-        Быстрое обновление dev-билда: копирует собранный Zapret.exe в AppData.
+        Быстрое обновление dev-билда: копирует собранный Zapret.exe + _internal в AppData.
         По умолчанию: %APPDATA%\\ZapretTwoDev\\Zapret.exe (для test).
         """
         self.log_queue.put("🔪 Завершение блокирующих процессов...")
@@ -2010,6 +2010,8 @@ class BuildReleaseGUI:
         src = self._built_exe_path()
         if not src.exists():
             raise FileNotFoundError(f"Не найден собранный файл: {src}")
+
+        src_internal = src.parent / "_internal"
 
         dst = self._fast_dest_exe_path(channel)
         if sys.platform == "win32" and not (self.fast_exe_dest_var.get() or "").strip() and not (os.environ.get("ZAPRET_FAST_EXE_DEST") or "").strip():
@@ -2042,6 +2044,19 @@ class BuildReleaseGUI:
             raise RuntimeError(f"Проверка копирования не прошла: {e}")
         size_mb = dst.stat().st_size / 1024 / 1024
         self.log_queue.put(f"✅ Обновлено: {dst} ({size_mb:.1f} MB)")
+
+        # Синхронизируем _internal (onedir build)
+        if src_internal.is_dir():
+            dst_internal = dst.parent / "_internal"
+            self.log_queue.put(f"📦 Синхронизация _internal → {dst_internal}")
+            tmp_internal = dst.parent / "_internal.tmp"
+            if tmp_internal.exists():
+                shutil.rmtree(tmp_internal, ignore_errors=True)
+            shutil.copytree(src_internal, tmp_internal)
+            if dst_internal.exists():
+                shutil.rmtree(dst_internal, ignore_errors=True)
+            tmp_internal.rename(dst_internal)
+            self.log_queue.put(f"✅ _internal обновлён")
 
     def publish_exe_to_telegram(self, channel: str, version: str, notes: str) -> None:
         """

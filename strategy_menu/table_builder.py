@@ -7,6 +7,7 @@ from PyQt6.QtGui import QFont, QColor, QBrush, QCursor
 
 from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
 from ui.theme import get_theme_tokens
+from ui.compat_widgets import set_tooltip
 
 # Цвета подсветки рейтинга стратегий (полупрозрачные)
 RATING_COLORS = {
@@ -520,7 +521,7 @@ class StrategyTableBuilder:
             star_inactive = "rgba(0, 0, 0, 0.28)" if tokens.is_light else "rgba(255, 255, 255, 0.22)"
             if btn.is_favorite:
                 btn.setText("★")
-                btn.setToolTip("Убрать из избранных")
+                set_tooltip(btn, "Убрать из избранных")
                 btn.setStyleSheet("""
                     QPushButton {
                         border: none;
@@ -541,7 +542,7 @@ class StrategyTableBuilder:
                 """)
             else:
                 btn.setText("☆")
-                btn.setToolTip("Добавить в избранные")
+                set_tooltip(btn, "Добавить в избранные")
                 btn.setStyleSheet("""
                     QPushButton {
                         border: none;

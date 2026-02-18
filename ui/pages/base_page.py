@@ -10,50 +10,42 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 
 try:
-    from qfluentwidgets import ScrollArea as _FluentScrollArea, TitleLabel, SubtitleLabel, StrongBodyLabel
+    from qfluentwidgets import (ScrollArea as _FluentScrollArea, TitleLabel, BodyLabel, StrongBodyLabel,
+                                PlainTextEdit as _FluentPlainTextEdit, TextEdit as _FluentTextEdit)
     _USE_FLUENT = True
 except ImportError:
     _FluentScrollArea = QScrollArea
+    _FluentPlainTextEdit = QPlainTextEdit
+    _FluentTextEdit = QTextEdit
     _USE_FLUENT = False
 
 
-class ScrollBlockingPlainTextEdit(QPlainTextEdit):
-    """QPlainTextEdit который не пропускает прокрутку к родителю"""
+class ScrollBlockingPlainTextEdit(_FluentPlainTextEdit):
+    """PlainTextEdit с fluent-скроллбарами, не пропускающий прокрутку к родителю.
+
+    SmoothScrollDelegate (из qfluentwidgets) намеренно пропускает wheel-событие
+    к родителю когда достигнута граница скролла (return False в eventFilter).
+    Переопределяем wheelEvent чтобы принять событие и не дать BasePage прокрутиться.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setProperty("noDrag", True)
 
     def wheelEvent(self, event):
-        scrollbar = self.verticalScrollBar()
-        delta = event.angleDelta().y()
-        if delta > 0 and scrollbar.value() == scrollbar.minimum():
-            event.accept()
-            return
-        if delta < 0 and scrollbar.value() == scrollbar.maximum():
-            event.accept()
-            return
-        super().wheelEvent(event)
+        # SmoothScrollDelegate поглощает событие когда НЕ у границы (возвращает True),
+        # поэтому этот метод вызывается ТОЛЬКО у границы скролла.
         event.accept()
 
 
-class ScrollBlockingTextEdit(QTextEdit):
-    """QTextEdit который не пропускает прокрутку к родителю"""
+class ScrollBlockingTextEdit(_FluentTextEdit):
+    """TextEdit с fluent-скроллбарами, не пропускающий прокрутку к родителю."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setProperty("noDrag", True)
 
     def wheelEvent(self, event):
-        scrollbar = self.verticalScrollBar()
-        delta = event.angleDelta().y()
-        if delta > 0 and scrollbar.value() == scrollbar.minimum():
-            event.accept()
-            return
-        if delta < 0 and scrollbar.value() == scrollbar.maximum():
-            event.accept()
-            return
-        super().wheelEvent(event)
         event.accept()
 
 
@@ -85,7 +77,9 @@ class BasePage(_FluentScrollArea):
         # --- Content container ---
         self.content = QWidget(self)
         self.content.setStyleSheet("background-color: transparent;")
-        self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        # Expanding horizontally so the content fills the viewport width and
+        # word-wrapped labels can actually wrap instead of overflowing.
+        self.content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setWidget(self.content)
 
         # --- Main layout (backward-compat: self.layout) ---
@@ -112,10 +106,10 @@ class BasePage(_FluentScrollArea):
         # --- Subtitle ---
         if subtitle:
             if _USE_FLUENT:
-                self.subtitle_label = SubtitleLabel(subtitle, self.content)
+                self.subtitle_label = BodyLabel(subtitle, self.content)
             else:
                 self.subtitle_label = QLabel(subtitle)
-                self.subtitle_label.setStyleSheet("font-size: 13px; padding-bottom: 16px;")
+                self.subtitle_label.setStyleSheet("font-size: 12px; padding-bottom: 16px;")
             self.subtitle_label.setWordWrap(True)
             self.vBoxLayout.addWidget(self.subtitle_label)
         else:

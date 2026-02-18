@@ -3,7 +3,6 @@ import stat
 import os
 import subprocess
 from pathlib import Path
-from PyQt6.QtWidgets import QMessageBox
 from .proxy_domains import (
     get_all_services,
     get_dns_profiles,

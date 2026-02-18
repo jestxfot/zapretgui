@@ -5,17 +5,30 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QRadioButton, QButtonGroup, QLineEdit, QCheckBox,
-    QMessageBox, QProgressBar
+    QFrame, QRadioButton, QButtonGroup,
+    QLineEdit, QCheckBox, QProgressBar,
 )
 import qtawesome as qta
 
+try:
+    from qfluentwidgets import (
+        BodyLabel, CaptionLabel, StrongBodyLabel,
+        CheckBox, IndeterminateProgressBar, LineEdit, InfoBar,
+    )
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    CheckBox = QCheckBox
+    IndeterminateProgressBar = QProgressBar
+    LineEdit = QLineEdit
+    InfoBar = None
+    _HAS_FLUENT_LABELS = False
+
 from .base_page import BasePage
 from .dpi_settings_page import Win11ToggleRow
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.theme import get_theme_tokens
 from log import log
@@ -81,20 +94,29 @@ class DNSProviderCard(SettingsCard):
         layout.addWidget(icon_label)
         
         # Название
-        name_label = QLabel(self.name)
-        name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
+        if _HAS_FLUENT_LABELS:
+            name_label = StrongBodyLabel(self.name)
+        else:
+            name_label = QLabel(self.name)
+            name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
         layout.addWidget(name_label)
-        
+
         # Описание
-        desc_label = QLabel(f"· {self.data.get('desc', '')}")
-        desc_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
+        if _HAS_FLUENT_LABELS:
+            desc_label = CaptionLabel(f"· {self.data.get('desc', '')}")
+        else:
+            desc_label = QLabel(f"· {self.data.get('desc', '')}")
+            desc_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         layout.addWidget(desc_label)
-        
+
         layout.addStretch()
-        
+
         # IP адрес
-        ip_label = QLabel(self.data['ipv4'][0])
-        ip_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px; font-family: monospace;")
+        if _HAS_FLUENT_LABELS:
+            ip_label = CaptionLabel(self.data['ipv4'][0])
+        else:
+            ip_label = QLabel(self.data['ipv4'][0])
+            ip_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px; font-family: monospace;")
         layout.addWidget(ip_label)
         
         self.add_layout(layout)
@@ -140,7 +162,7 @@ class AdapterCard(SettingsCard):
         layout.setSpacing(10)
         
         # Кастомный чекбокс через иконку
-        self.checkbox = QCheckBox()
+        self.checkbox = CheckBox()
         self.checkbox.setChecked(True)
         self.checkbox.hide()  # Скрываем стандартный чекбокс
         
@@ -157,12 +179,16 @@ class AdapterCard(SettingsCard):
         
         # Иконка
         icon_label = QLabel()
+        self._network_icon_label = icon_label
         icon_label.setPixmap(qta.icon('fa5s.network-wired', color=tokens.accent_hex).pixmap(16, 16))
         layout.addWidget(icon_label)
         
         # Название
-        name_label = QLabel(self.adapter_name)
-        name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
+        if _HAS_FLUENT_LABELS:
+            name_label = StrongBodyLabel(self.adapter_name)
+        else:
+            name_label = QLabel(self.adapter_name)
+            name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
         layout.addWidget(name_label)
         
         layout.addStretch()
@@ -179,8 +205,11 @@ class AdapterCard(SettingsCard):
         else:
             dns_text = "DHCP"
         
-        self.dns_label = QLabel(dns_text)
-        self.dns_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px; font-family: monospace;")
+        if _HAS_FLUENT_LABELS:
+            self.dns_label = CaptionLabel(dns_text)
+        else:
+            self.dns_label = QLabel(dns_text)
+            self.dns_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px; font-family: monospace;")
         layout.addWidget(self.dns_label)
         
         self.add_layout(layout)
@@ -231,6 +260,16 @@ class AdapterCard(SettingsCard):
             self.check_icon.setPixmap(qta.icon('mdi.checkbox-marked', color=tokens.accent_hex).pixmap(18, 18))
         else:
             self.check_icon.setPixmap(qta.icon('mdi.checkbox-blank-outline', color=tokens.fg_faint).pixmap(18, 18))
+
+    def changeEvent(self, event):  # noqa: N802
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            if getattr(self, '_network_icon_label', None) is not None:
+                tokens = get_theme_tokens()
+                self._network_icon_label.setPixmap(
+                    qta.icon('fa5s.network-wired', color=tokens.accent_hex).pixmap(16, 16)
+                )
+            self._update_check_icon()
+        super().changeEvent(event)
 
 
 class NetworkPage(BasePage):
@@ -285,20 +324,22 @@ class NetworkPage(BasePage):
         loading_layout = QVBoxLayout()
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        self.loading_label = QLabel("⏳ Загрузка...")
-        self.loading_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        if _HAS_FLUENT_LABELS:
+            self.loading_label = BodyLabel("⏳ Загрузка...")
+        else:
+            self.loading_label = QLabel("⏳ Загрузка...")
+            self.loading_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         loading_layout.addWidget(self.loading_label)
         
-        self.loading_bar = QProgressBar()
-        self.loading_bar.setRange(0, 0)
-        self.loading_bar.setFixedHeight(2)
+        self.loading_bar = IndeterminateProgressBar(self)
+        self.loading_bar.setFixedHeight(4)
         self.loading_bar.setMaximumWidth(150)
-        self.loading_bar.setTextVisible(False)
-        self.loading_bar.setStyleSheet(f"""
-            QProgressBar {{ background-color: {tokens.surface_bg_hover}; border: none; border-radius: 1px; }}
-            QProgressBar::chunk {{ background-color: {tokens.accent_hex}; border-radius: 1px; }}
-        """)
+        if _HAS_FLUENT_LABELS:
+            self.loading_bar.start()
+        else:
+            self.loading_bar.setRange(0, 0)
+            self.loading_bar.setTextVisible(False)
         loading_layout.addWidget(self.loading_bar, alignment=Qt.AlignmentFlag.AlignCenter)
         
         self.loading_card.add_layout(loading_layout)
@@ -328,32 +369,22 @@ class NetworkPage(BasePage):
         self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_off())
         custom_layout.addWidget(self.custom_indicator)
         
-        custom_label = QLabel("Свой:")
-        custom_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        if _HAS_FLUENT_LABELS:
+            custom_label = BodyLabel("Свой:")
+        else:
+            custom_label = QLabel("Свой:")
+            custom_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         custom_layout.addWidget(custom_label)
         
-        self.custom_primary = QLineEdit()
+        self.custom_primary = LineEdit()
         self.custom_primary.setPlaceholderText("8.8.8.8")
         self.custom_primary.setFixedWidth(110)
-        self.custom_primary.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 5px;
-                padding: 4px 8px;
-                color: {tokens.fg};
-                font-size: 11px;
-                font-family: monospace;
-            }}
-            QLineEdit:focus {{ border-color: {tokens.accent_hex}; }}
-        """)
         self.custom_primary.returnPressed.connect(self._apply_custom_dns_quick)
         custom_layout.addWidget(self.custom_primary)
-        
-        self.custom_secondary = QLineEdit()
+
+        self.custom_secondary = LineEdit()
         self.custom_secondary.setPlaceholderText("8.8.4.4")
         self.custom_secondary.setFixedWidth(110)
-        self.custom_secondary.setStyleSheet(self.custom_primary.styleSheet())
         self.custom_secondary.returnPressed.connect(self._apply_custom_dns_quick)
         custom_layout.addWidget(self.custom_secondary)
         
@@ -500,8 +531,11 @@ class NetworkPage(BasePage):
         auto_icon.setPixmap(qta.icon('fa5s.sync', color=tokens.fg_faint).pixmap(16, 16))
         auto_layout.addWidget(auto_icon)
         
-        auto_label = QLabel("Автоматически (DHCP)")
-        auto_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
+        if _HAS_FLUENT_LABELS:
+            auto_label = StrongBodyLabel("Автоматически (DHCP)")
+        else:
+            auto_label = QLabel("Автоматически (DHCP)")
+            auto_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
         auto_layout.addWidget(auto_label)
         
         auto_layout.addStretch()
@@ -513,15 +547,18 @@ class NetworkPage(BasePage):
         
         # Добавляем провайдеров
         for category, providers in DNS_PROVIDERS.items():
-            cat_label = QLabel(category)
-            cat_label.setStyleSheet(f"""
-                color: {tokens.fg_faint};
-                font-size: 10px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-                padding: 8px 0 4px 4px;
-            """)
+            if _HAS_FLUENT_LABELS:
+                cat_label = CaptionLabel(category)
+            else:
+                cat_label = QLabel(category)
+                cat_label.setStyleSheet(f"""
+                    color: {tokens.fg_faint};
+                    font-size: 10px;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                    padding: 8px 0 4px 4px;
+                """)
             self.dns_cards_layout.addWidget(cat_label)
             
             for name, data in providers.items():
@@ -763,8 +800,11 @@ class NetworkPage(BasePage):
         dns_layout.addWidget(self.force_dns_toggle)
         
         # Статус
-        self.force_dns_status_label = QLabel("")
-        self.force_dns_status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
+        if _HAS_FLUENT_LABELS:
+            self.force_dns_status_label = CaptionLabel("")
+        else:
+            self.force_dns_status_label = QLabel("")
+            self.force_dns_status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
         dns_layout.addWidget(self.force_dns_status_label)
         
         self.force_dns_card.add_layout(dns_layout)
@@ -883,7 +923,8 @@ class NetworkPage(BasePage):
             manager = DNSManager()
             manager.flush_dns_cache()
         except Exception as e:
-            QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось очистить кэш: {e}", parent=self.window())
 
     def _test_connection(self):
         """Тестирует соединение с интернетом"""
@@ -948,7 +989,9 @@ class NetworkPage(BasePage):
         report = "\n".join(report_lines)
 
         if all_ok:
-            QMessageBox.information(self, "Тест соединения", f"Все проверки пройдены:\n\n{report}")
+            if InfoBar:
+                InfoBar.success(title="Тест соединения", content=f"Все проверки пройдены:\n\n{report}", parent=self.window())
         else:
-            QMessageBox.warning(self, "Тест соединения", f"Некоторые проверки не пройдены:\n\n{report}")
+            if InfoBar:
+                InfoBar.warning(title="Тест соединения", content=f"Некоторые проверки не пройдены:\n\n{report}", parent=self.window())
     

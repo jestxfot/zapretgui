@@ -4,7 +4,7 @@
 from PyQt6.QtCore import Qt, QTimer, QFileSystemWatcher
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QSizePolicy, QPushButton, QApplication)
-from PyQt6.QtGui import QTextOption
+from PyQt6.QtGui import QFont, QTextOption
 import qtawesome as qta
 import os
 
@@ -12,8 +12,14 @@ from .strategies_page_base import StrategiesPageBase
 from .base_page import ScrollBlockingTextEdit
 from ui.widgets import StrategySearchBar
 from ui.theme import get_theme_tokens
+from ui.compat_widgets import set_tooltip
 from config import BAT_FOLDER
 from log import log
+
+try:
+    from qfluentwidgets import BodyLabel as _BodyLabel
+except ImportError:
+    _BodyLabel = QLabel
 
 
 class BatStrategiesPage(StrategiesPageBase):
@@ -181,17 +187,10 @@ class BatStrategiesPage(StrategiesPageBase):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
 
-        label = QLabel("Командная строка:")
+        label = _BodyLabel("Командная строка:")
         self._cmd_preview_label = label
-        label.setStyleSheet(
-            f"""
-            QLabel {{
-                color: {tokens.fg_muted};
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            """
-        )
+        label.setStyleSheet(f"color: {tokens.fg_muted};")
+        label.setFont(QFont("Segoe UI Variable", 9, QFont.Weight.Medium))
         header_layout.addWidget(label)
 
         # Кнопка копирования
@@ -211,7 +210,7 @@ class BatStrategiesPage(StrategiesPageBase):
             }}
             """
         )
-        copy_btn.setToolTip("Копировать команду")
+        set_tooltip(copy_btn, "Копировать команду")
         copy_btn.clicked.connect(self._copy_cmd_to_clipboard)
         header_layout.addWidget(copy_btn)
 
@@ -249,9 +248,8 @@ class BatStrategiesPage(StrategiesPageBase):
         try:
             tokens = get_theme_tokens()
             if self._cmd_preview_label is not None:
-                self._cmd_preview_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 12px; font-weight: 500;"
-                )
+                self._cmd_preview_label.setStyleSheet(f"color: {tokens.fg_muted};")
+                self._cmd_preview_label.setFont(QFont("Segoe UI Variable", 9, QFont.Weight.Medium))
             if self._copy_cmd_btn is not None:
                 self._copy_cmd_btn.setIcon(qta.icon('fa5s.copy', color=tokens.accent_hex))
                 self._copy_cmd_btn.setStyleSheet(

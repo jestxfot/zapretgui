@@ -217,7 +217,7 @@ class UnifiedStrategiesList(QWidget):
             list_type=list_type,
             parent=self
         )
-        item.clicked.connect(self._on_item_clicked)
+        item.item_activated.connect(self._on_item_clicked)
 
         # Устанавливаем выбранную стратегию
         item.set_strategy(selected_strategy, strategy_name)

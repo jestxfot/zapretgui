@@ -3,20 +3,33 @@
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, 
-    QMessageBox, QLineEdit
+    QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit
 )
-import qtawesome as qta
+try:
+    from qfluentwidgets import LineEdit, InfoBar
+    _HAS_FLUENT = True
+except ImportError:
+    LineEdit = QLineEdit
+    InfoBar = None
+    _HAS_FLUENT = False
+
+try:
+    from qfluentwidgets import StrongBodyLabel, BodyLabel, CaptionLabel
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    StrongBodyLabel = QLabel; BodyLabel = QLabel; CaptionLabel = QLabel
+    _HAS_FLUENT_LABELS = False
+
 from urllib.parse import urlparse
 from typing import Optional
 import re
 import os
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from .strategies_page_base import ResetActionButton
 from ui.theme import get_theme_tokens
-from ui.theme_semantic import get_semantic_palette
 from log import log
 
 def split_domains(text: str) -> list[str]:
@@ -85,93 +98,6 @@ def _split_glued_domains(text: str) -> list[str]:
     return [text]
 
 
-class DangerConfirmActionButton(ResetActionButton):
-    """Двухэтапная кнопка подтверждения с красным pending-состоянием."""
-
-    def __init__(
-        self,
-        text: str,
-        *,
-        default_icon: str = "fa5s.trash-alt",
-        confirm_text: str = "Подтвердить?",
-        parent=None,
-    ):
-        self._default_icon_name = default_icon
-        self._base_tooltip_text = ""
-        self._confirm_tooltip_text = "Нажмите еще раз для подтверждения"
-        super().__init__(text=text, confirm_text=confirm_text, parent=parent)
-
-    def set_confirm_tooltips(self, base_text: str, confirm_text: str | None = None) -> None:
-        self._base_tooltip_text = (base_text or "").strip()
-        if confirm_text:
-            self._confirm_tooltip_text = confirm_text.strip()
-        self._update_tooltip()
-
-    def _update_tooltip(self) -> None:
-        if not self._base_tooltip_text:
-            self.setToolTip("")
-            return
-        if self._pending:
-            self.setToolTip(f"{self._base_tooltip_text}\n{self._confirm_tooltip_text}")
-            return
-        self.setToolTip(self._base_tooltip_text)
-
-    def _update_icon(self, rotation: int = 0):
-        icon_name = "fa5s.trash-alt" if self._pending else self._default_icon_name
-        try:
-            tokens = get_theme_tokens()
-            semantic = get_semantic_palette(tokens.theme_name)
-            color = semantic.on_color if self._pending else tokens.fg
-        except Exception:
-            color = "rgba(245, 245, 245, 0.95)"
-        if rotation != 0:
-            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
-        else:
-            self.setIcon(qta.icon(icon_name, color=color))
-
-    def _update_style(self):
-        if getattr(self, "_applying_theme_styles", False):
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            semantic = get_semantic_palette(tokens.theme_name)
-            if self._pending:
-                bg = "rgba(220, 53, 69, 1.0)" if self._hovered else "rgba(220, 53, 69, 0.92)"
-                pressed_bg = "rgba(190, 39, 54, 1.0)"
-                border = f"1px solid {tokens.divider_strong}"
-                text_color = semantic.on_color
-            else:
-                bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
-                pressed_bg = tokens.surface_bg_pressed
-                border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
-                text_color = tokens.fg
-
-            qss = f"""
-                QPushButton {{
-                    background-color: {bg};
-                    border: {border};
-                    border-radius: 8px;
-                    color: {text_color};
-                    padding: 0 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:pressed {{
-                    background-color: {pressed_bg};
-                }}
-            """
-            current_qss = getattr(self, "_current_qss", "")
-            if qss != current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
-            self._update_tooltip()
-        finally:
-            self._applying_theme_styles = False
-
-
 class CustomDomainsPage(BasePage):
     """Страница управления пользовательскими доменами"""
     
@@ -194,7 +120,7 @@ class CustomDomainsPage(BasePage):
         
         # Описание
         desc_card = SettingsCard()
-        desc = QLabel(
+        desc = BodyLabel(
             "Здесь редактируется файл other.user.txt (только ваши домены). "
             "Системная база берётся из шаблона и отдельно хранится в other.base.txt, "
             "а общий other.txt собирается автоматически. URL автоматически преобразуются в домены. "
@@ -204,7 +130,6 @@ class CustomDomainsPage(BasePage):
             desc.setProperty("tone", "muted")
         except Exception:
             pass
-        desc.setStyleSheet("font-size: 13px;")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -214,30 +139,8 @@ class CustomDomainsPage(BasePage):
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
         
-        self.domain_input = QLineEdit()
+        self.domain_input = LineEdit()
         self.domain_input.setPlaceholderText("Введите домен или URL (например: example.com или https://site.com/page)")
-        self.domain_input.setStyleSheet(
-            f"""
-            QLineEdit {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                padding: 10px 12px;
-                color: {tokens.fg};
-                font-size: 13px;
-            }}
-            QLineEdit:hover {{
-                background: {tokens.surface_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {tokens.accent_hex};
-            }}
-            QLineEdit::placeholder {{
-                color: {tokens.fg_faint};
-            }}
-            """
-        )
         self.domain_input.returnPressed.connect(self._add_domain)
         add_layout.addWidget(self.domain_input, 1)
         
@@ -257,31 +160,31 @@ class CustomDomainsPage(BasePage):
         # Открыть файл
         self.open_file_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
         self.open_file_btn.setFixedHeight(36)
-        self.open_file_btn.setToolTip("Сохраняет изменения и открывает other.user.txt в проводнике")
+        set_tooltip(self.open_file_btn, "Сохраняет изменения и открывает other.user.txt в проводнике")
         self.open_file_btn.clicked.connect(self._open_file)
         actions_layout.addWidget(self.open_file_btn)
 
         # Сбросить файл
-        self.reset_btn = DangerConfirmActionButton(
+        self.reset_btn = ResetActionButton(
             "Сбросить файл",
-            default_icon="fa5s.undo",
             confirm_text="Подтвердить сброс",
         )
         self.reset_btn.setFixedHeight(36)
-        self.reset_btn.set_confirm_tooltips(
+        set_tooltip(
+            self.reset_btn,
             "Очищает other.user.txt (мои домены) и пересобирает other.txt из системной базы"
         )
         self.reset_btn.reset_confirmed.connect(self._reset_file)
         actions_layout.addWidget(self.reset_btn)
-        
+
         # Очистить всё
-        self.clear_btn = DangerConfirmActionButton(
+        self.clear_btn = ResetActionButton(
             "Очистить всё",
-            default_icon="fa5s.trash-alt",
             confirm_text="Подтвердить очистку",
         )
         self.clear_btn.setFixedHeight(36)
-        self.clear_btn.set_confirm_tooltips(
+        set_tooltip(
+            self.clear_btn,
             "Удаляет только пользовательские домены. Базовые домены из шаблона останутся"
         )
         self.clear_btn.reset_confirmed.connect(self._clear_all)
@@ -334,24 +237,22 @@ class CustomDomainsPage(BasePage):
         editor_layout.addWidget(self.text_edit)
         
         # Подсказка
-        hint = QLabel("💡 Изменения сохраняются автоматически через 500мс")
+        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
         try:
             hint.setProperty("tone", "faint")
         except Exception:
             pass
-        hint.setStyleSheet("font-size: 11px;")
         editor_layout.addWidget(hint)
         
         editor_card.add_layout(editor_layout)
         self.layout.addWidget(editor_card)
         
         # Статистика
-        self.status_label = QLabel()
+        self.status_label = CaptionLabel()
         try:
             self.status_label.setProperty("tone", "muted")
         except Exception:
             pass
-        self.status_label.setStyleSheet("font-size: 11px;")
         self.layout.addWidget(self.status_label)
 
         # Apply token-based styles (also used on theme change).
@@ -359,33 +260,6 @@ class CustomDomainsPage(BasePage):
 
     def _apply_theme_styles(self) -> None:
         tokens = get_theme_tokens()
-
-        try:
-            if hasattr(self, "domain_input") and self.domain_input is not None:
-                self.domain_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                        padding: 10px 12px;
-                        color: {tokens.fg};
-                        font-size: 13px;
-                    }}
-                    QLineEdit:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border: 1px solid {tokens.surface_border_hover};
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-        except Exception:
-            pass
 
         try:
             if hasattr(self, "text_edit") and self.text_edit is not None:
@@ -631,24 +505,21 @@ class CustomDomainsPage(BasePage):
         domain = self._extract_domain(text)
         
         if not domain:
-            QMessageBox.warning(
-                self.window(), 
-                "Ошибка", 
-                f"Не удалось распознать домен:\n{text}\n\n"
-                "Введите корректный домен (например: example.com)"
-            )
+            if InfoBar:
+                InfoBar.warning(
+                    title="Ошибка",
+                    content=f"Не удалось распознать домен:\n{text}\n\nВведите корректный домен (например: example.com)",
+                    parent=self.window(),
+                )
             return
-        
+
         # Проверяем дубликат
         current = self.text_edit.toPlainText()
         current_domains = [l.strip().lower() for l in current.split('\n') if l.strip() and not l.strip().startswith('#')]
-        
+
         if domain.lower() in current_domains:
-            QMessageBox.information(
-                self.window(), 
-                "Информация", 
-                f"Домен уже добавлен:\n{domain}"
-            )
+            if InfoBar:
+                InfoBar.info(title="Информация", content=f"Домен уже добавлен:\n{domain}", parent=self.window())
             return
         
         # Добавляем в конец
@@ -676,10 +547,12 @@ class CustomDomainsPage(BasePage):
                 self._load_domains()
                 self.status_label.setText(self.status_label.text() + " • ✅ Сброшено")
             else:
-                QMessageBox.warning(self.window(), "Ошибка", "Не удалось сбросить my hostlist")
+                if InfoBar:
+                    InfoBar.warning(title="Ошибка", content="Не удалось сбросить my hostlist", parent=self.window())
         except Exception as e:
             log(f"Ошибка сброса my hostlist: {e}", "ERROR")
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось сбросить:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось сбросить:\n{e}", parent=self.window())
                 
     def _open_file(self):
         """Открывает файл в проводнике"""
@@ -702,4 +575,5 @@ class CustomDomainsPage(BasePage):
                 
         except Exception as e:
             log(f"Ошибка открытия файла: {e}", "ERROR")
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())

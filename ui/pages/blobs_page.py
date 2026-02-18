@@ -3,19 +3,36 @@
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QMessageBox, QLineEdit,
-    QPushButton, QFileDialog, QDialog, QFormLayout,
-    QComboBox, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame, QFileDialog, QSizePolicy
 )
-from PyQt6.QtGui import QFont
 import qtawesome as qta
 import os
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton, set_tooltip
 from ui.theme import get_theme_tokens, get_card_gradient_qss
 from log import log
+
+try:
+    from qfluentwidgets import (
+        LineEdit, ComboBox, MessageBox, InfoBar,
+        MessageBoxBase, SubtitleLabel, BodyLabel, CaptionLabel,
+        TransparentToolButton, TransparentPushButton,
+    )
+    _HAS_FLUENT_INPUTS = True
+except ImportError:
+    from PyQt6.QtWidgets import (
+        QLineEdit as LineEdit, QComboBox as ComboBox,
+        QDialog as MessageBoxBase, QPushButton as TransparentToolButton,
+        QPushButton as TransparentPushButton,
+    )
+    MessageBox = None
+    InfoBar = None
+    SubtitleLabel = QLabel
+    BodyLabel = QLabel
+    CaptionLabel = QLabel
+    _HAS_FLUENT_INPUTS = False
 
 
 class BlobItemWidget(QFrame):
@@ -108,29 +125,19 @@ class BlobItemWidget(QFrame):
             if self.blob_info.get("exists", True):
                 self._status_label = QLabel("✓")
                 self._status_label.setStyleSheet("color: #6ccb5f; font-size: 14px;")
-                self._status_label.setToolTip("Файл найден")
+                set_tooltip(self._status_label, "Файл найден")
             else:
                 self._status_label = QLabel("✗")
                 self._status_label.setStyleSheet("color: #ff6b6b; font-size: 14px;")
-                self._status_label.setToolTip("Файл не найден")
+                set_tooltip(self._status_label, "Файл не найден")
             layout.addWidget(self._status_label)
         
         # Кнопка удаления (только для пользовательских)
         if self.blob_info.get("is_user"):
-            self._delete_btn = QPushButton()
+            self._delete_btn = TransparentToolButton()
             self._delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='#ff6b6b'))
             self._delete_btn.setFixedSize(28, 28)
             self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._delete_btn.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255, 107, 107, 0.1);
-                    border: none;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 107, 107, 0.25);
-                }
-            """)
             self._delete_btn.clicked.connect(self._on_delete)
             layout.addWidget(self._delete_btn)
 
@@ -215,352 +222,83 @@ class BlobItemWidget(QFrame):
             
     def _on_delete(self):
         """Запрос на удаление блоба"""
-        reply = QMessageBox.question(
-            self.window(),
+        box = MessageBox(
             "Удаление блоба",
             f"Удалить пользовательский блоб '{self.blob_name}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            self.window(),
         )
-        if reply == QMessageBox.StandardButton.Yes:
+        if box.exec():
             self.deleted.emit(self.blob_name)
 
 
-class AddBlobDialog(QDialog):
-    """Диалог добавления нового блоба в стиле Windows 11"""
-    
+class AddBlobDialog(MessageBoxBase):
+    """Диалог добавления нового блоба (qfluentwidgets MessageBoxBase)"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Добавить блоб")
-        self.setFixedWidth(420)
-        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
-        self._current_container_qss = ""
+        # Заголовок
+        self.titleLabel = SubtitleLabel("Добавить блоб", self.widget)
 
-        self._container = None
-        self._title_label = None
-        self._close_btn = None
-        self._field_labels = []
-        self._input_widgets = []
-        self._browse_btn = None
-        self._cancel_btn = None
-        self._save_btn = None
-
-        self._build_ui()
-
-        self._apply_theme()
-        
-    def _build_ui(self):
-        # Основной контейнер с тенью
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        
-        container = QFrame()
-        container.setObjectName("dialogContainer")
-        self._container = container
-        
-        layout = QVBoxLayout(container)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 16, 20, 16)
-        
-        # Заголовок с кнопкой закрытия
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 8)
-        
-        title = QLabel("Добавить блоб")
-        self._title_label = title
-        header.addWidget(title)
-        header.addStretch()
-        
-        close_btn = QPushButton("×")
-        self._close_btn = close_btn
-        close_btn.setFixedSize(24, 24)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(self.reject)
-        header.addWidget(close_btn)
-        
-        layout.addLayout(header)
-        
-        # Стили применяются через _apply_theme()
-        
-        # Имя блоба
-        name_label = QLabel("Имя")
-        self._field_labels.append(name_label)
-        layout.addWidget(name_label)
-        
-        self.name_edit = QLineEdit()
+        # Имя
+        name_label = BodyLabel("Имя", self.widget)
+        self.name_edit = LineEdit(self.widget)
         self.name_edit.setPlaceholderText("Латиница, цифры, подчеркивания")
-        self._input_widgets.append(self.name_edit)
-        self.name_edit.setFixedHeight(32)
-        layout.addWidget(self.name_edit)
-        
+
         # Тип
-        type_label = QLabel("Тип")
-        self._field_labels.append(type_label)
-        layout.addWidget(type_label)
-        
-        self.type_combo = QComboBox()
-        self.type_combo.addItem("Файл (.bin)", "file")
-        self.type_combo.addItem("Hex значение", "hex")
-        self._input_widgets.append(self.type_combo)
-        self.type_combo.setFixedHeight(32)
+        type_label = BodyLabel("Тип", self.widget)
+        self.type_combo = ComboBox(self.widget)
+        self.type_combo.addItem("Файл (.bin)", userData="file")
+        self.type_combo.addItem("Hex значение", userData="hex")
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
-        layout.addWidget(self.type_combo)
-        
-        # Значение
-        value_label = QLabel("Значение")
-        self._field_labels.append(value_label)
-        layout.addWidget(value_label)
-        
-        self.value_widget = QWidget()
-        value_layout = QHBoxLayout(self.value_widget)
+
+        # Значение + кнопка обзора
+        value_label = BodyLabel("Значение", self.widget)
+        self._value_container = QWidget(self.widget)
+        value_layout = QHBoxLayout(self._value_container)
         value_layout.setContentsMargins(0, 0, 0, 0)
         value_layout.setSpacing(6)
-        
-        self.value_edit = QLineEdit()
+        self.value_edit = LineEdit(self._value_container)
         self.value_edit.setPlaceholderText("Путь к файлу")
-        self._input_widgets.append(self.value_edit)
-        self.value_edit.setFixedHeight(32)
         value_layout.addWidget(self.value_edit, 1)
-        
-        self.browse_btn = QPushButton("...")
-        self._browse_btn = self.browse_btn
+        self.browse_btn = TransparentToolButton(self._value_container)
+        self.browse_btn.setIcon(qta.icon("fa5s.folder-open", color="#888"))
         self.browse_btn.setFixedSize(32, 32)
-        self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_tooltip(self.browse_btn, "Выбрать файл")
         self.browse_btn.clicked.connect(self._browse_file)
         value_layout.addWidget(self.browse_btn)
-        
-        layout.addWidget(self.value_widget)
-        
+
         # Описание
-        desc_label = QLabel("Описание (опционально)")
-        self._field_labels.append(desc_label)
-        layout.addWidget(desc_label)
-        
-        self.desc_edit = QLineEdit()
+        desc_label = BodyLabel("Описание (опционально)", self.widget)
+        self.desc_edit = LineEdit(self.widget)
         self.desc_edit.setPlaceholderText("Краткое описание блоба")
-        self._input_widgets.append(self.desc_edit)
-        self.desc_edit.setFixedHeight(32)
-        layout.addWidget(self.desc_edit)
-        
-        # Отступ перед кнопками
-        layout.addSpacing(8)
-        
-        # Кнопки
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(8)
-        buttons_layout.addStretch()
-        
-        cancel_btn = QPushButton("Отмена")
-        self._cancel_btn = cancel_btn
-        cancel_btn.setFixedHeight(28)
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(cancel_btn)
-        
-        save_btn = QPushButton("Добавить")
-        self._save_btn = save_btn
-        save_btn.setFixedHeight(28)
-        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_btn.clicked.connect(self._save)
-        buttons_layout.addWidget(save_btn)
-        
-        layout.addLayout(buttons_layout)
-        main_layout.addWidget(container)
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        # Строка ошибки
+        self._error_label = CaptionLabel("", self.widget)
         try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
+            from qfluentwidgets import isDarkTheme as _idt
+            _err_clr = "#ff6b6b" if _idt() else "#dc2626"
         except Exception:
-            pass
-        return super().changeEvent(event)
+            _err_clr = "#dc2626"
+        self._error_label.setStyleSheet(f"color: {_err_clr};")
+        self._error_label.hide()
 
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
+        # Добавляем всё в viewLayout
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(name_label)
+        self.viewLayout.addWidget(self.name_edit)
+        self.viewLayout.addWidget(type_label)
+        self.viewLayout.addWidget(self.type_combo)
+        self.viewLayout.addWidget(value_label)
+        self.viewLayout.addWidget(self._value_container)
+        self.viewLayout.addWidget(desc_label)
+        self.viewLayout.addWidget(self.desc_edit)
+        self.viewLayout.addWidget(self._error_label)
 
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
+        self.yesButton.setText("Добавить")
+        self.cancelButton.setText("Отмена")
+        self.widget.setMinimumWidth(400)
 
-    def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            container_bg = get_card_gradient_qss(tokens.theme_name)
-
-            if self._container is not None:
-                qss = (
-                    "QFrame#dialogContainer {"
-                    f"background: {container_bg};"
-                    f"border: 1px solid {tokens.surface_border};"
-                    "border-radius: 8px;"
-                    "}"
-                )
-                if qss != self._current_container_qss:
-                    self._current_container_qss = qss
-                    self._container.setStyleSheet(qss)
-
-            if self._title_label is not None:
-                self._title_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 15px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
-                )
-
-            if self._close_btn is not None:
-                self._close_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background: transparent;
-                        border: none;
-                        border-radius: 4px;
-                        color: {tokens.fg_muted};
-                        font-size: 18px;
-                        font-weight: 400;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.surface_bg_hover};
-                        color: {tokens.fg};
-                    }}
-                    """
-                )
-
-            label_style = f"color: {tokens.fg_muted}; font-size: 12px; margin-bottom: 4px;"
-            for label in list(self._field_labels or []):
-                try:
-                    label.setStyleSheet(label_style)
-                except Exception:
-                    pass
-
-            input_style = f"""
-                QLineEdit, QComboBox {{
-                    background: {tokens.surface_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 4px;
-                    padding: 6px 10px;
-                    color: {tokens.fg};
-                    font-size: 13px;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QLineEdit:focus, QComboBox:focus {{
-                    border: 1px solid rgba({tokens.accent_rgb_str}, 0.60);
-                    background: {tokens.surface_bg_hover};
-                }}
-                QLineEdit::placeholder {{
-                    color: {tokens.fg_faint};
-                }}
-                QComboBox::drop-down {{
-                    border: none;
-                    width: 20px;
-                }}
-                QComboBox::down-arrow {{
-                    image: none;
-                    border-left: 4px solid transparent;
-                    border-right: 4px solid transparent;
-                    border-top: 5px solid {tokens.fg_muted};
-                    margin-right: 8px;
-                }}
-                QComboBox QAbstractItemView {{
-                    background: {container_bg};
-                    color: {tokens.fg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 4px;
-                    selection-background-color: {tokens.accent_soft_bg_hover};
-                    selection-color: {tokens.fg};
-                    outline: none;
-                }}
-            """
-            for widget in list(self._input_widgets or []):
-                try:
-                    widget.setStyleSheet(input_style)
-                except Exception:
-                    pass
-
-            if self._browse_btn is not None:
-                self._browse_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        color: {tokens.fg_muted};
-                        font-size: 14px;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                        color: {tokens.fg};
-                    }}
-                    """
-                )
-
-            if self._cancel_btn is not None:
-                self._cancel_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 0 16px;
-                        color: {tokens.fg};
-                        font-size: 12px;
-                        font-weight: 500;
-                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    """
-                )
-
-            if self._save_btn is not None:
-                self._save_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background: {tokens.accent_hex};
-                        border: none;
-                        border-radius: 4px;
-                        padding: 0 20px;
-                        color: rgba(245, 245, 245, 0.95);
-                        font-size: 12px;
-                        font-weight: 600;
-                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.accent_hover_hex};
-                    }}
-                    QPushButton:pressed {{
-                        background: {tokens.accent_pressed_hex};
-                    }}
-                    """
-                )
-        finally:
-            self._applying_theme_styles = False
-    
-    def mousePressEvent(self, event):
-        """Перетаскивание окна"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-    
-    def mouseMoveEvent(self, event):
-        """Перетаскивание окна"""
-        if event.buttons() == Qt.MouseButton.LeftButton and hasattr(self, '_drag_pos'):
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-        
     def _on_type_changed(self, index):
         """Переключение типа блоба"""
         blob_type = self.type_combo.currentData()
@@ -569,66 +307,69 @@ class AddBlobDialog(QDialog):
             self.value_edit.setPlaceholderText("Hex значение (например: 0x0E0E0F0E)")
         else:
             self.value_edit.setPlaceholderText("Путь к .bin файлу")
-            
+
     def _browse_file(self):
         """Выбор файла"""
         from config import BIN_FOLDER
-        
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите файл блоба",
             BIN_FOLDER,
-            "Binary files (*.bin);;All files (*.*)"
+            "Binary files (*.bin);;All files (*.*)",
         )
         if file_path:
-            # Если файл в BIN_FOLDER - сохраняем относительный путь
             if file_path.startswith(BIN_FOLDER):
                 file_path = os.path.relpath(file_path, BIN_FOLDER)
             self.value_edit.setText(file_path)
-            
-    def _save(self):
-        """Валидация и сохранение"""
+
+    def validate(self) -> bool:
+        """Вызывается при нажатии кнопки Добавить — возвращает False чтобы оставить диалог открытым."""
+        import re
+
         name = self.name_edit.text().strip()
         value = self.value_edit.text().strip()
-        
-        # Валидация имени
+
         if not name:
-            QMessageBox.warning(self, "Ошибка", "Введите имя блоба")
-            return
-            
-        import re
+            self._show_error("Введите имя блоба")
+            return False
+
         if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
-            QMessageBox.warning(
-                self, "Ошибка", 
+            self._show_error(
                 "Имя должно начинаться с буквы и содержать только латиницу, цифры и подчеркивания"
             )
-            return
-            
-        # Валидация значения
+            return False
+
         if not value:
-            QMessageBox.warning(self, "Ошибка", "Введите значение блоба")
-            return
-            
+            self._show_error("Введите значение блоба")
+            return False
+
         blob_type = self.type_combo.currentData()
         if blob_type == "hex" and not value.startswith("0x"):
-            QMessageBox.warning(self, "Ошибка", "Hex значение должно начинаться с 0x")
-            return
-            
-        self.accept()
-        
+            self._show_error("Hex значение должно начинаться с 0x")
+            return False
+
+        return True
+
+    def _show_error(self, msg: str) -> None:
+        self._error_label.setText(msg)
+        self._error_label.show()
+
     def get_data(self) -> dict:
         """Возвращает данные нового блоба"""
         return {
             "name": self.name_edit.text().strip(),
             "type": self.type_combo.currentData(),
             "value": self.value_edit.text().strip(),
-            "description": self.desc_edit.text().strip()
+            "description": self.desc_edit.text().strip(),
         }
 
 
 class BlobsPage(BasePage):
     """Страница управления блобами"""
-    
+
+    back_clicked = pyqtSignal()  # → PageName.ZAPRET2_DIRECT_CONTROL
+
     def __init__(self, parent=None):
         super().__init__("Блобы", "Управление бинарными данными для стратегий", parent)
         self._applying_theme_styles = False
@@ -640,10 +381,26 @@ class BlobsPage(BasePage):
         self._build_ui()
 
         self._apply_theme()
-        
+
     def _build_ui(self):
         """Строит UI страницы"""
-        
+
+        # ── Кнопка «назад» ────────────────────────────────────────────────────
+        if _HAS_FLUENT_INPUTS:
+            from PyQt6.QtCore import QSize
+            back_btn = TransparentPushButton(parent=self)
+            back_btn.setText("Управление")
+            back_btn.setIcon(qta.icon("fa5s.chevron-left", color="#888"))
+            back_btn.setIconSize(QSize(12, 12))
+            back_btn.clicked.connect(self.back_clicked.emit)
+            back_row_widget = QWidget()
+            back_row_layout = QHBoxLayout(back_row_widget)
+            back_row_layout.setContentsMargins(0, 0, 0, 0)
+            back_row_layout.addWidget(back_btn)
+            back_row_layout.addStretch()
+            # Insert BEFORE title (index 0) so the button sits at the very top
+            self.vBoxLayout.insertWidget(0, back_row_widget)
+
         # Описание
         desc_card = SettingsCard()
         desc = QLabel(
@@ -667,7 +424,7 @@ class BlobsPage(BasePage):
         actions_layout.addWidget(self.add_btn)
         
         # Кнопка перезагрузки
-        self.reload_btn = ActionButton("Обновить", "fa5s.sync-alt")
+        self.reload_btn = RefreshButton()
         self.reload_btn.clicked.connect(self._reload_blobs)
         actions_layout.addWidget(self.reload_btn)
         
@@ -699,7 +456,7 @@ class BlobsPage(BasePage):
         self._filter_icon_label = filter_icon
         filter_layout.addWidget(filter_icon)
         
-        self.filter_edit = QLineEdit()
+        self.filter_edit = LineEdit()
         self.filter_edit.setPlaceholderText("Фильтр по имени...")
         self.filter_edit.textChanged.connect(self._filter_blobs)
         filter_layout.addWidget(self.filter_edit, 1)
@@ -765,30 +522,7 @@ class BlobsPage(BasePage):
                     qta.icon('fa5s.search', color=tokens.fg_faint).pixmap(14, 14)
                 )
 
-            if hasattr(self, "filter_edit") and self.filter_edit is not None:
-                self.filter_edit.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        color: {tokens.fg};
-                        font-size: 13px;
-                    }}
-                    QLineEdit:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                        background: {tokens.surface_bg_hover};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
+            # filter_edit is a qfluentwidgets LineEdit — it styles itself.
 
             # Update section headers + blob items.
             if hasattr(self, "blobs_layout") and self.blobs_layout is not None:
@@ -892,21 +626,21 @@ class BlobsPage(BasePage):
                     
     def _add_blob(self):
         """Открывает диалог добавления блоба"""
-        dialog = AddBlobDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        dialog = AddBlobDialog(self.window())
+        if dialog.exec():
             data = dialog.get_data()
             try:
                 from launcher_common.blobs import save_user_blob
-                
+
                 if save_user_blob(data["name"], data["type"], data["value"], data["description"]):
                     log(f"Добавлен блоб: {data['name']}", "INFO")
-                    self._load_blobs()  # Перезагружаем список
+                    self._load_blobs()
                 else:
-                    QMessageBox.warning(self, "Ошибка", "Не удалось сохранить блоб")
-                    
+                    InfoBar.warning(title="Ошибка", content="Не удалось сохранить блоб", parent=self.window())
+
             except Exception as e:
                 log(f"Ошибка добавления блоба: {e}", "ERROR")
-                QMessageBox.warning(self, "Ошибка", f"Не удалось добавить блоб:\n{e}")
+                InfoBar.warning(title="Ошибка", content=f"Не удалось добавить блоб: {e}", parent=self.window())
                 
     def _delete_blob(self, name: str):
         """Удаляет пользовательский блоб"""
@@ -915,16 +649,17 @@ class BlobsPage(BasePage):
             
             if delete_user_blob(name):
                 log(f"Удалён блоб: {name}", "INFO")
-                self._load_blobs()  # Перезагружаем список
+                self._load_blobs()
             else:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось удалить блоб '{name}'")
-                
+                InfoBar.warning(title="Ошибка", content=f"Не удалось удалить блоб '{name}'", parent=self.window())
+
         except Exception as e:
             log(f"Ошибка удаления блоба: {e}", "ERROR")
-            QMessageBox.warning(self, "Ошибка", f"Не удалось удалить блоб:\n{e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось удалить блоб: {e}", parent=self.window())
             
     def _reload_blobs(self):
         """Перезагружает блобы из JSON"""
+        self.reload_btn.set_loading(True)
         try:
             from launcher_common.blobs import reload_blobs
             reload_blobs()
@@ -932,6 +667,8 @@ class BlobsPage(BasePage):
             log("Блобы перезагружены", "INFO")
         except Exception as e:
             log(f"Ошибка перезагрузки блобов: {e}", "ERROR")
+        finally:
+            self.reload_btn.set_loading(False)
             
     def _open_bin_folder(self):
         """Открывает папку bin"""
@@ -940,7 +677,7 @@ class BlobsPage(BasePage):
             os.startfile(BIN_FOLDER)
         except Exception as e:
             log(f"Ошибка открытия папки: {e}", "ERROR")
-            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть папку:\n{e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть папку: {e}", parent=self.window())
             
     def _open_json(self):
         """Открывает файл blobs.json в редакторе"""
@@ -950,4 +687,4 @@ class BlobsPage(BasePage):
             os.startfile(json_path)
         except Exception as e:
             log(f"Ошибка открытия JSON: {e}", "ERROR")
-            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть файл:\n{e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть файл: {e}", parent=self.window())

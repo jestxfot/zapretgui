@@ -10,17 +10,52 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QComboBox,
-    QProgressBar,
     QFrame,
 )
 
+try:
+    from qfluentwidgets import (
+        IndeterminateProgressBar, ProgressBar, ComboBox,
+        StrongBodyLabel, BodyLabel, CaptionLabel, TextEdit,
+    )
+    _HAS_FLUENT_WIDGETS = True
+except ImportError:
+    from PyQt6.QtWidgets import QProgressBar as IndeterminateProgressBar, QProgressBar as ProgressBar, QComboBox as ComboBox
+    from PyQt6.QtWidgets import QTextEdit as TextEdit
+    StrongBodyLabel = QLabel
+    BodyLabel = QLabel
+    CaptionLabel = QLabel
+    _HAS_FLUENT_WIDGETS = False
+
 from .base_page import BasePage, ScrollBlockingTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 from connection_test import ConnectionTestWorker, LogSendWorker
 from config import LOGS_FOLDER, APP_VERSION
 from tgram.tg_log_delta import get_client_id
+
+
+if _HAS_FLUENT_WIDGETS:
+    class _ScrollBlockingTextBase(TextEdit):
+        """TextEdit (Fluent) that stops wheel-scroll from propagating to the parent page."""
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setProperty("noDrag", True)
+
+        def wheelEvent(self, event):
+            scrollbar = self.verticalScrollBar()
+            delta = event.angleDelta().y()
+            if delta > 0 and scrollbar.value() == scrollbar.minimum():
+                event.accept()
+                return
+            if delta < 0 and scrollbar.value() == scrollbar.maximum():
+                event.accept()
+                return
+            super().wheelEvent(event)
+            event.accept()
+else:
+    _ScrollBlockingTextBase = ScrollBlockingTextEdit
 
 
 class StatusBadge(QLabel):
@@ -169,75 +204,8 @@ class ConnectionTestPage(BasePage):
                     """
                 )
 
-            if hasattr(self, "test_combo"):
-                selection_color = "rgba(18, 18, 18, 0.90)" if tokens.is_light else tokens.fg
-                self.test_combo.setStyleSheet(
-                    f"""
-                    QComboBox {{
-                        padding: 8px 12px;
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                        background: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        font-size: 12px;
-                    }}
-                    QComboBox:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QComboBox:focus {{
-                        border-color: {tokens.accent_hex};
-                    }}
-                    QComboBox QAbstractItemView,
-                    QComboBox QListView {{
-                        background: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        selection-background-color: {tokens.accent_soft_bg};
-                        selection-color: {selection_color};
-                        outline: none;
-                    }}
-                    """
-                )
-
-            if hasattr(self, "status_label"):
-                self.status_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 12px; font-weight: 500;"
-                )
-
-            if hasattr(self, "progress_bar"):
-                self.progress_bar.setStyleSheet(
-                    f"""
-                    QProgressBar {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                        color: {tokens.fg};
-                        text-align: center;
-                        padding: 2px;
-                    }}
-                    QProgressBar::chunk {{
-                        background: qlineargradient(
-                            x1:0, y1:0, x2:1, y2:0,
-                            stop:0 {tokens.accent_hex}, stop:1 {tokens.accent_hover_hex});
-                        border-radius: 4px;
-                    }}
-                    """
-                )
-
-            if hasattr(self, "result_text"):
-                self.result_text.setStyleSheet(
-                    f"""
-                    QTextEdit {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 8px;
-                        color: {tokens.fg};
-                        font-family: 'Cascadia Code', 'Consolas', monospace;
-                        font-size: 12px;
-                    }}
-                    """
-                )
+            # status_label is now a CaptionLabel — Fluent handles its typography/colour.
+            # result_text is now a Fluent TextEdit — Fluent handles its background/border/colour.
         finally:
             self._applying_theme_styles = False
 
@@ -252,18 +220,14 @@ class ConnectionTestPage(BasePage):
         hero_layout.setContentsMargins(20, 18, 20, 18)
         hero_layout.setSpacing(8)
 
-        title = QLabel("Диагностика сетевых соединений")
+        title = StrongBodyLabel("Диагностика сетевых соединений")
         title.setProperty("tone", "primary")
-        title.setStyleSheet(
-            "font-size: 22px; font-weight: 700; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
-        )
 
-        subtitle = QLabel(
+        subtitle = BodyLabel(
             "Проверьте доступность Discord и YouTube, найдите подмену DNS и быстро отправьте лог в поддержку."
         )
         subtitle.setWordWrap(True)
         subtitle.setProperty("tone", "muted")
-        subtitle.setStyleSheet("font-size: 13px;")
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(8)
@@ -285,9 +249,9 @@ class ConnectionTestPage(BasePage):
         # Тип теста
         selector_row = QHBoxLayout()
         selector_row.setSpacing(12)
-        selector_row.addWidget(QLabel("Выбор теста:"))
+        selector_row.addWidget(BodyLabel("Выбор теста:"))
 
-        self.test_combo = QComboBox()
+        self.test_combo = ComboBox()
         self.test_combo.addItems(
             [
                 "🌐 Все тесты (Discord + YouTube)",
@@ -295,7 +259,6 @@ class ConnectionTestPage(BasePage):
                 "🎬 Только YouTube",
             ]
         )
-        # Styled in _apply_theme()
         selector_row.addWidget(self.test_combo, 1)
         card.add_layout(selector_row)
 
@@ -331,10 +294,10 @@ class ConnectionTestPage(BasePage):
         status_layout = QHBoxLayout()
         status_layout.setSpacing(12)
 
-        self.status_label = QLabel("Готово к тестированию")
+        self.status_label = CaptionLabel("Готово к тестированию")
         status_layout.addWidget(self.status_label, 1)
 
-        self.progress_bar = QProgressBar()
+        self.progress_bar = IndeterminateProgressBar()
         self.progress_bar.setVisible(False)
         status_layout.addWidget(self.progress_bar, 1)
 
@@ -343,9 +306,8 @@ class ConnectionTestPage(BasePage):
 
     def _build_log_viewer(self):
         log_card = SettingsCard("Результат тестирования")
-        self.result_text = ScrollBlockingTextEdit()
+        self.result_text = _ScrollBlockingTextBase()
         self.result_text.setReadOnly(True)
-        # Styled in _apply_theme()
         log_card.add_widget(self.result_text)
         self.container_layout.addWidget(log_card)
 
@@ -376,7 +338,8 @@ class ConnectionTestPage(BasePage):
         self.status_badge.set_status("Тест выполняется", "info")
         self.progress_badge.set_status("Идёт проверка", "info")
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
+        if _HAS_FLUENT_WIDGETS:
+            self.progress_bar.start()
 
         self.worker_thread = QThread(self)
         self.worker = ConnectionTestWorker(test_type)
@@ -445,6 +408,8 @@ class ConnectionTestPage(BasePage):
         self.stop_btn.setEnabled(False)
         self.test_combo.setEnabled(True)
         self.send_log_btn.setEnabled(True)
+        if _HAS_FLUENT_WIDGETS:
+            self.progress_bar.stop()
         self.progress_bar.setVisible(False)
 
         self.status_badge.set_status("Тест завершён", "success")
@@ -511,7 +476,8 @@ class ConnectionTestPage(BasePage):
         self.send_log_btn.setEnabled(False)
         self.is_sending_log = True
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
+        if _HAS_FLUENT_WIDGETS:
+            self.progress_bar.start()
         self._set_status("🔐 Ожидание подтверждения кода...", "info")
 
         # 2) Ждём подтверждения кода, затем отправляем файл
@@ -549,6 +515,8 @@ class ConnectionTestPage(BasePage):
         self._auth_thread.start()
 
     def _on_log_sent(self, success: bool, message: str):
+        if _HAS_FLUENT_WIDGETS:
+            self.progress_bar.stop()
         self.progress_bar.setVisible(False)
         self.is_sending_log = False
         self.send_log_btn.setEnabled(True)

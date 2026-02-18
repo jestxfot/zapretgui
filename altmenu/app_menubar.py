@@ -1,11 +1,22 @@
 # altmenu/app_menubar.py
 
-from PyQt6.QtWidgets import (QMenuBar, QWidget, QMessageBox,
-                            QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QTextEdit, QLineEdit, QPushButton, QDialogButtonBox)
+from PyQt6.QtWidgets import QMenuBar, QWidget, QDialog
 from PyQt6.QtGui     import QAction
 from PyQt6.QtCore    import Qt, QThread, QSettings, QObject, pyqtSignal
 import webbrowser
+
+from qfluentwidgets import (
+    MessageBoxBase, SubtitleLabel, BodyLabel, CaptionLabel,
+    TextEdit, LineEdit,
+)
+
+try:
+    from qfluentwidgets import MessageBox, InfoBar
+    _HAS_FLUENT = True
+except ImportError:
+    MessageBox = None
+    InfoBar = None
+    _HAS_FLUENT = False
 
 from config import APP_VERSION  # build_info moved to config/__init__.py
 from config.urls import INFO_URL, ANDROID_URL
@@ -14,73 +25,58 @@ from .about_dialog import AboutDialog
 from utils import run_hidden
 from log import log, global_logger
 
-class LogReportDialog(QDialog):
-    """Диалог для ввода описания проблемы и контактов при отправке лога"""
-    
+
+class LogReportDialog(MessageBoxBase):
+    """WinUI диалог для ввода описания проблемы и контактов при отправке лога"""
+
     def __init__(self, parent=None):
+        if parent and not parent.isWindow():
+            parent = parent.window()
         super().__init__(parent)
-        self.setWindowTitle("Отправка лога в техподдержку")
-        self.setModal(True)
-        self.setMinimumWidth(500)
-        
-        # Основной layout
-        layout = QVBoxLayout()
-        
-        # Заголовок
-        header_label = QLabel(
-            "<h3>Отправка лога файла</h3>"
-            "<p>Опишите проблему и оставьте контакты для обратной связи (необязательно):</p>"
+
+        # --- Заголовок ---
+        self.titleLabel = SubtitleLabel("Отправка лога в техподдержку", self.widget)
+        self.descLabel = BodyLabel(
+            "Опишите проблему и оставьте контакты для обратной связи (необязательно):",
+            self.widget,
         )
-        header_label.setWordWrap(True)
-        layout.addWidget(header_label)
-        
-        # Поле для описания проблемы
-        problem_label = QLabel("Описание проблемы:")
-        layout.addWidget(problem_label)
-        
-        self.problem_text = QTextEdit()
+        self.descLabel.setWordWrap(True)
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.descLabel)
+
+        # --- Описание проблемы ---
+        self.viewLayout.addWidget(CaptionLabel("Описание проблемы:", self.widget))
+        self.problem_text = TextEdit(self.widget)
         self.problem_text.setPlaceholderText(
             "Опишите, что не работает или какая ошибка возникает.\n"
             "Например: Discord не открывается, показывает белый экран..."
         )
-        self.problem_text.setMaximumHeight(150)
-        layout.addWidget(self.problem_text)
-        
-        # Поле для Telegram контакта
-        tg_label = QLabel("Telegram для связи (необязательно):")
-        layout.addWidget(tg_label)
-        
-        self.tg_contact = QLineEdit()
+        self.problem_text.setMaximumHeight(130)
+        self.viewLayout.addWidget(self.problem_text)
+
+        # --- Telegram контакт ---
+        self.viewLayout.addWidget(CaptionLabel("Telegram для связи (необязательно):", self.widget))
+        self.tg_contact = LineEdit(self.widget)
         self.tg_contact.setPlaceholderText("@username или ссылка на профиль")
-        layout.addWidget(self.tg_contact)
-        
-        # Информация
-        info_label = QLabel(
-            "<p style='color: gray; font-size: 10pt;'>"
-            "💡 Ваши данные будут отправлены только в канал техподдержки<br>"
-            "📋 Лог файл поможет разработчикам найти и исправить проблему"
-            "</p>"
+        self.viewLayout.addWidget(self.tg_contact)
+
+        # --- Инфо ---
+        info = CaptionLabel(
+            "Ваши данные будут отправлены только в канал техподдержки. "
+            "Лог файл поможет разработчикам найти и исправить проблему.",
+            self.widget,
         )
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-        
-        # Кнопки
-        button_box = QDialogButtonBox()
-        
-        send_button = button_box.addButton("Отправить", QDialogButtonBox.ButtonRole.AcceptRole)
-        send_button.setDefault(True)
-        
-        cancel_button = button_box.addButton("Отмена", QDialogButtonBox.ButtonRole.RejectRole)
-        
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        
-        layout.addWidget(button_box)
-        
-        self.setLayout(layout)
-    
+        info.setWordWrap(True)
+        self.viewLayout.addWidget(info)
+
+        # --- Кнопки ---
+        self.yesButton.setText("Отправить")
+        self.cancelButton.setText("Отмена")
+
+        self.widget.setMinimumWidth(500)
+
     def get_report_data(self):
-        """Возвращает введенные данные"""
+        """Возвращает введённые данные"""
         return {
             'problem': self.problem_text.toPlainText().strip(),
             'telegram': self.tg_contact.text().strip()
@@ -169,7 +165,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             err = f"Ошибка при открытии инструкции для Android: {e}"
             self._set_status(err)
-            QMessageBox.warning(self._pw, "Ошибка", err)
+            InfoBar.warning(title="Ошибка", content=err, parent=self._pw)
 
     def create_premium_menu(self):
         """Создает меню Premium функций"""
@@ -208,7 +204,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             err = f"Ошибка при открытии руководства: {e}"
             self._set_status(err)
-            QMessageBox.warning(self._pw, "Ошибка", err)
+            InfoBar.warning(title="Ошибка", content=err, parent=self._pw)
 
     def open_support(self):
         try:
@@ -218,7 +214,7 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             err = f"Ошибка при открытии поддержки: {e}"
             self._set_status(err)
-            QMessageBox.warning(self._pw, "Ошибка", err)
+            InfoBar.warning(title="Ошибка", content=err, parent=self._pw)
 
     def show_logs(self):
         """
@@ -245,10 +241,7 @@ class AppMenuBar(QMenuBar):
             subprocess.run(['explorer', LOGS_FOLDER], check=False)
 
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self._pw or self,
-                                "Ошибка",
-                                f"Не удалось открыть логи:\n{e}")
+            InfoBar.error(title="Ошибка", content=f"Не удалось открыть логи: {e}", parent=self._pw or self)
 
     def send_log_to_tg_with_report(self):
         """Показывает диалог для описания проблемы, затем отправляет лог"""
@@ -261,9 +254,7 @@ class AppMenuBar(QMenuBar):
         
         if now - last < interval:
             remaining = int((interval - (now - last)) // 60) + 1
-            QMessageBox.information(self._pw, "Отправка логов",
-                f"Лог отправлялся недавно.\n"
-                f"Следующая отправка возможна через {remaining} мин.")
+            InfoBar.info(title="Отправка логов", content=f"Лог отправлялся недавно. Следующая отправка возможна через {remaining} мин.", parent=self._pw, duration=4000)
             return
 
         # Проверяем доступность бота/Telegram API и показываем реальную причину
@@ -274,21 +265,14 @@ class AppMenuBar(QMenuBar):
             details = (bot_error or "Неизвестная ошибка").strip()
             if len(details) > 250:
                 details = details[:250] + "…"
-            msg_box = QMessageBox(self._pw)
-            msg_box.setWindowTitle("Панель не настроена" if bot_kind == "config" else "Панель недоступна")
-            msg_box.setIcon(QMessageBox.Icon.Warning)
             hint = (
                 "Проверьте настройки бота или обратитесь к разработчику."
                 if bot_kind == "config"
-                else "Если доступ к панели заблокирован — включите VPN/DPI bypass и повторите.\n"
+                else "Если доступ к панели заблокирован — включите VPN/DPI bypass и повторите. "
                      "Если ошибка повторяется — обратитесь к разработчику."
             )
-            msg_box.setText(
-                "Не удалось подключиться к панели поддержки для отправки логов.\n\n"
-                f"Причина: {details}\n\n"
-                f"{hint}"
-            )
-            msg_box.exec()
+            _title = "Панель не настроена" if bot_kind == "config" else "Панель недоступна"
+            InfoBar.warning(title=_title, content=f"Не удалось подключиться к панели поддержки для отправки логов. Причина: {details} {hint}", parent=self._pw, duration=6000)
             return
 
         # Показываем диалог для ввода описания проблемы
@@ -311,7 +295,7 @@ class AppMenuBar(QMenuBar):
         LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
         
         if not LOG_PATH or not os.path.exists(LOG_PATH):
-            QMessageBox.warning(self._pw, "Ошибка", "Файл лога не найден")
+            InfoBar.warning(title="Ошибка", content="Файл лога не найден", parent=self._pw)
             return
         
         # Формируем подпись с информацией о файле и проблеме
@@ -348,19 +332,11 @@ class AppMenuBar(QMenuBar):
         except Exception as e:
             if action:
                 action.setEnabled(True)
-            QMessageBox.warning(wnd, "Авторизация",
-                "Не удалось запросить код авторизации у ZapretHub.\n\n"
-                f"Причина: {e}")
+            InfoBar.warning(title="Авторизация", content=f"Не удалось запросить код авторизации у ZapretHub. Причина: {e}", parent=wnd)
             return
 
         bot_line = f"@{bot_username}" if bot_username else "бот поддержки"
-        QMessageBox.information(wnd, "Авторизация поддержки",
-            "Для отправки лога нужно подтвердить код в Telegram.\n\n"
-            f"1) Откройте {bot_line}\n"
-            f"2) Отправьте ему код: {code}\n"
-            "3) Вернитесь сюда — отправка продолжится автоматически.\n\n"
-            f"Ссылка: {bot_link}"
-        )
+        InfoBar.info(title="Авторизация поддержки", content=f"Откройте {bot_line} и подтвердите код для отправки лога.", parent=wnd, duration=8000)
 
         if hasattr(wnd, "set_status"):
             wnd.set_status("Ожидание подтверждения кода...")
@@ -385,14 +361,9 @@ class AppMenuBar(QMenuBar):
                         wnd.set_status("Лог отправлен")
                 else:
                     if extra_wait > 0:
-                        QMessageBox.warning(wnd, "Слишком часто",
-                            f"Слишком частые запросы.\n"
-                            f"Повторите через {int(extra_wait/60)} минут.")
+                        InfoBar.warning(title="Слишком часто", content=f"Слишком частые запросы. Повторите через {int(extra_wait/60)} минут.", parent=wnd)
                     else:
-                        QMessageBox.warning(wnd, "Ошибка",
-                            f"Не удалось отправить лог.\n\n"
-                            f"Причина: {error_msg or 'Неизвестная ошибка'}\n\n"
-                            f"Попробуйте позже или обратитесь в поддержку.")
+                        InfoBar.warning(title="Ошибка", content=f"Не удалось отправить лог. Причина: {error_msg or 'Неизвестная ошибка'} Попробуйте позже или обратитесь в поддержку.", parent=wnd)
 
                     if hasattr(wnd, "set_status"):
                         wnd.set_status("Ошибка отправки лога")
@@ -411,9 +382,7 @@ class AppMenuBar(QMenuBar):
             if not auth_ok:
                 if hasattr(wnd, "set_status"):
                     wnd.set_status("Авторизация не удалась")
-                QMessageBox.warning(wnd, "Авторизация",
-                    "Не удалось подтвердить код.\n\n"
-                    f"Причина: {err_msg or 'Неизвестная ошибка'}")
+                InfoBar.warning(title="Авторизация", content=f"Не удалось подтвердить код. Причина: {err_msg or 'Неизвестная ошибка'}", parent=wnd)
                 if action:
                     action.setEnabled(True)
                 return

@@ -11,20 +11,25 @@ from PyQt6.QtCore import (
     QPropertyAnimation,
 )
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QGridLayout, QSizePolicy, QProgressBar, QGraphicsOpacityEffect
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame, QGridLayout, QGraphicsOpacityEffect
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.compat_widgets import SettingsCard, StatusIndicator, ActionButton
+from ui.compat_widgets import SettingsCard, StatusIndicator, ActionButton, set_tooltip
 from log import log
 
 try:
-    from qfluentwidgets import CardWidget, isDarkTheme, themeColor
+    from qfluentwidgets import (
+        CardWidget, isDarkTheme, themeColor,
+        SubtitleLabel, BodyLabel, StrongBodyLabel, CaptionLabel,
+        IndeterminateProgressBar,
+    )
     HAS_FLUENT = True
 except ImportError:
+    from PyQt6.QtWidgets import QProgressBar as IndeterminateProgressBar  # type: ignore[assignment]
     HAS_FLUENT = False
     CardWidget = QFrame
 
@@ -48,39 +53,6 @@ class AutostartCheckWorker(QThread):
             return AutostartRegistryChecker.is_autostart_enabled()
         except Exception:
             return False
-
-
-def _build_progress_style() -> str:
-    """Indeterminate progress bar style."""
-    accent = "#60cdff"
-    bg = "rgba(255,255,255,0.06)"
-    if HAS_FLUENT:
-        try:
-            c = themeColor()
-            accent = c.name()
-            bg = "rgba(255,255,255,0.04)" if isDarkTheme() else "rgba(0,0,0,0.04)"
-        except Exception:
-            pass
-    return f"""
-    QProgressBar {{
-        background-color: {bg};
-        border: none;
-        border-radius: 2px;
-        height: 4px;
-        text-align: center;
-    }}
-    QProgressBar::chunk {{
-        background: qlineargradient(
-            x1:0, y1:0, x2:1, y2:0,
-            stop:0 transparent,
-            stop:0.3 {accent},
-            stop:0.5 {accent},
-            stop:0.7 {accent},
-            stop:1 transparent
-        );
-        border-radius: 2px;
-    }}
-    """
 
 
 def _accent_hex() -> str:
@@ -124,21 +96,30 @@ class StatusCard(CardWidget if HAS_FLUENT else QFrame):
         self.icon_label.setFixedSize(32, 32)
         top_layout.addWidget(self.icon_label)
 
-        title_label = QLabel(title)
-        title_label.setStyleSheet("QLabel { font-size: 12px; font-weight: 500; }")
+        if HAS_FLUENT:
+            title_label = CaptionLabel(title)
+        else:
+            title_label = QLabel(title)
+            title_label.setStyleSheet("font-size: 12px; font-weight: 500;")
         top_layout.addWidget(title_label)
         top_layout.addStretch()
 
         layout.addLayout(top_layout)
 
         # Value (large text)
-        self.value_label = QLabel("\u2014")
-        self.value_label.setStyleSheet("QLabel { font-size: 18px; font-weight: 600; }")
+        if HAS_FLUENT:
+            self.value_label = SubtitleLabel("\u2014")
+        else:
+            self.value_label = QLabel("\u2014")
+            self.value_label.setStyleSheet("font-size: 18px; font-weight: 600;")
         layout.addWidget(self.value_label)
 
         # Additional info
-        self.info_label = QLabel("")
-        self.info_label.setStyleSheet("QLabel { font-size: 11px; }")
+        if HAS_FLUENT:
+            self.info_label = CaptionLabel("")
+        else:
+            self.info_label = QLabel("")
+            self.info_label.setStyleSheet("font-size: 11px;")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
 
@@ -207,7 +188,7 @@ class StatusCard(CardWidget if HAS_FLUENT else QFrame):
                     pixmap = qta.icon('fa5s.globe', color=_accent_hex()).pixmap(20, 20)
                     icon_label.setPixmap(pixmap)
                 icon_label.setFixedSize(22, 22)
-                icon_label.setToolTip(icon_name.split('.')[-1].replace('-', ' ').title())
+                set_tooltip(icon_label, icon_name.split('.')[-1].replace('-', ' ').title())
                 self.icons_layout.addWidget(icon_label)
         
         # Если слишком много - показываем +N
@@ -222,18 +203,23 @@ class StatusCard(CardWidget if HAS_FLUENT else QFrame):
                     w.deleteLater()
             
             extra_label = QLabel(f"+{active_count - 9}")
-            extra_label.setStyleSheet(
-                """
-                QLabel {
+            try:
+                from qfluentwidgets import isDarkTheme as _idt
+                _dark = _idt()
+            except Exception:
+                _dark = True
+            _extra_bg = "rgba(255,255,255,0.06)" if _dark else "rgba(0,0,0,0.06)"
+            _extra_border = "rgba(255,255,255,0.08)" if _dark else "rgba(0,0,0,0.10)"
+            extra_label.setStyleSheet(f"""
+                QLabel {{
                     font-size: 11px;
                     font-weight: 600;
                     padding: 2px 6px;
-                    background: rgba(255,255,255,0.06);
-                    border: 1px solid rgba(255,255,255,0.08);
+                    background: {_extra_bg};
+                    border: 1px solid {_extra_border};
                     border-radius: 8px;
-                }
-                """
-            )
+                }}
+            """)
             self.icons_layout.addWidget(extra_label)
         
         self.icons_layout.addStretch()
@@ -248,14 +234,12 @@ class StatusCard(CardWidget if HAS_FLUENT else QFrame):
             'neutral': _accent_hex(),
         }
         color = colors.get(status, colors['neutral'])
-        # Для простоты меняем только цвет value_label
-        self.value_label.setStyleSheet(f"""
-            QLabel {{
-                color: {color};
-                font-size: 18px;
-                font-weight: 600;
-            }}
-        """)
+        # Применяем цвет к value_label: через Fluent API когда доступен,
+        # иначе через raw setStyleSheet для QLabel-fallback.
+        if HAS_FLUENT:
+            self.value_label.setTextColor(QColor(color), QColor(color))
+        else:
+            self.value_label.setStyleSheet(f"color: {color};")
 
     def mousePressEvent(self, event):  # type: ignore[override]
         """Обработка клика по карточке"""
@@ -272,6 +256,7 @@ class HomePage(BasePage):
     navigate_to_strategies = pyqtSignal()
     navigate_to_autostart = pyqtSignal()
     navigate_to_premium = pyqtSignal()
+    navigate_to_dpi_settings = pyqtSignal()
 
     _LAUNCH_METHOD_LABELS = {
         "direct_zapret2": "Zapret 2",
@@ -292,17 +277,6 @@ class HomePage(BasePage):
         self._build_ui()
         self._connect_card_signals()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if hasattr(self, "progress_bar") and self.progress_bar is not None:
-                    self.progress_bar.setStyleSheet(_build_progress_style())
-        except Exception:
-            pass
-        super().changeEvent(event)
-    
     def showEvent(self, event):  # type: ignore[override]
         """При показе страницы обновляем статус автозапуска"""
         super().showEvent(event)
@@ -421,12 +395,7 @@ class HomePage(BasePage):
         self.add_widget(self.status_card)
         
         # Индикатор загрузки (бегающая полоска)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(_build_progress_style())
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(0)  # Indeterminate mode
+        self.progress_bar = IndeterminateProgressBar(self)
         self.progress_bar.setVisible(False)
         self.add_widget(self.progress_bar)
 
@@ -549,7 +518,7 @@ class HomePage(BasePage):
     def _connect_card_signals(self):
         """Подключает клики по карточкам к сигналам навигации"""
         self.dpi_status_card.clicked.connect(self.navigate_to_control.emit)
-        self.strategy_card.clicked.connect(self.navigate_to_strategies.emit)
+        self.strategy_card.clicked.connect(self.navigate_to_dpi_settings.emit)
         self.autostart_card.clicked.connect(self.navigate_to_autostart.emit)
         self.subscription_card.clicked.connect(self.navigate_to_premium.emit)
         
@@ -635,7 +604,12 @@ class HomePage(BasePage):
     def set_loading(self, loading: bool, text: str = ""):
         """Показывает/скрывает индикатор загрузки и блокирует кнопки"""
         self.progress_bar.setVisible(loading)
-        
+        if HAS_FLUENT:
+            if loading:
+                self.progress_bar.start()
+            else:
+                self.progress_bar.stop()
+
         # Блокируем/разблокируем кнопки
         self.start_btn.setEnabled(not loading)
         self.stop_btn.setEnabled(not loading)
@@ -661,20 +635,18 @@ class HomePage(BasePage):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(4)
         
-        title = QLabel("Zapret Premium")
-        try:
-            title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        title.setStyleSheet("font-size: 14px; font-weight: 600;")
+        if HAS_FLUENT:
+            title = StrongBodyLabel("Zapret Premium")
+        else:
+            title = QLabel("Zapret Premium")
+            title.setStyleSheet("font-size: 14px; font-weight: 600;")
         text_layout.addWidget(title)
-        
-        desc = QLabel("Дополнительные темы, приоритетная поддержка и VPN-сервис")
-        try:
-            desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        desc.setStyleSheet("font-size: 12px;")
+
+        if HAS_FLUENT:
+            desc = CaptionLabel("Дополнительные темы, приоритетная поддержка и VPN-сервис")
+        else:
+            desc = QLabel("Дополнительные темы, приоритетная поддержка и VPN-сервис")
+            desc.setStyleSheet("font-size: 12px;")
         desc.setWordWrap(True)
         text_layout.addWidget(desc)
         

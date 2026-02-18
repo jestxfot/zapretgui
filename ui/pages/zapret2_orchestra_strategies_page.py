@@ -7,7 +7,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QFileSystemWatcher, QThread
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QFrame, QScrollArea, QPushButton,
-                             QSizePolicy, QMessageBox, QApplication,
+                             QSizePolicy, QApplication,
                              QButtonGroup, QStackedWidget, QPlainTextEdit)
 from PyQt6.QtGui import QFont, QTextOption, QPainter, QColor, QPen
 import qtawesome as qta
@@ -16,9 +16,19 @@ import math
 
 from typing import List
 
+try:
+    from qfluentwidgets import InfoBar, TitleLabel, BodyLabel, CaptionLabel
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    InfoBar = None
+    TitleLabel = QLabel  # type: ignore[assignment,misc]
+    BodyLabel = QLabel  # type: ignore[assignment,misc]
+    CaptionLabel = QLabel  # type: ignore[assignment,misc]
+    _HAS_FLUENT_LABELS = False
+
 from .base_page import BasePage, ScrollBlockingTextEdit
 from .strategies_page_base import StrategiesPageBase, ScrollBlockingScrollArea, Win11Spinner, StatusIndicator, ResetActionButton
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton, set_tooltip
 from ui.widgets import StrategySearchBar
 from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
 from strategy_menu.strategy_info import StrategyInfo
@@ -75,11 +85,11 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self.main_layout.setSpacing(12)
 
         # Заголовок страницы (фиксированный, не прокручивается)
-        self.title_label = QLabel("Сменить стратегию для обхода блокировок (Zapret 2)")
+        self.title_label = TitleLabel("Сменить стратегию для обхода блокировок (Zapret 2)")
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
-        self.subtitle_label = QLabel("Здесь для каждой категории Вы можете выбрать свою стратегию для обхода блокировок. Существует несколько фаз (фейки, мультинарезка, нарезка в обратном порядке и т.д.), которые можно совмещать друг с другом. Дополнительные настройки (отправка syn пакета с фейковыми данными черед SYN-ACK + send настройка количества отправка этих пакетов) настраивается сверху дополнительно. Эти опции можно включать и выключать и комбинировать как угодно. Порядок фуллинга (дурилок) важен, но он определяется автоматически программой.")
+        self.subtitle_label = BodyLabel("Здесь для каждой категории Вы можете выбрать свою стратегию для обхода блокировок. Существует несколько фаз (фейки, мультинарезка, нарезка в обратном порядке и т.д.), которые можно совмещать друг с другом. Дополнительные настройки (отправка syn пакета с фейковыми данными черед SYN-ACK + send настройка количества отправка этих пакетов) настраивается сверху дополнительно. Эти опции можно включать и выключать и комбинировать как угодно. Порядок фуллинга (дурилок) важен, но он определяется автоматически программой.")
         self.subtitle_label.setWordWrap(True)
         self.main_layout.addWidget(self.subtitle_label)
 
@@ -92,17 +102,17 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self.status_indicator = StatusIndicator()
         current_layout.addWidget(self.status_indicator)
         
-        current_prefix = QLabel("Текущая:")
+        current_prefix = BodyLabel("Текущая:")
         self._current_prefix_label = current_prefix
         current_layout.addWidget(current_prefix)
-        
+
         # Контейнер для иконок активных стратегий
         self.current_strategy_container = QWidget()
         self.current_strategy_container.setStyleSheet("background: transparent;")
         self.current_icons_layout = QHBoxLayout(self.current_strategy_container)
         self.current_icons_layout.setContentsMargins(0, 0, 0, 0)
         self.current_icons_layout.setSpacing(4)
-        
+
         # Включаем отслеживание мыши для красивого тултипа
         self.current_strategy_container.setMouseTracking(True)
         self.current_strategy_container.installEventFilter(self)
@@ -110,9 +120,9 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         self._tooltip_strategies_data = []
         current_layout.addWidget(self.current_strategy_container)
         # current_widget будет вставлен в content_layout при загрузке контента
-        
+
         # Текстовый лейбл (для fallback и BAT режима)
-        self.current_strategy_label = QLabel("Не выбрана")
+        self.current_strategy_label = BodyLabel("Не выбрана")
         current_layout.addWidget(self.current_strategy_label)
         
         current_layout.addStretch()
@@ -135,7 +145,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         # current_widget не добавляется сюда, будет вставлен в content_layout
 
         # Прокручиваемая область для всего контента
-        self.scroll_area = QScrollArea()
+        self.scroll_area = ScrollBlockingScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -177,14 +187,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
 
         if not self._initialized:
             self._initialized = True
-            # Загружаем контент сразу, без задержки
             QTimer.singleShot(0, self._load_content)
-            # После загрузки синхронизируем с StrategySortPage
-            QTimer.singleShot(100, self._sync_filters_from_sort_page)
-        else:
-            # Страница уже инициализирована - просто синхронизируем фильтры
-            self._sync_filters_from_sort_page()
-            
+
     def _clear_content(self):
         """Очищает контент"""
         # Используем базовую реализацию (в ней также есть защита от падения Qt
@@ -249,9 +253,9 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(8)
             
-            reload_btn = ActionButton("Обновить", "fa5s.sync-alt")
-            reload_btn.clicked.connect(self._reload_strategies)
-            actions_layout.addWidget(reload_btn)
+            self._reload_btn = RefreshButton()
+            self._reload_btn.clicked.connect(self._reload_strategies)
+            actions_layout.addWidget(self._reload_btn)
             
             folder_btn = ActionButton("Папка", "fa5s.folder-open")
             folder_btn.clicked.connect(self._open_folder)
@@ -526,7 +530,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             }}
             """
         )
-        copy_btn.setToolTip("Копировать команду")
+        set_tooltip(copy_btn, "Копировать команду")
         copy_btn.clicked.connect(self._copy_cmd_to_clipboard)
         header_layout.addWidget(copy_btn)
 
@@ -1149,12 +1153,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             tokens = get_theme_tokens()
-            scroll.setStyleSheet(
-                "QScrollArea{background:transparent;border:none}"
-                f"QScrollBar:vertical{{background:{tokens.scrollbar_track};width:6px}}"
-                f"QScrollBar::handle:vertical{{background:{tokens.scrollbar_handle};border-radius:3px}}"
-                f"QScrollBar::handle:vertical:hover{{background:{tokens.scrollbar_handle_hover}}}"
-            )
+            scroll.setStyleSheet("QScrollArea{background:transparent;border:none}")
 
             content = QWidget()
             content.setStyleSheet("background:transparent")
@@ -1533,6 +1532,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             
     def _reload_strategies(self):
         """Перезагружает стратегии (direct режим)"""
+        if hasattr(self, '_reload_btn'):
+            self._reload_btn.set_loading(True)
         try:
             from strategy_menu.strategies_registry import registry
 
@@ -1556,11 +1557,15 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.content_layout.addWidget(self.loading_label)
 
-            # Загружаем сразу
+            # Загружаем сразу (_load_content показывает свой индикатор загрузки)
+            if hasattr(self, '_reload_btn'):
+                self._reload_btn.set_loading(False)
             QTimer.singleShot(0, self._load_content)
 
         except Exception as e:
             log(f"Ошибка перезагрузки: {e}", "ERROR")
+            if hasattr(self, '_reload_btn'):
+                self._reload_btn.set_loading(False)
             
     def _open_folder(self):
         """Открывает папку стратегий"""
@@ -1663,11 +1668,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                 selections = getattr(self, 'category_selections', {})
                 if not self._has_any_active_strategy(selections):
                     log("⚠️ Нет активных стратегий - перезапуск невозможен", "WARNING")
-                    QMessageBox.warning(
-                        self,
-                        "Нет стратегий",
-                        "Выберите хотя бы одну стратегию для запуска."
-                    )
+                    if InfoBar:
+                        InfoBar.warning(title="Нет стратегий", content="Выберите хотя бы одну стратегию для запуска.", parent=self.window())
                     return
             
             # Запускаем анимацию вращения иконки
@@ -1792,7 +1794,8 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             
         except Exception as e:
             log(f"Ошибка применения: {e}", "ERROR")
-            QMessageBox.critical(self.window(), "Ошибка", f"Не удалось применить стратегию:\n{e}")
+            if InfoBar:
+                InfoBar.error(title="Ошибка", content=f"Не удалось применить стратегию:\n{e}", parent=self.window())
         
     def _update_current_strategies_display(self):
         """Обновляет отображение списка активных стратегий с Font Awesome иконками"""
@@ -1801,7 +1804,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             from strategy_menu.strategies_registry import registry
 
             if get_strategy_launch_method() not in ("direct_zapret2", "direct_zapret2_orchestra"):
-                self.current_strategy_label.setToolTip("")
+                set_tooltip(self.current_strategy_label, "")
                 self.current_strategy_label.show()
                 self.current_strategy_container.hide()
                 self._has_hidden_strategies = False
@@ -1853,7 +1856,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                         pixmap = qta.icon('fa5s.globe', color=get_theme_tokens().accent_hex).pixmap(16, 16)
                         icon_label.setPixmap(pixmap)
                     icon_label.setFixedSize(18, 18)
-                    icon_label.setToolTip(f"{strat_name}")
+                    set_tooltip(icon_label, f"{strat_name}")
                     self.current_icons_layout.addWidget(icon_label)
 
                 self._has_hidden_strategies = len(icons_data) > 3  # Тултип если > 3
@@ -1863,7 +1866,7 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
                 self.current_strategy_container.hide()
                 self.current_strategy_label.show()
                 self.current_strategy_label.setText("Не выбрана")
-                self.current_strategy_label.setToolTip("")
+                set_tooltip(self.current_strategy_label, "")
                 self._has_hidden_strategies = False
                 
         except Exception as e:
@@ -1961,13 +1964,12 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
         
         # Показываем уведомление пользователю
         try:
-            QMessageBox.warning(
-                self,
-                "Долгий запуск",
-                "Процесс запускается дольше обычного.\n\n"
-                "Проверьте логи и статус процесса.\n"
-                "Возможно потребуется перезапуск."
-            )
+            if InfoBar:
+                InfoBar.warning(
+                    title="Долгий запуск",
+                    content="Процесс запускается дольше обычного.\n\nПроверьте логи и статус процесса.\nВозможно потребуется перезапуск.",
+                    parent=self.window(),
+                )
         except:
             pass
     
@@ -2460,32 +2462,6 @@ class Zapret2OrchestraStrategiesPage(StrategiesPageBase):
             query = SearchQuery()
 
         self._apply_bat_filter_with_query(query)
-
-    def _sync_filters_from_sort_page(self):
-        """Синхронизирует фильтры с StrategySortPage при показе страницы"""
-        try:
-            # Получаем ссылку на главное окно
-            parent = self.parent()
-            while parent and not hasattr(parent, 'strategy_sort_page'):
-                parent = parent.parent()
-
-            if parent and hasattr(parent, 'strategy_sort_page'):
-                sort_page = parent.strategy_sort_page
-
-                # Получаем текущие фильтры
-                query = sort_page.get_query()
-                sort_key, reverse = sort_page.get_sort_key()
-
-                # Сохраняем и применяем
-                self._external_query = query
-                self._external_sort_key = sort_key
-                self._external_sort_reverse = reverse
-
-                # Асинхронно применяем
-                QTimer.singleShot(50, self._apply_external_filters_async)
-
-        except Exception as e:
-            log(f"Ошибка синхронизации фильтров: {e}", "DEBUG")
 
     def closeEvent(self, event):
         """Очистка ресурсов при закрытии"""

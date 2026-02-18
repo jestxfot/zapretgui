@@ -16,8 +16,13 @@ from config import MAIN_DIRECTORY
 from config.config import ZAPRET2_MODES, ZAPRET1_DIRECT_MODES
 from strategy_menu import get_strategy_launch_method
 from ui.theme import get_theme_tokens
-from ui.sidebar import ActionButton
+from ui.compat_widgets import ActionButton
 from log import log
+
+try:
+    from qfluentwidgets import CaptionLabel
+except ImportError:
+    CaptionLabel = QLabel
 from utils.process_status import format_expected_process_status
 
 
@@ -145,14 +150,9 @@ class PresetConfigPage(BasePage):
         self.layout.addWidget(self.editor, 1)
 
         # Статус-бар
-        self.status_label = QLabel()
-        self.status_label.setStyleSheet(f"""
-            QLabel {{
-                color: {tokens.fg_faint};
-                font-size: 11px;
-                padding-top: 8px;
-            }}
-        """)
+        self.status_label = CaptionLabel()
+        self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; padding-top: 8px;")
+        self.status_label.setFont(QFont("Segoe UI Variable", 8))
         self.layout.addWidget(self.status_label)
 
     def _setup_shortcuts(self):

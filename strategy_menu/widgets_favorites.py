@@ -3,6 +3,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QPoint
 
 from .widgets import CompactStrategyItem
 from ui.theme import get_theme_tokens
+from ui.compat_widgets import set_tooltip
 
 
 def _style_selected(tokens) -> str:
@@ -180,11 +181,11 @@ class FavoriteCompactStrategyItem(CompactStrategyItem):
         tokens = get_theme_tokens()
         if self.is_favorite:
             self.favorite_btn.setText("★")
-            self.favorite_btn.setToolTip("Убрать из избранных")
+            set_tooltip(self.favorite_btn, "Убрать из избранных")
             new_style = _FAV_BTN_STYLE_ACTIVE
         else:
             self.favorite_btn.setText("☆")
-            self.favorite_btn.setToolTip("Добавить в избранные")
+            set_tooltip(self.favorite_btn, "Добавить в избранные")
             new_style = _fav_btn_style_inactive(tokens)
 
         # Применяем только если стиль изменился

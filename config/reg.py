@@ -261,21 +261,6 @@ def set_snowflakes_enabled(enabled: bool) -> bool:
     return reg(REGISTRY_PATH, _SNOWFLAKES_NAME, 1 if enabled else 0)
 
 
-# ───────────── Эффект размытия (Acrylic/Mica) ─────────────
-_BLUR_EFFECT_NAME = "BlurEffectEnabled"  # REG_DWORD (1/0)
-
-def get_blur_effect_enabled() -> bool:
-    """True – включён эффект размытия окна, False – выключен."""
-    from config import REGISTRY_PATH
-    val = reg(REGISTRY_PATH, _BLUR_EFFECT_NAME)
-    return bool(val) if val is not None else False  # По умолчанию выключено
-
-def set_blur_effect_enabled(enabled: bool) -> bool:
-    """Включает/выключает эффект размытия окна."""
-    from config import REGISTRY_PATH
-    return reg(REGISTRY_PATH, _BLUR_EFFECT_NAME, 1 if enabled else 0)
-
-
 # ───────────── Уведомление о сворачивании в трей ─────────────
 _TRAY_HINT_SHOWN_NAME = "TrayHintShown"  # REG_DWORD (1/0)
 
@@ -309,6 +294,115 @@ def set_window_opacity(opacity: int) -> bool:
     # Ограничиваем значение диапазоном 0-100
     opacity = max(0, min(100, int(opacity)))
     return reg(REGISTRY_PATH, _WINDOW_OPACITY_NAME, opacity)
+
+
+# ───────────── Акцентный цвет (qfluentwidgets) ─────────────
+_ACCENT_COLOR_NAME = "AccentColor"  # REG_SZ (hex, e.g. "#0078d4")
+
+def get_accent_color() -> str | None:
+    """Возвращает сохранённый акцентный цвет (hex) или None если не задан."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _ACCENT_COLOR_NAME)
+
+def set_accent_color(hex_color: str) -> bool:
+    """Сохраняет акцентный цвет (hex string, e.g. '#0078d4')."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _ACCENT_COLOR_NAME, str(hex_color))
+
+
+# ───────────── Системный акцент Windows ─────────────
+
+def get_windows_system_accent() -> str | None:
+    """Read Windows system accent color from registry (ABGR format in AccentColorMenu)."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent",
+            0, winreg.KEY_READ) as k:
+            value, _ = winreg.QueryValueEx(k, "AccentColorMenu")
+            # AccentColorMenu is DWORD in ABGR order: R=bits7-0, G=bits15-8, B=bits23-16
+            r = value & 0xFF
+            g = (value >> 8) & 0xFF
+            b = (value >> 16) & 0xFF
+            return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        return None
+
+
+# ───────────── Follow Windows Accent ─────────────
+_FOLLOW_WINDOWS_ACCENT_NAME = "FollowWindowsAccent"
+
+def get_follow_windows_accent() -> bool:
+    from config import REGISTRY_PATH
+    return bool(reg(REGISTRY_PATH, _FOLLOW_WINDOWS_ACCENT_NAME) or 0)
+
+def set_follow_windows_accent(value: bool) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _FOLLOW_WINDOWS_ACCENT_NAME, int(value))
+
+
+# ───────────── Tinted Background ─────────────
+_TINTED_BG_NAME = "TintedBackground"
+
+def get_tinted_background() -> bool:
+    from config import REGISTRY_PATH
+    return bool(reg(REGISTRY_PATH, _TINTED_BG_NAME) or 0)
+
+def set_tinted_background(value: bool) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TINTED_BG_NAME, int(value))
+
+
+_TINTED_BG_INTENSITY_NAME = "TintedBackgroundIntensity"
+_TINTED_BG_INTENSITY_DEFAULT = 15  # 0-30
+
+def get_tinted_background_intensity() -> int:
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TINTED_BG_INTENSITY_NAME)
+    if val is None:
+        return _TINTED_BG_INTENSITY_DEFAULT
+    return max(0, min(30, int(val)))
+
+def set_tinted_background_intensity(value: int) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TINTED_BG_INTENSITY_NAME, max(0, min(30, int(value))))
+
+
+# ───────────── Режим отображения (тёмный/светлый/авто) ─────────────
+_DISPLAY_MODE_NAME = "DisplayMode"  # REG_SZ: "dark" | "light" | "system"
+
+def get_display_mode() -> str:
+    """Возвращает режим отображения: 'dark', 'light' или 'system'. По умолчанию 'dark'."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _DISPLAY_MODE_NAME)
+    if val in ("dark", "light", "system"):
+        return val
+    return "dark"
+
+def set_display_mode(mode: str) -> bool:
+    """Сохраняет режим отображения ('dark', 'light' или 'system')."""
+    from config import REGISTRY_PATH
+    if mode not in ("dark", "light", "system"):
+        mode = "dark"
+    return reg(REGISTRY_PATH, _DISPLAY_MODE_NAME, mode)
+
+
+# ───────────── Фоновый пресет ─────────────
+_BACKGROUND_PRESET_NAME = "BackgroundPreset"  # REG_SZ: "standard" | "amoled" | "rkn_chan"
+
+def get_background_preset() -> str:
+    """Возвращает фоновый пресет: 'standard', 'amoled' или 'rkn_chan'. По умолчанию 'standard'."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _BACKGROUND_PRESET_NAME)
+    if val in ("standard", "amoled", "rkn_chan"):
+        return val
+    return "standard"
+
+def set_background_preset(preset: str) -> bool:
+    """Сохраняет фоновый пресет ('standard', 'amoled' или 'rkn_chan')."""
+    from config import REGISTRY_PATH
+    if preset not in ("standard", "amoled", "rkn_chan"):
+        preset = "standard"
+    return reg(REGISTRY_PATH, _BACKGROUND_PRESET_NAME, preset)
 
 
 # ───────────── Registry Subkey Helpers ─────────────

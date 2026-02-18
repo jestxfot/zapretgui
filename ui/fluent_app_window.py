@@ -9,8 +9,8 @@ from qfluentwidgets import (
     setTheme, Theme, setThemeColor, NavigationAvatarWidget,
 )
 from qfluentwidgets import NavigationWidget
-from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt6.QtCore import Qt
 
 from config import APP_VERSION, ICON_PATH, ICON_TEST_PATH, CHANNEL
@@ -35,8 +35,8 @@ class ZapretFluentWindow(FluentWindow):
             if app:
                 app.setWindowIcon(self._app_icon)
 
-        # Apply dark theme by default
-        setTheme(Theme.DARK)
+        # Theme mode (DARK/LIGHT) is set in main.py via _sync_theme_mode_to_qfluent()
+        # before the window is created, so no hardcoded setTheme(DARK) here.
 
     # ------------------------------------------------------------------
     # Navigation helpers
@@ -58,3 +58,47 @@ class ZapretFluentWindow(FluentWindow):
     def addSeparatorToNav(self):
         """Add a separator line in the navigation."""
         self.navigationInterface.addSeparator()
+
+    # ------------------------------------------------------------------
+    # Background image support (for РКН Тян preset)
+    # ------------------------------------------------------------------
+
+    def set_background_image(self, path: str | None) -> None:
+        """Set a full-window background image (dimmed). Pass None to hide."""
+        if not hasattr(self, '_bg_label'):
+            self._bg_label = QLabel(self)
+            self._bg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._bg_rawpath = None
+        if path is None:
+            self._bg_label.hide()
+            self._bg_rawpath = None
+            return
+        self._bg_rawpath = path
+        self._rescale_bg()
+        self._bg_label.lower()
+        self._bg_label.show()
+
+    def _rescale_bg(self) -> None:
+        """Rescale and dim the background image to current window size."""
+        if not (hasattr(self, '_bg_label') and getattr(self, '_bg_rawpath', None)):
+            return
+        pm = QPixmap(self._bg_rawpath)
+        if pm.isNull():
+            return
+        pm = pm.scaled(
+            self.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        dimmed = QPixmap(pm.size())
+        dimmed.fill(QColor(0, 0, 0, 0))
+        p = QPainter(dimmed)
+        p.drawPixmap(0, 0, pm)
+        p.fillRect(dimmed.rect(), QColor(0, 0, 0, 155))
+        p.end()
+        self._bg_label.setPixmap(dimmed)
+        self._bg_label.setGeometry(self.rect())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._rescale_bg()

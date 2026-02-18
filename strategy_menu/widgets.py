@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont, QColor, QBrush
 
 from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
 from ui.theme import get_theme_tokens
+from ui.compat_widgets import set_tooltip
 
 def _style_selected(tokens) -> str:
     return f"""
@@ -135,8 +136,8 @@ class CompactStrategyItem(QFrame):
     def _setup_tooltip(self):
         """Tooltip"""
         name = self.strategy_data.get('name', self.strategy_id)
-        tip = f"<b>{name}</b><br><i style='color:#888'>ПКМ - показать аргументы</i>"
-        self.setToolTip(tip)
+        tip = f"<b>{name}</b><br><i>ПКМ - показать аргументы</i>"
+        set_tooltip(self, tip)
 
     def _init_ui(self):
         """UI - компактный без кружка"""
@@ -273,7 +274,7 @@ class StrategyItem(QWidget):
                 version_color = "#CC0000"
             elif version_status == 'unknown':
                 version_text = "?"
-                version_color = "#888888"
+                version_color = "#666666"
                 
             if version_text:
                 self.version_label = QLabel(version_text)

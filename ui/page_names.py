@@ -32,13 +32,10 @@ class PageName(Enum):
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
     BAT_STRATEGIES = auto()          # BAT стратегии
     STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
-    STRATEGY_SORT = auto()           # Сортировка стратегий
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
-    MY_CATEGORIES = auto()           # Мои категории (общий файл)
     HOSTLIST = auto()                # Листы (Hostlist + IPset)
     IPSET = auto()                   # Legacy alias -> Листы
     BLOBS = auto()                   # Блобы
-    EDITOR = auto()                  # Редактор стратегий
     DPI_SETTINGS = auto()            # Настройки DPI
     PRESETS = auto()                 # Пресеты настроек (только direct_zapret2)
     ZAPRET2_USER_PRESETS = auto()      # Zapret 2 Direct: пользовательские пресеты
@@ -55,6 +52,7 @@ class PageName(Enum):
     DNS_CHECK = auto()               # DNS подмена
     HOSTS = auto()                   # Разблокировка сервисов
     BLOCKCHECK = auto()              # BlockCheck
+    DIAGNOSTICS_TAB = auto()         # Объединённая страница диагностики (вкладки)
     APPEARANCE = auto()              # Оформление
     PREMIUM = auto()                 # Донат/Premium
     LOGS = auto()                    # Логи
@@ -86,13 +84,10 @@ class SectionName(Enum):
 
     # === Стратегии (collapsible группа) ===
     STRATEGIES = auto()              # Заголовок группы (collapsible)
-    STRATEGY_SORT = auto()           # - Сортировка
     PRESET_CONFIG = auto()           # - Конфиг
-    MY_CATEGORIES = auto()           # - Мои категории
     HOSTLIST = auto()                # - Листы
     IPSET = auto()                   # - Legacy alias (скрыт в UI)
     BLOBS = auto()                   # - Блобы
-    EDITOR = auto()                  # - Редактор
     ORCHESTRA_LOCKED = auto()        # - Залоченные
     ORCHESTRA_BLOCKED = auto()       # - Заблокированные
     ORCHESTRA_RATINGS = auto()       # - Рейтинги
@@ -133,13 +128,10 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.HOME: PageName.HOME,
     SectionName.CONTROL: PageName.CONTROL,
     SectionName.STRATEGIES: None,  # Collapsible группа, целевая страница определяется по методу запуска
-    SectionName.STRATEGY_SORT: PageName.STRATEGY_SORT,
     SectionName.PRESET_CONFIG: PageName.PRESET_CONFIG,
-    SectionName.MY_CATEGORIES: PageName.MY_CATEGORIES,
     SectionName.HOSTLIST: PageName.HOSTLIST,
     SectionName.IPSET: PageName.HOSTLIST,
     SectionName.BLOBS: PageName.BLOBS,
-    SectionName.EDITOR: PageName.EDITOR,
     SectionName.ORCHESTRA_LOCKED: PageName.ORCHESTRA_LOCKED,
     SectionName.ORCHESTRA_BLOCKED: PageName.ORCHESTRA_BLOCKED,
     SectionName.ORCHESTRA_RATINGS: PageName.ORCHESTRA_RATINGS,
@@ -153,8 +145,8 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.CUSTOM_IPSET: PageName.CUSTOM_IPSET,
     SectionName.AUTOSTART: PageName.AUTOSTART,
     SectionName.NETWORK: PageName.NETWORK,
-    SectionName.DIAGNOSTICS: PageName.CONNECTION_TEST,
-    SectionName.DNS_CHECK: PageName.DNS_CHECK,
+    SectionName.DIAGNOSTICS: PageName.DIAGNOSTICS_TAB,
+    SectionName.DNS_CHECK: PageName.DIAGNOSTICS_TAB,
     SectionName.HOSTS: PageName.HOSTS,
     SectionName.BLOCKCHECK: PageName.BLOCKCHECK,
     SectionName.APPEARANCE: PageName.APPEARANCE,
@@ -179,14 +171,11 @@ COLLAPSIBLE_SECTIONS: set[SectionName] = {
 # Подсекции для каждой collapsible группы
 SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     SectionName.STRATEGIES: [
-        SectionName.STRATEGY_SORT,
         SectionName.PRESET_CONFIG,
         SectionName.PRESETS,
         SectionName.DIRECT_RUN,
-        SectionName.MY_CATEGORIES,
         SectionName.HOSTLIST,
         SectionName.BLOBS,
-        SectionName.EDITOR,
         SectionName.ORCHESTRA_LOCKED,
         SectionName.ORCHESTRA_BLOCKED,
         SectionName.ORCHESTRA_RATINGS,
@@ -198,9 +187,7 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
         SectionName.CUSTOM_HOSTLIST,
         SectionName.CUSTOM_IPSET,
     ],
-    SectionName.DIAGNOSTICS: [
-        SectionName.DNS_CHECK,
-    ],
+    SectionName.DIAGNOSTICS: [],
     SectionName.ABOUT: [
         SectionName.SERVERS,
         SectionName.SUPPORT,

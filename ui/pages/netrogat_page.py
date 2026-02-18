@@ -6,12 +6,27 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QLineEdit,
 )
 
+try:
+    from qfluentwidgets import LineEdit, MessageBox, InfoBar
+    _HAS_FLUENT = True
+except ImportError:
+    LineEdit = QLineEdit
+    MessageBox = None
+    InfoBar = None
+    _HAS_FLUENT = False
+
+try:
+    from qfluentwidgets import StrongBodyLabel, BodyLabel, CaptionLabel
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    StrongBodyLabel = QLabel; BodyLabel = QLabel; CaptionLabel = QLabel
+    _HAS_FLUENT_LABELS = False
+
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 from log import log
 from utils.netrogat_manager import (
@@ -80,11 +95,11 @@ class NetrogatPage(BasePage):
         tokens = get_theme_tokens()
         # Описание
         desc_card = SettingsCard()
-        desc = QLabel(
+        desc = CaptionLabel(
             "Список доменов, которые не следует трогать (netrogat.txt).\n"
             "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
         )
-        desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+        desc.setStyleSheet(f"color: {tokens.fg_muted};")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -94,21 +109,8 @@ class NetrogatPage(BasePage):
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
-        self.input = QLineEdit()
+        self.input = LineEdit()
         self.input.setPlaceholderText("Например: example.com, site.com или через пробел")
-        self.input.setStyleSheet(
-            f"""
-            QLineEdit {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                padding: 10px 12px;
-                color: {tokens.fg};
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{ border: 1px solid {tokens.accent_hex}; }}
-        """
-        )
         self.input.returnPressed.connect(self._add)
         add_layout.addWidget(self.input, 1)
 
@@ -180,15 +182,15 @@ class NetrogatPage(BasePage):
 
         editor_layout.addWidget(self.text_edit)
 
-        hint = QLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
+        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        hint.setStyleSheet(f"color: {tokens.fg_faint};")
         editor_layout.addWidget(hint)
 
         editor_card.add_layout(editor_layout)
         self.layout.addWidget(editor_card)
 
-        self.status_label = QLabel()
-        self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
+        self.status_label = CaptionLabel()
+        self.status_label.setStyleSheet(f"color: {tokens.fg_faint};")
         self.layout.addWidget(self.status_label)
 
     def _load(self):
@@ -268,7 +270,7 @@ class NetrogatPage(BasePage):
         # Разделяем на несколько доменов
         parts = split_domains(raw)
         if not parts:
-            QMessageBox.warning(self.window(), "Ошибка", "Не удалось распознать домен.")
+            InfoBar.warning(title="Ошибка", content="Не удалось распознать домен.", parent=self.window())
             return
 
         # Проверяем дубликаты
@@ -292,14 +294,14 @@ class NetrogatPage(BasePage):
             added.append(norm)
 
         if not added and not skipped and invalid:
-            QMessageBox.warning(self.window(), "Ошибка", "Не удалось распознать домены.")
+            InfoBar.warning(title="Ошибка", content="Не удалось распознать домены.", parent=self.window())
             return
 
         if not added and skipped:
             if len(skipped) == 1:
-                QMessageBox.information(self.window(), "Информация", f"Домен уже есть:\n{skipped[0]}")
+                InfoBar.info(title="Информация", content=f"Домен уже есть: {skipped[0]}", parent=self.window())
             else:
-                QMessageBox.information(self.window(), "Информация", f"Все домены уже есть ({len(skipped)})")
+                InfoBar.info(title="Информация", content=f"Все домены уже есть ({len(skipped)})", parent=self.window())
             return
 
         # Добавляем в конец
@@ -312,23 +314,14 @@ class NetrogatPage(BasePage):
 
         # Показываем результат если были пропущенные
         if skipped:
-            QMessageBox.information(
-                self.window(),
-                "Добавлено",
-                f"Добавлено: {len(added)}\nПропущено (дубликаты): {len(skipped)}"
-            )
+            InfoBar.success(title="Добавлено", content=f"Добавлено доменов. Пропущено уже существующих: {len(skipped)}", parent=self.window())
 
     def _clear_all(self):
         text = self.text_edit.toPlainText().strip()
         if not text:
             return
-        reply = QMessageBox.question(
-            self.window(),
-            "Очистить всё",
-            "Удалить все домены?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        box = MessageBox("Очистить всё", "Удалить все домены?", self.window())
+        if box.exec():
             self.text_edit.clear()
             log("Очистили netrogat.txt", "INFO")
 
@@ -348,7 +341,7 @@ class NetrogatPage(BasePage):
                 subprocess.run(["explorer", LISTS_FOLDER])
         except Exception as e:
             log(f"Ошибка открытия netrogat.txt: {e}", "ERROR")
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть:\n{e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
 
     def _add_missing_defaults(self):
         # Получаем текущие домены из редактора
@@ -363,7 +356,7 @@ class NetrogatPage(BasePage):
         
         new_domains, added = add_missing_defaults(current_domains)
         if added == 0:
-            QMessageBox.information(self.window(), "Готово", "Все домены по умолчанию уже есть.")
+            InfoBar.success(title="Готово", content="Все домены по умолчанию уже есть.", parent=self.window())
             return
         
         # Обновляем редактор
@@ -373,4 +366,4 @@ class NetrogatPage(BasePage):
         
         self._save()
         self._update_status()
-        QMessageBox.information(self.window(), "Готово", f"Добавлено доменов: {added}")
+        InfoBar.success(title="Готово", content=f"Добавлено доменов: {added}", parent=self.window())

@@ -150,19 +150,12 @@ class SystemTrayManager:
 
     def _apply_menu_style(self, menu: QMenu):
         """Применяет стиль к меню трея"""
-        # Получаем цвета текущей темы
+        # Get current theme colors
         try:
-            from ui.theme import ThemeManager
-            theme_manager = ThemeManager.instance()
-            if theme_manager and hasattr(theme_manager, '_current_theme'):
-                theme_name = theme_manager._current_theme
-                theme_config = theme_manager._themes.get(theme_name, {})
-                theme_bg = theme_config.get('theme_bg', '30, 30, 30')
-                is_light = 'Светлая' in theme_name if theme_name else False
-            else:
-                theme_bg = '30, 30, 30'
-                is_light = False
-        except:
+            from qfluentwidgets import isDarkTheme
+            is_light = not isDarkTheme()
+            theme_bg = '243, 243, 243' if is_light else '30, 30, 30'
+        except Exception:
             theme_bg = '30, 30, 30'
             is_light = False
 
@@ -480,6 +473,10 @@ class SystemTrayManager:
             result = ask_close_action(parent=self.parent)
             if result is None:
                 # Пользователь отменил
+                return
+
+            if result == "tray":
+                self.hide_to_tray(show_hint=True)
                 return
 
             # result: False = только GUI, True = GUI + остановить DPI

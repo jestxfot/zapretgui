@@ -5,19 +5,40 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QTimer, QFileSystemWatcher
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QSize, QTimer, QFileSystemWatcher
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QLineEdit,
-    QFileDialog, QMessageBox, QSizePolicy
+    QFileDialog, QSizePolicy
 )
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import ActionButton, SettingsCard
+from ui.compat_widgets import ActionButton, PrimaryActionButton, SettingsCard, set_tooltip
 from ui.theme import get_theme_tokens, get_card_gradient_qss, get_selected_surface_gradient_qss
 from log import log
+
+try:
+    from qfluentwidgets import (
+        BodyLabel, CaptionLabel, StrongBodyLabel, LineEdit, MessageBox, InfoBar,
+        SegmentedWidget, TransparentToolButton, FluentIcon,
+        MessageBoxBase, SubtitleLabel,
+    )
+    _HAS_FLUENT = True
+except ImportError:
+    BodyLabel = QLabel
+    CaptionLabel = QLabel
+    StrongBodyLabel = QLabel
+    LineEdit = QLineEdit
+    MessageBox = None
+    InfoBar = None
+    SegmentedWidget = None
+    TransparentToolButton = None
+    FluentIcon = None
+    MessageBoxBase = None
+    SubtitleLabel = QLabel
+    _HAS_FLUENT = False
 
 
 # ── Icon cache ───────────────────────────────────────────────────────────
@@ -201,17 +222,17 @@ class _DestructiveIconConfirmButton(QPushButton):
                     icon_color = "#ff6b6b"
                     bg = "rgba(255, 107, 107, 0.28)" if self._hovered else "rgba(255, 107, 107, 0.20)"
                     border = "none"
-                    self.setToolTip(f"{self._base_tooltip}\n{self._confirm_tooltip}")
+                    set_tooltip(self, f"{self._base_tooltip}\n{self._confirm_tooltip}")
                 else:
                     icon_color = tokens.fg
                     bg = tokens.surface_bg_hover if self._hovered else tokens.surface_bg
                     border = f"1px solid {tokens.surface_border_hover if self._hovered else tokens.surface_border}"
-                    self.setToolTip(self._base_tooltip)
+                    set_tooltip(self, self._base_tooltip)
             else:
                 icon_color = "#ff6b6b"
                 bg = "rgba(255, 107, 107, 0.18)"
                 border = "none"
-                self.setToolTip(self._busy_tooltip)
+                set_tooltip(self, self._busy_tooltip)
 
             self.setIcon(_cached_icon(self._icon_name, icon_color))
             self.setStyleSheet(f"""
@@ -317,18 +338,7 @@ class PresetCard(QFrame):
         top_row.addWidget(self.icon_label)
 
         # Название
-        self.name_label = QLabel(name)
-        try:
-            self.name_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.name_label.setStyleSheet("""
-            QLabel {
-                font-size: 15px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-        """)
+        self.name_label = StrongBodyLabel(name)
         # Allow long names to shrink/clamp so right-side badges/actions stay visible.
         self.name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.name_label.setMinimumWidth(0)
@@ -342,16 +352,7 @@ class PresetCard(QFrame):
             except Exception:
                 formatted_date = modified
 
-            date_label = QLabel(formatted_date)
-            try:
-                date_label.setProperty("tone", "faint")
-            except Exception:
-                pass
-            date_label.setStyleSheet("""
-                QLabel {
-                    font-size: 11px;
-                }
-            """)
+            date_label = CaptionLabel(formatted_date)
             top_row.addWidget(date_label)
 
         top_row.addStretch()
@@ -429,16 +430,7 @@ class PresetCard(QFrame):
 
         # Описание (если есть)
         if description:
-            desc_label = QLabel(description)
-            try:
-                desc_label.setProperty("tone", "muted")
-            except Exception:
-                pass
-            desc_label.setStyleSheet("""
-                QLabel {
-                    font-size: 12px;
-                }
-            """)
+            desc_label = BodyLabel(description)
             desc_label.setWordWrap(True)
             main_layout.addWidget(desc_label)
 
@@ -465,7 +457,8 @@ class PresetCard(QFrame):
                 busy_text="Сброс…",
                 parent=self,
             )
-            self.reset_btn.setToolTip(
+            set_tooltip(
+                self.reset_btn,
                 "Сбросит этот пресет к настройкам из шаблона.\n"
                 "Пресет будет активирован."
             )
@@ -492,132 +485,37 @@ class PresetCard(QFrame):
             buttons_row.addStretch()
             main_layout.addLayout(buttons_row)
 
-    def _create_action_button(self, text: str, icon_name: str) -> QPushButton:
+    def _create_action_button(self, text: str, icon_name: str):
         """Создает кнопку действия в нейтральном стиле"""
-        tokens = get_theme_tokens()
-        btn = QPushButton(text)
+        btn = ActionButton(text, icon_name)
         btn.setProperty("_preset_icon_name", icon_name)
-        btn.setProperty("_preset_action_kind", "text")
-        btn.setIcon(_cached_icon(icon_name, tokens.fg))
-        btn.setIconSize(QSize(14, 14))
         btn.setFixedHeight(28)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 4px;
-                color: {tokens.fg};
-                padding: 0 12px;
-                font-size: 11px;
-                font-weight: 500;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-            QPushButton:hover {{
-                background-color: {tokens.surface_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
-            }}
-            QPushButton:pressed {{
-                background-color: {tokens.surface_bg_pressed};
-            }}
-            """
-        )
         return btn
 
-    def _create_icon_action_button(self, icon_name: str, tooltip: str, icon_color: str = "white") -> QPushButton:
-        tokens = get_theme_tokens()
-        _ = icon_color
-        btn = QPushButton()
-        btn.setToolTip(tooltip)
+    def _create_icon_action_button(self, icon_name: str, tooltip: str, icon_color: str = "white"):
+        """Создает кнопку-иконку действия"""
+        try:
+            icon = qta.icon(icon_name, color=get_theme_tokens().fg)
+            btn = TransparentToolButton(icon)
+        except Exception:
+            btn = TransparentToolButton()
         btn.setProperty("_preset_icon_name", icon_name)
-        btn.setProperty("_preset_action_kind", "icon")
-        btn.setIcon(_cached_icon(icon_name, tokens.fg))
+        set_tooltip(btn, tooltip)
         btn.setIconSize(QSize(14, 14))
         btn.setFixedSize(28, 28)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-            }}
-            QPushButton:hover {{
-                background-color: {tokens.surface_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
-            }}
-            QPushButton:pressed {{
-                background-color: {tokens.surface_bg_pressed};
-            }}
-            """
-        )
         return btn
 
     def _refresh_action_buttons_theme(self) -> None:
         tokens = get_theme_tokens()
-        for btn in self.findChildren(QPushButton):
+        from PyQt6.QtWidgets import QAbstractButton
+        for btn in self.findChildren(QAbstractButton):
             try:
                 icon_name = btn.property("_preset_icon_name")
-                kind = btn.property("_preset_action_kind")
-            except Exception:
-                icon_name = None
-                kind = None
-
-            if not icon_name or not kind:
-                continue
-
-            try:
-                btn.setIcon(_cached_icon(str(icon_name), tokens.fg))
+                if icon_name:
+                    btn.setIcon(_cached_icon(str(icon_name), tokens.fg))
             except Exception:
                 pass
-
-            if str(kind) == "icon":
-                try:
-                    btn.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background-color: {tokens.surface_bg};
-                            border: 1px solid {tokens.surface_border};
-                            border-radius: 6px;
-                        }}
-                        QPushButton:hover {{
-                            background-color: {tokens.surface_bg_hover};
-                            border: 1px solid {tokens.surface_border_hover};
-                        }}
-                        QPushButton:pressed {{
-                            background-color: {tokens.surface_bg_pressed};
-                        }}
-                        """
-                    )
-                except Exception:
-                    pass
-            else:
-                try:
-                    btn.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background-color: {tokens.surface_bg};
-                            border: 1px solid {tokens.surface_border};
-                            border-radius: 4px;
-                            color: {tokens.fg};
-                            padding: 0 12px;
-                            font-size: 11px;
-                            font-weight: 500;
-                            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                        }}
-                        QPushButton:hover {{
-                            background-color: {tokens.surface_bg_hover};
-                            border: 1px solid {tokens.surface_border_hover};
-                        }}
-                        QPushButton:pressed {{
-                            background-color: {tokens.surface_bg_pressed};
-                        }}
-                        """
-                    )
-                except Exception:
-                    pass
 
     def _update_style(self):
         """Обновляет стиль карточки"""
@@ -733,161 +631,119 @@ class PresetCard(QFrame):
         super().mouseDoubleClickEvent(event)
 
 
-class _RevealFrame(QFrame):
-    """Animated show/hide container (Win11 Settings-like 'drop-down')."""
+class _CreatePresetDialog(MessageBoxBase):
+    """WinUI диалог создания нового пресета."""
 
-    def __init__(self, parent=None):
+    def __init__(self, existing_names: list, parent=None):
         super().__init__(parent)
-        self.setObjectName("revealFrame")
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setFrameShadow(QFrame.Shadow.Plain)
-        self.setStyleSheet("""
-            QFrame#revealFrame {
-                background: transparent;
-                border: none;
-            }
-        """)
-        self.setMaximumHeight(0)
-        self.setVisible(False)
-        self._anim = QPropertyAnimation(self, b"maximumHeight", self)
-        self._anim.setDuration(180)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._pending_hide = False
-        self._anim.finished.connect(self._on_anim_finished)
+        self._existing_names = list(existing_names)
+        self._source = "current"
 
-    def _on_anim_finished(self):
-        if self._pending_hide:
-            self._pending_hide = False
-            self.setVisible(False)
-            return
-        # Let the layout manage height after expand.
-        self.setMaximumHeight(16777215)
+        self.titleLabel = SubtitleLabel("Новый пресет", self)
+        self.subtitleLabel = BodyLabel(
+            "Сохраните текущие настройки как отдельный пресет, "
+            "чтобы быстро переключаться между конфигурациями.",
+            self,
+        )
+        self.subtitleLabel.setWordWrap(True)
 
-    def set_open(self, open_: bool):
-        self._anim.stop()
-        self._pending_hide = False
+        name_label = BodyLabel("Название", self)
+        self.nameEdit = LineEdit(self)
+        self.nameEdit.setPlaceholderText("Например: Игры / YouTube / Дом")
+        self.nameEdit.setClearButtonEnabled(True)
 
-        if open_:
-            self.setVisible(True)
-            self.setMaximumHeight(0)
-            if self.layout():
-                self.layout().activate()
-            target = max(0, self.layout().sizeHint().height() if self.layout() else self.sizeHint().height())
-            self._anim.setStartValue(self.maximumHeight())
-            self._anim.setEndValue(target)
-            self._anim.start()
-            return
+        source_row = QHBoxLayout()
+        source_label = BodyLabel("Создать на основе", self)
+        source_row.addWidget(source_label)
+        source_row.addStretch()
+        self._source_seg = SegmentedWidget(self)
+        self._source_seg.addItem("current", "Текущего активного")
+        self._source_seg.addItem("empty", "Пустого")
+        self._source_seg.setCurrentItem("current")
+        self._source_seg.currentItemChanged.connect(lambda k: setattr(self, "_source", k))
+        source_row.addWidget(self._source_seg)
 
-        start = self.maximumHeight()
-        self._anim.setStartValue(start if start > 0 else max(0, self.sizeHint().height()))
-        self._anim.setEndValue(0)
-        self._pending_hide = True
-        self._anim.start()
+        self.warningLabel = CaptionLabel("", self)
+        self.warningLabel.setTextColor("#cf1010", QColor(255, 28, 32))
+        self.warningLabel.hide()
+
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.subtitleLabel)
+        self.viewLayout.addWidget(name_label)
+        self.viewLayout.addWidget(self.nameEdit)
+        self.viewLayout.addLayout(source_row)
+        self.viewLayout.addWidget(self.warningLabel)
+
+        self.yesButton.setText("Создать")
+        self.cancelButton.setText("Отмена")
+        self.widget.setMinimumWidth(420)
+
+    def validate(self) -> bool:
+        name = self.nameEdit.text().strip()
+        if not name:
+            self.warningLabel.setText("Введите название.")
+            self.warningLabel.show()
+            return False
+        if name in self._existing_names:
+            self.warningLabel.setText(f"Пресет «{name}» уже существует.")
+            self.warningLabel.show()
+            return False
+        self.warningLabel.hide()
+        return True
 
 
-class _SegmentedChoice(QWidget):
-    """Two-option segmented control."""
+class _RenamePresetDialog(MessageBoxBase):
+    """WinUI диалог переименования пресета."""
 
-    changed = pyqtSignal(str)  # value
-
-    def __init__(self, left_label: str, left_value: str, right_label: str, right_value: str, parent=None):
+    def __init__(self, current_name: str, existing_names: list, parent=None):
         super().__init__(parent)
-        self._left_value = left_value
-        self._right_value = right_value
-        self._value = left_value
+        self._current_name = str(current_name or "")
+        self._existing_names = list(existing_names)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self.titleLabel = SubtitleLabel("Переименовать", self)
+        self.subtitleLabel = BodyLabel(
+            "Имя пресета отображается в списке и используется для переключения.",
+            self,
+        )
+        self.subtitleLabel.setWordWrap(True)
 
-        self._left_btn = QPushButton(left_label)
-        self._right_btn = QPushButton(right_label)
-        for btn in (self._left_btn, self._right_btn):
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
+        from_label = CaptionLabel(f"Текущее имя: {self._current_name}", self)
+        name_label = BodyLabel("Новое имя", self)
+        self.nameEdit = LineEdit(self)
+        self.nameEdit.setText(self._current_name)
+        self.nameEdit.selectAll()
+        self.nameEdit.setPlaceholderText("Новое имя…")
+        self.nameEdit.setClearButtonEnabled(True)
 
-        self._left_btn.clicked.connect(lambda: self.set_value(self._left_value))
-        self._right_btn.clicked.connect(lambda: self.set_value(self._right_value))
+        self.warningLabel = CaptionLabel("", self)
+        self.warningLabel.setTextColor("#cf1010", QColor(255, 28, 32))
+        self.warningLabel.hide()
 
-        layout.addWidget(self._left_btn)
-        layout.addWidget(self._right_btn)
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.subtitleLabel)
+        self.viewLayout.addWidget(from_label)
+        self.viewLayout.addWidget(name_label)
+        self.viewLayout.addWidget(self.nameEdit)
+        self.viewLayout.addWidget(self.warningLabel)
 
-        self._update_styles()
+        self.yesButton.setText("Переименовать")
+        self.cancelButton.setText("Отмена")
+        self.widget.setMinimumWidth(420)
 
-    def value(self) -> str:
-        return self._value
-
-    def set_value(self, value: str, emit: bool = True):
-        if value not in (self._left_value, self._right_value):
-            return
-        if value == self._value:
-            return
-        self._value = value
-        self._update_styles()
-        if emit:
-            self.changed.emit(value)
-
-    def _update_styles(self):
-        tokens = get_theme_tokens()
-        active_style = """
-            QPushButton {
-                background: %(accent)s;
-                border: none;
-                color: %(accent_fg)s;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: %(accent_hover)s;
-            }
-        """
-        inactive_style = """
-            QPushButton {
-                background: %(bg)s;
-                border: none;
-                color: %(fg_muted)s;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0 12px;
-            }
-            QPushButton:hover {
-                background: %(bg_hover)s;
-            }
-        """
-
-        active_style = active_style % {
-            "accent": tokens.accent_hex,
-            "accent_hover": tokens.accent_hover_hex,
-            "accent_fg": _accent_fg_for_tokens(tokens),
-        }
-        inactive_style = inactive_style % {
-            "bg": tokens.surface_bg,
-            "bg_hover": tokens.surface_bg_hover,
-            "fg_muted": tokens.fg_muted,
-        }
-        left_radius = "border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
-        right_radius = "border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
-
-        if self._value == self._left_value:
-            self._left_btn.setStyleSheet(active_style.replace("}", left_radius + "}"))
-            self._right_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + right_radius))
-            self._left_btn.setChecked(True)
-            self._right_btn.setChecked(False)
-        else:
-            self._left_btn.setStyleSheet(inactive_style.replace("QPushButton {", "QPushButton { " + left_radius))
-            self._right_btn.setStyleSheet(active_style.replace("}", right_radius + "}"))
-            self._left_btn.setChecked(False)
-            self._right_btn.setChecked(True)
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._update_styles()
-        except Exception:
-            pass
-        super().changeEvent(event)
+    def validate(self) -> bool:
+        name = self.nameEdit.text().strip()
+        if not name:
+            self.warningLabel.setText("Введите название.")
+            self.warningLabel.show()
+            return False
+        if name == self._current_name:
+            return True
+        if name in self._existing_names:
+            self.warningLabel.setText(f"Пресет «{name}» уже существует.")
+            self.warningLabel.show()
+            return False
+        self.warningLabel.hide()
+        return True
 
 
 class PresetsPage(BasePage):
@@ -1066,8 +922,6 @@ class PresetsPage(BasePage):
 
         # Быстрый доступ к посту с актуальными конфигами
         configs_card = SettingsCard()
-        # SettingsCard background/border are theme-driven globally.
-        configs_card.setStyleSheet("")
         configs_layout = QHBoxLayout()
         configs_layout.setSpacing(12)
 
@@ -1075,12 +929,7 @@ class PresetsPage(BasePage):
         self._configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
         configs_layout.addWidget(self._configs_icon)
 
-        configs_title = QLabel("Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно")
-        try:
-            configs_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        configs_title.setStyleSheet("font-size: 13px; font-weight: 600;")
+        configs_title = StrongBodyLabel("Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно")
         configs_title.setWordWrap(True)
         configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         configs_title.setMinimumWidth(0)
@@ -1098,7 +947,6 @@ class PresetsPage(BasePage):
 
         # Карточка с активным пресетом
         self.active_card = SettingsCard("Активный пресет")
-        self.active_card.setStyleSheet("")
         active_layout = QHBoxLayout()
         active_layout.setSpacing(12)
 
@@ -1108,17 +956,7 @@ class PresetsPage(BasePage):
         active_layout.addWidget(self._active_icon)
 
         # Название активного пресета
-        self.active_preset_label = QLabel("Загрузка...")
-        try:
-            self.active_preset_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.active_preset_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
+        self.active_preset_label = BodyLabel("Загрузка...")
         active_layout.addWidget(self.active_preset_label)
 
         active_layout.addStretch()
@@ -1130,202 +968,22 @@ class PresetsPage(BasePage):
 
         # Короткая подсказка как работают официальные пресеты/копии
         info_card = SettingsCard("Как это работает")
-        info_card.setStyleSheet("")
         info_layout = QHBoxLayout()
         info_layout.setSpacing(12)
         self._info_icon = QLabel()
         self._info_icon.setPixmap(qta.icon("fa5s.info-circle", color=tokens.fg_muted).pixmap(16, 16))
         info_layout.addWidget(self._info_icon)
-        info_text = QLabel(
+        info_text = BodyLabel(
             "Официальные пресеты — это шаблоны (их нельзя изменить). "
             "Если вы меняете настройки, автоматически создаётся редактируемая копия "
             "в виде отдельного пресета «(копия)»."
         )
-        try:
-            info_text.setProperty("tone", "muted")
-        except Exception:
-            pass
-        info_text.setStyleSheet("font-size: 12px;")
         info_text.setWordWrap(True)
         info_layout.addWidget(info_text, 1)
         info_card.add_layout(info_layout)
         self.add_widget(info_card)
 
         self.add_spacing(12)
-
-        # Inline create/rename panel (replaces modal dialogs)
-        self._action_mode: Optional[str] = None  # "create" | "rename"
-        self._rename_source_name: Optional[str] = None
-
-        self._action_reveal = _RevealFrame(self)
-        self._action_reveal_layout = QVBoxLayout(self._action_reveal)
-        self._action_reveal_layout.setContentsMargins(0, 0, 0, 0)
-        self._action_reveal_layout.setSpacing(0)
-
-        self._action_card = SettingsCard("")
-        self._action_card.setStyleSheet("")
-        self._action_card.main_layout.setSpacing(10)
-
-        header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(10)
-
-        self._action_icon = QLabel()
-        self._action_icon.setPixmap(qta.icon("fa5s.plus", color=tokens.accent_hex).pixmap(18, 18))
-        self._action_icon.setFixedSize(22, 22)
-        header.addWidget(self._action_icon)
-
-        self._action_title = QLabel("")
-        try:
-            self._action_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self._action_title.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: 600;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }
-        """)
-        header.addWidget(self._action_title)
-        header.addStretch(1)
-
-        self._action_close_btn = QPushButton()
-        self._action_close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
-        self._action_close_btn.setIconSize(QSize(12, 12))
-        self._action_close_btn.setFixedSize(28, 28)
-        self._action_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._action_close_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-            }}
-            QPushButton:hover {{ background: {tokens.surface_bg_hover}; border: 1px solid {tokens.surface_border_hover}; }}
-            QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
-            """
-        )
-        self._action_close_btn.clicked.connect(self._hide_inline_action)
-        header.addWidget(self._action_close_btn)
-
-        self._action_card.add_layout(header)
-
-        self._action_subtitle = QLabel("")
-        try:
-            self._action_subtitle.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self._action_subtitle.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-            }
-        """)
-        self._action_subtitle.setWordWrap(True)
-        self._action_card.add_widget(self._action_subtitle)
-
-        self._rename_from_label = QLabel("")
-        try:
-            self._rename_from_label.setProperty("tone", "faint")
-        except Exception:
-            pass
-        self._rename_from_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-            }
-        """)
-        self._rename_from_label.setWordWrap(True)
-        self._rename_from_label.hide()
-        self._action_card.add_widget(self._rename_from_label)
-
-        name_row = QVBoxLayout()
-        name_row.setSpacing(6)
-        name_label = QLabel("Название")
-        try:
-            name_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        name_label.setStyleSheet("font-size: 12px;")
-        name_row.addWidget(name_label)
-
-        self._name_input = QLineEdit()
-        self._name_input.setPlaceholderText("Введите название пресета…")
-        self._name_input.setStyleSheet(
-            f"""
-            QLineEdit {{
-                background-color: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 8px;
-                color: {tokens.fg};
-                padding: 10px 12px;
-                font-size: 13px;
-                font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-            }}
-            QLineEdit:hover {{
-                background-color: {tokens.surface_bg_hover};
-                border: 1px solid {tokens.surface_border_hover};
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {tokens.accent_hex};
-            }}
-            QLineEdit::placeholder {{
-                color: {tokens.fg_faint};
-            }}
-            """
-        )
-        self._name_input.textChanged.connect(lambda: self._set_inline_error(""))
-        self._name_input.returnPressed.connect(self._submit_inline_action)
-        name_row.addWidget(self._name_input)
-        self._action_card.add_layout(name_row)
-
-        # Create source selector (create mode only)
-        self._source_container = QWidget()
-        source_row = QHBoxLayout(self._source_container)
-        source_row.setContentsMargins(0, 4, 0, 0)
-        source_row.setSpacing(12)
-        source_label = QLabel("Создать на основе")
-        try:
-            source_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        source_label.setStyleSheet("font-size: 12px;")
-        source_row.addWidget(source_label)
-        source_row.addStretch(1)
-        self._create_source = _SegmentedChoice("Текущего активного", "current", "Пустого", "empty", self)
-        source_row.addWidget(self._create_source)
-        self._action_card.add_widget(self._source_container)
-
-        self._action_error = QLabel("")
-        self._action_error.setStyleSheet("""
-            QLabel {
-                color: #ff6b6b;
-                font-size: 12px;
-            }
-        """)
-        self._action_error.setWordWrap(True)
-        self._action_error.hide()
-        self._action_card.add_widget(self._action_error)
-
-        actions = QHBoxLayout()
-        actions.setContentsMargins(0, 6, 0, 0)
-        actions.setSpacing(10)
-        actions.addStretch(1)
-
-        self._action_cancel_btn = self._create_main_button("Отмена", "fa5s.times", accent=False)
-        self._action_cancel_btn.setFixedHeight(32)
-        self._action_cancel_btn.clicked.connect(self._hide_inline_action)
-        actions.addWidget(self._action_cancel_btn)
-
-        self._action_submit_btn = self._create_main_button("Готово", "fa5s.check", accent=True)
-        self._action_submit_btn.setFixedHeight(32)
-        self._action_submit_btn.clicked.connect(self._submit_inline_action)
-        actions.addWidget(self._action_submit_btn)
-
-        self._action_card.add_layout(actions)
-
-        self._action_reveal_layout.addWidget(self._action_card)
-        self.add_widget(self._action_reveal)
 
         # Секция "Шаблоны"
         self.add_section_title("Шаблоны")
@@ -1374,69 +1032,6 @@ class PresetsPage(BasePage):
 
         self._apply_theme_styles()
 
-    def _apply_main_button_theme(self, btn: QPushButton) -> None:
-        tokens = get_theme_tokens()
-        accent = False
-        icon_name = None
-        try:
-            accent = bool(btn.property("_main_accent"))
-            icon_name = btn.property("_main_icon_name")
-        except Exception:
-            accent = False
-            icon_name = None
-
-        accent_fg = _accent_fg_for_tokens(tokens)
-        icon_color = accent_fg if accent else tokens.fg
-        try:
-            if icon_name:
-                btn.setIcon(qta.icon(str(icon_name), color=icon_color))
-        except Exception:
-            pass
-
-        if accent:
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {tokens.accent_hex};
-                    border: none;
-                    border-radius: 8px;
-                    color: {accent_fg};
-                    padding: 0 20px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:hover {{
-                    background-color: {tokens.accent_hover_hex};
-                }}
-                QPushButton:pressed {{
-                    background-color: {tokens.accent_pressed_hex};
-                }}
-                """
-            )
-        else:
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {tokens.surface_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 8px;
-                    color: {tokens.fg};
-                    padding: 0 20px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:hover {{
-                    background-color: {tokens.surface_bg_hover};
-                    border: 1px solid {tokens.surface_border_hover};
-                }}
-                QPushButton:pressed {{
-                    background-color: {tokens.surface_bg_pressed};
-                }}
-                """
-            )
-
     def _apply_theme_styles(self) -> None:
         tokens = get_theme_tokens()
 
@@ -1459,66 +1054,7 @@ class PresetsPage(BasePage):
         except Exception:
             pass
 
-        # Inline action widgets
-        try:
-            if hasattr(self, "_action_close_btn") and self._action_close_btn is not None:
-                self._action_close_btn.setIcon(qta.icon("fa5s.times", color=tokens.fg))
-                self._action_close_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                        color: {tokens.fg};
-                    }}
-                    QPushButton:hover {{ background: {tokens.surface_bg_hover}; border: 1px solid {tokens.surface_border_hover}; }}
-                    QPushButton:pressed {{ background: {tokens.surface_bg_pressed}; }}
-                    """
-                )
-        except Exception:
-            pass
-
-        try:
-            if hasattr(self, "_name_input") and self._name_input is not None:
-                self._name_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 8px;
-                        color: {tokens.fg};
-                        padding: 10px 12px;
-                        font-size: 13px;
-                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid {tokens.surface_border_hover};
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-        except Exception:
-            pass
-
-        # Main buttons
-        for btn in (
-            getattr(self, "_action_cancel_btn", None),
-            getattr(self, "_action_submit_btn", None),
-            getattr(self, "create_btn", None),
-            getattr(self, "import_btn", None),
-        ):
-            if btn is None:
-                continue
-            try:
-                self._apply_main_button_theme(btn)
-            except Exception:
-                pass
+        # qfluentwidgets widgets manage their own theming — no manual CSS overrides needed.
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
@@ -1528,182 +1064,13 @@ class PresetsPage(BasePage):
             pass
         super().changeEvent(event)
 
-    def _create_main_button(self, text: str, icon_name: str, accent: bool = False) -> QPushButton:
+    def _create_main_button(self, text: str, icon_name: str, accent: bool = False):
         """Создает основную кнопку действия"""
-        btn = QPushButton(text)
-
-        try:
-            btn.setProperty("_main_icon_name", icon_name)
-            btn.setProperty("_main_accent", bool(accent))
-        except Exception:
-            pass
-
-        tokens = get_theme_tokens()
-        accent_fg = _accent_fg_for_tokens(tokens)
-        icon_color = accent_fg if accent else tokens.fg
-        btn.setIcon(qta.icon(icon_name, color=icon_color))
-        btn.setIconSize(QSize(16, 16))
-        btn.setFixedHeight(36)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
         if accent:
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {tokens.accent_hex};
-                    border: none;
-                    border-radius: 8px;
-                    color: {accent_fg};
-                    padding: 0 20px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:hover {{
-                    background-color: {tokens.accent_hover_hex};
-                }}
-                QPushButton:pressed {{
-                    background-color: {tokens.accent_pressed_hex};
-                }}
-                """
-            )
+            btn = PrimaryActionButton(text, icon_name)
         else:
-            btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {tokens.surface_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 8px;
-                    color: {tokens.fg};
-                    padding: 0 20px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-                QPushButton:hover {{
-                    background-color: {tokens.surface_bg_hover};
-                    border: 1px solid {tokens.surface_border_hover};
-                }}
-                QPushButton:pressed {{
-                    background-color: {tokens.surface_bg_pressed};
-                }}
-                """
-            )
-
+            btn = ActionButton(text, icon_name)
         return btn
-
-    def _hide_inline_action(self):
-        self._action_mode = None
-        self._rename_source_name = None
-        self._action_error.hide()
-        self._action_error.setText("")
-        self._action_reveal.set_open(False)
-
-    def _set_inline_error(self, text: str):
-        self._action_error.setText(text)
-        self._action_error.setVisible(bool(text))
-
-    def _show_inline_action_create(self):
-        self._action_mode = "create"
-        self._rename_source_name = None
-        self._set_inline_error("")
-
-        self._action_icon.setPixmap(qta.icon("fa5s.plus", color=get_theme_tokens().accent_hex).pixmap(18, 18))
-        self._action_title.setText("Создать новый пресет")
-        self._action_subtitle.setText("Сохраните текущие настройки как отдельный пресет, чтобы быстро переключаться между конфигурациями.")
-
-        self._rename_from_label.hide()
-        self._source_container.show()
-        self._create_source.set_value("current", emit=False)
-
-        self._name_input.clear()
-        self._name_input.setPlaceholderText("Например: Игры / YouTube / Дом")
-
-        self._action_submit_btn.setText("Создать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color=_accent_fg_for_tokens(get_theme_tokens())))
-
-        self._action_reveal.set_open(True)
-        self.ensureWidgetVisible(self._action_reveal)
-        self._name_input.setFocus()
-
-    def _show_inline_action_rename(self, current_name: str):
-        self._action_mode = "rename"
-        self._rename_source_name = current_name
-        self._set_inline_error("")
-
-        self._action_icon.setPixmap(qta.icon("fa5s.edit", color=get_theme_tokens().accent_hex).pixmap(18, 18))
-        self._action_title.setText("Переименовать пресет")
-        self._action_subtitle.setText("Имя пресета отображается в списке и используется для переключения.")
-
-        self._rename_from_label.setText(f"Текущее имя: {current_name}")
-        self._rename_from_label.show()
-        self._source_container.hide()
-
-        self._name_input.setText(current_name)
-        self._name_input.selectAll()
-        self._name_input.setPlaceholderText("Новое имя…")
-
-        self._action_submit_btn.setText("Переименовать")
-        self._action_submit_btn.setIcon(qta.icon("fa5s.check", color=_accent_fg_for_tokens(get_theme_tokens())))
-
-        self._action_reveal.set_open(True)
-        self.ensureWidgetVisible(self._action_reveal)
-        self._name_input.setFocus()
-
-    def _submit_inline_action(self):
-        mode = self._action_mode
-        if mode not in ("create", "rename"):
-            return
-
-        name = self._name_input.text().strip()
-        if not name:
-            self._set_inline_error("Введите название.")
-            return
-
-        try:
-            manager = self._get_manager()
-
-            if mode == "create":
-                if manager.preset_exists(name):
-                    self._set_inline_error(f"Пресет '{name}' уже существует.")
-                    return
-
-                from_current = self._create_source.value() == "current"
-                preset = manager.create_preset(name, from_current=from_current)
-                if not preset:
-                    self._set_inline_error("Не удалось создать пресет.")
-                    return
-
-                log(f"Создан пресет '{name}'", "INFO")
-                self.preset_created.emit(name)
-                self._hide_inline_action()
-                self._load_presets()
-                return
-
-            if mode == "rename":
-                old_name = self._rename_source_name
-                if not old_name:
-                    self._set_inline_error("Неизвестный пресет для переименования.")
-                    return
-                if name == old_name:
-                    self._hide_inline_action()
-                    return
-                if manager.preset_exists(name):
-                    self._set_inline_error(f"Пресет '{name}' уже существует.")
-                    return
-
-                if not manager.rename_preset(old_name, name):
-                    self._set_inline_error("Не удалось переименовать пресет.")
-                    return
-
-                log(f"Пресет '{old_name}' переименован в '{name}'", "INFO")
-                self._hide_inline_action()
-                self._load_presets()
-                return
-
-        except Exception as e:
-            log(f"Ошибка сохранения пресета: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
 
     def _load_presets(self):
         """Загружает и отображает список пресетов"""
@@ -1764,17 +1131,8 @@ class PresetsPage(BasePage):
 
             # Если нет пользовательских пресетов - показываем подсказку
             if not user_items:
-                empty_label = QLabel("Нет пользовательских пресетов. Создайте новый или сделайте копию официального.")
-                try:
-                    empty_label.setProperty("tone", "muted")
-                except Exception:
-                    pass
-                empty_label.setStyleSheet("""
-                    QLabel {
-                        font-size: 13px;
-                        padding: 20px;
-                    }
-                """)
+                empty_label = BodyLabel("Нет пользовательских пресетов. Создайте новый или сделайте копию официального.")
+                empty_label.setContentsMargins(20, 20, 20, 20)
                 empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.presets_layout.addWidget(empty_label)
 
@@ -1783,10 +1141,29 @@ class PresetsPage(BasePage):
 
     def _on_create_clicked(self):
         """Обработчик создания нового пресета"""
-        if self._action_mode == "create" and self._action_reveal.isVisible():
-            self._hide_inline_action()
-        else:
-            self._show_inline_action_create()
+        try:
+            existing = self._get_manager().list_presets()
+        except Exception:
+            existing = []
+
+        dlg = _CreatePresetDialog(existing, parent=self.window())
+        if not dlg.exec():
+            return
+
+        name = dlg.nameEdit.text().strip()
+        from_current = dlg._source == "current"
+        try:
+            manager = self._get_manager()
+            preset = manager.create_preset(name, from_current=from_current)
+            if preset:
+                log(f"Создан пресет '{name}'", "INFO")
+                self.preset_created.emit(name)
+                self._load_presets()
+            else:
+                InfoBar.error(title="Ошибка", content="Не удалось создать пресет.", parent=self.window())
+        except Exception as e:
+            log(f"Ошибка создания пресета: {e}", "ERROR")
+            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_import_clicked(self):
         """Обработчик импорта пресета"""
@@ -1806,12 +1183,12 @@ class PresetsPage(BasePage):
 
                 # Проверяем существование
                 if manager.preset_exists(name):
-                    result = QMessageBox.question(
-                        self, "Пресет существует",
+                    box = MessageBox(
+                        "Пресет существует",
                         f"Пресет '{name}' уже существует. Импортировать с другим именем?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                        self.window(),
                     )
-                    if result == QMessageBox.StandardButton.Yes:
+                    if box.exec():
                         # Добавляем суффикс
                         counter = 1
                         while manager.preset_exists(f"{name}_{counter}"):
@@ -1825,11 +1202,11 @@ class PresetsPage(BasePage):
                     self.preset_created.emit(name)
                     self._load_presets()
                 else:
-                    QMessageBox.warning(self, "Ошибка", "Не удалось импортировать пресет")
+                    InfoBar.warning(title="Ошибка", content="Не удалось импортировать пресет", parent=self.window())
 
             except Exception as e:
                 log(f"Ошибка импорта пресета: {e}", "ERROR")
-                QMessageBox.critical(self, "Ошибка", f"Ошибка импорта: {e}")
+                InfoBar.error(title="Ошибка", content=f"Ошибка импорта: {e}", parent=self.window())
 
     def _on_activate_preset(self, name: str):
         """Активирует пресет"""
@@ -1841,18 +1218,36 @@ class PresetsPage(BasePage):
                 self.preset_switched.emit(name)
                 self._load_presets()
             else:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось активировать пресет '{name}'")
+                InfoBar.warning(title="Ошибка", content=f"Не удалось активировать пресет '{name}'", parent=self.window())
 
         except Exception as e:
             log(f"Ошибка активации пресета: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_rename_preset(self, name: str):
         """Переименовывает пресет"""
-        if self._action_mode == "rename" and self._rename_source_name == name and self._action_reveal.isVisible():
-            self._hide_inline_action()
-        else:
-            self._show_inline_action_rename(name)
+        try:
+            existing = self._get_manager().list_presets()
+        except Exception:
+            existing = []
+
+        dlg = _RenamePresetDialog(name, existing, parent=self.window())
+        if not dlg.exec():
+            return
+
+        new_name = dlg.nameEdit.text().strip()
+        if new_name == name:
+            return
+        try:
+            manager = self._get_manager()
+            if not manager.rename_preset(name, new_name):
+                InfoBar.error(title="Ошибка", content="Не удалось переименовать пресет.", parent=self.window())
+                return
+            log(f"Пресет '{name}' переименован в '{new_name}'", "INFO")
+            self._load_presets()
+        except Exception as e:
+            log(f"Ошибка переименования пресета: {e}", "ERROR")
+            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_duplicate_preset(self, name: str):
         """Дублирует пресет"""
@@ -1871,11 +1266,11 @@ class PresetsPage(BasePage):
                 self.preset_created.emit(new_name)
                 self._load_presets()
             else:
-                QMessageBox.warning(self, "Ошибка", "Не удалось дублировать пресет")
+                InfoBar.warning(title="Ошибка", content="Не удалось дублировать пресет", parent=self.window())
 
         except Exception as e:
             log(f"Ошибка дублирования пресета: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_reset_preset(self, name: str):
         """Сбрасывает пресет к шаблону Default и активирует его."""
@@ -1883,7 +1278,7 @@ class PresetsPage(BasePage):
             manager = self._get_manager()
 
             if not manager.reset_preset_to_default_template(name):
-                QMessageBox.warning(self, "Ошибка", "Не удалось сбросить пресет к настройкам Default")
+                InfoBar.warning(title="Ошибка", content="Не удалось сбросить пресет к настройкам Default", parent=self.window())
                 return
 
             log(f"Сброшен пресет '{name}' к Default", "INFO")
@@ -1896,7 +1291,7 @@ class PresetsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка сброса пресета: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_delete_preset(self, name: str):
         """Удаляет пресет"""
@@ -1908,11 +1303,11 @@ class PresetsPage(BasePage):
                 self.preset_deleted.emit(name)
                 self._load_presets()
             else:
-                QMessageBox.warning(self, "Ошибка", "Не удалось удалить пресет")
+                InfoBar.warning(title="Ошибка", content="Не удалось удалить пресет", parent=self.window())
 
         except Exception as e:
             log(f"Ошибка удаления пресета: {e}", "ERROR")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_export_preset(self, name: str):
         """Экспортирует пресет"""
@@ -1929,13 +1324,13 @@ class PresetsPage(BasePage):
 
                 if manager.export_preset(name, Path(file_path)):
                     log(f"Экспортирован пресет '{name}' в {file_path}", "INFO")
-                    QMessageBox.information(self, "Успех", f"Пресет экспортирован:\n{file_path}")
+                    InfoBar.success(title="Успех", content=f"Пресет экспортирован: {file_path}", parent=self.window())
                 else:
-                    QMessageBox.warning(self, "Ошибка", "Не удалось экспортировать пресет")
+                    InfoBar.warning(title="Ошибка", content="Не удалось экспортировать пресет", parent=self.window())
 
             except Exception as e:
                 log(f"Ошибка экспорта пресета: {e}", "ERROR")
-                QMessageBox.critical(self, "Ошибка", f"Ошибка: {e}")
+                InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
 
     def _on_preset_switched_callback(self, name: str):
         """Колбэк при переключении пресета (из PresetManager)"""
@@ -2004,4 +1399,4 @@ class PresetsPage(BasePage):
             open_telegram_link("nozapretinrussia_bot")
         except Exception as e:
             log(f"Ошибка открытия Telegram: {e}", "ERROR")
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть Telegram: {e}", parent=self.window())

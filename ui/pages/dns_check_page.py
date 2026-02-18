@@ -2,16 +2,32 @@
 """Страница проверки DNS подмены провайдером."""
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, 
-    QProgressBar, QFrame, QWidget
+    QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame, QWidget
 )
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QTimer, QEvent
 from PyQt6.QtGui import QFont, QTextCursor
 
 from .base_page import BasePage, ScrollBlockingTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 from ui.theme_semantic import get_semantic_palette
+
+try:
+    from qfluentwidgets import ProgressBar, IndeterminateProgressBar, InfoBar
+    _HAS_FLUENT_PROGRESS = True
+except ImportError:
+    from PyQt6.QtWidgets import QProgressBar as ProgressBar  # type: ignore[assignment]
+    from PyQt6.QtWidgets import QProgressBar as IndeterminateProgressBar  # type: ignore[assignment]
+    InfoBar = None
+    _HAS_FLUENT_PROGRESS = False
+
+try:
+    from qfluentwidgets import StrongBodyLabel, BodyLabel, CaptionLabel
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    StrongBodyLabel = QLabel; BodyLabel = QLabel; CaptionLabel = QLabel
+    _HAS_FLUENT_LABELS = False
 
 
 class DNSCheckWorker(QObject):
@@ -80,8 +96,8 @@ class DNSCheckPage(BasePage):
             except:
                 pass
             
-            text_label = QLabel(text)
-            text_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+            text_label = BodyLabel(text)
+            text_label.setStyleSheet(f"color: {tokens.fg_muted};")
             self._info_text_labels.append(text_label)
             row.addWidget(text_label, 1)
             
@@ -117,27 +133,12 @@ class DNSCheckPage(BasePage):
         control_card.add_layout(buttons_layout)
         
         # Прогресс бар
-        self.progress_bar = QProgressBar()
+        self.progress_bar = IndeterminateProgressBar(self)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(6)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet(
-            f"""
-            QProgressBar {{
-                background-color: {tokens.surface_bg_hover};
-                border: none;
-                border-radius: 3px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {tokens.accent_hex};
-                border-radius: 3px;
-            }}
-            """
-        )
         control_card.add_widget(self.progress_bar)
         
         # Статус
-        self.status_label = QLabel("Готово к проверке")
+        self.status_label = CaptionLabel("Готово к проверке")
         self._set_status("Готово к проверке", tone="muted", bold=False)
         control_card.add_widget(self.status_label)
         
@@ -179,10 +180,9 @@ class DNSCheckPage(BasePage):
             "error": semantic.error,
         }
         color = tone_map.get(tone, tokens.fg_muted)
-        weight = "600" if bold else "500"
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
-            f"color: {color}; font-size: 12px; font-weight: {weight}; padding: 4px 0;"
+            f"color: {color}; padding: 4px 0;"
         )
         self._status_tone = tone
         self._status_bold = bold
@@ -195,7 +195,7 @@ class DNSCheckPage(BasePage):
             tokens = get_theme_tokens()
             for label in list(self._info_text_labels):
                 try:
-                    label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+                    label.setStyleSheet(f"color: {tokens.fg_muted};")
                 except Exception:
                     pass
 
@@ -208,23 +208,6 @@ class DNSCheckPage(BasePage):
                         icon_label.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(16, 16))
                     except Exception:
                         pass
-            except Exception:
-                pass
-
-            try:
-                self.progress_bar.setStyleSheet(
-                    f"""
-                    QProgressBar {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: none;
-                        border-radius: 3px;
-                    }}
-                    QProgressBar::chunk {{
-                        background-color: {tokens.accent_hex};
-                        border-radius: 3px;
-                    }}
-                    """
-                )
             except Exception:
                 pass
 
@@ -282,7 +265,8 @@ class DNSCheckPage(BasePage):
         
         # Показываем прогресс
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Неопределённый прогресс
+        if _HAS_FLUENT_PROGRESS:
+            self.progress_bar.start()
         self._set_status("🔄 Выполняется проверка DNS...", tone="accent", bold=False)
         
         # Создаём поток и worker
@@ -336,6 +320,8 @@ class DNSCheckPage(BasePage):
         self.check_button.setEnabled(True)
         self.quick_check_button.setEnabled(True)
         self.save_button.setEnabled(True)
+        if _HAS_FLUENT_PROGRESS:
+            self.progress_bar.stop()
         self.progress_bar.setVisible(False)
         
         # Обновляем статус
@@ -390,7 +376,7 @@ class DNSCheckPage(BasePage):
     
     def save_results(self):
         """Сохраняет результаты в файл."""
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PyQt6.QtWidgets import QFileDialog
         from datetime import datetime
         import os
         
@@ -414,21 +400,15 @@ class DNSCheckPage(BasePage):
                     f.write("=" * 60 + "\n\n")
                     f.write(plain_text)
                 
-                QMessageBox.information(
-                    self,
-                    "Сохранено",
-                    f"Результаты сохранены в:\n{file_path}"
-                )
-                
+                if InfoBar:
+                    InfoBar.success(title="Сохранено", content=f"Результаты сохранены в:\n{file_path}", parent=self.window())
+
                 # Открываем папку с файлом
                 os.startfile(os.path.dirname(file_path))
-                
+
             except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Ошибка",
-                    f"Не удалось сохранить файл:\n{str(e)}"
-                )
+                if InfoBar:
+                    InfoBar.error(title="Ошибка", content=f"Не удалось сохранить файл:\n{str(e)}", parent=self.window())
     
     def cleanup(self):
         """Очистка потоков при закрытии"""

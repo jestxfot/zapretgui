@@ -3,8 +3,13 @@
 from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
-from PyQt6.QtWidgets import QMessageBox, QApplication
+from PyQt6.QtWidgets import QApplication
 from log import log
+
+try:
+    from qfluentwidgets import InfoBar
+except ImportError:
+    InfoBar = None
 
 
 class SubscriptionManager:
@@ -221,16 +226,13 @@ class SubscriptionManager:
                     "Премиум темы теперь доступны!"
                 )
             
-            QMessageBox.information(
-                self.app,
-                "Подписка активирована",
-                "Ваша Premium подписка успешно активирована!\n\n"
-                "Теперь вам доступны:\n"
-                "• Эксклюзивные темы оформления\n"
-                "• Приоритетная поддержка\n"
-                "• Ранний доступ к новым функциям\n\n"
-                "Спасибо за поддержку проекта!"
-            )
+            if InfoBar:
+                InfoBar.success(
+                    title="Подписка активирована",
+                    content="Ваша Premium подписка успешно активирована! Теперь доступны эксклюзивные темы оформления, приоритетная поддержка и ранний доступ к новым функциям.",
+                    parent=self.app,
+                    duration=6000
+                )
             
         elif not is_premium and was_premium:
             # Подписка истекла
@@ -245,22 +247,14 @@ class SubscriptionManager:
             self._show_subscription_expired_dialog()
 
     def _show_subscription_expired_dialog(self):
-        """Показывает диалог истечения подписки"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle("Подписка истекла")
-        msg.setText("Ваша Premium подписка истекла")
-        msg.setInformativeText(
-            "Премиум функции больше недоступны.\n\n"
-            "Чтобы продолжить использовать эксклюзивные темы "
-            "и другие преимущества, пожалуйста, продлите подписку."
-        )
-        
-        msg.addButton("Продлить подписку", QMessageBox.ButtonRole.AcceptRole)
-        msg.addButton("Позже", QMessageBox.ButtonRole.RejectRole)
-        
-        if msg.exec() == 0:  # Кнопка "Продлить подписку"
-            self.app.show_subscription_dialog()
+        """Показывает уведомление истечения подписки"""
+        if InfoBar:
+            InfoBar.warning(
+                title="Подписка истекла",
+                content="Ваша Premium подписка истекла. Премиум функции больше недоступны. Продлите подписку для доступа к эксклюзивным темам.",
+                parent=self.app,
+                duration=6000
+            )
 
     def _update_subscription_ui_elements(self):
         """Обновляет UI элементы, зависящие от подписки"""

@@ -7,14 +7,27 @@
 from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-    QPushButton, QLineEdit, QSpinBox, QFrame, QMessageBox, QApplication,
-    QComboBox
+    QFrame,
+    QLineEdit, QSpinBox, QComboBox
 )
 import qtawesome as qta
 
+try:
+    from qfluentwidgets import ComboBox, SpinBox, LineEdit, MessageBox, InfoBar, InfoBarPosition, CaptionLabel, BodyLabel
+    _HAS_FLUENT = True
+except ImportError:
+    ComboBox = QComboBox
+    SpinBox = QSpinBox
+    LineEdit = QLineEdit
+    MessageBox = None
+    InfoBar = None
+    InfoBarPosition = None
+    CaptionLabel = QLabel
+    BodyLabel = QLabel
+    _HAS_FLUENT = False
+
 from .base_page import BasePage
-from ui.sidebar import SettingsCard
-from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton, set_tooltip
 from ui.theme import get_theme_tokens, get_card_gradient_qss, get_card_disabled_gradient_qss
 from log import log
 from orchestra.blocked_strategies_manager import ASKEY_ALL
@@ -55,7 +68,7 @@ class BlockedDomainRow(QFrame):
         if is_default:
             lock_icon = QLabel()
             self._lock_icon_label = lock_icon
-            lock_icon.setToolTip("Системная блокировка (нельзя изменить)")
+            set_tooltip(lock_icon, "Системная блокировка (нельзя изменить)")
             lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)
 
@@ -78,7 +91,7 @@ class BlockedDomainRow(QFrame):
             layout.addWidget(strat_label)
         else:
             # Для пользовательских - редактируемый SpinBox
-            self.strat_spin = QSpinBox()
+            self.strat_spin = SpinBox()
             self.strat_spin.setRange(1, 999)
             self.strat_spin.setValue(strategy)
             self.strat_spin.setFixedWidth(70)
@@ -86,48 +99,20 @@ class BlockedDomainRow(QFrame):
             layout.addWidget(self.strat_spin)
 
             # Кнопка добавления ещё одной блокировки для этого домена
-            add_btn = QPushButton()
+            add_btn = ActionButton("")
             self._add_btn = add_btn
             add_btn.setIconSize(QSize(14, 14))
             add_btn.setFixedSize(24, 24)
-            add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            add_btn.setToolTip("Добавить ещё одну заблокированную стратегию для этого домена")
-            add_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 107, 107, 0.2);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255, 107, 107, 0.3);
-                }
-            """)
+            set_tooltip(add_btn, "Добавить ещё одну заблокированную стратегию для этого домена")
             add_btn.clicked.connect(self._on_add_clicked)
             layout.addWidget(add_btn)
 
             # Кнопка удаления (разблокировать)
-            delete_btn = QPushButton()
+            delete_btn = ActionButton("")
             self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
-            delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            delete_btn.setToolTip("Разблокировать")
-            delete_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(76, 175, 80, 0.2);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(76, 175, 80, 0.3);
-                }
-            """)
+            set_tooltip(delete_btn, "Разблокировать")
             delete_btn.clicked.connect(self._on_delete_clicked)
             layout.addWidget(delete_btn)
 
@@ -215,32 +200,6 @@ class BlockedDomainRow(QFrame):
                     f"color: {tokens.fg_muted}; font-size: 13px; border: none; background: transparent;"
                 )
 
-            if (not self.is_default) and hasattr(self, "strat_spin") and self.strat_spin is not None:
-                self.strat_spin.setStyleSheet(
-                    f"""
-                    QSpinBox {{
-                        background-color: {tokens.surface_bg_hover};
-                        color: #ff6b6b;
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 4px 8px;
-                        font-size: 13px;
-                        font-weight: 600;
-                    }}
-                    QSpinBox:hover {{
-                        background-color: {tokens.surface_bg_pressed};
-                        border: 1px solid rgba(255, 107, 107, 0.30);
-                    }}
-                    QSpinBox:focus {{
-                        border: 1px solid #ff6b6b;
-                    }}
-                    QSpinBox::up-button, QSpinBox::down-button {{
-                        width: 0px;
-                        border: none;
-                    }}
-                    """
-                )
-
             if self._add_btn is not None:
                 self._add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
             if self._delete_btn is not None:
@@ -301,47 +260,31 @@ class OrchestraBlockedPage(BasePage):
         add_layout.setSpacing(8)
 
         # Домен
-        self.domain_input = QLineEdit()
+        self.domain_input = LineEdit()
         self.domain_input.setPlaceholderText("example.com")
         # Styled in _apply_theme()
         add_layout.addWidget(self.domain_input, 1)
 
         # Протокол (askey)
-        self.proto_combo = QComboBox()
+        self.proto_combo = ComboBox()
         self.proto_combo.addItems([askey.upper() for askey in ASKEY_ALL])
         self.proto_combo.setFixedWidth(90)
-        # Styled in _apply_theme()
         add_layout.addWidget(self.proto_combo)
 
         # Стратегия
-        self.strat_spin = QSpinBox()
+        self.strat_spin = SpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(1)
         self.strat_spin.setFixedWidth(70)
-        # Styled in _apply_theme()
         add_layout.addWidget(self.strat_spin)
 
         # Кнопка добавления
-        self.block_btn = QPushButton()
+        self.block_btn = ActionButton("")
         # Icon styled in _apply_theme()
         self.block_btn.setIconSize(QSize(18, 18))
         self.block_btn.setFixedSize(36, 36)
-        self.block_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.block_btn.setToolTip("Заблокировать стратегию")
+        set_tooltip(self.block_btn, "Заблокировать стратегию")
         self.block_btn.clicked.connect(self._block_strategy)
-        self.block_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 107, 107, 0.2);
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 107, 107, 0.3);
-            }
-            QPushButton:pressed {
-                background-color: rgba(255, 107, 107, 0.4);
-            }
-        """)
         add_layout.addWidget(self.block_btn)
 
         add_card.add_layout(add_layout)
@@ -357,43 +300,32 @@ class OrchestraBlockedPage(BasePage):
         top_row.setSpacing(10)
 
         # Поиск
-        self.search_input = QLineEdit()
+        self.search_input = LineEdit()
         self.search_input.setPlaceholderText("Поиск по доменам...")
         self.search_input.setClearButtonEnabled(True)
-        set_line_edit_clear_button_icon(self.search_input)
         self.search_input.textChanged.connect(self._filter_list)
         # Styled in _apply_theme()
         top_row.addWidget(self.search_input)
 
         # Кнопка обновления списка из реестра
-        self.refresh_btn = QPushButton("Обновить")
-        # Icon styled in _apply_theme()
-        self.refresh_btn.setIconSize(QSize(16, 16))
-        self.refresh_btn.setFixedHeight(32)
-        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_btn = RefreshButton()
         self.refresh_btn.clicked.connect(self._reload_from_registry)
-        # Styled in _apply_theme()
         top_row.addWidget(self.refresh_btn)
 
-        self.unblock_all_btn = QPushButton("Очистить пользовательские")
-        # Icon styled in _apply_theme()
-        self.unblock_all_btn.setIconSize(QSize(16, 16))
-        self.unblock_all_btn.setFixedHeight(32)
-        self.unblock_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.unblock_all_btn.setToolTip("Удалить все пользовательские блокировки (системные останутся)")
+        self.unblock_all_btn = ActionButton("Очистить пользовательские", "mdi.delete-sweep")
+        set_tooltip(self.unblock_all_btn, "Удалить все пользовательские блокировки (системные останутся)")
         self.unblock_all_btn.clicked.connect(self._unblock_all)
-        # Styled in _apply_theme()
         top_row.addWidget(self.unblock_all_btn)
         top_row.addStretch()
 
         list_layout.addLayout(top_row)
 
         # Счётчик на отдельной строке (чтобы влезал в таб)
-        self.count_label = QLabel()
+        self.count_label = CaptionLabel()
         list_layout.addWidget(self.count_label)
 
         # Подсказка
-        hint_label = QLabel("Измените номер стратегии и она автоматически сохранится • Системные блокировки неизменяемы")
+        hint_label = CaptionLabel("Измените номер стратегии и она автоматически сохранится • Системные блокировки неизменяемы")
         self._hint_label = hint_label
         list_layout.addWidget(hint_label)
 
@@ -440,112 +372,9 @@ class OrchestraBlockedPage(BasePage):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
-            popup_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
-
-            if hasattr(self, "domain_input") and self.domain_input is not None:
-                self.domain_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba(255, 107, 107, 0.30);
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid #ff6b6b;
-                        background-color: {tokens.surface_bg_hover};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-
-            if hasattr(self, "proto_combo") and self.proto_combo is not None:
-                selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
-                self.proto_combo.setStyleSheet(
-                    f"""
-                    QComboBox {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QComboBox:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba(255, 107, 107, 0.30);
-                    }}
-                    QComboBox:focus {{
-                        border: 1px solid #ff6b6b;
-                    }}
-                    QComboBox::drop-down {{ border: none; }}
-                    QComboBox QAbstractItemView {{
-                        background-color: {popup_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        selection-background-color: rgba(255, 107, 107, 0.25);
-                        selection-color: {selection_fg};
-                    }}
-                    """
-                )
-
-            if hasattr(self, "strat_spin") and self.strat_spin is not None:
-                self.strat_spin.setStyleSheet(
-                    f"""
-                    QSpinBox {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                    }}
-                    QSpinBox:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba(255, 107, 107, 0.30);
-                    }}
-                    QSpinBox:focus {{
-                        border: 1px solid #ff6b6b;
-                    }}
-                    QSpinBox::up-button, QSpinBox::down-button {{
-                        width: 0px;
-                        border: none;
-                    }}
-                    """
-                )
 
             if hasattr(self, "block_btn") and self.block_btn is not None:
                 self.block_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
-
-            if hasattr(self, "search_input") and self.search_input is not None:
-                set_line_edit_clear_button_icon(self.search_input)
-                self.search_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        min-width: 200px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.30);
-                    }}
-                    QLineEdit:focus {{
-                        border: 1px solid {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
 
             for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unblock_all_btn", "mdi.delete-sweep")):
                 btn = getattr(self, btn_attr, None)
@@ -553,56 +382,8 @@ class OrchestraBlockedPage(BasePage):
                     continue
                 try:
                     btn.setIcon(qta.icon(icon_name, color=tokens.fg))
-                    btn.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background-color: {tokens.surface_bg};
-                            border: 1px solid {tokens.surface_border};
-                            border-radius: 4px;
-                            color: {tokens.fg};
-                            padding: 0 16px;
-                            font-size: 12px;
-                            font-weight: 600;
-                            font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                        }}
-                        QPushButton:hover {{
-                            background-color: {tokens.surface_bg_hover};
-                            border-color: {tokens.surface_border_hover};
-                        }}
-                        QPushButton:pressed {{
-                            background-color: {tokens.surface_bg_pressed};
-                        }}
-                        """
-                    )
                 except Exception:
                     pass
-
-            if hasattr(self, "count_label") and self.count_label is not None:
-                self.count_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 11px;"
-                )
-            if self._hint_label is not None:
-                self._hint_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 10px; font-style: italic;"
-                )
-
-            # Section headers inside the list.
-            try:
-                if hasattr(self, "rows_layout") and self.rows_layout is not None:
-                    for i in range(self.rows_layout.count()):
-                        item = self.rows_layout.itemAt(i)
-                        w = item.widget() if item else None
-                        if not isinstance(w, QLabel):
-                            continue
-                        section = w.property("blockedSection")
-                        if section == "user":
-                            w.setStyleSheet("color: #ff6b6b; font-size: 11px; font-weight: 600; padding: 4px 0;")
-                        elif section == "default":
-                            w.setStyleSheet(
-                                f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;"
-                            )
-            except Exception:
-                pass
 
             try:
                 for row in list(getattr(self, "_blocked_rows", [])):
@@ -634,10 +415,7 @@ class OrchestraBlockedPage(BasePage):
 
     def _reload_from_registry(self):
         """Перезагружает данные из реестра и обновляет список"""
-        # Визуальный фидбек (без processEvents — избегаем реентрантность)
-        old_text = self.refresh_btn.text()
-        self.refresh_btn.setText("Загрузка...")
-        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.set_loading(True)
 
         def _do_reload():
             try:
@@ -650,8 +428,7 @@ class OrchestraBlockedPage(BasePage):
                     log("Список заблокированных перезагружен из реестра (direct)", "INFO")
                 self._refresh_data()
             finally:
-                self.refresh_btn.setText(old_text)
-                self.refresh_btn.setEnabled(True)
+                self.refresh_btn.set_loading(False)
 
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, _do_reload)
@@ -713,8 +490,10 @@ class OrchestraBlockedPage(BasePage):
         default_items = [x for x in all_blocked if x[3]]
 
         if user_items:
+            tokens = get_theme_tokens()
             user_header = QLabel(f"Пользовательские ({len(user_items)})")
             user_header.setProperty("blockedSection", "user")
+            user_header.setStyleSheet("color: #ff6b6b; font-size: 11px; font-weight: 600; padding: 4px 0;")
             self.rows_layout.addWidget(user_header)
 
             for hostname, strategy, askey, is_default in user_items:
@@ -730,8 +509,10 @@ class OrchestraBlockedPage(BasePage):
                 spacer.setStyleSheet("background: transparent;")
                 self.rows_layout.addWidget(spacer)
 
+            tokens = get_theme_tokens()
             default_header = QLabel(f"Системные ({len(default_items)}) - заблокированные РКН сайты")
             default_header.setProperty("blockedSection", "default")
+            default_header.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;")
             self.rows_layout.addWidget(default_header)
 
             for hostname, strategy, askey, is_default in default_items:
@@ -777,12 +558,14 @@ class OrchestraBlockedPage(BasePage):
             log(f"Разблокирована стратегия #{strategy} для {hostname} [{askey.upper()}]", "INFO")
             # Перезапускаем оркестратор чтобы применить изменения
             if runner.is_running():
-                QMessageBox.information(
-                    self,
-                    "Перезапуск оркестратора",
-                    f"Стратегия #{strategy} разблокирована для {hostname}.\n\nОркестратор будет перезапущен для применения изменений."
-                )
                 runner.restart()
+                InfoBar.success(
+                    title="Применено",
+                    content=f"Стратегия #{strategy} разблокирована для {hostname}. Оркестратор перезапускается.",
+                    isClosable=True,
+                    duration=3000,
+                    parent=self.window()
+                )
         self._refresh_data()
 
     def _prefill_domain(self, hostname: str):
@@ -845,12 +628,14 @@ class OrchestraBlockedPage(BasePage):
 
         # Перезапускаем оркестратор чтобы применить изменения
         if runner.is_running():
-            QMessageBox.information(
-                self,
-                "Перезапуск оркестратора",
-                f"Стратегия #{strategy} заблокирована для {domain}.\n\nОркестратор будет перезапущен для применения изменений."
-            )
             runner.restart()
+            InfoBar.success(
+                title="Применено",
+                content=f"Стратегия #{strategy} заблокирована для {domain}. Оркестратор перезапускается.",
+                isClosable=True,
+                duration=3000,
+                parent=self.window()
+            )
 
     def _unblock_all(self):
         """Очищает пользовательский чёрный список (системные блокировки остаются)"""
@@ -867,29 +652,31 @@ class OrchestraBlockedPage(BasePage):
                         user_count += 1
 
         if user_count == 0:
-            QMessageBox.information(
-                self,
-                "Информация",
-                "Нет пользовательских блокировок для удаления.\n\nСистемные блокировки (для заблокированных РКН сайтов) не удаляются.",
-                QMessageBox.StandardButton.Ok
+            InfoBar.info(
+                title="Информация",
+                content="Нет пользовательских блокировок для удаления. Системные блокировки не удаляются.",
+                isClosable=True,
+                duration=4000,
+                parent=self.window()
             )
             return
 
-        reply = QMessageBox.question(
-            self,
+        box = MessageBox(
             "Подтверждение",
             f"Очистить пользовательский чёрный список ({user_count} записей)?\n\nСистемные блокировки останутся.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            self.window()
         )
-        if reply == QMessageBox.StandardButton.Yes:
+        if box.exec():
             runner.blocked_manager.clear()
             log(f"Очищен пользовательский чёрный список ({user_count} записей)", "INFO")
             self._refresh_data()
             # Перезапускаем оркестратор чтобы применить изменения
             if runner.is_running():
-                QMessageBox.information(
-                    self,
-                    "Перезапуск оркестратора",
-                    "Чёрный список очищен.\n\nОркестратор будет перезапущен для применения изменений."
-                )
                 runner.restart()
+                InfoBar.success(
+                    title="Применено",
+                    content="Чёрный список очищен. Оркестратор перезапускается.",
+                    isClosable=True,
+                    duration=3000,
+                    parent=self.window()
+                )

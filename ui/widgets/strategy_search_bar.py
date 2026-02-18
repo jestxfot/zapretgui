@@ -19,10 +19,18 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QSize
 from PyQt6.QtCore import QEvent
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QAction
 
-from ui.widgets.line_edit_icons import set_line_edit_clear_button_icon
+try:
+    from qfluentwidgets import ComboBox, SearchLineEdit
+    _HAS_FLUENT = True
+except ImportError:
+    ComboBox = QComboBox
+    SearchLineEdit = QLineEdit
+    _HAS_FLUENT = False
+
 from ui.theme import get_theme_tokens, get_cached_qta_pixmap
+from ui.compat_widgets import set_tooltip
 
 from strategy_menu.filter_engine import SearchQuery
 from config.reg import reg
@@ -112,15 +120,24 @@ class StrategySearchBar(QWidget):
         """
         Configure QComboBox dropdown to show all items without scrollbar.
 
-        This method sets up a custom QListView with fixed height to ensure
+        For native QComboBox: sets up a custom QListView with fixed height to ensure
         all items are visible and no scrollbar appears. Must be called AFTER
         adding all items to the combo box.
 
+        For qfluentwidgets ComboBox: only setMaxVisibleItems is called since the
+        fluent popup does not expose setView().
+
         Args:
-            combo: QComboBox to configure
+            combo: QComboBox (or ComboBox) to configure
             item_count: Number of items in the combo box
         """
-        # Create custom list view for dropdown
+        combo.setMaxVisibleItems(item_count)
+
+        # qfluentwidgets ComboBox has no setView(); skip custom list view.
+        if _HAS_FLUENT and isinstance(combo, ComboBox):
+            return
+
+        # Create custom list view for dropdown (native QComboBox only)
         list_view = QListView()
         list_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -146,7 +163,6 @@ class StrategySearchBar(QWidget):
 
         # Set the custom view
         combo.setView(list_view)
-        combo.setMaxVisibleItems(item_count)
 
     def _apply_combo_popup_style(self, view: QListView) -> None:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
@@ -223,14 +239,16 @@ class StrategySearchBar(QWidget):
         except Exception:
             pass
 
-        # Refresh combo popup view styling
-        for combo in (self._label_combo, self._desync_combo, self._sort_combo):
-            try:
-                view = combo.view()
-                if isinstance(view, QListView):
-                    self._apply_combo_popup_style(view)
-            except Exception:
-                pass
+        # Refresh combo popup view styling (native QComboBox only; fluent ComboBox
+        # manages its own popup theming and does not expose a QListView view).
+        if not _HAS_FLUENT:
+            for combo in (self._label_combo, self._desync_combo, self._sort_combo):
+                try:
+                    view = combo.view()
+                    if isinstance(view, QListView):
+                        self._apply_combo_popup_style(view)
+                except Exception:
+                    pass
 
     def _build_qss(self) -> str:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
@@ -246,7 +264,9 @@ class StrategySearchBar(QWidget):
         clear_btn_border = tokens.surface_border
         clear_btn_border_hover = tokens.surface_border_hover
 
-        return f"""
+        # qfluentwidgets SearchLineEdit and ComboBox handle their own theming;
+        # only emit QSS for native fallback widgets.
+        search_input_qss = "" if _HAS_FLUENT else f"""
             /* Search Input */
             QLineEdit {{
                 background: {tokens.surface_bg};
@@ -279,7 +299,9 @@ class StrategySearchBar(QWidget):
                 background: {toolbtn_hover};
                 border-radius: 4px;
             }}
+        """
 
+        combo_qss = "" if _HAS_FLUENT else f"""
             /* ComboBox */
             QComboBox {{
                 background: {tokens.surface_bg};
@@ -321,6 +343,11 @@ class StrategySearchBar(QWidget):
             QComboBox::down-arrow:on {{
                 border-top-color: {tokens.accent_hex};
             }}
+        """
+
+        return f"""
+            {search_input_qss}
+            {combo_qss}
 
             /* Clear Button */
             QPushButton {{
@@ -404,19 +431,24 @@ class StrategySearchBar(QWidget):
         row1.setSpacing(12)
 
         # Search input with modern styling
-        self._search_input = QLineEdit()
+        self._search_input = SearchLineEdit()
         self._search_input.setPlaceholderText("Поиск по названию, описанию, аргументам...")
         self._search_input.setClearButtonEnabled(True)
-        set_line_edit_clear_button_icon(self._search_input)
         self._search_input.setMinimumWidth(280)
-        self._search_input.setFixedHeight(36)
-        self._search_input.setToolTip("Введите текст для поиска стратегий")
+        set_tooltip(self._search_input, "Введите текст для поиска стратегий")
 
-        # Add search icon (theme-aware)
+        # Add search icon (theme-aware).
+        # qfluentwidgets SearchLineEdit.addAction() requires a QAction (not a bare QIcon),
+        # because it overrides QLineEdit.addAction with its own implementation.
         search_pixmap = get_cached_qta_pixmap("fa5s.search", color=self._get_icon_color(muted=True), size=16)
-        self._search_action = self._search_input.addAction(
-            QIcon(search_pixmap), QLineEdit.ActionPosition.LeadingPosition
-        )
+        if _HAS_FLUENT:
+            # Build a QAction and pass it; SearchLineEdit wraps it in a LineEditButton.
+            self._search_action = QAction(QIcon(search_pixmap), "", self)
+            self._search_input.addAction(self._search_action, QLineEdit.ActionPosition.LeadingPosition)
+        else:
+            self._search_action = self._search_input.addAction(
+                QIcon(search_pixmap), QLineEdit.ActionPosition.LeadingPosition
+            )
 
         # Debounce timer for search
         self._search_timer = QTimer()
@@ -430,7 +462,7 @@ class StrategySearchBar(QWidget):
         self._clear_btn.setIconSize(QSize(14, 14))
         self._clear_btn.setFixedSize(32, 32)
         self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._clear_btn.setToolTip("Сбросить все фильтры")
+        set_tooltip(self._clear_btn, "Сбросить все фильтры")
         self._clear_btn.setVisible(False)
 
         # Result count label
@@ -448,38 +480,35 @@ class StrategySearchBar(QWidget):
         row2.setSpacing(12)
 
         # Label filter combo with icon (5 items)
-        self._label_combo = QComboBox()
-        self._label_combo.setFixedHeight(36)
+        self._label_combo = ComboBox()
         self._label_combo.setMinimumWidth(110)
         self._label_combo.setMaximumWidth(140)
-        self._label_combo.setToolTip("Фильтр по типу стратегии")
+        set_tooltip(self._label_combo, "Фильтр по типу стратегии")
         for display_text, icon_name, value in self.LABEL_OPTIONS:
             pixmap = get_cached_qta_pixmap(icon_name, color=self._get_icon_color(muted=True), size=16)
-            self._label_combo.addItem(QIcon(pixmap), display_text, value)
+            self._label_combo.addItem(display_text, QIcon(pixmap), value)
         # Configure dropdown to show all 5 items without scrollbar
         self._configure_combo_no_scrollbar(self._label_combo, len(self.LABEL_OPTIONS))
 
         # Desync technique filter combo (7 items)
-        self._desync_combo = QComboBox()
-        self._desync_combo.setFixedHeight(36)
+        self._desync_combo = ComboBox()
         self._desync_combo.setMinimumWidth(90)
         self._desync_combo.setMaximumWidth(120)
-        self._desync_combo.setToolTip("Фильтр по технике обхода DPI")
+        set_tooltip(self._desync_combo, "Фильтр по технике обхода DPI")
         for display_text, icon_name, value in self.DESYNC_OPTIONS:
             pixmap = get_cached_qta_pixmap(icon_name, color=self._get_icon_color(muted=True), size=16)
-            self._desync_combo.addItem(QIcon(pixmap), display_text, value)
+            self._desync_combo.addItem(display_text, QIcon(pixmap), value)
         # Configure dropdown to show all 7 items without scrollbar
         self._configure_combo_no_scrollbar(self._desync_combo, len(self.DESYNC_OPTIONS))
 
         # Sort combo with icon (4 items)
-        self._sort_combo = QComboBox()
-        self._sort_combo.setFixedHeight(36)
+        self._sort_combo = ComboBox()
         self._sort_combo.setMinimumWidth(170)
         self._sort_combo.setMaximumWidth(200)
-        self._sort_combo.setToolTip("Сортировка списка стратегий")
+        set_tooltip(self._sort_combo, "Сортировка списка стратегий")
         for display_text, icon_name, value in self.SORT_OPTIONS:
             pixmap = get_cached_qta_pixmap(icon_name, color=self._get_icon_color(muted=True), size=16)
-            self._sort_combo.addItem(QIcon(pixmap), display_text, value)
+            self._sort_combo.addItem(display_text, QIcon(pixmap), value)
         # Configure dropdown to show all 4 items without scrollbar
         self._configure_combo_no_scrollbar(self._sort_combo, len(self.SORT_OPTIONS))
 

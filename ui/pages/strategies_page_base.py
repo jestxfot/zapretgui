@@ -1,11 +1,29 @@
 # ui/pages/strategies_page_base.py
 """Базовый класс для страниц стратегий - общие методы и helper классы"""
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QFileSystemWatcher, QThread
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QThread
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QFrame, QScrollArea, QPushButton,
-                             QSizePolicy, QMessageBox, QApplication,
+                             QSizePolicy, QApplication,
                              QButtonGroup, QStackedWidget, QPlainTextEdit)
+
+try:
+    from qfluentwidgets import (
+        SmoothScrollArea as _SmoothScrollArea, InfoBar,
+        PushButton as _FluentPushButton,
+        TitleLabel, SubtitleLabel, BodyLabel, CaptionLabel, StrongBodyLabel,
+    )
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    _SmoothScrollArea = QScrollArea
+    _FluentPushButton = QPushButton  # type: ignore[assignment,misc]
+    InfoBar = None
+    TitleLabel = QLabel  # type: ignore[assignment,misc]
+    SubtitleLabel = QLabel  # type: ignore[assignment,misc]
+    BodyLabel = QLabel  # type: ignore[assignment,misc]
+    CaptionLabel = QLabel  # type: ignore[assignment,misc]
+    StrongBodyLabel = QLabel  # type: ignore[assignment,misc]
+    _HAS_FLUENT_LABELS = False
 from PyQt6.QtGui import QPainter, QColor, QPen
 import qtawesome as qta
 import os
@@ -13,7 +31,7 @@ import os
 from typing import List
 
 from .base_page import BasePage, ScrollBlockingTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.widgets import StrategySearchBar
 from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
 from PyQt6.QtGui import QTextOption
@@ -25,8 +43,8 @@ from ui.theme import get_theme_tokens, to_qcolor
 from ui.theme_semantic import get_semantic_palette
 
 
-class ScrollBlockingScrollArea(QScrollArea):
-    """QScrollArea который не пропускает прокрутку к родителю"""
+class ScrollBlockingScrollArea(_SmoothScrollArea):
+    """SmoothScrollArea (Fluent) который не пропускает прокрутку к родителю"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -160,164 +178,28 @@ class StatusIndicator(QWidget):
         self.stack.setCurrentWidget(self.check_icon)
 
 
-class ResetActionButton(QPushButton):
-    """Кнопка сброса с двойным подтверждением и анимацией"""
+class ResetActionButton(_FluentPushButton):
+    """Кнопка с подтверждением через MessageBox — WinUI стиль."""
 
     reset_confirmed = pyqtSignal()
 
     def __init__(self, text: str = "Сбросить", confirm_text: str = "Подтвердить?", parent=None):
-        super().__init__(text, parent)
+        super().__init__(parent)
         self._default_text = text
         self._confirm_text = confirm_text
-        self._pending = False
-        self._hovered = False
-        self._icon_offset = 0.0
-        self._applying_theme_styles = False
-        self._handling_theme_change = False
-        self._theme_refresh_scheduled = False
-        self._current_qss = ""
-        self.setProperty("uiRole", "resetActionButton")
-        self.setProperty("confirmPending", False)
-
-        # Иконка
-        self._update_icon()
-        self.setIconSize(QSize(16, 16))
+        self.setText(text)
         self.setFixedHeight(32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clicked.connect(self._on_clicked)
 
-        # Таймер сброса состояния
-        self._reset_timer = QTimer(self)
-        self._reset_timer.setSingleShot(True)
-        self._reset_timer.timeout.connect(self._reset_state)
-
-        # Анимация иконки (качание)
-        self._shake_timer = QTimer(self)
-        self._shake_timer.timeout.connect(self._animate_shake)
-        self._shake_step = 0
-
-        self._update_style()
-
-    def _update_icon(self, rotation: int = 0):
-        """Обновляет иконку с опциональным углом поворота"""
-        tokens = get_theme_tokens()
-        semantic = get_semantic_palette(tokens.theme_name)
-        if self._pending:
-            color = semantic.success
-        else:
-            color = tokens.fg
-        icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.broom'
-        if rotation != 0:
-            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
-        else:
-            self.setIcon(qta.icon(icon_name, color=color))
-
-    def _update_style(self):
-        """Обновляет динамические свойства; стиль задаётся глобально в ui/theme.py"""
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
+    def _on_clicked(self):
         try:
-            self._update_icon()
-            self.setProperty("confirmPending", bool(self._pending))
-            if self.styleSheet():
-                self.setStyleSheet("")
-            try:
-                style = self.style()
-                if style is not None:
-                    style.unpolish(self)
-                    style.polish(self)
-            except Exception:
-                pass
-            self.update()
-        finally:
-            self._applying_theme_styles = False
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles or self._handling_theme_change:
-                    return super().changeEvent(event)
-                if not self._theme_refresh_scheduled:
-                    self._theme_refresh_scheduled = True
-                    QTimer.singleShot(0, self._on_debounced_theme_change)
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        if self._applying_theme_styles or self._handling_theme_change:
-            return
-        self._handling_theme_change = True
-        try:
-            self._update_icon()
-            self._update_style()
-        finally:
-            self._handling_theme_change = False
-
-    def _animate_shake(self):
-        """Анимация качания иконки"""
-        self._shake_step += 1
-        if self._shake_step > 8:
-            self._shake_timer.stop()
-            self._shake_step = 0
-            self._update_icon(0)  # Возвращаем в нормальное положение
-            return
-
-        # Качаем иконку влево-вправо (углы поворота)
-        rotations = [0, -15, 15, -12, 12, -8, 8, -4, 0]
-        rotation = rotations[min(self._shake_step, len(rotations) - 1)]
-
-        # Обновляем иконку с поворотом
-        self._update_icon(rotation)
-
-    def _start_shake_animation(self):
-        """Запускает анимацию качания"""
-        self._shake_step = 0
-        self._shake_timer.start(50)
-
-    def _reset_state(self):
-        """Сбрасывает состояние кнопки"""
-        self._pending = False
-        self.setText(self._default_text)
-        self._update_icon()
-        self._update_style()
-        self._shake_timer.stop()
-
-    def mousePressEvent(self, event):
-        """Обработка клика"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self._pending:
-                # Второй клик - подтверждение
-                self._reset_timer.stop()
-                self._pending = False
-                self.setText("Готово")
-                self._update_icon()
-                self._update_style()
+            from qfluentwidgets import MessageBox
+            box = MessageBox(self._default_text, self._confirm_text, self.window())
+            if box.exec():
                 self.reset_confirmed.emit()
-                # Вернуть исходное состояние через 1.5 сек
-                QTimer.singleShot(1500, self._reset_state)
-            else:
-                # Первый клик - переход в режим подтверждения
-                self._pending = True
-                self.setText(self._confirm_text)
-                self._update_icon()
-                self._update_style()
-                self._start_shake_animation()
-                # Сбросить через 3 секунды если не подтверждено
-                self._reset_timer.start(3000)
-        super().mousePressEvent(event)
-
-    def enterEvent(self, event):
-        self._hovered = True
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hovered = False
-        super().leaveEvent(event)
+        except Exception:
+            self.reset_confirmed.emit()
 
 
 class StrategiesPageBase(QWidget):
@@ -375,11 +257,11 @@ class StrategiesPageBase(QWidget):
         self.main_layout.setSpacing(12)
 
         # Заголовок страницы (фиксированный, не прокручивается)
-        self.title_label = QLabel("Выбор активных стратегий (и их настройка) Zapret 2")
+        self.title_label = TitleLabel("Выбор активных стратегий (и их настройка) Zapret 2")
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
-        self.subtitle_label = QLabel("Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) можно выбрать свою стратегию для обхода блокировок. Список всех статегий для каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). Некоторые типы дурения (например send или syndata) можно настроить более точечно чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ.")
+        self.subtitle_label = BodyLabel("Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) можно выбрать свою стратегию для обхода блокировок. Список всех статегий для каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). Некоторые типы дурения (например send или syndata) можно настроить более точечно чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ.")
         self.subtitle_label.setWordWrap(True)
         self.main_layout.addWidget(self.subtitle_label)
 
@@ -392,7 +274,7 @@ class StrategiesPageBase(QWidget):
         self.status_indicator = StatusIndicator()
         current_layout.addWidget(self.status_indicator)
 
-        current_prefix = QLabel("Текущая:")
+        current_prefix = BodyLabel("Текущая:")
         self._current_prefix_label = current_prefix
         current_layout.addWidget(current_prefix)
 
@@ -412,7 +294,7 @@ class StrategiesPageBase(QWidget):
         # current_widget будет вставлен в content_layout при загрузке контента
 
         # Текстовый лейбл (для fallback и BAT режима)
-        self.current_strategy_label = QLabel("Не выбрана")
+        self.current_strategy_label = BodyLabel("Не выбрана")
         current_layout.addWidget(self.current_strategy_label)
 
         current_layout.addStretch()
@@ -435,7 +317,7 @@ class StrategiesPageBase(QWidget):
         # current_widget не добавляется сюда, будет вставлен в content_layout
 
         # Прокручиваемая область для всего контента
-        self.scroll_area = QScrollArea()
+        self.scroll_area = ScrollBlockingScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -493,23 +375,7 @@ class StrategiesPageBase(QWidget):
         try:
             tokens = get_theme_tokens()
 
-            if hasattr(self, "title_label"):
-                self.title_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 28px; font-weight: 600; font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; padding-bottom: 4px;"
-                )
-            if hasattr(self, "subtitle_label"):
-                self.subtitle_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 13px; padding-bottom: 8px;"
-                )
-            if hasattr(self, "_current_prefix_label"):
-                self._current_prefix_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 14px;"
-                )
-            if hasattr(self, "current_strategy_label"):
-                self.current_strategy_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 14px; font-weight: 500;"
-                )
-            if hasattr(self, "loading_label"):
+            if hasattr(self, "loading_label") and self.loading_label:
                 self.loading_label.setStyleSheet(
                     f"color: {tokens.fg_muted}; font-size: 13px;"
                 )
@@ -532,23 +398,7 @@ class StrategiesPageBase(QWidget):
 
             if hasattr(self, "scroll_area"):
                 self.scroll_area.setStyleSheet(
-                    f"""
-                    QScrollArea {{ background: transparent; border: none; }}
-                    QScrollBar:vertical {{
-                        background: transparent;
-                        width: 8px;
-                        border-radius: 4px;
-                    }}
-                    QScrollBar::handle:vertical {{
-                        background: {tokens.divider_strong};
-                        border-radius: 4px;
-                        min-height: 30px;
-                    }}
-                    QScrollBar::handle:vertical:hover {{
-                        background: {tokens.fg_muted};
-                    }}
-                    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-                    """
+                    "QScrollArea { background: transparent; border: none; }"
                 )
         finally:
             self._applying_theme_styles = False
@@ -558,13 +408,7 @@ class StrategiesPageBase(QWidget):
         super().showEvent(event)
         if not self._initialized:
             self._initialized = True
-            # Загружаем контент сразу, без задержки
             QTimer.singleShot(0, self._load_content)
-            # После загрузки синхронизируем с StrategySortPage
-            QTimer.singleShot(100, self._sync_filters_from_sort_page)
-        else:
-            # Страница уже инициализирована - просто синхронизируем фильтры
-            self._sync_filters_from_sort_page()
 
     def _clear_content(self):
         """Очищает контент"""
@@ -575,10 +419,13 @@ class StrategiesPageBase(QWidget):
         except Exception as e:
             log(f"Ошибка остановки loader-потоков вкладок: {e}", "DEBUG")
 
-        # Сохраняем current_widget (не удаляем при очистке)
+        # Сохраняем current_widget (не удаляем при очистке).
+        # ВАЖНО: не вызывать setParent(None) — это делает виджет top-level окном и он
+        # появляется как отдельный попап. Просто скрываем и убираем из лейаута;
+        # при следующей загрузке _load_*_mode добавит его обратно через addWidget.
         if hasattr(self, 'current_widget') and self.current_widget:
             self.content_layout.removeWidget(self.current_widget)
-            self.current_widget.setParent(None)
+            self.current_widget.hide()
 
         # Удаляем все виджеты из content_layout
         while self.content_layout.count():
@@ -683,13 +530,12 @@ class StrategiesPageBase(QWidget):
 
         # Показываем уведомление пользователю
         try:
-            QMessageBox.warning(
-                self,
-                "Долгий запуск",
-                "Процесс запускается дольше обычного.\n\n"
-                "Проверьте логи и статус процесса.\n"
-                "Возможно потребуется перезапуск."
-            )
+            if InfoBar:
+                InfoBar.warning(
+                    title="Долгий запуск",
+                    content="Процесс запускается дольше обычного.\n\nПроверьте логи и статус процесса.\nВозможно потребуется перезапуск.",
+                    parent=self.window(),
+                )
         except:
             pass
 
@@ -815,32 +661,6 @@ class StrategiesPageBase(QWidget):
     def _apply_external_sort_async(self):
         """Асинхронно применяет внешнюю сортировку - ПЕРЕОПРЕДЕЛЯЕТСЯ В НАСЛЕДНИКАХ"""
         pass
-
-    def _sync_filters_from_sort_page(self):
-        """Синхронизирует фильтры с StrategySortPage при показе страницы"""
-        try:
-            # Получаем ссылку на главное окно
-            parent = self.parent()
-            while parent and not hasattr(parent, 'strategy_sort_page'):
-                parent = parent.parent()
-
-            if parent and hasattr(parent, 'strategy_sort_page'):
-                sort_page = parent.strategy_sort_page
-
-                # Получаем текущие фильтры
-                query = sort_page.get_query()
-                sort_key, reverse = sort_page.get_sort_key()
-
-                # Сохраняем и применяем
-                self._external_query = query
-                self._external_sort_key = sort_key
-                self._external_sort_reverse = reverse
-
-                # Асинхронно применяем
-                QTimer.singleShot(50, self._apply_external_filters_async)
-
-        except Exception as e:
-            log(f"Ошибка синхронизации фильтров: {e}", "DEBUG")
 
     def closeEvent(self, event):
         """Очистка ресурсов при закрытии"""

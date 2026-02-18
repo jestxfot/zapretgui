@@ -12,21 +12,27 @@ from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss, to_qcolor
 from log import log
 
+try:
+    from qfluentwidgets import (
+        ComboBox, SpinBox,
+        InfoBadge, InfoLevel as _InfoLevel, StrongBodyLabel,
+        BodyLabel as _BodyLabel, CaptionLabel as _CaptionLabel,
+    )
+    _HAS_FLUENT = True
+    _HAS_INFO_BADGE = True
+except ImportError:
+    _HAS_FLUENT = False
+    _HAS_INFO_BADGE = False
+    ComboBox = QComboBox  # type: ignore[assignment,misc]
+    SpinBox = QSpinBox  # type: ignore[assignment,misc]
+    StrongBodyLabel = QLabel  # type: ignore[assignment,misc]
+    _BodyLabel = QLabel  # type: ignore[assignment,misc]
+    _CaptionLabel = QLabel  # type: ignore[assignment,misc]
 
 try:
     _LEGACY_DEFAULT_ACCENT = get_theme_tokens("Темная синяя").accent_hex.lower()
 except Exception:
     _LEGACY_DEFAULT_ACCENT = ""
-
-
-def _accent_fg_for_tokens(tokens) -> str:
-    """Chooses readable foreground color for accent-filled badges."""
-    try:
-        r, g, b = tokens.accent_rgb
-        yiq = (r * 299 + g * 587 + b * 114) / 1000
-        return "rgba(18, 18, 18, 0.90)" if yiq >= 160 else "rgba(245, 245, 245, 0.92)"
-    except Exception:
-        return "rgba(18, 18, 18, 0.90)"
 
 
 def _build_theme_refresh_key(tokens) -> tuple[str, str, str]:
@@ -156,26 +162,16 @@ class Win11ToggleRow(QWidget):
         text_layout.setSpacing(1)
         text_layout.setContentsMargins(0, 0, 0, 0)
         
-        title_label = QLabel(title)
-        try:
-            title_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
+        title_label = _BodyLabel(title)
         text_layout.addWidget(title_label)
-        
+
         if description:
-            desc_label = QLabel(description)
+            desc_label = _CaptionLabel(description)
             desc_label.setWordWrap(True)
-            try:
-                desc_label.setProperty("tone", "muted")
-            except Exception:
-                pass
-            desc_label.setStyleSheet("font-size: 11px;")
             text_layout.addWidget(desc_label)
-            
+
         layout.addLayout(text_layout, 1)
-        
+
         # Toggle
         self.toggle = Win11ToggleSwitch()
         self.toggle.toggled.connect(self.toggled.emit)
@@ -287,30 +283,25 @@ class Win11RadioOption(QWidget):
         title_layout.setSpacing(8)
         title_layout.setContentsMargins(0, 0, 0, 0)
         
-        title_label = QLabel(title)
-        try:
-            title_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        title_label = StrongBodyLabel(title)
         title_layout.addWidget(title_label)
         
         if recommended:
-            self._badge_label = QLabel("рекомендуется")
-            self._refresh_badge(initial_tokens)
+            if _HAS_INFO_BADGE:
+                self._badge_label = InfoBadge("рекомендуется", level=_InfoLevel.ATTENTION)
+            else:
+                self._badge_label = QLabel("рекомендуется")
+                self._badge_label.setStyleSheet(
+                    "QLabel { background: #0078d4; color: #fff; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; }"
+                )
             title_layout.addWidget(self._badge_label)
         
         title_layout.addStretch()
         text_layout.addLayout(title_layout)
         
         # Описание
-        desc_label = QLabel(description)
+        desc_label = _CaptionLabel(description)
         desc_label.setWordWrap(True)
-        try:
-            desc_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        desc_label.setStyleSheet("font-size: 12px; line-height: 1.3;")
         text_layout.addWidget(desc_label)
         
         layout.addLayout(text_layout, 1)
@@ -336,23 +327,6 @@ class Win11RadioOption(QWidget):
         except Exception:
             return
 
-    def _refresh_badge(self, tokens=None) -> None:
-        if self._badge_label is None:
-            return
-        theme_tokens = tokens or get_theme_tokens()
-        self._badge_label.setStyleSheet(
-            f"""
-            QLabel {{
-                color: {_accent_fg_for_tokens(theme_tokens)};
-                background-color: {theme_tokens.accent_hex};
-                font-size: 10px;
-                font-weight: 600;
-                padding: 2px 6px;
-                border-radius: 3px;
-            }}
-            """
-        )
-
     def changeEvent(self, event):  # noqa: N802 (Qt override)
         try:
             if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
@@ -367,7 +341,6 @@ class Win11RadioOption(QWidget):
                     return super().changeEvent(event)
                 self._last_theme_refresh_key = theme_key
                 self._refresh_icon(tokens)
-                self._refresh_badge(tokens)
                 self._update_style(tokens)
         except Exception:
             pass
@@ -384,7 +357,6 @@ class Win11RadioOption(QWidget):
             return
         self._last_theme_refresh_key = theme_key
         self._refresh_icon(tokens)
-        self._refresh_badge(tokens)
         self._update_style(tokens)
         
     def setSelected(self, selected: bool):
@@ -523,35 +495,28 @@ class Win11NumberRow(QWidget):
         text_layout.setSpacing(1)
         text_layout.setContentsMargins(0, 0, 0, 0)
         
-        title_label = QLabel(title)
-        try:
-            title_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
+        title_label = _BodyLabel(title)
         text_layout.addWidget(title_label)
-        
+
         if description:
-            desc_label = QLabel(description)
+            desc_label = _CaptionLabel(description)
             desc_label.setWordWrap(True)
-            try:
-                desc_label.setProperty("tone", "muted")
-            except Exception:
-                pass
-            desc_label.setStyleSheet("font-size: 11px;")
             text_layout.addWidget(desc_label)
-            
+
         layout.addLayout(text_layout, 1)
-        
-        # SpinBox
-        self.spinbox = QSpinBox()
+
+        # SpinBox (qfluentwidgets SpinBox when available, else native QSpinBox)
+        self.spinbox = SpinBox()
         self.spinbox.setMinimum(min_val)
         self.spinbox.setMaximum(max_val)
         self.spinbox.setValue(default_val)
         self.spinbox.setSuffix(suffix)
         self.spinbox.setFixedWidth(80)
-        self.spinbox.setFixedHeight(28)
-        self._apply_theme_styles(initial_tokens)
+        # Do NOT force height on qfluentwidgets SpinBox — its default 33px is correct.
+        # Forcing 28px squishes the widget and may clip text/padding.
+        if not _HAS_FLUENT:
+            self.spinbox.setFixedHeight(28)
+            self._apply_theme_styles(initial_tokens)
         self._last_theme_refresh_key = _build_theme_refresh_key(initial_tokens)
         self.spinbox.valueChanged.connect(self.valueChanged.emit)
         layout.addWidget(self.spinbox)
@@ -573,6 +538,9 @@ class Win11NumberRow(QWidget):
             return
 
     def _apply_theme_styles(self, tokens=None) -> None:
+        # qfluentwidgets SpinBox handles its own theming; skip raw stylesheet.
+        if _HAS_FLUENT:
+            return
         theme_tokens = tokens or get_theme_tokens()
         self.spinbox.setStyleSheet(
             f"""
@@ -620,7 +588,8 @@ class Win11NumberRow(QWidget):
                 try:
                     self._last_theme_refresh_key = theme_key
                     self._refresh_icon(tokens)
-                    self._apply_theme_styles(tokens)
+                    if not _HAS_FLUENT:
+                        self._apply_theme_styles(tokens)
                 finally:
                     self._applying_theme_styles = False
         except Exception:
@@ -640,10 +609,11 @@ class Win11NumberRow(QWidget):
         try:
             self._last_theme_refresh_key = theme_key
             self._refresh_icon(tokens)
-            self._apply_theme_styles(tokens)
+            if not _HAS_FLUENT:
+                self._apply_theme_styles(tokens)
         finally:
             self._applying_theme_styles = False
-        
+
     def setValue(self, value: int, block_signals: bool = False):
         if block_signals:
             self.spinbox.blockSignals(True)
@@ -687,36 +657,27 @@ class Win11ComboRow(QWidget):
         text_layout.setSpacing(1)
         text_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel(title)
-        try:
-            title_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
+        title_label = _BodyLabel(title)
         text_layout.addWidget(title_label)
 
         if description:
-            desc_label = QLabel(description)
+            desc_label = _CaptionLabel(description)
             desc_label.setWordWrap(True)
-            try:
-                desc_label.setProperty("tone", "muted")
-            except Exception:
-                pass
-            desc_label.setStyleSheet("font-size: 11px;")
             text_layout.addWidget(desc_label)
 
         layout.addLayout(text_layout, 1)
 
-        # ComboBox
-        self.combo = QComboBox()
+        # ComboBox (qfluentwidgets ComboBox when available, else native QComboBox)
+        self.combo = ComboBox()
         self.combo.setFixedWidth(160)
-        self.combo.setFixedHeight(28)
-        self._apply_theme_styles(initial_tokens)
+        if not _HAS_FLUENT:
+            self.combo.setFixedHeight(28)
+            self._apply_theme_styles(initial_tokens)
         self._last_theme_refresh_key = _build_theme_refresh_key(initial_tokens)
 
         if items:
             for text, data in items:
-                self.combo.addItem(text, data)
+                self.combo.addItem(text, userData=data)
 
         self.combo.currentIndexChanged.connect(self.currentIndexChanged.emit)
         self.combo.currentTextChanged.connect(self.currentTextChanged.emit)
@@ -739,6 +700,9 @@ class Win11ComboRow(QWidget):
             return
 
     def _apply_theme_styles(self, tokens=None) -> None:
+        # qfluentwidgets ComboBox handles its own theming; skip raw stylesheet.
+        if _HAS_FLUENT:
+            return
         theme_tokens = tokens or get_theme_tokens()
         popup_bg = theme_tokens.surface_bg_hover
         popup_fg = theme_tokens.fg
@@ -816,7 +780,8 @@ class Win11ComboRow(QWidget):
                 try:
                     self._last_theme_refresh_key = theme_key
                     self._refresh_icon(tokens)
-                    self._apply_theme_styles(tokens)
+                    if not _HAS_FLUENT:
+                        self._apply_theme_styles(tokens)
                 finally:
                     self._applying_theme_styles = False
         except Exception:
@@ -836,7 +801,8 @@ class Win11ComboRow(QWidget):
         try:
             self._last_theme_refresh_key = theme_key
             self._refresh_icon(tokens)
-            self._apply_theme_styles(tokens)
+            if not _HAS_FLUENT:
+                self._apply_theme_styles(tokens)
         finally:
             self._applying_theme_styles = False
 
@@ -884,7 +850,7 @@ class DpiSettingsPage(BasePage):
         try:
             if hasattr(self, "zapret2_header") and self.zapret2_header is not None:
                 self.zapret2_header.setStyleSheet(
-                    f"color: {theme_tokens.accent_hex}; font-size: 13px; font-weight: 600; padding: 8px 0 4px 0;"
+                    f"color: {theme_tokens.accent_hex};"
                 )
         except Exception:
             pass
@@ -941,18 +907,14 @@ class DpiSettingsPage(BasePage):
         method_layout = QVBoxLayout()
         method_layout.setSpacing(10)
         
-        method_desc = QLabel("Выберите способ запуска обхода блокировок")
-        try:
-            method_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        method_desc.setStyleSheet("font-size: 12px;")
+        method_desc = _CaptionLabel("Выберите способ запуска обхода блокировок")
         method_layout.addWidget(method_desc)
 
         # ═══════════════════════════════════════
         # ZAPRET 2 (winws2.exe)
         # ═══════════════════════════════════════
-        self.zapret2_header = QLabel("Zapret 2 (winws2.exe)")
+        self.zapret2_header = StrongBodyLabel("Zapret 2 (winws2.exe)")
+        self.zapret2_header.setContentsMargins(0, 8, 0, 4)
         method_layout.addWidget(self.zapret2_header)
 
         # Zapret 2 (direct) - рекомендуется
@@ -988,15 +950,9 @@ class DpiSettingsPage(BasePage):
         # ───────────────────────────────────────
         # ZAPRET 1 (winws.exe)
         # ───────────────────────────────────────
-        zapret1_header = QLabel("Zapret 1 (winws.exe)")
-        zapret1_header.setStyleSheet("""
-            QLabel {
-                color: #ff9800;
-                font-size: 13px;
-                font-weight: 600;
-                padding: 12px 0 4px 0;
-            }
-        """)
+        zapret1_header = StrongBodyLabel("Zapret 1 (winws.exe)")
+        zapret1_header.setContentsMargins(0, 12, 0, 4)
+        zapret1_header.setStyleSheet("color: #ff9800;")
         method_layout.addWidget(zapret1_header)
 
         # Zapret 1 Direct (прямой запуск winws.exe с JSON стратегиями)
@@ -1045,8 +1001,8 @@ class DpiSettingsPage(BasePage):
         orchestra_settings_layout.setContentsMargins(0, 0, 0, 0)
         orchestra_settings_layout.setSpacing(6)
 
-        orchestra_label = QLabel("Настройки оркестратора")
-        orchestra_label.setStyleSheet("color: #9c27b0; font-size: 12px; font-weight: 600;")
+        orchestra_label = StrongBodyLabel("Настройки оркестратора")
+        orchestra_label.setStyleSheet("color: #9c27b0;")
         orchestra_settings_layout.addWidget(orchestra_label)
 
         self.strict_detection_toggle = Win11ToggleRow(
@@ -1098,8 +1054,9 @@ class DpiSettingsPage(BasePage):
         advanced_layout.setSpacing(6)
         
         # Описание
-        advanced_desc = QLabel("⚠ Изменяйте только если знаете что делаете")
-        advanced_desc.setStyleSheet("color: #ff9800; font-size: 11px; padding-bottom: 8px;")
+        advanced_desc = _CaptionLabel("⚠ Изменяйте только если знаете что делаете")
+        advanced_desc.setContentsMargins(0, 0, 0, 8)
+        advanced_desc.setStyleSheet("color: #ff9800;")
         advanced_layout.addWidget(advanced_desc)
         
         # WSSize

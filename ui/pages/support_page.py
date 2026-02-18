@@ -11,11 +11,21 @@ import webbrowser
 
 import qtawesome as qta
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QVBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
+
+try:
+    from qfluentwidgets import StrongBodyLabel, CaptionLabel, BodyLabel, InfoBar
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    StrongBodyLabel = QLabel
+    CaptionLabel = QLabel
+    BodyLabel = QLabel
+    InfoBar = None
+    _HAS_FLUENT_LABELS = False
 
 from .base_page import BasePage
 from log import log
-from ui.sidebar import ActionButton, SettingsCard, SettingsRow
+from ui.compat_widgets import ActionButton, SettingsCard, SettingsRow
 from ui.theme_semantic import get_semantic_palette
 from ui.theme import get_theme_tokens
 
@@ -66,19 +76,17 @@ class SupportPage(BasePage):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
 
-        title = QLabel("ZapretHub")
+        title = StrongBodyLabel("ZapretHub")
         title.setProperty("tone", "primary")
-        title.setStyleSheet("font-size: 15px; font-weight: 650;")
         text_layout.addWidget(title)
 
-        desc = QLabel("Центр сообщества Zapret: стратегии, пресеты и форум.")
+        desc = CaptionLabel("Центр сообщества Zapret: стратегии, пресеты и форум.")
         desc.setWordWrap(True)
         desc.setProperty("tone", "muted")
-        desc.setStyleSheet("font-size: 11px;")
         text_layout.addWidget(desc)
 
-        self._zaphub_status_label = QLabel("Статус: проверяю…")
-        self._zaphub_status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
+        self._zaphub_status_label = CaptionLabel("Статус: проверяю…")
+        self._zaphub_status_label.setStyleSheet(f"color: {tokens.fg_muted};")
         text_layout.addWidget(self._zaphub_status_label)
 
         hub_layout.addLayout(text_layout, 1)
@@ -206,7 +214,7 @@ class SupportPage(BasePage):
             self._zaphub_installing = False
             status_label.setText("Статус: установлен")
             semantic = get_semantic_palette()
-            status_label.setStyleSheet(f"color: {semantic.success}; font-size: 11px;")
+            status_label.setStyleSheet(f"color: {semantic.success};")
             action_btn.setText("Открыть")
             action_btn.setIcon(qta.icon("fa5s.play", color=get_theme_tokens().fg))
             action_btn.setEnabled(True)
@@ -216,7 +224,7 @@ class SupportPage(BasePage):
         else:
             status_label.setText("Статус: не установлен")
             tokens = get_theme_tokens()
-            status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
+            status_label.setStyleSheet(f"color: {tokens.fg_muted};")
             action_btn.setText("Установить")
             action_btn.setIcon(qta.icon("fa5s.download", color=tokens.fg))
             action_btn.setEnabled(True)
@@ -229,17 +237,18 @@ class SupportPage(BasePage):
             os.startfile(self._zaphub_exe)  # noqa: S606 - Windows only
             log(f"Открыт ZapretHub: {self._zaphub_exe}", "INFO")
         except Exception as e:
-            QMessageBox.warning(self.window(), "ZapretHub", f"Не удалось открыть ZapretHub:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="ZapretHub", content=f"Не удалось открыть ZapretHub:\n{e}", parent=self.window())
 
     def _install_zaphub(self) -> None:
         installer = self._find_zaphub_installer()
         if not installer:
-            QMessageBox.warning(
-                self.window(),
-                "ZapretHub",
-                "Установщик ZapretHub не найден.\n\n"
-                "Переустановите Zapret2 или установите ZapretHub через основной установщик.",
-            )
+            if InfoBar:
+                InfoBar.warning(
+                    title="ZapretHub",
+                    content="Установщик ZapretHub не найден.\n\nПереустановите Zapret2 или установите ZapretHub через основной установщик.",
+                    parent=self.window(),
+                )
             return
 
         action_btn = self._zaphub_action_btn
@@ -251,7 +260,7 @@ class SupportPage(BasePage):
         if status_label is not None:
             status_label.setText("Статус: установка запущена…")
             semantic = get_semantic_palette()
-            status_label.setStyleSheet(f"color: {semantic.warning}; font-size: 11px;")
+            status_label.setStyleSheet(f"color: {semantic.warning};")
 
         self._zaphub_installing = True
 
@@ -287,7 +296,8 @@ class SupportPage(BasePage):
             self._zaphub_installing = False
             if action_btn is not None:
                 action_btn.setEnabled(True)
-            QMessageBox.warning(self.window(), "ZapretHub", f"Не удалось запустить установку:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="ZapretHub", content=f"Не удалось запустить установку:\n{e}", parent=self.window())
             try:
                 self._refresh_zaphub_state()
             except Exception:
@@ -521,7 +531,8 @@ class SupportPage(BasePage):
             open_telegram_link("zaprethelp")
             log("Открыт Telegram: zaprethelp", "INFO")
         except Exception as e:
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Telegram:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть Telegram:\n{e}", parent=self.window())
 
     def _open_discord(self) -> None:
         try:
@@ -529,4 +540,5 @@ class SupportPage(BasePage):
             webbrowser.open(url)
             log(f"Открыт Discord: {url}", "INFO")
         except Exception as e:
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть Discord:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть Discord:\n{e}", parent=self.window())

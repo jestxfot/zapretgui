@@ -6,133 +6,52 @@ from queue import Queue, Empty
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QTextEdit, QFrame, QCheckBox,
+    QPushButton, QTextEdit, QFrame,
     QLineEdit, QListWidget, QListWidgetItem, QComboBox
 )
-from PyQt6.QtGui import QFont, QTextCursor, QAction, QPainter, QColor
+from PyQt6.QtGui import QFont, QTextCursor, QAction
 import qtawesome as qta
 
 from .base_page import BasePage
 from ui.theme import get_theme_tokens
 
-
-class StyledCheckBox(QCheckBox):
-    """Кастомный чекбокс с красивой галочкой"""
-
-    def __init__(self, text: str, color: str = "#4CAF50", parent=None):
-        super().__init__(text, parent)
-        self._check_color = QColor(color)
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
-        self._current_qss = ""
-        self._apply_theme()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            accent = self._check_color.name()
-            qss = f"""
-                QCheckBox {{
-                    color: {tokens.fg_muted};
-                    font-size: 12px;
-                    spacing: 8px;
-                    padding-left: 4px;
-                }}
-                QCheckBox::indicator {{
-                    width: 18px;
-                    height: 18px;
-                    border-radius: 4px;
-                    border: 2px solid {tokens.surface_border_hover};
-                    background: {tokens.surface_bg};
-                }}
-                QCheckBox::indicator:checked {{
-                    background: {accent};
-                    border-color: {accent};
-                }}
-                QCheckBox::indicator:hover {{
-                    border-color: {tokens.surface_border_hover};
-                }}
-            """
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
-        finally:
-            self._applying_theme_styles = False
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if self.isChecked():
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-            # Рисуем галочку белым цветом поверх индикатора
-            painter.setPen(QColor(255, 255, 255))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-
-            # Позиция индикатора (примерно 4px от левого края)
-            x = 6
-            y = (self.height() - 18) // 2 + 2
-
-            # Рисуем галочку (✓) - две линии
-            from PyQt6.QtGui import QPen
-            pen = QPen(QColor(255, 255, 255))
-            pen.setWidth(2)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(pen)
-
-            # Короткая часть галочки
-            painter.drawLine(x + 4, y + 9, x + 7, y + 12)
-            # Длинная часть галочки
-            painter.drawLine(x + 7, y + 12, x + 14, y + 5)
-
-            painter.end()
+try:
+    from qfluentwidgets import (
+        BodyLabel, CaptionLabel, StrongBodyLabel, PushButton as FluentPushButton,
+        LineEdit, ComboBox, ListWidget, RoundMenu,
+    )
+    _HAS_FLUENT = True
+except ImportError:
+    BodyLabel = QLabel
+    CaptionLabel = QLabel
+    StrongBodyLabel = QLabel
+    FluentPushButton = QPushButton
+    LineEdit = None
+    ComboBox = None
+    ListWidget = None
+    RoundMenu = None
+    _HAS_FLUENT = False
 
 
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from log import log
 from orchestra import MAX_ORCHESTRA_LOGS
 
 
-class DangerResetButton(QPushButton):
+class DangerResetButton(FluentPushButton):
     """Кнопка сброса с двойным подтверждением, красным стилем и анимацией корзинки"""
 
     reset_confirmed = pyqtSignal()
 
     def __init__(self, text: str = "Сбросить", confirm_text: str = "Это всё сотрёт!", parent=None):
-        super().__init__(text, parent)
+        super().__init__(parent)
+        self.setText(text)
         self._default_text = text
         self._confirm_text = confirm_text
         self._pending = False
         self._hovered = False
         self._applying_theme_styles = False
         self._theme_refresh_scheduled = False
-        self._current_qss = ""
 
         # Иконка
         self._update_icon()
@@ -164,46 +83,11 @@ class DangerResetButton(QPushButton):
 
     def _update_style(self):
         """Обновляет стили кнопки"""
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            if self._pending:
-                # Состояние подтверждения - красный цвет (danger)
-                if self._hovered:
-                    bg = "rgba(255, 107, 107, 0.35)"
-                else:
-                    bg = "rgba(255, 107, 107, 0.25)"
-                text_color = "#ff6b6b"
-                border = "1px solid rgba(255, 107, 107, 0.5)"
-            else:
-                # Обычное состояние
-                if self._hovered:
-                    bg = tokens.surface_bg_hover
-                else:
-                    bg = tokens.surface_bg
-                text_color = tokens.fg
-                border = f"1px solid {tokens.surface_border}"
-
-            qss = f"""
-                QPushButton {{
-                    background-color: {bg};
-                    border: {border};
-                    border-radius: 4px;
-                    color: {text_color};
-                    padding: 0 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-            """
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
-        finally:
-            self._applying_theme_styles = False
+        if self._pending:
+            bg = "rgba(255, 107, 107, 0.35)" if self._hovered else "rgba(255, 107, 107, 0.20)"
+            self.setStyleSheet(f"PushButton {{ background-color: {bg}; color: #ff6b6b; border: 1px solid rgba(255,107,107,0.5); }}")
+        else:
+            self.setStyleSheet("")  # Let PushButton use its default styling
 
     def _animate_shake(self):
         """Анимация качания иконки корзинки"""
@@ -357,14 +241,14 @@ class OrchestraPage(BasePage):
         status_row = QHBoxLayout()
         self.status_icon = QLabel()
         self.status_icon.setFixedSize(24, 24)
-        self.status_label = QLabel("Не запущен")
+        self.status_label = BodyLabel("Не запущен")
         status_row.addWidget(self.status_icon)
         status_row.addWidget(self.status_label)
         status_row.addStretch()
         status_layout.addLayout(status_row)
 
         # Информация о режимах
-        info_label = QLabel(
+        info_label = CaptionLabel(
             "• IDLE - ожидание соединений\n"
             "• LEARNING - перебирает стратегии\n"
             "• RUNNING - работает на лучших стратегиях\n"
@@ -393,26 +277,26 @@ class OrchestraPage(BasePage):
         # === Фильтры лога ===
         filter_row = QHBoxLayout()
 
-        filter_label = QLabel("Фильтр:")
+        filter_label = BodyLabel("Фильтр:")
         self._filter_label = filter_label
         filter_row.addWidget(filter_label)
 
         # Поле ввода для фильтра по домену
-        self.log_filter_input = QLineEdit()
+        self.log_filter_input = (LineEdit if _HAS_FLUENT else QLineEdit)()
         self.log_filter_input.setPlaceholderText("Домен (например: youtube.com)")
         self.log_filter_input.textChanged.connect(self._apply_log_filter)
         filter_row.addWidget(self.log_filter_input, 2)
 
         # Комбобокс для фильтра по протоколу
-        self.log_protocol_filter = QComboBox()
+        self.log_protocol_filter = (ComboBox if _HAS_FLUENT else QComboBox)()
         self.log_protocol_filter.addItems(["Все", "TLS", "HTTP", "UDP", "SUCCESS", "FAIL"])
         self.log_protocol_filter.currentTextChanged.connect(self._apply_log_filter)
         filter_row.addWidget(self.log_protocol_filter)
 
         # Кнопка сброса фильтра
-        clear_filter_btn = QPushButton()
+        clear_filter_btn = FluentPushButton()
         self._clear_filter_btn = clear_filter_btn
-        clear_filter_btn.setToolTip("Сбросить фильтр")
+        set_tooltip(clear_filter_btn, "Сбросить фильтр")
         clear_filter_btn.setFixedSize(28, 28)
         clear_filter_btn.clicked.connect(self._clear_log_filter)
         filter_row.addWidget(clear_filter_btn)
@@ -422,7 +306,8 @@ class OrchestraPage(BasePage):
         # Кнопки - ряд 1
         btn_row1 = QHBoxLayout()
 
-        self.clear_log_btn = QPushButton("Очистить лог")
+        self.clear_log_btn = FluentPushButton()
+        self.clear_log_btn.setText("Очистить лог")
         self.clear_log_btn.setIcon(qta.icon("fa5s.broom", color="white"))
         self.clear_log_btn.setIconSize(QSize(16, 16))
         self.clear_log_btn.setFixedHeight(32)
@@ -449,13 +334,13 @@ class OrchestraPage(BasePage):
         log_history_layout = QVBoxLayout()
 
         # Описание
-        log_history_desc = QLabel("Каждый запуск оркестратора создаёт новый лог с уникальным ID. Старые логи автоматически удаляются.")
+        log_history_desc = CaptionLabel("Каждый запуск оркестратора создаёт новый лог с уникальным ID. Старые логи автоматически удаляются.")
         self._log_history_desc = log_history_desc
         log_history_desc.setWordWrap(True)
         log_history_layout.addWidget(log_history_desc)
 
         # Список логов
-        self.log_history_list = QListWidget()
+        self.log_history_list = (ListWidget if _HAS_FLUENT and ListWidget else QListWidget)()
         self.log_history_list.setMaximumHeight(150)
         self.log_history_list.itemDoubleClicked.connect(self._view_log_history)
         log_history_layout.addWidget(self.log_history_list)
@@ -473,7 +358,8 @@ class OrchestraPage(BasePage):
 
         log_history_buttons.addStretch()
 
-        clear_all_logs_btn = QPushButton("Очистить все")
+        clear_all_logs_btn = FluentPushButton()
+        clear_all_logs_btn.setText("Очистить все")
         self._clear_all_logs_btn = clear_all_logs_btn
         clear_all_logs_btn.setIconSize(QSize(16, 16))
         clear_all_logs_btn.setFixedHeight(32)
@@ -517,7 +403,6 @@ class OrchestraPage(BasePage):
         self._applying_theme_styles = True
         try:
             tokens = get_theme_tokens()
-            popup_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
             selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
 
             if self.status_label is not None:
@@ -525,9 +410,7 @@ class OrchestraPage(BasePage):
                 self.status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 14px;")
 
             if self._info_label is not None:
-                self._info_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 12px; margin-top: 8px;"
-                )
+                self._info_label.setContentsMargins(0, 8, 0, 0)
 
             if self.log_text is not None:
                 self.log_text.setStyleSheet(
@@ -548,162 +431,17 @@ class OrchestraPage(BasePage):
                     """
                 )
 
-            if self._filter_label is not None:
-                self._filter_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 12px;"
-                )
-
-            if self.log_filter_input is not None:
-                self.log_filter_input.setStyleSheet(
-                    f"""
-                    QLineEdit {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        color: {tokens.fg};
-                        padding: 6px 10px;
-                        font-size: 12px;
-                    }}
-                    QLineEdit:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QLineEdit:focus {{
-                        border-color: {tokens.accent_hex};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {tokens.fg_faint};
-                    }}
-                    """
-                )
-
-            if self.log_protocol_filter is not None:
-                self.log_protocol_filter.setStyleSheet(
-                    f"""
-                    QComboBox {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        color: {tokens.fg};
-                        padding: 6px 10px;
-                        font-size: 12px;
-                        min-width: 80px;
-                    }}
-                    QComboBox:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QComboBox:focus {{
-                        border-color: {tokens.accent_hex};
-                    }}
-                    QComboBox::drop-down {{
-                        border: none;
-                        width: 20px;
-                    }}
-                    QComboBox QAbstractItemView {{
-                        background: {popup_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        selection-background-color: {tokens.accent_soft_bg_hover};
-                        selection-color: {selection_fg};
-                    }}
-                    """
-                )
+            # log_filter_input (LineEdit) and log_protocol_filter (ComboBox) are
+            # qfluentwidgets widgets — they style themselves.
 
             if self._clear_filter_btn is not None:
                 self._clear_filter_btn.setIcon(qta.icon("mdi.close", color=tokens.fg_faint))
-                self._clear_filter_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                    }}
-                    QPushButton:hover {{
-                        background: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    """
-                )
 
             if self.clear_log_btn is not None:
                 self.clear_log_btn.setIcon(qta.icon("fa5s.broom", color=tokens.fg))
-                self.clear_log_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background-color: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        color: {tokens.fg};
-                        padding: 0 16px;
-                        font-size: 12px;
-                        font-weight: 600;
-                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {tokens.surface_bg_pressed};
-                    }}
-                    """
-                )
-
-            if self._log_history_desc is not None:
-                self._log_history_desc.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 11px;"
-                )
-
-            if self.log_history_list is not None:
-                self.log_history_list.setStyleSheet(
-                    f"""
-                    QListWidget {{
-                        background-color: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                        color: {tokens.fg};
-                        font-family: 'Consolas', 'Courier New', monospace;
-                        font-size: 11px;
-                    }}
-                    QListWidget::item {{
-                        padding: 6px 8px;
-                        border-radius: 4px;
-                        margin: 2px 4px;
-                    }}
-                    QListWidget::item:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                    }}
-                    QListWidget::item:selected {{
-                        background-color: {tokens.accent_soft_bg_hover};
-                        border: 1px solid rgba({tokens.accent_rgb_str}, 0.40);
-                    }}
-                    """
-                )
 
             if self._clear_all_logs_btn is not None:
                 self._clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color=tokens.fg))
-                self._clear_all_logs_btn.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        background-color: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 4px;
-                        color: {tokens.fg};
-                        padding: 0 16px;
-                        font-size: 12px;
-                        font-weight: 600;
-                        font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {tokens.surface_bg_hover};
-                        border-color: {tokens.surface_border_hover};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {tokens.surface_bg_pressed};
-                    }}
-                    """
-                )
 
             if self.clear_learned_btn is not None:
                 try:
@@ -1095,8 +833,6 @@ class OrchestraPage(BasePage):
 
     def _show_log_context_menu(self, pos):
         """Показывает контекстное меню для строки лога"""
-        from PyQt6.QtWidgets import QMenu
-
         # Получаем текущую строку под курсором
         cursor = self.log_text.cursorForPosition(pos)
         cursor.select(cursor.SelectionType.LineUnderCursor)
@@ -1109,32 +845,11 @@ class OrchestraPage(BasePage):
         parsed = self._parse_log_line_for_strategy(line_text)
 
         # Создаём контекстное меню
-        menu = QMenu(self)
-        tokens = get_theme_tokens()
-        menu_bg = "rgba(246, 248, 252, 0.98)" if tokens.is_light else "rgba(45, 45, 48, 0.96)"
-        menu.setStyleSheet(
-            f"""
-            QMenu {{
-                background-color: {menu_bg};
-                color: {tokens.fg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 4px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 8px 16px;
-                border-radius: 4px;
-            }}
-            QMenu::item:selected {{
-                background-color: {tokens.accent_soft_bg_hover};
-            }}
-            QMenu::separator {{
-                height: 1px;
-                background: {tokens.surface_border};
-                margin: 4px 8px;
-            }}
-            """
-        )
+        if _HAS_FLUENT and RoundMenu:
+            menu = RoundMenu(parent=self)
+        else:
+            from PyQt6.QtWidgets import QMenu
+            menu = QMenu(self)
 
         # Стандартные действия
         copy_action = QAction("📋 Копировать строку", self)

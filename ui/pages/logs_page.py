@@ -4,10 +4,23 @@
 from PyQt6.QtCore import Qt, QThread, QTimer, QVariantAnimation, QEasingCurve, pyqtSignal, QObject, QSettings, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QApplication, QMessageBox,
+    QPushButton, QComboBox, QApplication,
     QSplitter, QTextEdit, QStackedWidget, QLineEdit, QFrame
 )
-from PyQt6.QtGui import QFont, QColor, QTextCharFormat
+try:
+    from qfluentwidgets import (
+        BodyLabel, CaptionLabel, StrongBodyLabel,
+        PushButton as FluentPushButton,
+        ComboBox, LineEdit, TextEdit,
+        SegmentedWidget, ToolButton, InfoBar,
+    )
+    _FLUENT_OK = True
+except ImportError:
+    ComboBox = QComboBox
+    LineEdit = QLineEdit
+    InfoBar = None
+    _FLUENT_OK = False
+from PyQt6.QtGui import QFont, QColor, QTextCharFormat, QPixmap, QPainter, QTransform, QIcon
 import qtawesome as qta
 import os
 import glob
@@ -17,7 +30,7 @@ import queue
 import html
 
 from .base_page import BasePage, ScrollBlockingTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from ui.theme import get_theme_tokens
 from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
@@ -270,115 +283,19 @@ class LogsPage(BasePage):
         self._last_theme_apply_key = theme_key
         self._tokens = tokens
 
-        # Tabs
-        self._tab_style_active = (
-            "QPushButton {"
-            " background-color: transparent;"
-            f" color: {tokens.accent_hex};"
-            " border: none;"
-            f" border-bottom: 2px solid {tokens.accent_hex};"
-            " padding: 8px 16px;"
-            " font-size: 12px;"
-            " font-weight: 600;"
-            f" font-family: {tokens.font_family_qss};"
-            " }"
-        )
-        self._tab_style_inactive = (
-            "QPushButton {"
-            " background-color: transparent;"
-            f" color: {tokens.fg_faint};"
-            " border: none;"
-            " border-bottom: 2px solid transparent;"
-            " padding: 8px 16px;"
-            " font-size: 12px;"
-            " font-weight: 600;"
-            f" font-family: {tokens.font_family_qss};"
-            " }"
-            "QPushButton:hover {"
-            f" color: {tokens.fg_muted};"
-            " }"
-        )
-
-        self._tab_icon_logs_active = qta.icon('fa5s.file-alt', color=tokens.accent_hex)
-        self._tab_icon_send_active = qta.icon('fa5s.paper-plane', color=tokens.accent_hex)
-        self._tab_icon_inactive = qta.icon('fa5s.file-alt', color=tokens.fg_faint)
-        self._tab_icon_inactive_send = qta.icon('fa5s.paper-plane', color=tokens.fg_faint)
-        self._update_tab_styles()
-
-        # Controls
-        if hasattr(self, "log_combo"):
-            popup_bg = tokens.surface_bg if tokens.is_light else "rgba(45, 45, 48, 0.95)"
-            self.log_combo.setStyleSheet(
-                "QComboBox {"
-                f" background-color: {tokens.surface_bg};"
-                f" color: {tokens.fg_muted};"
-                f" border: 1px solid {tokens.surface_border};"
-                " border-radius: 8px;"
-                " padding: 10px 14px;"
-                " font-size: 12px;"
-                " }"
-                "QComboBox:hover {"
-                f" background-color: {tokens.surface_bg_hover};"
-                f" border-color: {tokens.surface_border_hover};"
-                " }"
-                "QComboBox::drop-down { border: none; padding-right: 10px; }"
-                "QComboBox::down-arrow { image: none; width: 0; }"
-                "QComboBox QAbstractItemView {"
-                f" background-color: {popup_bg};"
-                f" color: {tokens.fg};"
-                f" border: 1px solid {tokens.surface_border};"
-                " border-radius: 8px;"
-                " padding: 4px;"
-                " outline: none;"
-                " }"
-                "QComboBox QAbstractItemView::item {"
-                " padding: 8px 12px;"
-                " border-radius: 6px;"
-                " margin: 2px 4px;"
-                " }"
-                "QComboBox QAbstractItemView::item:hover {"
-                f" background-color: {tokens.surface_bg_hover};"
-                " }"
-                "QComboBox QAbstractItemView::item:selected {"
-                f" background-color: {tokens.accent_soft_bg};"
-                f" color: {tokens.accent_hex};"
-                " }"
-            )
+        # Controls — log_combo is now a Fluent ComboBox; no manual stylesheet needed
+        # Tabs — Pivot handles its own theme
 
         if hasattr(self, "refresh_btn"):
-            self.refresh_btn.setStyleSheet(
-                "QPushButton {"
-                f" background-color: {tokens.surface_bg};"
-                f" border: 1px solid {tokens.surface_border};"
-                " border-radius: 8px;"
-                " }"
-                "QPushButton:hover {"
-                f" background-color: {tokens.surface_bg_hover};"
-                f" border-color: {tokens.surface_border_hover};"
-                " }"
-                "QPushButton:pressed {"
-                f" background-color: {tokens.surface_bg_pressed};"
-                " }"
-            )
-
             self._refresh_icon_normal = qta.icon('fa5s.sync-alt', color=tokens.fg)
-            self._refresh_icon_spinning = qta.icon(
-                'fa5s.sync-alt',
-                color=tokens.accent_hex,
-                animation=self._refresh_spin_animation,
-            )
-            self.refresh_btn.setIcon(
-                self._refresh_icon_spinning
-                if bool(getattr(self, "_refresh_spin_active", False))
-                else self._refresh_icon_normal
-            )
+            if not bool(getattr(self, "_refresh_spin_active", False)):
+                self.refresh_btn.setIcon(self._refresh_icon_normal)
 
-        if hasattr(self, "info_label"):
-            self.info_label.setStyleSheet(f"QLabel {{ color: {tokens.accent_hex}; font-size: 11px; }}")
+        # info_label is now a CaptionLabel (Fluent) — no manual style needed
 
         # Log area
-        editor_bg = tokens.surface_bg if tokens.is_light else "rgba(0, 0, 0, 0.55)"
-        editor_fg = tokens.fg if tokens.is_light else "rgba(245, 245, 245, 0.90)"
+        editor_bg = tokens.surface_bg
+        editor_fg = tokens.fg
         if hasattr(self, "log_text"):
             self.log_text.setStyleSheet(
                 "QTextEdit {"
@@ -393,9 +310,7 @@ class LogsPage(BasePage):
                 " }"
             )
 
-        if hasattr(self, "stats_label"):
-            self.stats_label.setProperty("tone", "faint")
-            self.stats_label.setStyleSheet("font-size: 10px; padding-top: 4px;")
+        # stats_label is now a CaptionLabel (Fluent) — no manual style needed
 
         # Errors panel
         err_fg = "rgba(220, 38, 38, 0.92)" if tokens.is_light else "rgba(248, 113, 113, 0.95)"
@@ -408,8 +323,7 @@ class LogsPage(BasePage):
             except Exception:
                 pass
 
-        if hasattr(self, "errors_count_label"):
-            self.errors_count_label.setStyleSheet(f"QLabel {{ color: {err_fg}; font-size: 11px; font-weight: bold; }}")
+        # errors_count_label is now a CaptionLabel (Fluent) — no manual style needed
 
         if hasattr(self, "errors_text"):
             self.errors_text.setStyleSheet(
@@ -458,61 +372,33 @@ class LogsPage(BasePage):
             except Exception:
                 pass
 
-        if hasattr(self, "send_status_label"):
-            self.send_status_label.setStyleSheet(f"color: {tokens.accent_hex}; font-size: 11px;")
+        # Orchestra mode indicator (Send tab, lazy-init)
+        if self._orchestra_icon_label is not None:
+            try:
+                _orch_purple = "#7c3aed" if tokens.is_light else "#a855f7"
+                self._orchestra_icon_label.setPixmap(
+                    qta.icon('fa5s.brain', color=_orch_purple).pixmap(16, 16)
+                )
+                if self._orchestra_text_label is not None:
+                    self._orchestra_text_label.setStyleSheet(
+                        f"color: {_orch_purple}; font-size: 12px; font-weight: 600; background: transparent;"
+                    )
+                self.orchestra_mode_container.setStyleSheet(
+                    "QWidget {"
+                    f" background-color: {'rgba(124, 58, 237, 0.12)' if tokens.is_light else 'rgba(168, 85, 247, 0.15)'};"
+                    " border-radius: 8px;"
+                    " }"
+                )
+            except Exception:
+                pass
 
-        if hasattr(self, "problem_text"):
-            self.problem_text.setStyleSheet(
-                "QTextEdit {"
-                f" background-color: {tokens.surface_bg};"
-                f" color: {tokens.fg};"
-                f" border: 1px solid {tokens.surface_border};"
-                " border-radius: 8px;"
-                " padding: 12px;"
-                " font-size: 12px;"
-                " }"
-                "QTextEdit:focus {"
-                f" border-color: {tokens.accent_hex};"
-                f" background-color: {tokens.surface_bg_hover};"
-                " }"
-            )
+        # send_status_label is now a CaptionLabel (Fluent) — styled dynamically on send result
 
-        if hasattr(self, "tg_contact"):
-            self.tg_contact.setStyleSheet(
-                "QLineEdit {"
-                f" background-color: {tokens.surface_bg};"
-                f" color: {tokens.fg};"
-                f" border: 1px solid {tokens.surface_border};"
-                " border-radius: 8px;"
-                " padding: 12px;"
-                " font-size: 12px;"
-                " }"
-                "QLineEdit:focus {"
-                f" border-color: {tokens.accent_hex};"
-                f" background-color: {tokens.surface_bg_hover};"
-                " }"
-            )
+        # problem_text is now a Fluent TextEdit — no manual stylesheet needed
+        # tg_contact is a Fluent LineEdit — no manual stylesheet needed
 
     def _update_tab_styles(self) -> None:
-        if not hasattr(self, "tab_logs_btn") or not hasattr(self, "tab_send_btn"):
-            return
-
-        idx = 0
-        try:
-            idx = self.stacked_widget.currentIndex()
-        except Exception:
-            idx = 0
-
-        if idx == 0:
-            self.tab_logs_btn.setStyleSheet(self._tab_style_active)
-            self.tab_logs_btn.setIcon(getattr(self, "_tab_icon_logs_active", qta.icon('fa5s.file-alt')))
-            self.tab_send_btn.setStyleSheet(self._tab_style_inactive)
-            self.tab_send_btn.setIcon(getattr(self, "_tab_icon_inactive_send", qta.icon('fa5s.paper-plane')))
-        else:
-            self.tab_logs_btn.setStyleSheet(self._tab_style_inactive)
-            self.tab_logs_btn.setIcon(getattr(self, "_tab_icon_inactive", qta.icon('fa5s.file-alt')))
-            self.tab_send_btn.setStyleSheet(self._tab_style_active)
-            self.tab_send_btn.setIcon(getattr(self, "_tab_icon_send_active", qta.icon('fa5s.paper-plane')))
+        """No-op — Pivot manages its own indicator."""
 
     def _refresh_winws_status_style_only(self) -> None:
         try:
@@ -542,36 +428,33 @@ class LogsPage(BasePage):
             color = self._winws_status_neutral
 
         self.winws_status_label.setText(text)
-        self.winws_status_label.setStyleSheet(f"QLabel {{ color: {color}; font-size: 11px; }}")
+        self.winws_status_label.setStyleSheet(f"color: {color}; font-size: 11px;")
         
     def _build_ui(self):
         # ═══════════════════════════════════════════════════════════
-        # Переключатель табов (ЛОГИ / ОТПРАВКА)
+        # Переключатель табов (ЛОГИ / ОТПРАВКА) — Fluent Pivot
         # ═══════════════════════════════════════════════════════════
-        tabs_container = QWidget()
-        tabs_layout = QHBoxLayout(tabs_container)
-        tabs_layout.setContentsMargins(0, 0, 0, 8)
-        tabs_layout.setSpacing(0)
-
-        self.tab_logs_btn = QPushButton()
-        self.tab_logs_btn.setText(" ЛОГИ")
-        self.tab_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.tab_logs_btn.clicked.connect(lambda: self._switch_tab(0))
-        tabs_layout.addWidget(self.tab_logs_btn)
-
-        self.tab_send_btn = QPushButton()
-        self.tab_send_btn.setText(" ОТПРАВКА")
-        self.tab_send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.tab_send_btn.clicked.connect(lambda: self._switch_tab(1))
-        tabs_layout.addWidget(self.tab_send_btn)
-
-        tabs_layout.addStretch()
-
-        # Styles are token-driven and set in _apply_theme().
-        self._tab_style_active = ""
-        self._tab_style_inactive = ""
-
-        self.add_widget(tabs_container)
+        if _FLUENT_OK:
+            self.tabs_pivot = SegmentedWidget()
+            self.tabs_pivot.addItem(routeKey="logs", text=" ЛОГИ", onClick=lambda: self._switch_tab(0))
+            self.tabs_pivot.addItem(routeKey="send", text=" ОТПРАВКА", onClick=lambda: self._switch_tab(1))
+            self.tabs_pivot.setCurrentItem("logs")
+            self.tabs_pivot.setItemFontSize(13)
+            self.add_widget(self.tabs_pivot)
+        else:
+            # Fallback без Fluent
+            tabs_container = QWidget()
+            tabs_layout = QHBoxLayout(tabs_container)
+            tabs_layout.setContentsMargins(0, 0, 0, 8)
+            tabs_layout.setSpacing(0)
+            self.tab_logs_btn = QPushButton(" ЛОГИ")
+            self.tab_logs_btn.clicked.connect(lambda: self._switch_tab(0))
+            tabs_layout.addWidget(self.tab_logs_btn)
+            self.tab_send_btn = QPushButton(" ОТПРАВКА")
+            self.tab_send_btn.clicked.connect(lambda: self._switch_tab(1))
+            tabs_layout.addWidget(self.tab_send_btn)
+            tabs_layout.addStretch()
+            self.add_widget(tabs_container)
 
         # ═══════════════════════════════════════════════════════════
         # Стек страниц (ЛОГИ / ОТПРАВКА)
@@ -612,7 +495,13 @@ class LogsPage(BasePage):
 
         self.stacked_widget.setCurrentIndex(index)
 
-        self._update_tab_styles()
+        # Sync Pivot indicator
+        if _FLUENT_OK and hasattr(self, "tabs_pivot"):
+            key = "send" if index == 1 else "logs"
+            try:
+                self.tabs_pivot.setCurrentItem(key)
+            except Exception:
+                pass
 
         if index == 1:
             # Обновляем видимость индикатора оркестратора
@@ -631,19 +520,22 @@ class LogsPage(BasePage):
         row1 = QHBoxLayout()
         row1.setSpacing(8)
         
-        self.log_combo = QComboBox()
+        self.log_combo = ComboBox()
         self.log_combo.setMinimumWidth(350)
         self.log_combo.currentIndexChanged.connect(self._on_log_selected)
         row1.addWidget(self.log_combo, 1)
         
-        self.refresh_btn = QPushButton()
+        _RefreshBtn = ToolButton if _FLUENT_OK else QPushButton
+        self.refresh_btn = _RefreshBtn()
         tokens = get_theme_tokens()
         self._refresh_icon_normal = qta.icon('fa5s.sync-alt', color=tokens.fg)
-        self._refresh_spin_animation = qta.Spin(self.refresh_btn, interval=10, step=8)
-        self._refresh_icon_spinning = qta.icon('fa5s.sync-alt', color=tokens.accent_hex, animation=self._refresh_spin_animation)
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(33)  # ~30 fps
+        self._spin_angle = 0
+        self._spin_timer.timeout.connect(self._on_spin_tick)
         self.refresh_btn.setIcon(self._refresh_icon_normal)
         self.refresh_btn.setFixedSize(36, 36)
-        self.refresh_btn.setToolTip("Обновить список файлов")
+        set_tooltip(self.refresh_btn, "Обновить список файлов")
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_btn.clicked.connect(self._refresh_logs_list)
         row1.addWidget(self.refresh_btn)
@@ -669,7 +561,7 @@ class LogsPage(BasePage):
         row2.addStretch()
         
         # Информационная строка
-        self.info_label = QLabel()
+        self.info_label = (CaptionLabel if _FLUENT_OK else QLabel)()
         row2.addWidget(self.info_label)
         
         controls_main.addLayout(row2)
@@ -692,7 +584,7 @@ class LogsPage(BasePage):
         log_layout.addWidget(self.log_text)
         
         # Статистика внизу лог-карточки
-        self.stats_label = QLabel()
+        self.stats_label = (CaptionLabel if _FLUENT_OK else QLabel)()
         log_layout.addWidget(self.stats_label)
         
         log_card.add_layout(log_layout)
@@ -713,13 +605,11 @@ class LogsPage(BasePage):
         errors_header.addWidget(warning_icon)
         
         # Заголовок
-        errors_title = QLabel("Ошибки и предупреждения")
-        errors_title.setProperty("tone", "primary")
-        errors_title.setStyleSheet("font-size: 14px; font-weight: 600;")
+        errors_title = (StrongBodyLabel if _FLUENT_OK else QLabel)("Ошибки и предупреждения")
         errors_header.addWidget(errors_title)
         errors_header.addSpacing(16)
-        
-        self.errors_count_label = QLabel("Ошибок: 0")
+
+        self.errors_count_label = (CaptionLabel if _FLUENT_OK else QLabel)("Ошибок: 0")
         errors_header.addWidget(self.errors_count_label)
         
         errors_header.addStretch()
@@ -756,14 +646,12 @@ class LogsPage(BasePage):
         winws_header.addWidget(terminal_icon)
 
         # Заголовок
-        winws_title = QLabel("Вывод winws.exe")
-        winws_title.setProperty("tone", "primary")
-        winws_title.setStyleSheet("font-size: 14px; font-weight: 600;")
+        winws_title = (StrongBodyLabel if _FLUENT_OK else QLabel)("Вывод winws.exe")
         winws_header.addWidget(winws_title)
         winws_header.addSpacing(16)
 
         # Статус процесса
-        self.winws_status_label = QLabel("Процесс не запущен")
+        self.winws_status_label = (CaptionLabel if _FLUENT_OK else QLabel)("Процесс не запущен")
         winws_header.addWidget(self.winws_status_label)
 
         winws_header.addStretch()
@@ -812,41 +700,43 @@ class LogsPage(BasePage):
         orchestra_layout.setSpacing(8)
 
         orchestra_icon = QLabel()
-        orchestra_icon.setPixmap(qta.icon('fa5s.brain', color='#a855f7').pixmap(16, 16))
+        try:
+            from qfluentwidgets import isDarkTheme as _idt
+            _orch_clr_init = "#a855f7" if _idt() else "#7c3aed"
+        except Exception:
+            _orch_clr_init = "#a855f7"
+        orchestra_icon.setPixmap(qta.icon('fa5s.brain', color=_orch_clr_init).pixmap(16, 16))
         self._orchestra_icon_label = orchestra_icon
         orchestra_layout.addWidget(orchestra_icon)
 
-        orchestra_text = QLabel("Режим оркестратора активен — будут отправлены 2 файла")
-        orchestra_text.setStyleSheet("color: #a855f7; font-size: 12px; font-weight: 600; background: transparent;")
+        orchestra_text = (BodyLabel if _FLUENT_OK else QLabel)("Режим оркестратора активен — будут отправлены 2 файла")
+        orchestra_text.setStyleSheet(f"color: {_orch_clr_init}; font-size: 12px; font-weight: 600; background: transparent;")
         self._orchestra_text_label = orchestra_text
         orchestra_layout.addWidget(orchestra_text)
         orchestra_layout.addStretch()
 
-        self.orchestra_mode_container.setStyleSheet("""
-            QWidget {
-                background-color: rgba(168, 85, 247, 0.15);
-                border-radius: 8px;
-            }
-        """)
+        _orch_bg = "rgba(124, 58, 237, 0.12)" if _orch_clr_init == "#7c3aed" else "rgba(168, 85, 247, 0.15)"
+        self.orchestra_mode_container.setStyleSheet(
+            "QWidget {"
+            f" background-color: {_orch_bg};"
+            " border-radius: 8px;"
+            " }"
+        )
         self.orchestra_mode_container.setVisible(False)
         send_layout.addWidget(self.orchestra_mode_container)
 
         # Описание
-        desc_label = QLabel(
+        desc_label = (BodyLabel if _FLUENT_OK else QLabel)(
             "Опишите проблему и оставьте контакты для обратной связи (необязательно):"
         )
-        desc_label.setProperty("tone", "muted")
-        desc_label.setStyleSheet("font-size: 12px;")
         desc_label.setWordWrap(True)
         send_layout.addWidget(desc_label)
 
         # Поле "Описание проблемы"
-        problem_header = QLabel("Описание проблемы:")
-        problem_header.setProperty("tone", "primary")
-        problem_header.setStyleSheet("font-size: 12px; font-weight: 600;")
+        problem_header = (StrongBodyLabel if _FLUENT_OK else QLabel)("Описание проблемы:")
         send_layout.addWidget(problem_header)
 
-        self.problem_text = QTextEdit()
+        self.problem_text = TextEdit() if _FLUENT_OK else QTextEdit()
         self.problem_text.setPlaceholderText(
             "Опишите, что не работает или какая ошибка возникает."
         )
@@ -854,12 +744,10 @@ class LogsPage(BasePage):
         send_layout.addWidget(self.problem_text)
 
         # Поле "Telegram для связи"
-        tg_header = QLabel("Telegram для связи (необязательно):")
-        tg_header.setProperty("tone", "primary")
-        tg_header.setStyleSheet("font-size: 12px; font-weight: 600;")
+        tg_header = (StrongBodyLabel if _FLUENT_OK else QLabel)("Telegram для связи (необязательно):")
         send_layout.addWidget(tg_header)
 
-        self.tg_contact = QLineEdit()
+        self.tg_contact = LineEdit()
         self.tg_contact.setPlaceholderText("@username или ссылка на профиль")
         send_layout.addWidget(self.tg_contact)
 
@@ -872,12 +760,10 @@ class LogsPage(BasePage):
         self._info_icon_label = info_icon
         info_layout.addWidget(info_icon)
 
-        info_text = QLabel(
+        info_text = (CaptionLabel if _FLUENT_OK else QLabel)(
             "Ваши данные будут отправлены только в канал техподдержки.\n"
             "Лог файл поможет разработчикам найти и исправить проблему."
         )
-        info_text.setProperty("tone", "faint")
-        info_text.setStyleSheet("font-size: 11px;")
         info_text.setWordWrap(True)
         info_layout.addWidget(info_text, 1)
 
@@ -893,7 +779,7 @@ class LogsPage(BasePage):
         buttons_row.addStretch()
 
         # Статус отправки
-        self.send_status_label = QLabel()
+        self.send_status_label = (CaptionLabel if _FLUENT_OK else QLabel)()
         buttons_row.addWidget(self.send_status_label)
 
         send_layout.addLayout(buttons_row)
@@ -983,9 +869,9 @@ class LogsPage(BasePage):
 
             if now - last < interval:
                 remaining = int((interval - (now - last)) // 60) + 1
-                QMessageBox.information(self, "Отправка логов",
-                    f"Лог отправлялся недавно.\n"
-                    f"Следующая отправка возможна через {remaining} мин.")
+                InfoBar.info(title="Отправка логов",
+                    content=f"Лог отправлялся недавно. Следующая отправка возможна через {remaining} мин.",
+                    parent=self.window(), duration=4000)
                 return
 
             # Проверяем доступность панели поддержки и показываем реальную причину
@@ -1002,11 +888,9 @@ class LogsPage(BasePage):
                     if bot_kind == "config"
                     else "Если доступ к панели заблокирован — включите VPN/DPI bypass и повторите."
                 )
-                QMessageBox.warning(self, title,
-                    "Не удалось подключиться к панели поддержки для отправки логов.\n\n"
-                    f"Причина: {details}\n\n"
-                    f"{hint}"
-                )
+                InfoBar.warning(title=title,
+                    content=f"Не удалось подключиться к панели поддержки. Причина: {details}",
+                    parent=self.window(), duration=5000)
                 return
 
             # Получаем данные из формы
@@ -1025,7 +909,8 @@ class LogsPage(BasePage):
             LOG_PATH = global_logger.log_file if hasattr(global_logger, 'log_file') else None
 
             if not LOG_PATH or not os.path.exists(LOG_PATH):
-                QMessageBox.warning(self, "Ошибка", "Файл лога не найден")
+                InfoBar.warning(title="Ошибка", content="Файл лога не найден",
+                    parent=self.window())
                 return
 
             # Проверяем режим оркестратора
@@ -1056,19 +941,15 @@ class LogsPage(BasePage):
 
                 ok, code, bot_username, bot_link = request_upload_code()
                 if not ok or not code:
-                    QMessageBox.warning(self, "Авторизация",
-                        "Не удалось запросить код авторизации у ZapretHub.\n"
-                        "Проверьте доступность панели и повторите.")
+                    InfoBar.warning(title="Авторизация",
+                        content="Не удалось запросить код авторизации у ZapretHub. Проверьте доступность панели и повторите.",
+                        parent=self.window())
                     return
 
                 bot_line = f"@{bot_username}" if bot_username else "бот поддержки"
-                QMessageBox.information(self, "Авторизация поддержки",
-                    "Для отправки логов нужно подтвердить код в Telegram.\n\n"
-                    f"1) Откройте {bot_line}\n"
-                    f"2) Отправьте ему код: {code}\n"
-                    "3) Вернитесь сюда — отправка продолжится автоматически.\n\n"
-                    f"Ссылка: {bot_link}"
-                )
+                InfoBar.info(title="Авторизация поддержки",
+                    content=f"Откройте {bot_line} и подтвердите код для отправки логов.",
+                    parent=self.window(), duration=8000)
 
                 self.send_log_btn.setEnabled(False)
                 self.send_status_label.setText("🔐 Ожидание подтверждения кода...")
@@ -1087,9 +968,9 @@ class LogsPage(BasePage):
                     if not auth_ok:
                         self.send_log_btn.setEnabled(True)
                         self.send_status_label.setText("❌ Код не подтверждён")
-                        QMessageBox.warning(self, "Авторизация",
-                            "Не удалось подтвердить код.\n\n"
-                            f"Причина: {err_msg or 'Неизвестная ошибка'}")
+                        InfoBar.warning(title="Авторизация",
+                            content=f"Не удалось подтвердить код. Причина: {err_msg or 'Неизвестная ошибка'}",
+                            parent=self.window())
                         return
 
                     # Continue sending with the existing prepared payload
@@ -1108,7 +989,8 @@ class LogsPage(BasePage):
                 return
 
             except Exception as e:
-                QMessageBox.warning(self, "Авторизация", f"Ошибка авторизации: {e}")
+                InfoBar.warning(title="Авторизация", content=f"Ошибка авторизации: {e}",
+                    parent=self.window())
                 return
 
             # If we ever add a dev token path (Bearer), sending could continue here.
@@ -1117,7 +999,8 @@ class LogsPage(BasePage):
             log(f"Ошибка отправки лога: {e}", "ERROR")
             self.send_log_btn.setEnabled(True)
             self.send_status_label.setText("❌ Ошибка")
-            QMessageBox.warning(self, "Ошибка", f"Не удалось отправить лог:\n{e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось отправить лог: {e}",
+                parent=self.window())
 
     def _send_single_log(self, log_path: str, caption: str, auth_code: str | None = None):
         """Отправляет один файл лога"""
@@ -1141,17 +1024,17 @@ class LogsPage(BasePage):
                 self.send_status_label.setText(f"❌ {short_error or 'Ошибка отправки'}")
                 self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
                 if extra_wait > 0:
-                    QMessageBox.warning(self, "Слишком часто",
-                        f"Слишком частые запросы.\n"
-                        f"Повторите через {int(extra_wait/60)} минут.")
+                    InfoBar.warning(title="Слишком часто",
+                        content=f"Повторите через {int(extra_wait/60)} минут.",
+                        parent=self.window())
                 elif error_msg:
-                    QMessageBox.warning(self, "Ошибка отправки",
-                        f"Не удалось отправить лог.\n\n"
-                        f"Причина: {error_msg}")
+                    InfoBar.warning(title="Ошибка отправки",
+                        content=f"Не удалось отправить лог. Причина: {error_msg}",
+                        parent=self.window())
                 else:
-                    QMessageBox.warning(self, "Ошибка",
-                        "Не удалось отправить лог.\n\n"
-                        "Проверьте подключение к интернету.")
+                    InfoBar.warning(title="Ошибка",
+                        content="Не удалось отправить лог. Проверьте подключение к интернету.",
+                        parent=self.window())
 
             self._send_worker.deleteLater()
             self._send_thread.quit()
@@ -1193,9 +1076,9 @@ class LogsPage(BasePage):
                     self.send_status_label.setText("❌ Ошибка отправки")
                     self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
                     if self._orchestra_errors:
-                        QMessageBox.warning(self, "Ошибка отправки",
-                            f"Не удалось отправить логи.\n\n"
-                            f"Ошибки:\n" + "\n".join(self._orchestra_errors[:3]))
+                        InfoBar.warning(title="Ошибка отправки",
+                            content="Не удалось отправить логи. Ошибки: " + "; ".join(self._orchestra_errors[:3]),
+                            parent=self.window())
 
         # 1. Отправляем лог оркестратора (сырой debug) в топик 43927
         orchestra_filename = os.path.basename(orchestra_log_path)
@@ -1297,9 +1180,9 @@ class LogsPage(BasePage):
     def _refresh_logs_list(self, *, run_cleanup: bool = True):
         """Обновляет список доступных лог-файлов"""
         # Запускаем анимацию вращения
-        self.refresh_btn.setIcon(self._refresh_icon_spinning)
         self._refresh_spin_active = True
-        self._refresh_spin_animation.start()
+        self._spin_angle = 0
+        self._spin_timer.start()
         
         self.log_combo.blockSignals(True)
         self.log_combo.clear()
@@ -1333,7 +1216,7 @@ class LogsPage(BasePage):
                 else:
                     display = f"{filename} ({size_kb:.1f} KB)"
                 
-                self.log_combo.addItem(display, log_path)
+                self.log_combo.addItem(display, userData=log_path)
             
             self.log_combo.setCurrentIndex(current_index)
             
@@ -1347,8 +1230,26 @@ class LogsPage(BasePage):
     def _stop_refresh_animation(self):
         """Останавливает анимацию кнопки обновления"""
         self._refresh_spin_active = False
-        self._refresh_spin_animation.stop()
+        self._spin_timer.stop()
         self.refresh_btn.setIcon(self._refresh_icon_normal)
+
+    def _on_spin_tick(self):
+        """Вращает иконку обновления через QTransform (работает с ToolButton)."""
+        self._spin_angle = (self._spin_angle + 12) % 360
+        try:
+            tokens = get_theme_tokens()
+            src = qta.icon('fa5s.sync-alt', color=tokens.accent_hex).pixmap(22, 22)
+            dst = QPixmap(22, 22)
+            dst.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(dst)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            t = QTransform().translate(11, 11).rotate(self._spin_angle).translate(-11, -11)
+            painter.setTransform(t)
+            painter.drawPixmap(0, 0, src)
+            painter.end()
+            self.refresh_btn.setIcon(QIcon(dst))
+        except Exception:
+            pass
             
     def _on_log_selected(self, index):
         """Обработчик выбора лог-файла"""

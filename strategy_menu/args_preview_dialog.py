@@ -1,656 +1,134 @@
 """
-Компактное окно информации о стратегии - Windows 11 Fluent Design
+Диалог информации о стратегии.
+Открывается как обычное окно у курсора мыши по ПКМ.
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QTextEdit, QPushButton, QWidget,
-                            QGraphicsDropShadowEffect, QApplication)
-from PyQt6.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve, 
-                          pyqtSignal, QRectF, QObject, QEvent)
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QPen, QCursor
+from PyQt6.QtWidgets import (
+    QApplication, QDialog, QHBoxLayout, QVBoxLayout, QWidget,
+)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QCursor
+
+from qfluentwidgets import (
+    BodyLabel, CaptionLabel, StrongBodyLabel,
+    TextEdit, PushButton, TogglePushButton,
+)
 
 from log import log
-from ui.theme import get_theme_tokens
-from ui.theme_semantic import get_semantic_palette
-
-
-class _ArgsPreviewRightClickCloser(QObject):
-    """
-    App-wide right-click closer for ArgsPreviewDialog opened via RMB.
-
-    Requirement:
-    - If a preview window is open (opened via RMB), RMB anywhere closes it.
-    - The same RMB should NOT open another preview (consume the event).
-    """
-
-    _APP_PROP = "zapretgui_args_preview_open"
-
-    def __init__(self):
-        super().__init__()
-        self._dialogs = []
-        self._installed = False
-
-    def _ensure_installed(self) -> None:
-        if self._installed:
-            return
-        app = QApplication.instance()
-        if not app:
-            return
-        try:
-            app.installEventFilter(self)
-            self._installed = True
-        except Exception:
-            self._installed = False
-
-    def _set_app_flag(self) -> None:
-        app = QApplication.instance()
-        if not app:
-            return
-        has_open = False
-        for dlg in list(self._dialogs):
-            try:
-                if dlg and dlg.isVisible() and (not getattr(dlg, "_hover_follow", False)):
-                    has_open = True
-                    break
-            except RuntimeError:
-                continue
-            except Exception:
-                continue
-        try:
-            app.setProperty(self._APP_PROP, bool(has_open))
-        except Exception:
-            pass
-
-    def register(self, dialog: "ArgsPreviewDialog") -> None:
-        if not dialog:
-            return
-        self._ensure_installed()
-        if dialog not in self._dialogs:
-            self._dialogs.append(dialog)
-
-        # Hide/cancel hover-tooltip immediately when RMB preview opens.
-        try:
-            from .hover_tooltip import tooltip_manager
-            tooltip_manager.hide_immediately()
-        except Exception:
-            pass
-
-        self._set_app_flag()
-
-    def unregister(self, dialog: "ArgsPreviewDialog") -> None:
-        if not dialog:
-            return
-        try:
-            if dialog in self._dialogs:
-                self._dialogs.remove(dialog)
-        except Exception:
-            pass
-        self._set_app_flag()
-
-    def _close_topmost(self) -> bool:
-        """
-        Close the most recently registered visible interactive preview.
-
-        Returns True if something was closed.
-        """
-        for dlg in reversed(list(self._dialogs)):
-            try:
-                if (not dlg) or (not dlg.isVisible()):
-                    continue
-                if getattr(dlg, "_hover_follow", False):
-                    continue
-                dlg.close_dialog()
-                return True
-            except RuntimeError:
-                # C++ object deleted; ignore.
-                continue
-            except Exception:
-                continue
-        return False
-
-    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
-        try:
-            et = event.type()
-        except Exception:
-            return False
-
-        # Global ESC: close interactive RMB preview even without focus in the dialog.
-        # Note: works while the app receives key events (i.e. is the active app).
-        if et in (QEvent.Type.KeyPress, QEvent.Type.ShortcutOverride):
-            try:
-                if event.key() == Qt.Key.Key_Escape:
-                    if self._close_topmost():
-                        try:
-                            event.accept()
-                        except Exception:
-                            pass
-                        return True
-            except Exception:
-                pass
-            return False
-
-        if et == QEvent.Type.ContextMenu:
-            if self._close_topmost():
-                return True
-            return False
-
-        if et == QEvent.Type.MouseButtonPress:
-            try:
-                if event.button() == Qt.MouseButton.RightButton:
-                    if self._close_topmost():
-                        return True
-            except Exception:
-                pass
-            return False
-
-        return False
-
-
-_args_preview_rmb_closer = _ArgsPreviewRightClickCloser()
 
 
 class ArgsPreviewDialog(QDialog):
-    """Компактное окно информации о стратегии - Fluent Design"""
+    """
+    Обычное окно с информацией о стратегии, открывается у курсора.
+
+    Backward-compatible API:
+        dlg = ArgsPreviewDialog(parent_window)
+        dlg.closed.connect(handler)
+        dlg.set_strategy_data(data, strategy_id=..., ...)
+        dlg.show_animated(global_pos)   # pos = QPoint или None → QCursor.pos()
+        dlg.close_dialog()
+    """
 
     closed = pyqtSignal()
-    rating_changed = pyqtSignal(str, str)  # strategy_id, new_rating (или None)
-    
+    rating_changed = pyqtSignal(str, str)  # strategy_id, new_rating
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._pinned = False
-        self._hover_follow = False
-        self._mouse_offset = None
-        self._copy_success = False
-        self._mouse_timer = QTimer(self)
-        self._mouse_timer.timeout.connect(self._follow_cursor)
-        
-        self.setWindowFlags(self._popup_flags())
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setModal(False)
-        
-        self.opacity_animation = QPropertyAnimation(self, b"windowOpacity")
-        self.opacity_animation.setDuration(150)
-        self.opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        
-        self.init_ui()
-        self.setWindowOpacity(0.0)
-
-    def _sync_rmb_close_behavior(self) -> None:
-        """
-        Enable RMB-anywhere-to-close only for interactive preview (RMB-opened),
-        not for hover-follow tooltip mode.
-        """
-        try:
-            if self.isVisible() and (not self._hover_follow):
-                _args_preview_rmb_closer.register(self)
-            else:
-                _args_preview_rmb_closer.unregister(self)
-        except Exception:
-            pass
-
-    @staticmethod
-    def _popup_flags():
-        return (
-            Qt.WindowType.Popup
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-
-    @staticmethod
-    def _pinned_flags():
-        # Tool window: stays above the app, but should NOT be topmost system-wide.
-        return (
+        self.setWindowTitle("Информация о стратегии")
+        self.setWindowFlags(
             Qt.WindowType.Tool
-            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowCloseButtonHint
         )
+        self._strategy_id = None
+        self._category_key = None
+        self._rating_getter = None
+        self._rating_toggler = None
+        self._original_args = ""
+        self._init_ui()
 
-    @staticmethod
-    def _tooltip_flags():
-        return (
-            Qt.WindowType.ToolTip
-            | Qt.WindowType.FramelessWindowHint
-        )
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setSpacing(8)
 
-    def set_hover_follow(self, enabled: bool, offset=None) -> None:
-        """
-        Hover-preview mode: show as a tooltip and follow the cursor.
+        # Title
+        self.title_label = StrongBodyLabel()
+        layout.addWidget(self.title_label)
 
-        This prevents Qt.Popup auto-closing on click (which makes the preview
-        "disappear" while selecting strategies).
-        """
-        enabled = bool(enabled)
-        if bool(getattr(self, "_hover_follow", False)) == enabled:
-            return
-        self._hover_follow = enabled
-        self._mouse_offset = offset
-
-        if enabled:
-            # Tooltip should not steal focus.
-            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-            # And it should never block clicks/hover on the underlying UI.
-            # (Some platforms/drivers can still treat tooltip windows as hit-testable.)
-            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        else:
-            try:
-                self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
-            except Exception:
-                pass
-            try:
-                self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
-            except Exception:
-                pass
-
-        self._apply_window_flags()
-
-        if enabled and not self._pinned:
-            self._mouse_timer.start(16)  # ~60 FPS
-        else:
-            self._mouse_timer.stop()
-        self._sync_rmb_close_behavior()
-
-    def _apply_window_flags(self) -> None:
-        was_visible = False
-        try:
-            was_visible = self.isVisible()
-        except Exception:
-            was_visible = False
-        try:
-            pos = self.pos()
-        except Exception:
-            pos = None
-        try:
-            opacity = float(self.windowOpacity())
-        except Exception:
-            opacity = 1.0
-
-        try:
-            if self._pinned:
-                flags = self._pinned_flags()
-            elif self._hover_follow:
-                flags = self._tooltip_flags()
-            else:
-                flags = self._popup_flags()
-
-            self.setWindowFlags(flags)
-            self.setModal(False)
-            if was_visible:
-                self.show()
-                if pos is not None:
-                    self.move(pos)
-                self.setWindowOpacity(opacity)
-            self._sync_rmb_close_behavior()
-        except Exception:
-            pass
-
-    def set_pinned(self, pinned: bool) -> None:
-        pinned = bool(pinned)
-        if bool(getattr(self, "_pinned", False)) == pinned:
-            return
-        self._pinned = pinned
-        if pinned:
-            self._mouse_timer.stop()
-        elif self._hover_follow:
-            self._mouse_timer.start(16)
-        self._apply_window_flags()
-        self._sync_rmb_close_behavior()
-
-    def _follow_cursor(self):
-        if self._pinned or (not self._hover_follow) or (not self.isVisible()):
-            self._mouse_timer.stop()
-            return
-        # Keep hover-preview strictly within its source widget (strategies list).
-        try:
-            sw = getattr(self, "source_widget", None)
-            if sw is not None:
-                if (not sw.isVisible()) or (not sw.window().isVisible()):
-                    self.close_dialog()
-                    return
-                w = QApplication.widgetAt(QCursor.pos())
-                if (w is None) or (w is not sw and (not sw.isAncestorOf(w))):
-                    self.close_dialog()
-                    return
-        except Exception:
-            pass
-        self._position_near_cursor(QCursor.pos())
-
-    def _position_near_cursor(self, cursor_pos):
-        try:
-            from PyQt6.QtCore import QPoint
-            offset = self._mouse_offset if self._mouse_offset is not None else QPoint(18, 18)
-            target_pos = cursor_pos + offset
-        except Exception:
-            target_pos = cursor_pos
-
-        screen = QApplication.primaryScreen()
-        if screen:
-            screen_rect = screen.availableGeometry()
-            try:
-                if target_pos.x() + self.width() > screen_rect.right():
-                    target_pos.setX(cursor_pos.x() - self.width() - 10)
-                if target_pos.y() + self.height() > screen_rect.bottom():
-                    target_pos.setY(cursor_pos.y() - self.height() - 10)
-                if target_pos.x() < screen_rect.left():
-                    target_pos.setX(screen_rect.left() + 5)
-                if target_pos.y() < screen_rect.top():
-                    target_pos.setY(screen_rect.top() + 5)
-            except Exception:
-                pass
-        try:
-            self.move(target_pos)
-        except Exception:
-            pass
-
-    def wheelEvent(self, event):
-        """
-        Do not block page scrolling when the preview is under the cursor.
-
-        If the wheel is over the args text area and it can scroll, keep default
-        behavior. Otherwise, forward scrolling to the source_widget (usually a
-        QScrollArea page), so users can keep scrolling the strategies list/page
-        while the preview is visible.
-        """
-        try:
-            pos = event.position().toPoint()
-            child = self.childAt(pos)
-        except Exception:
-            child = None
-
-        # Allow scrolling inside args_text if there is room to scroll.
-        try:
-            if child and (child is self.args_text or self.args_text.isAncestorOf(child)):
-                sb = self.args_text.verticalScrollBar()
-                dy = event.angleDelta().y()
-                if (dy > 0 and sb.value() > sb.minimum()) or (dy < 0 and sb.value() < sb.maximum()):
-                    return super().wheelEvent(event)
-        except Exception:
-            pass
-
-        src = getattr(self, "source_widget", None)
-        if src is None:
-            event.ignore()
-            return
-
-        try:
-            sb = src.verticalScrollBar()
-        except Exception:
-            event.ignore()
-            return
-
-        try:
-            steps = int(event.angleDelta().y() / 120)
-        except Exception:
-            steps = 0
-
-        if steps:
-            delta = steps * max(10, int(sb.singleStep() or 10)) * 3
-        else:
-            # Smooth scrolling devices
-            try:
-                delta = int(event.pixelDelta().y() or 0)
-            except Exception:
-                delta = 0
-
-        if delta:
-            sb.setValue(sb.value() - delta)
-            event.accept()
-            return
-
-        event.ignore()
-
-    def init_ui(self):
-        """Инициализация компактного интерфейса"""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        
-        # Контейнер
-        self.container = QWidget()
-        self.container.setObjectName("fluentContainer")
-        
-        # Тень
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(30)
-        shadow.setColor(QColor(0, 0, 0, 60))
-        shadow.setOffset(0, 8)
-        self.container.setGraphicsEffect(shadow)
-        
-        container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(16, 12, 16, 12)
-        container_layout.setSpacing(8)
-        
-        # === Заголовок ===
-        header = QHBoxLayout()
-        header.setSpacing(8)
-        
-        self.title_label = QLabel()
-        header.addWidget(self.title_label, 1)
-        
-        # Кнопка закрытия
-        self.close_btn = QPushButton("×")
-        self.close_btn.setFixedSize(24, 24)
-        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.close_btn.clicked.connect(self.close_dialog)
-        header.addWidget(self.close_btn)
-        container_layout.addLayout(header)
-        
-        # === Автор ===
-        self.author_label = QLabel()
+        # Author
+        self.author_label = CaptionLabel()
         self.author_label.hide()
-        container_layout.addWidget(self.author_label)
-        
-        # === Информационная строка ===
-        self.info_panel = QLabel()
-        self.info_panel.setWordWrap(True)
-        self.info_panel.hide()
-        container_layout.addWidget(self.info_panel)
-        
-        # === Аргументы ===
+        layout.addWidget(self.author_label)
+
+        # ID + provider
+        self.info_label = BodyLabel()
+        self.info_label.setWordWrap(True)
+        self.info_label.hide()
+        layout.addWidget(self.info_label)
+
+        # Args
         self.args_widget = QWidget()
         args_layout = QVBoxLayout(self.args_widget)
         args_layout.setContentsMargins(0, 4, 0, 0)
         args_layout.setSpacing(6)
-        
-        # Заголовок аргументов
+
         args_header = QHBoxLayout()
-        self.args_title = QLabel("Аргументы запуска:")
-        args_header.addWidget(self.args_title)
+        args_header.setSpacing(8)
+        args_header.addWidget(CaptionLabel("Аргументы запуска:"))
         args_header.addStretch()
-        
-        self.copy_button = QPushButton("Копировать")
-        self.copy_button.setFixedHeight(22)
-        self.copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.copy_button.clicked.connect(self.copy_args)
+
+        self.copy_button = PushButton()
+        self.copy_button.setText("Копировать")
+        self.copy_button.setFixedHeight(24)
+        self.copy_button.clicked.connect(self._copy_args)
         args_header.addWidget(self.copy_button)
         args_layout.addLayout(args_header)
-        
-        # Текст аргументов
-        self.args_text = QTextEdit()
+
+        self.args_text = TextEdit()
         self.args_text.setReadOnly(True)
         self.args_text.setMinimumHeight(60)
-        self.args_text.setMaximumHeight(120)
+        self.args_text.setMaximumHeight(200)
         args_layout.addWidget(self.args_text)
-        
-        container_layout.addWidget(self.args_widget)
-        
-        # === Метка стратегии ===
-        self.label_widget = QLabel()
-        self.label_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_widget.hide()
-        container_layout.addWidget(self.label_widget)
-        
-        # === Кнопки оценки ===
+
+        layout.addWidget(self.args_widget)
+
+        # Rating buttons
         rating_widget = QWidget()
         rating_layout = QHBoxLayout(rating_widget)
         rating_layout.setContentsMargins(0, 4, 0, 0)
         rating_layout.setSpacing(8)
-        
-        self.rating_label = QLabel("Оценить:")
-        rating_layout.addWidget(self.rating_label)
+
+        rating_layout.addWidget(CaptionLabel("Оценить:"))
         rating_layout.addStretch()
-        
-        self.working_button = QPushButton("РАБОЧАЯ")
+
+        self.working_button = TogglePushButton()
+        self.working_button.setText("РАБОЧАЯ")
         self.working_button.setFixedHeight(26)
-        self.working_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.working_button.clicked.connect(lambda: self._toggle_rating('working'))
+        self.working_button.clicked.connect(lambda: self._toggle_rating("working"))
         rating_layout.addWidget(self.working_button)
-        
-        self.broken_button = QPushButton("НЕРАБОЧАЯ")
+
+        self.broken_button = TogglePushButton()
+        self.broken_button.setText("НЕРАБОЧАЯ")
         self.broken_button.setFixedHeight(26)
-        self.broken_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.broken_button.clicked.connect(lambda: self._toggle_rating('broken'))
+        self.broken_button.clicked.connect(lambda: self._toggle_rating("broken"))
         rating_layout.addWidget(self.broken_button)
-        
-        container_layout.addWidget(rating_widget)
-        
-        # === Подсказка ===
-        self.hint_label = QLabel("ESC — закрыть")
-        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        container_layout.addWidget(self.hint_label)
-        
-        main_layout.addWidget(self.container)
-        self.setFixedWidth(420)
-        
-        # Обновляем стили кнопок
-        self._apply_theme_styles()
-        self._update_rating_buttons()
 
-    def _copy_button_style(self) -> str:
-        tokens = get_theme_tokens()
-        if self._copy_success:
-            fg = "#2e7d32" if tokens.is_light else "#4ade80"
-            bg = "rgba(74, 222, 128, 0.18)" if tokens.is_light else "rgba(74, 222, 128, 0.20)"
-            bg_hover = "rgba(74, 222, 128, 0.24)" if tokens.is_light else "rgba(74, 222, 128, 0.26)"
-            border = "1px solid rgba(74, 222, 128, 0.36)"
-        else:
-            fg = tokens.fg_muted
-            bg = tokens.surface_bg
-            bg_hover = tokens.surface_bg_hover
-            border = f"1px solid {tokens.surface_border}"
+        layout.addWidget(rating_widget)
 
-        return f"""
-            QPushButton {{
-                background: {bg};
-                color: {fg};
-                border: {border};
-                border-radius: 4px;
-                padding: 0 10px;
-                font-size: 11px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background: {bg_hover};
-                color: {tokens.fg};
-            }}
-        """
+        self.setMinimumWidth(420)
+        self.setMaximumWidth(520)
 
-    def _apply_theme_styles(self) -> None:
-        tokens = get_theme_tokens()
-        if tokens.is_light:
-            info_bg = "rgba(0, 0, 0, 0.035)"
-            args_bg = "rgba(255, 255, 255, 0.92)"
-            args_border = "rgba(0, 0, 0, 0.12)"
-            args_scroll = "rgba(0, 0, 0, 0.20)"
-            args_scroll_hover = "rgba(0, 0, 0, 0.30)"
-        else:
-            info_bg = "rgba(255, 255, 255, 0.04)"
-            args_bg = "rgba(0, 0, 0, 0.22)"
-            args_border = "rgba(255, 255, 255, 0.08)"
-            args_scroll = "rgba(255, 255, 255, 0.15)"
-            args_scroll_hover = "rgba(255, 255, 255, 0.24)"
+    # ------------------------------------------------------------------
+    # Backward-compatible API
+    # ------------------------------------------------------------------
 
-        self.title_label.setStyleSheet(
-            f"color: {tokens.fg}; font-size: 14px; font-weight: 600;"
-        )
-        self.close_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: transparent;
-                color: {tokens.fg_muted};
-                border: none;
-                font-size: 18px;
-                font-weight: 400;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background: {tokens.surface_bg_hover};
-                color: {tokens.fg};
-            }}
-            """
-        )
-        self.author_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
-        self.info_panel.setStyleSheet(
-            f"""
-            QLabel {{
-                color: {tokens.fg_muted};
-                font-size: 11px;
-                padding: 6px 10px;
-                background: {info_bg};
-                border-radius: 6px;
-                border: 1px solid {tokens.surface_border};
-            }}
-            """
-        )
-        self.args_title.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
-        self.args_text.setStyleSheet(
-            f"""
-            QTextEdit {{
-                background: {args_bg};
-                border: 1px solid {args_border};
-                border-radius: 6px;
-                color: {tokens.fg};
-                font-family: 'Cascadia Code', 'Consolas', monospace;
-                font-size: 10px;
-                padding: 8px;
-            }}
-            QScrollBar:vertical {{
-                width: 4px;
-                background: transparent;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {args_scroll};
-                border-radius: 2px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: {args_scroll_hover};
-            }}
-            """
-        )
-        self.rating_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
-        self.hint_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 10px;")
-        self.copy_button.setStyleSheet(self._copy_button_style())
+    def set_pinned(self, pinned: bool) -> None:
+        pass  # always stays open until the user closes it
 
-        try:
-            effect = self.container.graphicsEffect()
-            if isinstance(effect, QGraphicsDropShadowEffect):
-                effect.setColor(QColor(0, 0, 0, 56 if tokens.is_light else 78))
-        except Exception:
-            pass
-        
-    def paintEvent(self, event):
-        """Рисуем Fluent фон"""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        rect = self.container.geometry()
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(rect), 12, 12)
-        
-        # Градиент фона
-        tokens = get_theme_tokens()
-        gradient = QLinearGradient(0, rect.top(), 0, rect.bottom())
-        if tokens.is_light:
-            gradient.setColorAt(0, QColor(255, 255, 255, 248))
-            gradient.setColorAt(1, QColor(243, 247, 252, 244))
-            border_color = QColor(0, 0, 0, 26)
-        else:
-            gradient.setColorAt(0, QColor(48, 48, 48, 252))
-            gradient.setColorAt(1, QColor(36, 36, 36, 252))
-            border_color = QColor(255, 255, 255, 15)
-        painter.fillPath(path, QBrush(gradient))
-        
-        # Рамка
-        painter.setPen(QPen(border_color, 1))
-        painter.drawPath(path)
-        
+    def set_hover_follow(self, enabled: bool, offset=None) -> None:
+        pass  # no cursor tracking
+
     def set_strategy_data(
         self,
         strategy_data,
@@ -660,238 +138,152 @@ class ArgsPreviewDialog(QDialog):
         rating_getter=None,
         rating_toggler=None,
     ):
-        """Устанавливает данные стратегии"""
-        self.current_strategy_id = strategy_id
-        self.current_category_key = category_key
-        self.source_widget = source_widget
+        self._strategy_id = strategy_id
+        self._category_key = category_key
         self._rating_getter = rating_getter
         self._rating_toggler = rating_toggler
-        
-        # Заголовок
-        name = strategy_data.get('name', strategy_id or 'Стратегия')
+
+        name = strategy_data.get("name", strategy_id or "Стратегия")
         self.title_label.setText(name)
-        
-        # Автор
-        author = strategy_data.get('author')
-        if author and author != 'unknown':
+        self.setWindowTitle(name)
+
+        author = strategy_data.get("author")
+        if author and author != "unknown":
             self.author_label.setText(f"Автор: {author}")
             self.author_label.show()
         else:
             self.author_label.hide()
-        
-        # Инфо панель
+
+        try:
+            from qfluentwidgets import isDarkTheme as _idt
+            _dark = _idt()
+        except Exception:
+            _dark = True
+        _id_color = "#60cdff" if _dark else "#0066cc"
+        _prov_color = "#a78bfa" if _dark else "#7c3aed"
+
         info_parts = []
         if strategy_id:
-            info_parts.append(f"<span style='color:#60cdff'>ID:</span> {strategy_id}")
-        version = strategy_data.get('version')
-        if version:
-            info_parts.append(f"<span style='color:#4ade80'>v{version}</span>")
-        provider = strategy_data.get('provider', 'universal')
-        provider_names = {'universal': 'All', 'rostelecom': 'Ростелеком', 'mts': 'МТС', 
-                         'megafon': 'МегаФон', 'beeline': 'Билайн'}
-        info_parts.append(f"<span style='color:#a78bfa'>{provider_names.get(provider, provider)}</span>")
-        
+            info_parts.append(
+                f"<span style='color:{_id_color}'>ID:</span> {strategy_id}"
+            )
+        provider = strategy_data.get("provider", "universal")
+        provider_names = {
+            "universal": "All",
+            "rostelecom": "Ростелеком",
+            "mts": "МТС",
+            "megafon": "МегаФон",
+            "beeline": "Билайн",
+        }
+        info_parts.append(
+            f"<span style='color:{_prov_color}'>"
+            f"{provider_names.get(provider, provider)}</span>"
+        )
+
         if info_parts:
-            self.info_panel.setText(" • ".join(info_parts))
-            self.info_panel.show()
+            self.info_label.setText(" • ".join(info_parts))
+            self.info_label.setTextFormat(Qt.TextFormat.RichText)
+            self.info_label.show()
         else:
-            self.info_panel.hide()
-        
-        # Аргументы
-        args = strategy_data.get('args', '')
+            self.info_label.hide()
+
+        args = strategy_data.get("args", "")
+        self._original_args = str(args)
         if args:
-            self.args_text.setPlainText(args[:500] + ('...' if len(args) > 500 else ''))
-            self.original_args = args
+            self.args_text.setPlainText(str(args))
             self.args_widget.show()
         else:
             self.args_widget.hide()
-            self.original_args = ""
-        
-        # Метка
-        from launcher_common.constants import LABEL_TEXTS, LABEL_COLORS
-        label = strategy_data.get('label')
-        if label and label in LABEL_TEXTS:
-            self.label_widget.setText(LABEL_TEXTS[label])
-            self.label_widget.setStyleSheet(f"""
-                QLabel {{
-                    color: {LABEL_COLORS[label]};
-                    font-weight: 600;
-                    font-size: 11px;
-                    padding: 4px 12px;
-                    border: 1px solid {LABEL_COLORS[label]};
-                    border-radius: 4px;
-                }}
-            """)
-            self.label_widget.show()
-        else:
-            self.label_widget.hide()
-        
-        self._apply_theme_styles()
+
         self._update_rating_buttons()
         self.adjustSize()
-    
-    def _get_rating_button_style(self, is_active, rating_type):
-        """Стиль кнопки оценки"""
-        tokens = get_theme_tokens()
-        semantic = get_semantic_palette(tokens.theme_name)
-        if rating_type == 'working':
-            color = semantic.success
-        else:
-            color = semantic.error
 
-        active_qcolor = QColor(color)
-        yiq = (active_qcolor.red() * 299 + active_qcolor.green() * 587 + active_qcolor.blue() * 114) / 1000
-        active_fg = "rgba(18, 18, 18, 0.92)" if yiq >= 160 else "rgba(245, 245, 245, 0.95)"
-        
-        if is_active:
-            return f"""
-                QPushButton {{
-                    background: {color};
-                    color: {active_fg};
-                    border: none;
-                    border-radius: 4px;
-                    padding: 0 12px;
-                    font-size: 10px;
-                    font-weight: 600;
-                }}
-            """
-        else:
-            return f"""
-                QPushButton {{
-                    background: {tokens.surface_bg};
-                    color: {tokens.fg_muted};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 4px;
-                    padding: 0 12px;
-                    font-size: 10px;
-                }}
-                QPushButton:hover {{
-                    background: {tokens.surface_bg_hover};
-                    color: {color};
-                    border-color: {color};
-                }}
-            """
-    
-    def _update_rating_buttons(self):
-        """Обновляет кнопки оценки"""
-        if not hasattr(self, 'current_strategy_id') or not self.current_strategy_id:
-            self.working_button.setStyleSheet(self._get_rating_button_style(False, 'working'))
-            self.broken_button.setStyleSheet(self._get_rating_button_style(False, 'broken'))
-            return
-
-        category_key = getattr(self, 'current_category_key', None)
-        current_rating = None
-        if getattr(self, "_rating_getter", None):
-            try:
-                current_rating = self._rating_getter(self.current_strategy_id, category_key)
-            except Exception:
-                current_rating = None
-        else:
-            from strategy_menu import get_strategy_rating
-            current_rating = get_strategy_rating(self.current_strategy_id, category_key)
-
-        self.working_button.setStyleSheet(self._get_rating_button_style(current_rating == 'working', 'working'))
-        self.broken_button.setStyleSheet(self._get_rating_button_style(current_rating == 'broken', 'broken'))
-    
-    def _toggle_rating(self, rating):
-        """Переключает оценку"""
-        if not hasattr(self, 'current_strategy_id') or not self.current_strategy_id:
-            return
-
-        category_key = getattr(self, 'current_category_key', None)
-        new_rating = None
-        if getattr(self, "_rating_toggler", None):
-            try:
-                new_rating = self._rating_toggler(self.current_strategy_id, rating, category_key)
-            except Exception:
-                new_rating = None
-        else:
-            from strategy_menu import toggle_strategy_rating
-            new_rating = toggle_strategy_rating(self.current_strategy_id, rating, category_key)
-        self._update_rating_buttons()
-        # Уведомляем об изменении рейтинга
-        self.rating_changed.emit(self.current_strategy_id, new_rating or "")
-    
-    def copy_args(self):
-        """Копирует аргументы"""
-        if hasattr(self, 'original_args'):
-            QApplication.clipboard().setText(self.original_args)
-            self.copy_button.setText("✓ Скопировано")
-            self._copy_success = True
-            self.copy_button.setStyleSheet(self._copy_button_style())
-            QTimer.singleShot(1500, self._reset_copy_button)
-    
-    def _reset_copy_button(self):
-        self.copy_button.setText("Копировать")
-        self._copy_success = False
-        self.copy_button.setStyleSheet(self._copy_button_style())
-    
     def show_animated(self, pos=None):
-        if self._hover_follow and not self._pinned:
-            self._position_near_cursor(QCursor.pos())
-            self._mouse_timer.start(16)
-        elif pos:
-            self.move(pos)
+        """Show the dialog near the given global QPoint (or current cursor)."""
+        if pos is None:
+            pos = QCursor.pos()
+
+        self.adjustSize()
+        screen = None
+        try:
+            screen = QApplication.primaryScreen().availableGeometry()
+        except Exception:
+            pass
+
+        x, y = pos.x() + 12, pos.y() + 12
+        if screen is not None:
+            if x + self.width() > screen.right():
+                x = pos.x() - self.width() - 12
+            if y + self.height() > screen.bottom():
+                y = pos.y() - self.height() - 12
+            x = max(screen.left(), x)
+            y = max(screen.top(), y)
+
+        self.move(x, y)
         self.show()
-        self._sync_rmb_close_behavior()
-        self.opacity_animation.setStartValue(0.0)
-        self.opacity_animation.setEndValue(1.0)
-        self.opacity_animation.start()
-    
+        self.raise_()
+        self.activateWindow()
+
     def close_dialog(self):
-        self.hide_animated()
-    
-    def hide_animated(self):
-        self._mouse_timer.stop()
-        self.opacity_animation.setStartValue(1.0)
-        self.opacity_animation.setEndValue(0.0)
-        try:
-            self.opacity_animation.finished.disconnect(self._on_hide_finished)
-        except Exception:
-            pass
-        self.opacity_animation.finished.connect(self._on_hide_finished)
-        self.opacity_animation.start()
-    
-    def _on_hide_finished(self):
-        try:
-            self.opacity_animation.finished.disconnect(self._on_hide_finished)
-        except:
-            pass
-        try:
-            _args_preview_rmb_closer.unregister(self)
-        except Exception:
-            pass
-        self.hide()
-        self.closed.emit()
+        """Close the dialog."""
+        self.close()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
+    def closeEvent(self, e):
+        super().closeEvent(e)
         try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._apply_theme_styles()
-                self._update_rating_buttons()
+            self.closed.emit()
         except Exception:
             pass
-        super().changeEvent(event)
-    
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
-            self.close_dialog()
-        else:
-            super().keyPressEvent(event)
 
-    def closeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            _args_preview_rmb_closer.unregister(self)
-        except Exception:
-            pass
-        return super().closeEvent(event)
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
 
+    def _update_rating_buttons(self):
+        current_rating = None
+        if self._rating_getter and self._strategy_id and self._category_key:
+            try:
+                current_rating = self._rating_getter(self._strategy_id, self._category_key)
+            except Exception:
+                pass
+
+        self.working_button.blockSignals(True)
+        self.broken_button.blockSignals(True)
+        self.working_button.setChecked(current_rating == "working")
+        self.broken_button.setChecked(current_rating == "broken")
+        self.working_button.blockSignals(False)
+        self.broken_button.blockSignals(False)
+
+    def _toggle_rating(self, rating: str):
+        if not self._strategy_id:
+            return
+        new_rating = None
+        if self._rating_toggler:
+            try:
+                new_rating = self._rating_toggler(
+                    self._strategy_id, rating, self._category_key
+                )
+            except Exception:
+                pass
+        self._update_rating_buttons()
+        self.rating_changed.emit(self._strategy_id or "", new_rating or "")
+
+    def _copy_args(self):
+        if self._original_args:
+            QApplication.clipboard().setText(self._original_args)
+            self.copy_button.setText("✓ Скопировано")
+            QTimer.singleShot(1500, lambda: self.copy_button.setText("Копировать"))
+
+
+# ---------------------------------------------------------------------------
+# StrategyPreviewManager — singleton, used by widgets_favorites / widgets / table
+# ---------------------------------------------------------------------------
 
 class StrategyPreviewManager:
-    """Менеджер окна предпросмотра"""
+    """Менеджер окна предпросмотра."""
 
     _instance = None
-    _rating_change_callbacks = []  # Callback'и для уведомления об изменении рейтинга
+    _rating_change_callbacks = []
 
     def __new__(cls):
         if cls._instance is None:
@@ -901,33 +293,34 @@ class StrategyPreviewManager:
         return cls._instance
 
     def add_rating_change_callback(self, callback):
-        """Добавляет callback для уведомления об изменении рейтинга"""
         if callback not in self._rating_change_callbacks:
             self._rating_change_callbacks.append(callback)
 
     def remove_rating_change_callback(self, callback):
-        """Удаляет callback"""
         if callback in self._rating_change_callbacks:
             self._rating_change_callbacks.remove(callback)
 
     def _on_rating_changed(self, strategy_id, new_rating):
-        """Вызывается при изменении рейтинга стратегии"""
         for callback in self._rating_change_callbacks:
             try:
                 callback(strategy_id, new_rating)
             except Exception as e:
                 log(f"Ошибка в callback рейтинга: {e}", "ERROR")
 
-    def show_preview(self, widget, strategy_id, strategy_data, category_key=None, rating_getter=None, rating_toggler=None):
-        # Проверяем что старый диалог ещё существует и не удалён Qt
+    def show_preview(
+        self,
+        widget,
+        strategy_id,
+        strategy_data,
+        category_key=None,
+        rating_getter=None,
+        rating_toggler=None,
+    ):
         try:
             if self.preview_dialog is not None:
-                # Проверяем что C++ объект не удалён
                 try:
-                    if self.preview_dialog.isVisible():
-                        self.preview_dialog.close()
+                    self.preview_dialog.close_dialog()
                 except RuntimeError:
-                    # C++ объект уже удалён
                     pass
                 self.preview_dialog = None
         except RuntimeError:
@@ -944,34 +337,24 @@ class StrategyPreviewManager:
             rating_getter=rating_getter,
             rating_toggler=rating_toggler,
         )
+        # Open at current cursor position (called from right-click handler)
+        self.preview_dialog.show_animated()
 
-        cursor_pos = widget.mapToGlobal(widget.rect().center())
-
-        screen = QApplication.primaryScreen()
-        if screen:
-            screen_rect = screen.availableGeometry()
-            if cursor_pos.x() + self.preview_dialog.width() > screen_rect.right():
-                cursor_pos.setX(screen_rect.right() - self.preview_dialog.width() - 10)
-            if cursor_pos.y() + 300 > screen_rect.bottom():
-                cursor_pos.setY(screen_rect.bottom() - 300)
-
-        self.preview_dialog.show_animated(cursor_pos)
-    
     def _on_preview_closed(self):
         if self.preview_dialog is not None:
             try:
                 self.preview_dialog.deleteLater()
             except RuntimeError:
-                pass  # C++ объект уже удалён
+                pass
             self.preview_dialog = None
-    
+
     def cleanup(self):
         if self.preview_dialog is not None:
             try:
-                self.preview_dialog.close()
+                self.preview_dialog.close_dialog()
                 self.preview_dialog.deleteLater()
             except RuntimeError:
-                pass  # C++ объект уже удалён
+                pass
             self.preview_dialog = None
 
 

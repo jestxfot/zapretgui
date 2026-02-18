@@ -318,7 +318,11 @@ class InitializationManager:
         try:
             self.app.start_clicked.connect(self._on_start_clicked)
             self.app.stop_clicked.connect(lambda: self.app.dpi_controller.stop_dpi_async())
-            self.app.theme_changed.connect(self.app.change_theme)
+            # display_mode_changed replaces theme_changed (theme selection removed)
+            if hasattr(self.app, 'display_mode_changed'):
+                self.app.display_mode_changed.connect(lambda _mode: None)  # no-op: mode handled in appearance_page
+            elif hasattr(self.app, 'theme_changed'):
+                self.app.theme_changed.connect(self.app.change_theme)
             self.app.open_folder_btn.clicked.connect(self.app.open_folder)
             self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
             self.app.server_status_btn.clicked.connect(self.app.show_servers_page)
@@ -330,10 +334,6 @@ class InitializationManager:
             # Сигнал снежинок
             if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'snowflakes_changed'):
                 self.app.appearance_page.snowflakes_changed.connect(self.app.set_snowflakes_enabled)
-
-            # Сигнал эффекта размытия
-            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'blur_effect_changed'):
-                self.app.appearance_page.blur_effect_changed.connect(self.app.set_blur_effect_enabled)
 
             # Сигнал прозрачности окна
             if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'opacity_changed'):

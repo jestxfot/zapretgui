@@ -2,13 +2,21 @@
 """Страница управления IP-сетами"""
 
 from PyQt6.QtCore import Qt, QTimer, QEvent
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QFrame, QMessageBox)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QFrame)
 from PyQt6.QtGui import QFont
 import qtawesome as qta
 
+try:
+    from qfluentwidgets import StrongBodyLabel, BodyLabel, CaptionLabel, InfoBar
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    StrongBodyLabel = QLabel; BodyLabel = QLabel; CaptionLabel = QLabel
+    InfoBar = None
+    _HAS_FLUENT_LABELS = False
+
 from .base_page import BasePage
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 from log import log
 
@@ -32,12 +40,12 @@ class IpsetPage(BasePage):
         
         # Описание
         desc_card = SettingsCard()
-        desc = QLabel(
+        desc = CaptionLabel(
             "IP-сеты содержат IP-адреса и подсети для обхода блокировок по IP.\n"
             "Используются когда блокировка происходит на уровне IP-адресов."
         )
         self._desc_label = desc
-        desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+        desc.setStyleSheet(f"color: {tokens.fg_muted};")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -57,9 +65,9 @@ class IpsetPage(BasePage):
         open_icon.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
         open_layout.addWidget(open_icon)
         
-        open_text = QLabel("Открыть папку IP-сетов")
+        open_text = BodyLabel("Открыть папку IP-сетов")
         self._open_text_label = open_text
-        open_text.setStyleSheet(f"color: {tokens.fg}; font-size: 13px;")
+        open_text.setStyleSheet(f"color: {tokens.fg};")
         open_layout.addWidget(open_text, 1)
         
         self.open_ipset_btn = ActionButton("Открыть", "fa5s.external-link-alt")
@@ -77,8 +85,8 @@ class IpsetPage(BasePage):
         info_layout = QVBoxLayout()
         info_layout.setSpacing(8)
         
-        self.files_info_label = QLabel("Загрузка информации...")
-        self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        self.files_info_label = CaptionLabel("Загрузка информации...")
+        self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
         self.files_info_label.setWordWrap(True)
         info_layout.addWidget(self.files_info_label)
         
@@ -97,13 +105,13 @@ class IpsetPage(BasePage):
         try:
             tokens = get_theme_tokens()
             if self._desc_label is not None:
-                self._desc_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+                self._desc_label.setStyleSheet(f"color: {tokens.fg_muted};")
             if self._open_icon_label is not None:
                 self._open_icon_label.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
             if self._open_text_label is not None:
-                self._open_text_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px;")
+                self._open_text_label.setStyleSheet(f"color: {tokens.fg};")
             if self.files_info_label is not None:
-                self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+                self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
         finally:
             self._applying_theme_styles = False
 
@@ -135,7 +143,8 @@ class IpsetPage(BasePage):
             os.startfile(LISTS_FOLDER)
         except Exception as e:
             log(f"Ошибка открытия папки: {e}", "ERROR")
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть папку:\n{e}")
+            if InfoBar is not None:
+                InfoBar.error(title="Ошибка", content=f"Не удалось открыть папку:\n{e}", parent=self.window(), duration=5000)
             
     def _load_info(self):
         """Загружает информацию о файлах"""

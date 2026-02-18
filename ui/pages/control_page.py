@@ -3,13 +3,25 @@
 
 import os
 
-from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QThread
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QMessageBox
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
 import qtawesome as qta
 
+try:
+    from qfluentwidgets import (
+        SubtitleLabel, BodyLabel, StrongBodyLabel, CaptionLabel,
+        IndeterminateProgressBar, MessageBox, InfoBar,
+    )
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    from PyQt6.QtWidgets import QProgressBar as IndeterminateProgressBar  # type: ignore[assignment]
+    MessageBox = None
+    InfoBar = None
+    _HAS_FLUENT_LABELS = False
+
 from .base_page import BasePage
-from ui.sidebar import SettingsRow, PulsingDot
-from ui.compat_widgets import SettingsCard, ActionButton, StatusIndicator
+from ui.compat_widgets import SettingsRow, PulsingDot
+from ui.compat_widgets import SettingsCard, ActionButton, PrimaryActionButton, StatusIndicator, set_tooltip
 from ui.pages.strategies_page_base import ResetActionButton
 
 try:
@@ -17,37 +29,6 @@ try:
     HAS_FLUENT = True
 except ImportError:
     HAS_FLUENT = False
-
-
-def _build_progress_style() -> str:
-    accent = "#60cdff"
-    bg = "rgba(255,255,255,0.06)"
-    if HAS_FLUENT:
-        try:
-            accent = themeColor().name()
-            bg = "rgba(255,255,255,0.04)" if isDarkTheme() else "rgba(0,0,0,0.04)"
-        except Exception:
-            pass
-    return f"""
-    QProgressBar {{
-        background-color: {bg};
-        border: none;
-        border-radius: 2px;
-        height: 4px;
-        text-align: center;
-    }}
-    QProgressBar::chunk {{
-        background: qlineargradient(
-            x1:0, y1:0, x2:1, y2:0,
-            stop:0 transparent,
-            stop:0.3 {accent},
-            stop:0.5 {accent},
-            stop:0.7 {accent},
-            stop:1 transparent
-        );
-        border-radius: 2px;
-    }}
-    """
 
 
 class _CertificateInstallWorker(QObject):
@@ -65,45 +46,33 @@ class _CertificateInstallWorker(QObject):
             self.finished.emit(False, str(e))
 
 
-class BigActionButton(ActionButton):
-    """Большая кнопка действия"""
+class BigActionButton(PrimaryActionButton):
+    """Большая акцентная кнопка действия (запуск)"""
 
-    def __init__(self, text: str, icon_name: str = None, accent: bool = False, parent=None):
-        super().__init__(text, icon_name, accent, parent)
-        self.setProperty("uiVariant", "big")
-        self.setFixedHeight(48)
-        self.setIconSize(QSize(20, 20))
+    def __init__(self, text: str, icon_name: str = None, accent: bool = True, parent=None):
+        super().__init__(text, icon_name, parent)
 
     def _update_style(self):
         """No-op: qfluentwidgets handles styling."""
         pass
 
 
-class StopButton(BigActionButton):
-    """Кнопка остановки (нейтральная)"""
-    pass
+class StopButton(ActionButton):
+    """Кнопка остановки (нейтральная, не акцентная)"""
+
+    def __init__(self, text: str, icon_name: str = None, accent: bool = False, parent=None):
+        super().__init__(text, icon_name, accent=False, parent=parent)
 
 
 class ControlPage(BasePage):
     """Страница управления DPI"""
-    
+
     def __init__(self, parent=None):
-        super().__init__("Управление и настройки Zapret 2", "Здесь Вы можете управлять основным ядром программы winws2.exe. Вы можете быстро выбрать из готовых пресетов-конфигов (ранее bat файлы). Если требуется более детальная настройка для каждой категории - перейдите в прямой запуск.", parent)
+        super().__init__("Управление", "Запуск и остановка Zapret, быстрые настройки программы.", parent)
         
         self._build_ui()
         self._update_stop_winws_button_text()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if hasattr(self, "progress_bar") and self.progress_bar is not None:
-                    self.progress_bar.setStyleSheet(_build_progress_style())
-        except Exception:
-            pass
-        super().changeEvent(event)
-        
     def _build_ui(self):
         # Статус работы
         self.add_section_title("Статус работы")
@@ -121,29 +90,18 @@ class ControlPage(BasePage):
         status_text_layout = QVBoxLayout()
         status_text_layout.setSpacing(2)
         
-        self.status_title = QLabel("Проверка...")
-        try:
-            self.status_title.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.status_title.setStyleSheet("""
-            QLabel {
-                font-size: 15px;
-                font-weight: 600;
-            }
-        """)
+        if _HAS_FLUENT_LABELS:
+            self.status_title = SubtitleLabel("Проверка...")
+        else:
+            self.status_title = QLabel("Проверка...")
+            self.status_title.setStyleSheet("font-size: 15px; font-weight: 600;")
         status_text_layout.addWidget(self.status_title)
         
-        self.status_desc = QLabel("Определение состояния процесса")
-        try:
-            self.status_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.status_desc.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-            }
-        """)
+        if _HAS_FLUENT_LABELS:
+            self.status_desc = CaptionLabel("Определение состояния процесса")
+        else:
+            self.status_desc = QLabel("Определение состояния процесса")
+            self.status_desc.setStyleSheet("font-size: 12px;")
         status_text_layout.addWidget(self.status_desc)
         
         status_layout.addLayout(status_text_layout, 1)
@@ -158,27 +116,16 @@ class ControlPage(BasePage):
         control_card = SettingsCard()
 
         # Индикатор загрузки (бегающая полоска) - показываем рядом с кнопками управления
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(_build_progress_style())
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(0)  # Indeterminate mode
+        self.progress_bar = IndeterminateProgressBar(self)
         self.progress_bar.setVisible(False)
         control_card.add_widget(self.progress_bar)
 
         # Метка статуса загрузки
-        self.loading_label = QLabel("")
-        try:
-            self.loading_label.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.loading_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                padding-top: 4px;
-            }
-        """)
+        if _HAS_FLUENT_LABELS:
+            self.loading_label = CaptionLabel("")
+        else:
+            self.loading_label = QLabel("")
+            self.loading_label.setStyleSheet("font-size: 12px;")
         self.loading_label.setVisible(False)
         control_card.add_widget(self.loading_label)
         
@@ -205,60 +152,49 @@ class ControlPage(BasePage):
         self.add_widget(control_card)
         
         self.add_spacing(16)
-        
+
         # Текущая стратегия
         self.add_section_title("Текущая стратегия")
-        
+
         strategy_card = SettingsCard()
-        
+
         strategy_layout = QHBoxLayout()
         strategy_layout.setSpacing(12)
-        
+
         self.strategy_icon = QLabel()
         try:
             from ui.fluent_icons import fluent_pixmap
             self.strategy_icon.setPixmap(fluent_pixmap('fa5s.cog', 20))
-        except:
+        except Exception:
             accent = themeColor().name() if HAS_FLUENT else "#60cdff"
             self.strategy_icon.setPixmap(qta.icon('fa5s.cog', color=accent).pixmap(20, 20))
         self.strategy_icon.setFixedSize(24, 24)
         strategy_layout.addWidget(self.strategy_icon)
-        
+
         strategy_text_layout = QVBoxLayout()
         strategy_text_layout.setSpacing(2)
-        
-        self.strategy_label = QLabel("Не выбрана")
-        try:
-            self.strategy_label.setProperty("tone", "primary")
-        except Exception:
-            pass
-        self.strategy_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: 500;
-            }
-        """)
+
+        if _HAS_FLUENT_LABELS:
+            self.strategy_label = StrongBodyLabel("Не выбрана")
+        else:
+            self.strategy_label = QLabel("Не выбрана")
+            self.strategy_label.setStyleSheet("font-size: 14px; font-weight: 500;")
         self.strategy_label.setWordWrap(True)
         self.strategy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         strategy_text_layout.addWidget(self.strategy_label)
-        
-        self.strategy_desc = QLabel("Выберите стратегию в разделе «Стратегии»")
-        try:
-            self.strategy_desc.setProperty("tone", "muted")
-        except Exception:
-            pass
-        self.strategy_desc.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
-            }
-        """)
+
+        if _HAS_FLUENT_LABELS:
+            self.strategy_desc = CaptionLabel("Выберите стратегию в разделе «Стратегии»")
+        else:
+            self.strategy_desc = QLabel("Выберите стратегию в разделе «Стратегии»")
+            self.strategy_desc.setStyleSheet("font-size: 11px;")
         strategy_text_layout.addWidget(self.strategy_desc)
-        
+
         strategy_layout.addLayout(strategy_text_layout, 1)
         strategy_card.add_layout(strategy_layout)
-        
+
         self.add_widget(strategy_card)
-        
+
         self.add_spacing(16)
 
         # Настройки программы (бывшие пункты Alt-меню "Настройки")
@@ -367,26 +303,23 @@ class ControlPage(BasePage):
         try:
             from startup.certificate_installer import is_certificate_installed
         except Exception as e:
-            QMessageBox.critical(self, "Сертификат", f"Не удалось загрузить установщик сертификата:\n\n{e}")
+            InfoBar.error(title="Сертификат", content=f"Не удалось загрузить установщик сертификата: {e}", parent=self.window())
             return
 
         thumbprint = "F507DDA6CB772F4332ECC2C5686623F39D9DA450"
         if is_certificate_installed(thumbprint):
-            QMessageBox.information(self, "Сертификат", "Сертификат уже установлен.")
+            InfoBar.info(title="Сертификат", content="Сертификат уже установлен.", parent=self.window())
             return
 
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Установка сертификата")
-        msg_box.setIcon(QMessageBox.Icon.Warning)
-        msg_box.setText("Установить корневой сертификат Zapret Developer?")
-        msg_box.setInformativeText(
+        box = MessageBox(
+            "Установка сертификата",
+            "Установить корневой сертификат Zapret Developer?\n\n"
             "Это необязательно. После установки Windows будет доверять сертификатам, "
             "выпущенным этим центром сертификации, для текущего пользователя.\n\n"
-            "Продолжить?"
+            "Продолжить?",
+            self.window(),
         )
-        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-        if msg_box.exec() != QMessageBox.StandardButton.Yes:
+        if not box.exec():
             return
 
         if self._cert_install_thread is not None:
@@ -410,10 +343,10 @@ class ControlPage(BasePage):
 
                 if success:
                     self._set_status("Сертификат установлен")
-                    QMessageBox.information(self, "Сертификат", message or "Сертификат установлен")
+                    InfoBar.success(title="Сертификат", content=message or "Сертификат установлен", parent=self.window())
                 else:
                     self._set_status("Не удалось установить сертификат")
-                    QMessageBox.critical(self, "Сертификат", message or "Не удалось установить сертификат")
+                    InfoBar.error(title="Сертификат", content=message or "Не удалось установить сертификат", parent=self.window())
             finally:
                 try:
                     self._cert_install_thread.quit()
@@ -508,7 +441,7 @@ class ControlPage(BasePage):
                 else "Автозагрузка DPI отключена"
             )
             self._set_status(msg)
-            QMessageBox.information(self, "Автозагрузка DPI", msg)
+            InfoBar.success(title="Автозагрузка DPI", content=msg, parent=self.window())
         finally:
             self._sync_program_settings()
 
@@ -517,11 +450,10 @@ class ControlPage(BasePage):
 
         # Требуются права администратора
         if not ctypes.windll.shell32.IsUserAnAdmin():
-            QMessageBox.critical(
-                self,
-                "Требуются права администратора",
-                "Для управления Windows Defender требуются права администратора.\n\n"
-                "Перезапустите программу от имени администратора.",
+            InfoBar.error(
+                title="Требуются права администратора",
+                content="Для управления Windows Defender требуются права администратора. Перезапустите программу от имени администратора.",
+                parent=self.window(),
             )
             self._set_toggle_checked(self.defender_toggle, not disable)
             return
@@ -532,21 +464,17 @@ class ControlPage(BasePage):
             manager = WindowsDefenderManager(status_callback=self._set_status)
 
             if disable:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Отключение Windows Defender")
-                msg_box.setIcon(QMessageBox.Icon.Warning)
-                msg_box.setText("Вы действительно хотите отключить Windows Defender?\n\n")
-                msg_box.setInformativeText(
+                box = MessageBox(
+                    "Отключение Windows Defender",
+                    "Вы действительно хотите отключить Windows Defender?\n\n"
                     "Отключение Windows Defender:\n"
                     "• Отключит защиту в реальном времени\n"
                     "• Отключит облачную защиту\n"
                     "• Отключит автоматическую отправку образцов\n"
-                    "• Может потребовать перезагрузки для полного применения\n\n"
+                    "• Может потребовать перезагрузки для полного применения",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.defender_toggle, False)
                     return
 
@@ -555,33 +483,26 @@ class ControlPage(BasePage):
 
                 if success:
                     set_defender_disabled(True)
-                    QMessageBox.information(
-                        self,
-                        "Windows Defender отключен",
-                        "Windows Defender успешно отключен.\n"
-                        f"Применено {count} настроек.\n\n"
-                        "Для полного применения изменений может потребоваться перезагрузка.",
+                    InfoBar.success(
+                        title="Windows Defender отключен",
+                        content=f"Windows Defender успешно отключен. Применено {count} настроек. Может потребоваться перезагрузка.",
+                        parent=self.window(),
                     )
                 else:
-                    QMessageBox.critical(
-                        self,
-                        "Ошибка",
-                        "Не удалось отключить Windows Defender.\n"
-                        "Возможно, некоторые настройки заблокированы системой.",
+                    InfoBar.error(
+                        title="Ошибка",
+                        content="Не удалось отключить Windows Defender. Возможно, некоторые настройки заблокированы системой.",
+                        parent=self.window(),
                     )
                     self._set_toggle_checked(self.defender_toggle, False)
             else:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Включение Windows Defender")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(
+                box = MessageBox(
+                    "Включение Windows Defender",
                     "Включить Windows Defender обратно?\n\n"
-                    "Это восстановит защиту вашего компьютера."
+                    "Это восстановит защиту вашего компьютера.",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.defender_toggle, True)
                     return
 
@@ -590,28 +511,25 @@ class ControlPage(BasePage):
 
                 if success:
                     set_defender_disabled(False)
-                    QMessageBox.information(
-                        self,
-                        "Windows Defender включен",
-                        "Windows Defender успешно включен.\n"
-                        f"Выполнено {count} операций.\n\n"
-                        "Защита вашего компьютера восстановлена.",
+                    InfoBar.success(
+                        title="Windows Defender включен",
+                        content="Windows Defender успешно включен. Защита вашего компьютера восстановлена.",
+                        parent=self.window(),
                     )
                 else:
-                    QMessageBox.warning(
-                        self,
-                        "Частичный успех",
-                        "Windows Defender включен частично.\n"
-                        "Для полного восстановления может потребоваться перезагрузка.",
+                    InfoBar.warning(
+                        title="Частичный успех",
+                        content="Windows Defender включен частично. Некоторые настройки могут потребовать ручного исправления.",
+                        parent=self.window(),
                     )
 
             self._set_status("Готово")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Произошла ошибка при изменении настроек Windows Defender:\n{e}",
+            InfoBar.error(
+                title="Ошибка",
+                content=f"Произошла ошибка при изменении настроек Windows Defender: {e}",
+                parent=self.window(),
             )
         finally:
             self._sync_program_settings()
@@ -623,68 +541,46 @@ class ControlPage(BasePage):
             manager = MaxBlockerManager(status_callback=self._set_status)
 
             if enable:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Блокировка MAX")
-                msg_box.setIcon(QMessageBox.Icon.Information)
-                msg_box.setText("Включить блокировку установки и работы программы MAX?\n\nЭто действие:")
-                msg_box.setInformativeText(
+                box = MessageBox(
+                    "Блокировка MAX",
+                    "Включить блокировку установки и работы программы MAX?\n\n"
                     "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
-                    "• Создаст файлы-блокировки в папках установки\n"
-                    "• Добавит правила блокировки в Windows Firewall (при наличии прав)\n"
-                    "• Заблокирует домены MAX в файле hosts\n\n"
-                    "В итоге даже если мессенджер Max поставиться будет тёмный экран, в результате чего он будет выглядеть так, будто не может подключиться к своим серверам."
+                    "• Добавит правила блокировки в Windows Firewall\n"
+                    "• Заблокирует домены MAX в файле hosts",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.max_block_toggle, False)
                     return
 
                 success, message = manager.enable_blocking()
 
                 if success:
-                    QMessageBox.information(self, "Блокировка включена", message)
+                    InfoBar.success(title="Блокировка включена", content=message, parent=self.window())
                 else:
-                    QMessageBox.warning(
-                        self,
-                        "Ошибка",
-                        f"Не удалось полностью включить блокировку:\n{message}",
-                    )
+                    InfoBar.warning(title="Ошибка", content=f"Не удалось полностью включить блокировку: {message}", parent=self.window())
                     self._set_toggle_checked(self.max_block_toggle, False)
             else:
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Отключение блокировки MAX")
-                msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(
+                box = MessageBox(
+                    "Отключение блокировки MAX",
                     "Отключить блокировку программы MAX?\n\n"
-                    "Это удалит все созданные блокировки и правила."
+                    "Это удалит все созданные блокировки и правила.",
+                    self.window(),
                 )
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-
-                if msg_box.exec() != QMessageBox.StandardButton.Yes:
+                if not box.exec():
                     self._set_toggle_checked(self.max_block_toggle, True)
                     return
 
                 success, message = manager.disable_blocking()
                 if success:
-                    QMessageBox.information(self, "Блокировка отключена", message)
+                    InfoBar.success(title="Блокировка отключена", content=message, parent=self.window())
                 else:
-                    QMessageBox.warning(
-                        self,
-                        "Ошибка",
-                        f"Не удалось полностью отключить блокировку:\n{message}",
-                    )
+                    InfoBar.warning(title="Ошибка", content=f"Не удалось полностью отключить блокировку: {message}", parent=self.window())
 
             self._set_status("Готово")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Ошибка при переключении блокировки MAX:\n{e}",
-            )
+            InfoBar.error(title="Ошибка", content=f"Ошибка при переключении блокировки MAX: {e}", parent=self.window())
         finally:
             self._sync_program_settings()
 
@@ -697,7 +593,7 @@ class ControlPage(BasePage):
             log("Кэш проверок запуска очищен пользователем", "INFO")
             self._set_status("Кэш проверок запуска очищен")
         except Exception as e:
-            QMessageBox.warning(self, "Ошибка", f"Не удалось очистить кэш: {e}")
+            InfoBar.warning(title="Ошибка", content=f"Не удалось очистить кэш: {e}", parent=self.window())
             log(f"Ошибка очистки кэша: {e}", "❌ ERROR")
         finally:
             self._sync_program_settings()
@@ -718,6 +614,11 @@ class ControlPage(BasePage):
     def set_loading(self, loading: bool, text: str = ""):
         """Показывает/скрывает индикатор загрузки и блокирует кнопки"""
         self.progress_bar.setVisible(loading)
+        if _HAS_FLUENT_LABELS:
+            if loading:
+                self.progress_bar.start()
+            else:
+                self.progress_bar.stop()
         self.loading_label.setVisible(loading and bool(text))
         self.loading_label.setText(text)
         
@@ -774,13 +675,13 @@ class ControlPage(BasePage):
 
                 if not active_names:
                     name = "Не выбрана"
-                    self.strategy_label.setToolTip("")
+                    set_tooltip(self.strategy_label, "")
                 else:
                     if len(active_names) <= 2:
                         name = " • ".join(active_names)
                     else:
                         name = " • ".join(active_names[:2]) + f" +{len(active_names) - 2} ещё"
-                    self.strategy_label.setToolTip("\n".join(active_names))
+                    set_tooltip(self.strategy_label, "\n".join(active_names))
         except Exception:
             pass
 

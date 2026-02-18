@@ -5,9 +5,10 @@
 Все страницы добавляются через addSubInterface() вместо ручного SideNavBar + QStackedWidget.
 Бизнес-логика (сигналы, обработчики) сохранена без изменений.
 """
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QWidget
 from importlib import import_module
+
 
 try:
     from qfluentwidgets import (
@@ -52,12 +53,9 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "Zapret1DirectStrategiesPage",
     ),
     PageName.BAT_STRATEGIES: ("bat_strategies_page", "ui.pages.bat_strategies_page", "BatStrategiesPage"),
-    PageName.STRATEGY_SORT: ("strategy_sort_page", "ui.pages.strategy_sort_page", "StrategySortPage"),
     PageName.PRESET_CONFIG: ("preset_config_page", "ui.pages.preset_config_page", "PresetConfigPage"),
-    PageName.MY_CATEGORIES: ("my_categories_page", "ui.pages.my_categories_page", "MyCategoriesPage"),
     PageName.HOSTLIST: ("hostlist_page", "ui.pages.hostlist_page", "HostlistPage"),
     PageName.BLOBS: ("blobs_page", "ui.pages.blobs_page", "BlobsPage"),
-    PageName.EDITOR: ("editor_page", "ui.pages.editor_page", "EditorPage"),
     PageName.DPI_SETTINGS: ("dpi_settings_page", "ui.pages.dpi_settings_page", "DpiSettingsPage"),
     PageName.ZAPRET2_USER_PRESETS: (
         "zapret2_user_presets_page",
@@ -69,10 +67,9 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
     PageName.CUSTOM_IPSET: ("custom_ipset_page", "ui.pages.custom_ipset_page", "CustomIpSetPage"),
     PageName.AUTOSTART: ("autostart_page", "ui.pages.autostart_page", "AutostartPage"),
     PageName.NETWORK: ("network_page", "ui.pages.network_page", "NetworkPage"),
-    PageName.CONNECTION_TEST: ("connection_page", "ui.pages.connection_page", "ConnectionTestPage"),
-    PageName.DNS_CHECK: ("dns_check_page", "ui.pages.dns_check_page", "DNSCheckPage"),
     PageName.HOSTS: ("hosts_page", "ui.pages.hosts_page", "HostsPage"),
     PageName.BLOCKCHECK: ("blockcheck_page", "ui.pages.blockcheck_page", "BlockcheckPage"),
+    PageName.DIAGNOSTICS_TAB: ("diagnostics_tab_page", "ui.pages.diagnostics_tab_page", "DiagnosticsTabPage"),
     PageName.APPEARANCE: ("appearance_page", "ui.pages.appearance_page", "AppearancePage"),
     PageName.PREMIUM: ("premium_page", "ui.pages.premium_page", "PremiumPage"),
     PageName.LOGS: ("logs_page", "ui.pages.logs_page", "LogsPage"),
@@ -130,24 +127,23 @@ _NAV_ICONS = {
     PageName.ZAPRET2_DIRECT_CONTROL: FluentIcon.GAME if HAS_FLUENT else None,
     PageName.AUTOSTART: FluentIcon.POWER_BUTTON if HAS_FLUENT else None,
     PageName.NETWORK: FluentIcon.WIFI if HAS_FLUENT else None,
+    PageName.DIAGNOSTICS_TAB: FluentIcon.SPEED_HIGH if HAS_FLUENT else None,
     PageName.CONNECTION_TEST: FluentIcon.SPEED_HIGH if HAS_FLUENT else None,
     PageName.DNS_CHECK: FluentIcon.SEARCH if HAS_FLUENT else None,
-    PageName.HOSTS: FluentIcon.DOCUMENT if HAS_FLUENT else None,
-    PageName.BLOCKCHECK: FluentIcon.SEARCH if HAS_FLUENT else None,
+    PageName.HOSTS: FluentIcon.GLOBE if HAS_FLUENT else None,
+    PageName.BLOCKCHECK: FluentIcon.CODE if HAS_FLUENT else None,
     PageName.APPEARANCE: FluentIcon.PALETTE if HAS_FLUENT else None,
     PageName.PREMIUM: FluentIcon.HEART if HAS_FLUENT else None,
     PageName.LOGS: FluentIcon.HISTORY if HAS_FLUENT else None,
     PageName.ABOUT: FluentIcon.INFO if HAS_FLUENT else None,
     PageName.DPI_SETTINGS: FluentIcon.SETTING if HAS_FLUENT else None,
     PageName.PRESET_CONFIG: FluentIcon.EDIT if HAS_FLUENT else None,
-    PageName.STRATEGY_SORT: FluentIcon.FILTER if HAS_FLUENT else None,
     PageName.HOSTLIST: FluentIcon.BOOK_SHELF if HAS_FLUENT else None,
     PageName.BLOBS: FluentIcon.CLOUD if HAS_FLUENT else None,
-    PageName.EDITOR: FluentIcon.CODE if HAS_FLUENT else None,
-    PageName.MY_CATEGORIES: FluentIcon.FOLDER if HAS_FLUENT else None,
     PageName.NETROGAT: FluentIcon.REMOVE_FROM if HAS_FLUENT else None,
     PageName.CUSTOM_DOMAINS: FluentIcon.ADD if HAS_FLUENT else None,
     PageName.CUSTOM_IPSET: FluentIcon.ADD if HAS_FLUENT else None,
+    PageName.ZAPRET2_USER_PRESETS: FluentIcon.FOLDER if HAS_FLUENT else None,
     PageName.SERVERS: FluentIcon.UPDATE if HAS_FLUENT else None,
     PageName.SUPPORT: FluentIcon.CHAT if HAS_FLUENT else None,
     PageName.HELP: FluentIcon.HELP if HAS_FLUENT else None,
@@ -156,33 +152,36 @@ _NAV_ICONS = {
     PageName.ORCHESTRA_BLOCKED: FluentIcon.CLOSE if HAS_FLUENT else None,
     PageName.ORCHESTRA_WHITELIST: FluentIcon.ACCEPT if HAS_FLUENT else None,
     PageName.ORCHESTRA_RATINGS: FluentIcon.CALORIES if HAS_FLUENT else None,
+    PageName.ZAPRET2_DIRECT: FluentIcon.PLAY if HAS_FLUENT else None,
+    PageName.ZAPRET2_ORCHESTRA: FluentIcon.ROBOT if HAS_FLUENT else None,
+    PageName.ZAPRET1_DIRECT: FluentIcon.PLAY if HAS_FLUENT else None,
+    PageName.BAT_STRATEGIES: FluentIcon.CODE if HAS_FLUENT else None,
 }
 
 # Russian labels for navigation
 _NAV_LABELS = {
     PageName.HOME: "Главная",
     PageName.CONTROL: "Управление",
-    PageName.ZAPRET2_DIRECT_CONTROL: "Стратегии",
+    PageName.ZAPRET2_DIRECT_CONTROL: "Управление Запретом",
     PageName.AUTOSTART: "Автозапуск",
     PageName.NETWORK: "Сеть",
+    PageName.DIAGNOSTICS_TAB: "Диагностика",
     PageName.CONNECTION_TEST: "Диагностика",
     PageName.DNS_CHECK: "DNS подмена",
-    PageName.HOSTS: "Разблокировка",
+    PageName.HOSTS: "Редактор файла hosts",
     PageName.BLOCKCHECK: "BlockCheck",
     PageName.APPEARANCE: "Оформление",
     PageName.PREMIUM: "Донат",
     PageName.LOGS: "Логи",
     PageName.ABOUT: "О программе",
-    PageName.DPI_SETTINGS: "Настройки DPI",
+    PageName.DPI_SETTINGS: "Сменить режим DPI",
     PageName.PRESET_CONFIG: "Конфиг пресета",
-    PageName.STRATEGY_SORT: "Сортировка",
     PageName.HOSTLIST: "Листы",
     PageName.BLOBS: "Блобы",
-    PageName.EDITOR: "Редактор",
-    PageName.MY_CATEGORIES: "Мои категории",
     PageName.NETROGAT: "Исключения",
     PageName.CUSTOM_DOMAINS: "Мои hostlist",
     PageName.CUSTOM_IPSET: "Мои ipset",
+    PageName.ZAPRET2_USER_PRESETS: "Мои пресеты",
     PageName.SERVERS: "Обновления",
     PageName.SUPPORT: "Поддержка",
     PageName.HELP: "Справка",
@@ -191,6 +190,10 @@ _NAV_LABELS = {
     PageName.ORCHESTRA_BLOCKED: "Заблокированные",
     PageName.ORCHESTRA_WHITELIST: "Белый список",
     PageName.ORCHESTRA_RATINGS: "Рейтинги",
+    PageName.ZAPRET2_DIRECT: "Прямой запуск",
+    PageName.ZAPRET2_ORCHESTRA: "Стратегии",
+    PageName.ZAPRET1_DIRECT: "Стратегии",
+    PageName.BAT_STRATEGIES: "Стратегии",
 }
 
 
@@ -200,9 +203,12 @@ class MainWindowUI:
     """
 
     def build_ui(self, width: int, height: int):
-        """Build UI: create pages and populate FluentWindow navigation sidebar."""
-        self.resize(width, height)
+        """Build UI: create pages and populate FluentWindow navigation sidebar.
 
+        Note: window geometry (size/position) is restored in __init__ via
+        restore_window_geometry() before this is called — do NOT resize here,
+        that would overwrite the saved geometry.
+        """
         self.pages: dict[PageName, QWidget] = {}
         self._page_aliases: dict[PageName, PageName] = dict(_PAGE_ALIASES)
         self._lazy_signal_connections: set[str] = set()
@@ -231,90 +237,119 @@ class MainWindowUI:
     # ------------------------------------------------------------------
 
     def _init_navigation(self):
-        """Populate FluentWindow's NavigationInterface with pages."""
+        """Populate FluentWindow's NavigationInterface with pages.
+
+        Flat layout — no tree hierarchy, no expand/collapse groups.
+        All items are top-level; mode-specific items are simply hidden/shown
+        via setVisible() in _sync_nav_visibility() with no parent-size hacks.
+        """
         if not HAS_FLUENT:
             return
 
-        POS_TOP = NavigationItemPosition.TOP
         POS_SCROLL = NavigationItemPosition.SCROLL
-        POS_BOTTOM = NavigationItemPosition.BOTTOM
 
-        def _add(page_name, position=POS_SCROLL, parent=None):
-            page = self.pages.get(page_name)
+        self._nav_items: dict = {}
+
+        def _add(page_name, position=POS_SCROLL):
+            page = self._ensure_page(page_name)
             if page is None:
                 return
             icon = _NAV_ICONS.get(page_name, FluentIcon.APPLICATION)
             text = _NAV_LABELS.get(page_name, page_name.name)
             if not page.objectName():
                 page.setObjectName(page.__class__.__name__)
-            self.addSubInterface(page, icon, text, position=position, parent=parent)
+            item = self.addSubInterface(page, icon, text, position=position)
+            if item is not None:
+                self._nav_items[page_name] = item
 
-        # --- TOP items ---
-        _add(PageName.HOME, POS_TOP)
-        _add(PageName.CONTROL, POS_TOP)
+        nav = self.navigationInterface  # shorthand
 
-        # --- Strategies group (SCROLL) ---
-        # The "Стратегии" parent is the ZAPRET2_DIRECT_CONTROL page
-        _add(PageName.ZAPRET2_DIRECT_CONTROL, POS_SCROLL)
-        strategies_parent = self.pages.get(PageName.ZAPRET2_DIRECT_CONTROL)
+        # ── Верхние ──────────────────────────────────────────────────────────
+        _add(PageName.HOME)
+        _add(PageName.CONTROL)
+        _add(PageName.ZAPRET2_DIRECT_CONTROL)
 
-        # Strategy sub-items (hidden in nav by default, accessible via sub-navigation)
-        for sub_page in (
-            PageName.STRATEGY_SORT,
-            PageName.PRESET_CONFIG,
-            PageName.DPI_SETTINGS,
-            PageName.MY_CATEGORIES,
-            PageName.HOSTLIST,
-            PageName.BLOBS,
-            PageName.EDITOR,
-        ):
-            _add(sub_page, POS_SCROLL, parent=strategies_parent)
+        # ── Точки входа в режим стратегий (одна видна за раз) ────────────────
+        _add(PageName.ORCHESTRA)             # только orchestra
+        _add(PageName.ZAPRET2_ORCHESTRA)     # только direct_zapret2_orchestra
+        _add(PageName.ZAPRET1_DIRECT)        # только direct_zapret1
+        _add(PageName.BAT_STRATEGIES)        # только bat
 
-        self.navigationInterface.addSeparator()
+        # ── Стратегии (под-раздел) ────────────────────────────────────────────
+        nav.addItemHeader("Настройки Запрета", POS_SCROLL)
+        _add(PageName.ZAPRET2_DIRECT)           # direct only
+        _add(PageName.PRESET_CONFIG)            # zapret2 only
+        _add(PageName.ZAPRET2_USER_PRESETS)     # zapret2 only
+        _add(PageName.HOSTLIST)
+        _add(PageName.ORCHESTRA_LOCKED)         # orchestra only
+        _add(PageName.ORCHESTRA_BLOCKED)        # orchestra only
+        _add(PageName.ORCHESTRA_RATINGS)        # orchestra only
+        _add(PageName.DPI_SETTINGS)
 
-        # --- System items (SCROLL) ---
-        _add(PageName.AUTOSTART, POS_SCROLL)
-        _add(PageName.NETWORK, POS_SCROLL)
-        _add(PageName.CONNECTION_TEST, POS_SCROLL)
-        _add(PageName.HOSTS, POS_SCROLL)
+        # ── Кастомные настройки ───────────────────────────────────────────────
+        nav.addItemHeader("Кастомные настройки", POS_SCROLL)
+        _add(PageName.ORCHESTRA_WHITELIST)      # orchestra only
+        # BLOBS removed from nav — accessible via direct_control_page card
 
-        # My lists
-        _add(PageName.NETROGAT, POS_SCROLL)
-        _add(PageName.CUSTOM_DOMAINS, POS_SCROLL)
-        _add(PageName.CUSTOM_IPSET, POS_SCROLL)
+        # ── Система ───────────────────────────────────────────────────────────
+        nav.addItemHeader("Система", POS_SCROLL)
+        _add(PageName.AUTOSTART)
+        _add(PageName.NETWORK)
 
-        # --- BOTTOM items ---
-        _add(PageName.APPEARANCE, POS_BOTTOM)
-        _add(PageName.PREMIUM, POS_BOTTOM)
-        _add(PageName.LOGS, POS_BOTTOM)
-        _add(PageName.ABOUT, POS_BOTTOM)
+        # ── Диагностика ───────────────────────────────────────────────────────
+        nav.addItemHeader("Диагностика", POS_SCROLL)
+        _add(PageName.DIAGNOSTICS_TAB)
+        _add(PageName.HOSTS)
+        _add(PageName.BLOCKCHECK)
 
-        # Pages that are NOT in navigation but can be navigated to programmatically
-        # (they are added to the stacked widget but not the sidebar)
-        for hidden_page_name in (
-            PageName.ZAPRET2_DIRECT,
+        # ── Оформление / Донат / Логи ─────────────────────────────────────────
+        nav.addItemHeader("Оформление", POS_SCROLL)
+        _add(PageName.APPEARANCE)
+        _add(PageName.PREMIUM)
+        _add(PageName.LOGS)
+        _add(PageName.ABOUT)
+
+        # Pages NOT in navigation — reachable only via show_page() / switchTo()
+        for hidden in (
             PageName.STRATEGY_DETAIL,
-            PageName.ZAPRET2_ORCHESTRA,
-            PageName.ZAPRET1_DIRECT,
-            PageName.BAT_STRATEGIES,
-            PageName.ZAPRET2_USER_PRESETS,
-            PageName.DNS_CHECK,
-            PageName.BLOCKCHECK,
-            PageName.ORCHESTRA,
-            PageName.ORCHESTRA_LOCKED,
-            PageName.ORCHESTRA_BLOCKED,
-            PageName.ORCHESTRA_WHITELIST,
-            PageName.ORCHESTRA_RATINGS,
-            PageName.SERVERS,
-            PageName.SUPPORT,
-            PageName.HELP,
+            PageName.BLOBS,
         ):
-            page = self.pages.get(hidden_page_name)
+            page = self.pages.get(hidden)
             if page is not None:
                 if not page.objectName():
                     page.setObjectName(page.__class__.__name__)
-                # Add to stacked widget without navigation item
                 self.stackedWidget.addWidget(page)
+
+        self.navigationInterface.setMinimumExpandWidth(700)
+
+        # Apply initial visibility immediately — flat items need no parent refresh.
+        self._sync_nav_visibility()
+
+    def _sync_nav_visibility(self, method: str | None = None) -> None:
+        """Show/hide mode-specific navigation items.
+
+        With a flat (non-tree) navigation layout this reduces to plain
+        setVisible() calls — no parent fixed-size management needed.
+        """
+        if not getattr(self, '_nav_items', None):
+            return
+
+        if method is None:
+            try:
+                from strategy_menu import get_strategy_launch_method
+                method = (get_strategy_launch_method() or "").strip().lower()
+            except Exception:
+                method = "direct_zapret2"
+        if not method:
+            method = "direct_zapret2"
+
+        from ui.nav_mode_config import get_nav_visibility
+        targets = get_nav_visibility(method)
+
+        for page_name, should_show in targets.items():
+            item = self._nav_items.get(page_name)
+            if item is not None:
+                item.setVisible(should_show)
 
     # ------------------------------------------------------------------
     # Page creation (lazy + eager) — UNCHANGED logic
@@ -347,26 +382,6 @@ class MainWindowUI:
         except Exception:
             pass
 
-    def _connect_strategy_sort_signal_bridges(self) -> None:
-        sort_page = getattr(self, "strategy_sort_page", None)
-        strategies_page = getattr(self, "zapret2_strategies_page", None)
-        if sort_page is None or strategies_page is None:
-            return
-
-        if hasattr(strategies_page, "on_external_filters_changed") and hasattr(sort_page, "filters_changed"):
-            self._connect_signal_once(
-                "strategy_sort.filters_changed",
-                sort_page.filters_changed,
-                strategies_page.on_external_filters_changed,
-            )
-
-        if hasattr(strategies_page, "on_external_sort_changed") and hasattr(sort_page, "sort_changed"):
-            self._connect_signal_once(
-                "strategy_sort.sort_changed",
-                sort_page.sort_changed,
-                strategies_page.on_external_sort_changed,
-            )
-
     def _connect_lazy_page_signals(self, page_name: PageName, page: QWidget) -> None:
         if page_name in (
             PageName.ZAPRET1_DIRECT,
@@ -388,12 +403,25 @@ class MainWindowUI:
                 self._on_open_category_detail,
             )
 
+        if page_name in (PageName.ZAPRET2_DIRECT, PageName.ZAPRET2_USER_PRESETS, PageName.BLOBS) and hasattr(page, "back_clicked"):
+            self._connect_signal_once(
+                f"back_to_control.{page_name.name}",
+                page.back_clicked,
+                lambda: self.show_page(PageName.ZAPRET2_DIRECT_CONTROL),
+            )
+
         if page_name == PageName.STRATEGY_DETAIL:
             if hasattr(page, "back_clicked"):
                 self._connect_signal_once(
                     "strategy_detail.back_clicked",
                     page.back_clicked,
                     self._on_strategy_detail_back,
+                )
+            if hasattr(page, "navigate_to_root"):
+                self._connect_signal_once(
+                    "strategy_detail.navigate_to_root",
+                    page.navigate_to_root,
+                    lambda: self.show_page(PageName.ZAPRET2_DIRECT_CONTROL),
                 )
             if hasattr(page, "strategy_selected"):
                 self._connect_signal_once(
@@ -415,7 +443,6 @@ class MainWindowUI:
                 self._on_clear_learned_requested,
             )
 
-        self._connect_strategy_sort_signal_bridges()
 
     def _ensure_page(self, name: PageName) -> QWidget | None:
         resolved_name = self._resolve_page_name(name)
@@ -491,6 +518,14 @@ class MainWindowUI:
         self.server_status_btn = self.about_page.update_btn
         self.subscription_btn = self.about_page.premium_btn
 
+        # Expose diagnostics sub-pages for backward-compat (cleanup, focus etc.)
+        if PageName.DIAGNOSTICS_TAB in self.pages:
+            _diag = self.pages[PageName.DIAGNOSTICS_TAB]
+            self.connection_page = _diag.connection_page
+            self.dns_check_page  = _diag.dns_check_page
+        if PageName.HOSTS in self.pages:
+            self.hosts_page = self.pages[PageName.HOSTS]
+
         # Legacy: pages_stack alias
         if hasattr(self, 'stackedWidget'):
             self.pages_stack = self.stackedWidget
@@ -508,7 +543,11 @@ class MainWindowUI:
 
         self.start_clicked = self.home_page.start_btn.clicked
         self.stop_clicked = self.home_page.stop_btn.clicked
-        self.theme_changed = self.appearance_page.theme_changed
+        # theme_changed replaced by display_mode_changed (theme selection removed)
+        if hasattr(self.appearance_page, 'display_mode_changed'):
+            self.display_mode_changed = self.appearance_page.display_mode_changed
+        elif hasattr(self.appearance_page, 'theme_changed'):
+            self.display_mode_changed = self.appearance_page.theme_changed
 
         # Zapret 1 Direct signals
         if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'strategy_selected'):
@@ -524,6 +563,10 @@ class MainWindowUI:
         if hasattr(self, 'strategy_detail_page'):
             if hasattr(self.strategy_detail_page, 'back_clicked'):
                 self.strategy_detail_page.back_clicked.connect(self._on_strategy_detail_back)
+            if hasattr(self.strategy_detail_page, 'navigate_to_root'):
+                self.strategy_detail_page.navigate_to_root.connect(
+                    lambda: self.show_page(PageName.ZAPRET2_DIRECT_CONTROL)
+                )
             if hasattr(self.strategy_detail_page, 'strategy_selected'):
                 self.strategy_detail_page.strategy_selected.connect(self._on_strategy_detail_selected)
             if hasattr(self.strategy_detail_page, 'filter_mode_changed'):
@@ -539,7 +582,17 @@ class MainWindowUI:
         self.autostart_page.autostart_disabled.connect(self._on_autostart_disabled)
         self.autostart_page.navigate_to_dpi_settings.connect(self._navigate_to_dpi_settings)
 
-        self.appearance_page.theme_changed.connect(self.autostart_page.on_theme_changed)
+        # Connect display mode change to autostart page theme refresh
+        if hasattr(self.appearance_page, 'display_mode_changed'):
+            self.appearance_page.display_mode_changed.connect(
+                lambda _mode: self.autostart_page.on_theme_changed()
+            )
+        elif hasattr(self.appearance_page, 'theme_changed'):
+            self.appearance_page.theme_changed.connect(self.autostart_page.on_theme_changed)
+
+        # Connect background preset change
+        if hasattr(self.appearance_page, 'background_preset_changed'):
+            self.appearance_page.background_preset_changed.connect(self._on_background_preset_changed)
 
         self.control_page.start_btn.clicked.connect(self._proxy_start_click)
         self.control_page.stop_winws_btn.clicked.connect(self._proxy_stop_click)
@@ -555,8 +608,29 @@ class MainWindowUI:
                 page.stop_and_exit_btn.clicked.connect(self._proxy_stop_and_exit)
                 page.test_btn.clicked.connect(self._proxy_test_click)
                 page.folder_btn.clicked.connect(self._proxy_folder_click)
+                if hasattr(page, 'navigate_to_presets'):
+                    page.navigate_to_presets.connect(
+                        lambda: self.show_page(PageName.ZAPRET2_USER_PRESETS))
+                if hasattr(page, 'navigate_to_direct_launch'):
+                    page.navigate_to_direct_launch.connect(
+                        lambda: self.show_page(PageName.ZAPRET2_DIRECT))
+                if hasattr(page, 'navigate_to_blobs'):
+                    page.navigate_to_blobs.connect(
+                        lambda: self.show_page(PageName.BLOBS))
+                if hasattr(page, 'direct_mode_changed'):
+                    page.direct_mode_changed.connect(self._on_direct_mode_changed)
         except Exception:
             pass
+
+        # Back nav from subpages (Мои пресеты / Прямой запуск / Блобы → Управление)
+        for _back_attr in ("zapret2_user_presets_page", "zapret2_strategies_page", "blobs_page"):
+            _back_page = getattr(self, _back_attr, None)
+            if _back_page is not None and hasattr(_back_page, "back_clicked"):
+                try:
+                    _back_page.back_clicked.connect(
+                        lambda: self.show_page(PageName.ZAPRET2_DIRECT_CONTROL))
+                except Exception:
+                    pass
 
         if hasattr(self.home_page, 'premium_link_btn'):
             self.home_page.premium_link_btn.clicked.connect(self._open_subscription_dialog)
@@ -565,12 +639,21 @@ class MainWindowUI:
         self.home_page.navigate_to_strategies.connect(self._navigate_to_strategies)
         self.home_page.navigate_to_autostart.connect(self.show_autostart_page)
         self.home_page.navigate_to_premium.connect(self._open_subscription_dialog)
+        if hasattr(self.home_page, 'navigate_to_dpi_settings'):
+            self.home_page.navigate_to_dpi_settings.connect(
+                lambda: self.show_page(PageName.DPI_SETTINGS))
 
         if hasattr(self.appearance_page, 'subscription_btn'):
             self.appearance_page.subscription_btn.clicked.connect(self._open_subscription_dialog)
 
+        if hasattr(self.appearance_page, 'background_refresh_needed'):
+            self.appearance_page.background_refresh_needed.connect(self._on_background_refresh_needed)
+
         if hasattr(self.about_page, 'premium_btn'):
             self.about_page.premium_btn.clicked.connect(self._open_subscription_dialog)
+
+        if hasattr(self.about_page, 'update_btn'):
+            self.about_page.update_btn.clicked.connect(lambda: self.show_page(PageName.SERVERS))
 
         if hasattr(self.premium_page, 'subscription_updated'):
             self.premium_page.subscription_updated.connect(self._on_subscription_updated)
@@ -580,8 +663,6 @@ class MainWindowUI:
 
         if hasattr(self, 'orchestra_page'):
             self.orchestra_page.clear_learned_requested.connect(self._on_clear_learned_requested)
-
-        self._connect_strategy_sort_signal_bridges()
 
         try:
             from preset_zapret2.preset_store import get_preset_store
@@ -598,6 +679,28 @@ class MainWindowUI:
     # ------------------------------------------------------------------
     # All handler methods — PRESERVED from original
     # ------------------------------------------------------------------
+
+    def _on_direct_mode_changed(self, mode: str):
+        """Force rebuild of Прямой запуск page on next show."""
+        page = getattr(self, "zapret2_strategies_page", None)
+        if page and hasattr(page, "_strategy_set_snapshot"):
+            page._strategy_set_snapshot = None
+
+    def _on_background_refresh_needed(self):
+        """Re-applies window background (called when tinted_bg or accent changes)."""
+        try:
+            from ui.theme import apply_window_background
+            apply_window_background(self.window())
+        except Exception:
+            pass
+
+    def _on_background_preset_changed(self, preset: str):
+        """Apply new background preset to the window."""
+        try:
+            from ui.theme import apply_window_background
+            apply_window_background(self.window(), preset=preset)
+        except Exception:
+            pass
 
     def _setup_active_preset_file_watcher(self) -> None:
         try:
@@ -821,6 +924,11 @@ class MainWindowUI:
 
         log(f"Переключение на режим '{method}' завершено", "INFO")
 
+        try:
+            self._sync_nav_visibility(method)
+        except Exception:
+            pass
+
         from PyQt6.QtCore import QTimer
         if can_autostart:
             QTimer.singleShot(500, lambda: self._auto_start_after_method_switch(method))
@@ -843,7 +951,7 @@ class MainWindowUI:
         for attr in (
             "dpi_settings_page", "zapret2_user_presets_page", "zapret2_strategies_page",
             "zapret2_orchestra_strategies_page", "zapret1_strategies_page",
-            "bat_strategies_page", "strategy_detail_page", "strategy_sort_page",
+            "bat_strategies_page", "strategy_detail_page",
         ):
             page = getattr(self, attr, None)
             if page is not None:
@@ -1218,6 +1326,16 @@ class _SideNavStub:
     def __init__(self, window):
         self._window = window
 
+    # QWidget-compatible no-ops used by theme.py CSS optimization
+    def isVisible(self) -> bool:
+        return False
+
+    def hide(self):
+        pass
+
+    def show(self):
+        pass
+
     def set_section_by_name(self, section, emit_signal=True):
         pass
 
@@ -1231,4 +1349,7 @@ class _SideNavStub:
         pass
 
     def update_presets_visibility(self):
+        pass
+
+    def set_page_by_name(self, name, emit_signal=True):
         pass

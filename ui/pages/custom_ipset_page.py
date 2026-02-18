@@ -4,13 +4,30 @@
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
-    QMessageBox, QLineEdit
+    QLineEdit
 )
 import ipaddress
+
+try:
+    from qfluentwidgets import LineEdit, MessageBox, InfoBar
+    _HAS_FLUENT = True
+except ImportError:
+    LineEdit = QLineEdit
+    MessageBox = None
+    InfoBar = None
+    _HAS_FLUENT = False
+
+try:
+    from qfluentwidgets import StrongBodyLabel, BodyLabel, CaptionLabel
+    _HAS_FLUENT_LABELS = True
+except ImportError:
+    StrongBodyLabel = QLabel; BodyLabel = QLabel; CaptionLabel = QLabel
+    _HAS_FLUENT_LABELS = False
+
 import os
 
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
-from ui.sidebar import SettingsCard, ActionButton
+from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 from log import log
 import re
@@ -80,13 +97,13 @@ class CustomIpSetPage(BasePage):
     def _build_ui(self):
         tokens = get_theme_tokens()
         desc_card = SettingsCard()
-        desc = QLabel(
+        desc = CaptionLabel(
             "Добавляйте свои IP/подсети. Поддерживаются форматы:\n"
             "• Одиночный IP: 1.2.3.4\n"
             "• Подсеть: 10.0.0.0/8\n"
             "Диапазоны (a-b) не поддерживаются. Поддерживается Ctrl+Z."
         )
-        desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
+        desc.setStyleSheet(f"color: {tokens.fg_muted};")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
@@ -95,21 +112,8 @@ class CustomIpSetPage(BasePage):
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
-        self.input = QLineEdit()
+        self.input = LineEdit()
         self.input.setPlaceholderText("Например: 1.2.3.4 или 10.0.0.0/8")
-        self.input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {tokens.surface_bg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 6px;
-                padding: 10px 12px;
-                color: {tokens.fg};
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {tokens.accent_hex};
-            }}
-        """)
         self.input.returnPressed.connect(self._add_entry)
         add_layout.addWidget(self.input, 1)
 
@@ -176,13 +180,18 @@ class CustomIpSetPage(BasePage):
 
         editor_layout.addWidget(self.text_edit)
 
-        hint = QLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
+        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        hint.setStyleSheet(f"color: {tokens.fg_faint};")
         editor_layout.addWidget(hint)
 
         # Метка ошибок валидации
-        self.error_label = QLabel()
-        self.error_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
+        self.error_label = CaptionLabel()
+        try:
+            from qfluentwidgets import isDarkTheme as _idt
+            _err_clr = "#ff6b6b" if _idt() else "#dc2626"
+        except Exception:
+            _err_clr = "#dc2626"
+        self.error_label.setStyleSheet(f"color: {_err_clr};")
         self.error_label.setWordWrap(True)
         self.error_label.hide()
         editor_layout.addWidget(self.error_label)
@@ -190,8 +199,8 @@ class CustomIpSetPage(BasePage):
         editor_card.add_layout(editor_layout)
         self.layout.addWidget(editor_card)
 
-        self.status_label = QLabel()
-        self.status_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
+        self.status_label = CaptionLabel()
+        self.status_label.setStyleSheet(f"color: {tokens.fg_faint};")
         self.layout.addWidget(self.status_label)
         
         # Стили для валидации
@@ -335,20 +344,21 @@ class CustomIpSetPage(BasePage):
 
         norm = self.normalize_ip_entry(text)
         if not norm:
-            QMessageBox.warning(
-                self.window(),
-                "Ошибка",
-                "Не удалось распознать IP или подсеть.\n"
-                "Примеры:\n- 1.2.3.4\n- 10.0.0.0/8\nДиапазоны a-b не поддерживаются.",
-            )
+            if InfoBar:
+                InfoBar.warning(
+                    title="Ошибка",
+                    content="Не удалось распознать IP или подсеть.\nПримеры:\n- 1.2.3.4\n- 10.0.0.0/8\nДиапазоны a-b не поддерживаются.",
+                    parent=self.window(),
+                )
             return
 
         # Проверяем дубликат
         current = self.text_edit.toPlainText()
         current_entries = [l.strip().lower() for l in current.split('\n') if l.strip() and not l.strip().startswith('#')]
-        
+
         if norm.lower() in current_entries:
-            QMessageBox.information(self.window(), "Информация", f"Запись уже есть:\n{norm}")
+            if InfoBar:
+                InfoBar.info(title="Информация", content=f"Запись уже есть:\n{norm}", parent=self.window())
             return
 
         # Добавляем в конец
@@ -363,13 +373,12 @@ class CustomIpSetPage(BasePage):
         text = self.text_edit.toPlainText().strip()
         if not text:
             return
-        reply = QMessageBox.question(
-            self.window(),
-            "Очистить всё",
-            "Удалить все записи?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        if MessageBox:
+            box = MessageBox("Очистить всё", "Удалить все записи?", self.window())
+            if box.exec():
+                self.text_edit.clear()
+                log("Все записи my-ipset.txt удалены", "INFO")
+        else:
             self.text_edit.clear()
             log("Все записи my-ipset.txt удалены", "INFO")
 
@@ -390,4 +399,5 @@ class CustomIpSetPage(BasePage):
                 subprocess.run(["explorer", os.path.dirname(MY_IPSET_PATH)])
         except Exception as e:
             log(f"Ошибка открытия my-ipset.txt: {e}", "ERROR")
-            QMessageBox.warning(self.window(), "Ошибка", f"Не удалось открыть:\n{e}")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())

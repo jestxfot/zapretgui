@@ -7,110 +7,39 @@ from string import Template
 from PyQt6.QtCore import Qt, QThread, QObject, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QMessageBox, QComboBox, QScrollArea, QFrame, QLayout, QCheckBox
+    QPushButton, QScrollArea, QFrame, QLayout, QCheckBox
 )
 import qtawesome as qta
 
 from .base_page import BasePage
-from ui.sidebar import SettingsCard
-from ui.pages.strategies_page_base import ResetActionButton
+from ui.compat_widgets import SettingsCard
+
 from log import log
 from utils import get_system32_path
 from ui.theme import get_theme_tokens
 from ui.theme_semantic import get_semantic_palette
 
 try:
+    from qfluentwidgets import (
+        BodyLabel, CaptionLabel, StrongBodyLabel,
+        PushButton, ComboBox, InfoBar, MessageBox,
+    )
+    _HAS_FLUENT = True
+except ImportError:
+    _HAS_FLUENT = False
+    BodyLabel = QLabel  # type: ignore[misc,assignment]
+    CaptionLabel = QLabel  # type: ignore[misc,assignment]
+    StrongBodyLabel = QLabel  # type: ignore[misc,assignment]
+    PushButton = QPushButton  # type: ignore[misc,assignment]
+    ComboBox = None  # type: ignore[misc,assignment]
+    InfoBar = None  # type: ignore[misc,assignment]
+    MessageBox = None  # type: ignore[misc,assignment]
+
+try:
     # Simple Win11 toggle without text (QCheckBox-based).
     from ui.pages.dpi_settings_page import Win11ToggleSwitch as Win11ToggleSwitchNoText
 except Exception:
     Win11ToggleSwitchNoText = QCheckBox  # type: ignore[misc,assignment]
-
-
-_FLUENT_COMBO_STYLE_TEMPLATE = Template(
-    """
-QComboBox {
-    background: $surface_bg;
-    border: 1px solid $surface_border;
-    border-radius: 6px;
-    color: $fg;
-    padding: 6px 28px 6px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-}
-QComboBox:hover {
-    background: $surface_bg_hover;
-    border: 1px solid $surface_border_hover;
-}
-QComboBox:focus {
-    background: $surface_bg_hover;
-    border: 1px solid $accent_hex;
-}
-QComboBox:on {
-    background: $accent_soft_bg;
-    border: 1px solid rgba($accent_rgb, 0.35);
-}
-QComboBox::drop-down {
-    border: none;
-    width: 26px;
-    subcontrol-origin: padding;
-    subcontrol-position: right center;
-}
-QComboBox::down-arrow {
-    image: none;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid $fg_faint;
-    margin-right: 10px;
-}
-QComboBox::down-arrow:on {
-    border-top-color: $accent_hex;
-}
-QComboBox QAbstractItemView,
-QComboBox QListView {
-    background-color: $surface_bg;
-    border: 1px solid $surface_border;
-    border-radius: 8px;
-    padding: 4px;
-    outline: none;
-}
-QComboBox QAbstractItemView::item,
-QComboBox QListView::item {
-    background: transparent;
-    color: $fg;
-    padding: 6px 10px;
-    border-radius: 4px;
-    min-height: 24px;
-}
-QComboBox QAbstractItemView::item:hover,
-QComboBox QListView::item:hover {
-    background: $surface_bg_hover;
-}
-QComboBox QAbstractItemView::item:selected,
-QComboBox QListView::item:selected {
-    background: $accent_soft_bg_hover;
-    color: $selection_fg;
-}
-"""
-)
-
-
-def _get_fluent_combo_style(tokens=None) -> str:
-    tokens = tokens or get_theme_tokens()
-    selection_fg = "rgba(18, 18, 18, 0.90)" if tokens.is_light else tokens.fg
-    return _FLUENT_COMBO_STYLE_TEMPLATE.substitute(
-        surface_bg=tokens.surface_bg,
-        surface_bg_hover=tokens.surface_bg_hover,
-        surface_border=tokens.surface_border,
-        surface_border_hover=tokens.surface_border_hover,
-        fg=tokens.fg,
-        fg_faint=tokens.fg_faint,
-        accent_hex=tokens.accent_hex,
-        accent_rgb=tokens.accent_rgb_str,
-        accent_soft_bg=tokens.accent_soft_bg,
-        accent_soft_bg_hover=tokens.accent_soft_bg_hover,
-        selection_fg=selection_fg,
-    )
 
 
 _FLUENT_CHIP_STYLE_TEMPLATE = Template(
@@ -158,49 +87,6 @@ def _format_dns_profile_label(profile_name: str) -> str:
     return _DNS_PROFILE_IP_SUFFIX.sub("", label).strip()
 
 
-class DangerResetActionButton(ResetActionButton):
-    def _update_icon(self, rotation: int = 0):
-        tokens = get_theme_tokens()
-        color = tokens.fg
-        icon_name = "fa5s.trash-alt"
-        if rotation != 0:
-            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
-        else:
-            self.setIcon(qta.icon(icon_name, color=color))
-
-    def _update_style(self):
-        # Guard against StyleChange -> changeEvent -> theme refresh loops.
-        if getattr(self, "_applying_theme_styles", False):
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            semantic = get_semantic_palette()
-            if self._pending:
-                bg = semantic.danger_bg_strong if self._hovered else semantic.danger_bg
-                border = f"1px solid {tokens.surface_border_hover}"
-            else:
-                bg = semantic.danger_bg if self._hovered else semantic.danger_bg_soft
-                border = "none"
-
-            qss = f"""
-                QPushButton {{
-                    background-color: {bg};
-                    border: {border};
-                    border-radius: 4px;
-                    color: {semantic.on_color};
-                    padding: 0 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-                }}
-            """
-            if qss != getattr(self, "_current_qss", ""):
-                self._current_qss = qss
-                self.setStyleSheet(qss)
-        finally:
-            self._applying_theme_styles = False
-
 # Импортируем сервисы и домены
 try:
     from hosts.proxy_domains import (
@@ -236,18 +122,18 @@ except ImportError:
 class HostsWorker(QObject):
     """Воркер для асинхронных операций с hosts файлом"""
     finished = pyqtSignal(bool, str)
-    
+
     def __init__(self, hosts_manager, operation, payload=None):
         super().__init__()
         self.hosts_manager = hosts_manager
         self.operation = operation
         self.payload = payload
-        
+
     def run(self):
         try:
             success = False
             message = ""
-            
+
             if self.operation == 'apply_selection':
                 service_dns = self.payload or {}
                 success = self.hosts_manager.apply_service_dns_selections(service_dns)
@@ -262,34 +148,41 @@ class HostsWorker(QObject):
                     message = "Hosts очищен"
                 else:
                     message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
-                        
+
             elif self.operation == 'adobe_add':
                 success = self.hosts_manager.add_adobe_domains()
                 if success:
                     message = "Adobe заблокирован"
                 else:
                     message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
-                
+
             elif self.operation == 'adobe_remove':
                 success = self.hosts_manager.remove_adobe_domains()
                 if success:
                     message = "Adobe разблокирован"
                 else:
                     message = getattr(self.hosts_manager, "last_status", None) or "Ошибка"
-            
+
             self.finished.emit(success, message)
-            
+
         except Exception as e:
             log(f"Ошибка в HostsWorker: {e}", "ERROR")
             self.finished.emit(False, str(e))
 
 
+def _is_fluent_combo(obj) -> bool:
+    """Проверяет, является ли объект qfluentwidgets ComboBox."""
+    if ComboBox is not None and isinstance(obj, ComboBox):
+        return True
+    return False
+
+
 class HostsPage(BasePage):
     """Страница управления Hosts файлом"""
-    
+
     def __init__(self, parent=None):
         super().__init__("Hosts", "Управление разблокировкой сервисов через hosts файл", parent)
-        
+
         self.hosts_manager = None
         self.service_combos = {}
         self.service_icon_labels = {}
@@ -317,11 +210,11 @@ class HostsPage(BasePage):
         self._current_operation = None
         self._startup_initialized = False
         self._service_dns_selection = load_user_hosts_selection()
-        
+
         self._init_hosts_manager()
         self._build_ui()
 
-        # Apply tokens to custom inline-styled widgets.
+        # Apply tokens to remaining custom inline-styled widgets.
         self._apply_theme()
 
     def changeEvent(self, event):  # noqa: N802 (Qt override)
@@ -347,6 +240,7 @@ class HostsPage(BasePage):
         self._apply_theme()
 
     def _apply_theme(self) -> None:
+        """Applies theme tokens to widgets that still use raw setStyleSheet."""
         if self._applying_theme_styles:
             return
 
@@ -354,6 +248,7 @@ class HostsPage(BasePage):
         try:
             tokens = get_theme_tokens()
 
+            # Section title labels (plain QLabel kept for layout/padding control).
             for label in list(self._services_section_title_labels):
                 try:
                     label.setStyleSheet(
@@ -362,14 +257,7 @@ class HostsPage(BasePage):
                 except Exception:
                     pass
 
-            for label in list(self._service_group_title_labels):
-                try:
-                    label.setStyleSheet(
-                        f"color: {tokens.fg}; font-size: 14px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
-                    )
-                except Exception:
-                    pass
-
+            # Chip scroll areas (plain QScrollArea, no Fluent equivalent).
             chips_qss = (
                 "QScrollArea { background: transparent; border: none; }"
                 "QScrollArea QWidget { background: transparent; }"
@@ -385,6 +273,7 @@ class HostsPage(BasePage):
                 except Exception:
                     pass
 
+            # Chip buttons (plain QPushButton link-style, no direct Fluent equivalent).
             chip_qss = _get_fluent_chip_style(tokens)
             for btn in list(self._service_group_chip_buttons):
                 try:
@@ -392,42 +281,7 @@ class HostsPage(BasePage):
                 except Exception:
                     pass
 
-            for label in list(self.service_name_labels.values()):
-                try:
-                    label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 600;")
-                except Exception:
-                    pass
-
-            combo_qss = _get_fluent_combo_style(tokens)
-            for control in list(self.service_combos.values()):
-                if isinstance(control, QComboBox):
-                    try:
-                        control.setStyleSheet(combo_qss)
-                    except Exception:
-                        pass
-
-            if self._open_hosts_button is not None:
-                try:
-                    self._open_hosts_button.setIcon(qta.icon('fa5s.external-link-alt', color=tokens.fg))
-                    self._open_hosts_button.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background-color: {tokens.surface_bg};
-                            color: {tokens.fg};
-                            border: 1px solid {tokens.surface_border};
-                            border-radius: 4px;
-                            font-size: 11px;
-                            padding: 6px 10px;
-                        }}
-                        QPushButton:hover {{
-                            background-color: {tokens.surface_bg_hover};
-                            border-color: {tokens.surface_border_hover};
-                        }}
-                        """
-                    )
-                except Exception:
-                    pass
-
+            # Close-error icon button (tiny 20x20, stays plain QPushButton).
             if self._close_error_button is not None:
                 try:
                     self._close_error_button.setIcon(qta.icon('fa5s.times', color=tokens.fg_faint))
@@ -471,14 +325,14 @@ class HostsPage(BasePage):
     def hideEvent(self, event):  # noqa: N802 (Qt naming)
         self._stop_catalog_watcher()
         super().hideEvent(event)
-        
+
     def _init_hosts_manager(self):
         try:
             from hosts.hosts import HostsManager
             self.hosts_manager = HostsManager(status_callback=lambda m: log(f"Hosts: {m}", "INFO"))
         except Exception as e:
             log(f"Ошибка инициализации HostsManager: {e}", "ERROR")
-    
+
     def _invalidate_cache(self):
         """Сбрасывает кеш активных доменов"""
         self._active_domains_cache = None
@@ -595,7 +449,7 @@ class HostsPage(BasePage):
                     inferred = infer_profile_from_hosts(service_name, available)
 
                 if inferred:
-                    if isinstance(combo, QComboBox):
+                    if _is_fluent_combo(combo):
                         idx = combo.findData(inferred)
                         if idx >= 0:
                             combo.blockSignals(True)
@@ -607,7 +461,7 @@ class HostsPage(BasePage):
                             combo.setCurrentIndex(0)
                             combo.blockSignals(False)
                 else:
-                    if isinstance(combo, QComboBox):
+                    if _is_fluent_combo(combo):
                         combo.blockSignals(True)
                         combo.setCurrentIndex(0)
                         combo.blockSignals(False)
@@ -620,7 +474,7 @@ class HostsPage(BasePage):
 
         self._service_dns_selection = new_selection
         save_user_hosts_selection(self._service_dns_selection)
-            
+
     def _get_active_domains(self) -> set:
         """Возвращает активные домены с кешированием (чтобы не читать hosts 28 раз)"""
         if self._active_domains_cache is not None:
@@ -645,33 +499,31 @@ class HostsPage(BasePage):
                 self._show_error(f"Ошибка чтения hosts: {e}")
                 return set()
         return set()
-    
+
     def _build_ui(self):
         # Панель ошибок (скрыта по умолчанию)
         self._build_error_panel()
-        
+
         # Информационная заметка
         self._build_info_note()
         self.add_spacing(4)
-        
+
         # Предупреждение о браузере
         self._build_browser_warning()
         self.add_spacing(6)
-        
+
         # Статус
         self._build_status_section()
         self.add_spacing(6)
-        
+
         # Сервисы (выбор DNS-профиля по каждому сервису)
         self._build_services_container()
         self.add_spacing(6)
-        
+
         # Adobe
         self._build_adobe_section()
         self.add_spacing(6)
-        
-        # Кнопки
-        self._build_actions()
+
 
     def _build_services_container(self) -> None:
         self._services_container = QWidget()
@@ -763,7 +615,7 @@ class HostsPage(BasePage):
             self._catalog_sig = get_hosts_catalog_signature()
         except Exception:
             self._catalog_sig = None
-        
+
     def _build_error_panel(self):
         """Панель для отображения ошибок доступа к hosts"""
         semantic = get_semantic_palette()
@@ -776,18 +628,18 @@ class HostsPage(BasePage):
         top_row = QHBoxLayout()
         top_row.setSpacing(10)
 
-        # Иконка ошибки
+        # Иконка ошибки (QLabel с pixmap — оставляем как есть)
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon('fa5s.exclamation-triangle', color=semantic.error).pixmap(20, 20))
         top_row.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
         # Текст ошибки
-        self.error_text = QLabel()
+        self.error_text = BodyLabel()
         self.error_text.setWordWrap(True)
         self.error_text.setStyleSheet(f"color: {semantic.error}; font-size: 12px; background: transparent;")
         top_row.addWidget(self.error_text, 1)
 
-        # Кнопка закрыть
+        # Кнопка закрыть (иконочная, 20x20 — plain QPushButton)
         close_btn = QPushButton()
         self._close_error_button = close_btn
         tokens = get_theme_tokens()
@@ -815,27 +667,11 @@ class HostsPage(BasePage):
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(30, 0, 0, 0)  # Отступ слева под иконку
 
-        self.restore_btn = QPushButton(" Восстановить права доступа")
+        self.restore_btn = PushButton()
+        self.restore_btn.setText(" Восстановить права доступа")
         self.restore_btn.setIcon(qta.icon('fa5s.wrench', color=tokens.fg))
         self.restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.restore_btn.setFixedHeight(28)
-        self.restore_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {semantic.warning_button};
-                color: {semantic.on_color};
-                border: none;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 500;
-                padding: 0 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {semantic.warning_button_hover};
-            }}
-            QPushButton:disabled {{
-                background-color: {semantic.warning_button_disabled};
-            }}
-        """)
+        self.restore_btn.setFixedHeight(32)
         self.restore_btn.clicked.connect(self._restore_hosts_permissions)
         btn_row.addWidget(self.restore_btn)
         btn_row.addStretch()
@@ -854,7 +690,7 @@ class HostsPage(BasePage):
 
         self.error_panel.hide()  # Скрыта по умолчанию
         self.add_widget(self.error_panel)
-        
+
     def _show_error(self, message: str):
         """Показывает ошибку на панели"""
         self._last_error = message
@@ -880,25 +716,23 @@ class HostsPage(BasePage):
                 self._invalidate_cache()
                 self._update_ui()
                 self._sync_selections_from_hosts()
-                QMessageBox.information(
-                    self, "Успех",
-                    "Права доступа к файлу hosts успешно восстановлены!"
-                )
+                if InfoBar:
+                    InfoBar.success(title="Успех", content="Права доступа к файлу hosts успешно восстановлены!", parent=self.window())
             else:
                 self._show_error(message)
-                QMessageBox.warning(
-                    self, "Ошибка",
-                    f"Не удалось восстановить права:\n{message}\n\n"
-                    "Попробуйте временно отключить защиту файла hosts "
-                    "в настройках антивируса (Kaspersky, Dr.Web и т.д.)"
-                )
+                if InfoBar:
+                    InfoBar.warning(
+                        title="Ошибка",
+                        content=f"Не удалось восстановить права:\n{message}\n\nПопробуйте временно отключить защиту файла hosts в настройках антивируса (Kaspersky, Dr.Web и т.д.)",
+                        parent=self.window(),
+                    )
         except Exception as e:
             log(f"Ошибка при восстановлении прав: {e}", "ERROR")
             self._show_error(f"Ошибка: {e}")
         finally:
             self.restore_btn.setEnabled(True)
             self.restore_btn.setText(" Восстановить права доступа")
-    
+
     def _check_hosts_access(self):
         """Проверяет доступ к hosts файлу при загрузке страницы"""
         try:
@@ -913,90 +747,100 @@ class HostsPage(BasePage):
                 )
         except Exception as e:
             self._show_error(f"Ошибка чтения hosts: {e}")
-        
+
     def _build_info_note(self):
         """Информационная заметка о том, зачем нужен hosts"""
         semantic = get_semantic_palette()
         info_card = SettingsCard()
-        
+
         info_layout = QHBoxLayout()
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(10)
-        
-        # Иконка лампочки
+
+        # Иконка лампочки (QLabel с pixmap — оставляем)
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon('fa5s.lightbulb', color=semantic.warning).pixmap(20, 20))
         icon_label.setFixedSize(24, 24)
         info_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
-        
+
         # Текст пояснения
-        info_text = QLabel(
+        info_text = CaptionLabel(
             "Некоторые сервисы (ChatGPT, Spotify и др.) сами блокируют доступ из России — "
             "это не блокировка РКН. Решается не через Zapret, а через проксирование: "
             "домены направляются через отдельный прокси-сервер в файле hosts."
         )
         info_text.setWordWrap(True)
-        info_text.setStyleSheet(f"color: {get_theme_tokens().fg_muted}; font-size: 11px; line-height: 1.4;")
         info_layout.addWidget(info_text, 1)
-        
+
         info_card.add_layout(info_layout)
         self.add_widget(info_card)
-        
+
     def _build_browser_warning(self):
         """Предупреждение о необходимости перезапуска браузера"""
         semantic = get_semantic_palette()
         warning_layout = QHBoxLayout()
         warning_layout.setContentsMargins(12, 4, 12, 4)
         warning_layout.setSpacing(10)
-        
-        # Иконка предупреждения
+
+        # Иконка предупреждения (QLabel с pixmap — оставляем)
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon('fa5s.sync-alt', color=semantic.warning).pixmap(16, 16))
         warning_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        
+
         # Текст предупреждения
-        warning_text = QLabel(
+        warning_text = CaptionLabel(
             "После добавления или удаления доменов необходимо перезапустить браузер, "
             "чтобы изменения вступили в силу."
         )
         warning_text.setWordWrap(True)
         warning_text.setStyleSheet(f"color: {semantic.warning_soft}; font-size: 11px; background: transparent;")
         warning_layout.addWidget(warning_text, 1)
-        
+
         # Простой контейнер без фона
         warning_widget = QWidget()
         warning_widget.setLayout(warning_layout)
         warning_widget.setStyleSheet("background: transparent;")
-        
+
         self.add_widget(warning_widget)
-        
+
     def _build_status_section(self):
         status_card = SettingsCard()
         status_layout = QHBoxLayout()
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(10)
-        
+
         active = self._get_active_domains()
         tokens = get_theme_tokens()
         semantic = get_semantic_palette()
-        
+
+        # status_dot — цветной символ «●», оставляем plain QLabel для управления цветом
         self.status_dot = QLabel("●")
         dot_color = semantic.success if active else tokens.fg_faint
         self.status_dot.setStyleSheet(f"color: {dot_color}; font-size: 12px;")
         status_layout.addWidget(self.status_dot)
-        
-        self.status_label = QLabel(f"Активно {len(active)} доменов" if active else "Нет активных")
+
+        self.status_label = BodyLabel(f"Активно {len(active)} доменов" if active else "Нет активных")
         self.status_label.setProperty("tone", "primary")
-        self.status_label.setStyleSheet("font-size: 12px;")
         status_layout.addWidget(self.status_label, 1)
-        
+
+        self.clear_btn = PushButton()
+        self.clear_btn.setIcon(qta.icon('fa5s.trash-alt', color=tokens.fg_muted))
+        self.clear_btn.setText(" Очистить")
+        self.clear_btn.setFixedHeight(32)
+        self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_btn.clicked.connect(self._on_clear_clicked)
+        status_layout.addWidget(self.clear_btn)
+
+        self._open_hosts_button = PushButton()
+        self._open_hosts_button.setIcon(qta.icon('fa5s.external-link-alt', color=tokens.fg))
+        self._open_hosts_button.setText(" Открыть")
+        self._open_hosts_button.setFixedHeight(32)
+        self._open_hosts_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._open_hosts_button.clicked.connect(self._open_hosts_file)
+        status_layout.addWidget(self._open_hosts_button)
+
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
-
-    def _configure_fluent_combo(self, combo: QComboBox) -> None:
-        combo.setStyleSheet(_get_fluent_combo_style())
-        combo.setFixedHeight(32)
-        combo.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _make_fluent_chip(self, label: str) -> QPushButton:
         btn = QPushButton(label)
@@ -1019,7 +863,7 @@ class HostsPage(BasePage):
             available = list(get_service_available_dns_profiles(service_name) or [])
 
             target_profile = (profile_name or "").strip()
-            if isinstance(control, QComboBox):
+            if _is_fluent_combo(control):
                 if target_profile:
                     if target_profile not in available:
                         skipped.append(service_name)
@@ -1074,7 +918,7 @@ class HostsPage(BasePage):
             return
 
         self._apply_current_selection()
-	        
+
     def _build_services_selectors(self):
         OFF_LABEL = "Откл."
         ON_LABEL = "Вкл."
@@ -1198,12 +1042,8 @@ class HostsPage(BasePage):
                 header.setContentsMargins(0, 0, 0, 0)
                 header.setSpacing(10)
 
-                title_label = QLabel(title)
+                title_label = StrongBodyLabel(title)
                 self._service_group_title_labels.append(title_label)
-                tokens = get_theme_tokens()
-                title_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 14px; font-weight: 600; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;"
-                )
                 header.addWidget(title_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
                 if not direct_only:
@@ -1266,14 +1106,13 @@ class HostsPage(BasePage):
 
                     icon_name, icon_color = ui_map.get(service_name, ("fa5s.globe", None))
 
+                    # Иконка сервиса (QLabel с pixmap — оставляем)
                     icon_label = QLabel()
                     icon_label.setFixedSize(20, 20)
                     row.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-                    name_label = QLabel(service_name)
+                    name_label = BodyLabel(service_name)
                     self.service_name_labels[service_name] = name_label
-                    tokens = get_theme_tokens()
-                    name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 600;")
                     row.addWidget(name_label, 1, Qt.AlignmentFlag.AlignVCenter)
 
                     # Откл. + доступные профили
@@ -1315,12 +1154,17 @@ class HostsPage(BasePage):
                         card.add_layout(row)
                         self.service_combos[service_name] = toggle
                     else:
-                        combo = QComboBox()
-                        self._configure_fluent_combo(combo)
+                        if _HAS_FLUENT and ComboBox is not None:
+                            combo = ComboBox()
+                        else:
+                            from PyQt6.QtWidgets import QComboBox as _QComboBox
+                            combo = _QComboBox()
+                        combo.setFixedHeight(32)
+                        combo.setCursor(Qt.CursorShape.PointingHandCursor)
                         combo.setMinimumWidth(220)
-                        combo.addItem(OFF_LABEL, None)
+                        combo.addItem(OFF_LABEL, userData=None)
                         for profile_name in available:
-                            combo.addItem(_format_dns_profile_label(profile_name), profile_name)
+                            combo.addItem(_format_dns_profile_label(profile_name), userData=profile_name)
 
                         # Источник истины = реальный hosts: выбор в UI должен отражать то, что реально записано.
                         inferred = infer_profile_from_hosts(service_name, available)
@@ -1413,111 +1257,46 @@ class HostsPage(BasePage):
 
         self._update_profile_row_visual(service_name)
         self._apply_current_selection()
-        
+
     def _build_adobe_section(self):
         self.add_section_title("Дополнительно")
 
-        tokens = get_theme_tokens()
-        semantic = get_semantic_palette()
-        
         adobe_card = SettingsCard()
-        
-        # Описание для чего нужна блокировка
-        desc_label = QLabel("⚠️ Блокирует серверы проверки активации Adobe. Включите, если у вас установлена пиратская версия.")
-        desc_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 10px; margin-bottom: 6px;")
+
+        desc_label = CaptionLabel("⚠️ Блокирует серверы проверки активации Adobe. Включите, если у вас установлена пиратская версия.")
         desc_label.setWordWrap(True)
         adobe_card.add_widget(desc_label)
-        
+
         adobe_layout = QHBoxLayout()
         adobe_layout.setContentsMargins(0, 0, 0, 0)
         adobe_layout.setSpacing(8)
-        
+
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon('fa5s.puzzle-piece', color='#ff0000').pixmap(20, 20))
         adobe_layout.addWidget(icon_label)
-        
-        title = QLabel("Блокировка Adobe")
-        title.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 600;")
+
+        title = StrongBodyLabel("Блокировка Adobe")
         adobe_layout.addWidget(title, 1)
-        
+
         is_adobe_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
-        
-        self.adobe_status = QLabel("Активно" if is_adobe_active else "Откл.")
-        adobe_color = semantic.success if is_adobe_active else tokens.fg_faint
-        self.adobe_status.setStyleSheet(f"color: {adobe_color}; font-size: 11px;")
+
+        self.adobe_status = CaptionLabel("Активно" if is_adobe_active else "Откл.")
         adobe_layout.addWidget(self.adobe_status)
-        
-        self.adobe_btn = QPushButton("Откл." if is_adobe_active else "Вкл.")
-        self.adobe_btn.setFixedSize(50, 24)
+
+        self.adobe_btn = PushButton()
+        self.adobe_btn.setText("Откл." if is_adobe_active else "Вкл.")
+        self.adobe_btn.setFixedHeight(28)
         self.adobe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.adobe_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {semantic.danger_button if is_adobe_active else semantic.success_button};
-                color: {semantic.on_color}; border: none; border-radius: 4px; font-size: 10px;
-            }}
-            QPushButton:hover {{ background-color: {semantic.danger_button_hover if is_adobe_active else semantic.success_button_hover}; }}
-        """)
         self.adobe_btn.clicked.connect(self._toggle_adobe)
         adobe_layout.addWidget(self.adobe_btn)
-        
+
         adobe_card.add_layout(adobe_layout)
         self.add_widget(adobe_card)
-        
-    def _build_actions(self):
-        semantic = get_semantic_palette()
-        actions_card = SettingsCard()
 
-        clear_note = QLabel(
-            "⚠ «Очистить» полностью сбрасывает файл hosts к стандартному содержимому Windows "
-            "и удаляет ВСЕ записи (включая добавленные вручную)."
-        )
-        clear_note.setWordWrap(True)
-        clear_note.setStyleSheet(f"color: {semantic.warning_soft}; font-size: 10px; margin-bottom: 6px;")
-        actions_card.add_widget(clear_note)
-
-        actions_layout = QHBoxLayout()
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(6)
-        
-        # Очистить (двойное подтверждение без модального окна)
-        clear_btn = DangerResetActionButton("Очистить", confirm_text="Сбросить hosts полностью?")
-        clear_btn.reset_confirmed.connect(self._clear_hosts)
-        actions_layout.addWidget(clear_btn)
-        
-        actions_layout.addStretch()
-        
-        # Открыть файл
-        open_btn = QPushButton(" Открыть")
-        self._open_hosts_button = open_btn
-        tokens = get_theme_tokens()
-        open_btn.setIcon(qta.icon('fa5s.external-link-alt', color=tokens.fg))
-        open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {tokens.surface_bg};
-                color: {tokens.fg};
-                border: 1px solid {tokens.surface_border};
-                border-radius: 4px;
-                font-size: 11px;
-                padding: 6px 10px;
-            }}
-            QPushButton:hover {{
-                background-color: {tokens.surface_bg_hover};
-                border-color: {tokens.surface_border_hover};
-            }}
-            """
-        )
-        open_btn.clicked.connect(self._open_hosts_file)
-        actions_layout.addWidget(open_btn)
-        
-        actions_card.add_layout(actions_layout)
-        self.add_widget(actions_card)
-        
     # ═══════════════════════════════════════════════════════════════
     # ОБРАБОТЧИКИ
     # ═══════════════════════════════════════════════════════════════
-    
+
     def _on_profile_changed(self, service_name: str, selected_profile: object):
         if getattr(self, "_building_services_ui", False):
             self._update_profile_row_visual(service_name)
@@ -1547,7 +1326,7 @@ class HostsPage(BasePage):
             return
 
         enabled = False
-        if isinstance(combo, QComboBox):
+        if _is_fluent_combo(combo):
             selected = combo.currentText().strip()
             enabled = bool(selected) and selected != OFF_LABEL
         elif isinstance(combo, QCheckBox):
@@ -1568,14 +1347,28 @@ class HostsPage(BasePage):
         if self._applying:
             return
         self._run_operation('apply_selection', dict(self._service_dns_selection))
-        
+
+    def _on_clear_clicked(self):
+        if self._applying:
+            return
+        if MessageBox is not None:
+            box = MessageBox(
+                "Очистить hosts?",
+                "Это полностью сбросит файл hosts к стандартному содержимому Windows "
+                "и удалит ВСЕ записи, включая добавленные вручную.",
+                self.window(),
+            )
+            if not box.exec():
+                return
+        self._clear_hosts()
+
     def _clear_hosts(self):
         """Очищает hosts"""
         if self._applying:
             return
 
         self._run_operation('clear_all')
-            
+
     def _open_hosts_file(self):
         try:
             import ctypes
@@ -1584,38 +1377,39 @@ class HostsPage(BasePage):
             if os.path.exists(hosts_path):
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", "notepad.exe", hosts_path, None, 1)
         except Exception as e:
-            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть: {e}")
-            
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+
     def _toggle_adobe(self):
         if self._applying:
             return
         is_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
         self._run_operation('adobe_remove' if is_active else 'adobe_add')
-        
+
     def _run_operation(self, operation: str, payload=None):
         if not self.hosts_manager or self._applying:
             return
-            
+
         self._applying = True
         self._current_operation = operation
-        
+
         self._worker = HostsWorker(self.hosts_manager, operation, payload)
         self._thread = QThread()
-        
+
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_operation_complete)
         self._worker.finished.connect(self._thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._thread.deleteLater)
-        
+
         self._thread.start()
-        
+
     def _on_operation_complete(self, success: bool, message: str):
         operation = self._current_operation
         self._current_operation = None
         self._applying = False
-        
+
         # Сбрасываем кеш и обновляем UI
         self._invalidate_cache()
         self._update_ui()
@@ -1623,7 +1417,7 @@ class HostsPage(BasePage):
 
         if success and operation == "clear_all":
             self._reset_all_service_profiles()
-        
+
         if success:
             self._hide_error()
         else:
@@ -1639,7 +1433,7 @@ class HostsPage(BasePage):
         self._building_services_ui = True
         try:
             for control in self.service_combos.values():
-                if isinstance(control, QComboBox):
+                if _is_fluent_combo(control):
                     control.blockSignals(True)
                     control.setCurrentIndex(0)
                     control.blockSignals(False)
@@ -1650,13 +1444,13 @@ class HostsPage(BasePage):
 
         for service_name in list(self.service_combos.keys()):
             self._update_profile_row_visual(service_name)
-            
+
     def _update_ui(self):
         """Обновляет весь UI"""
         active = self._get_active_domains()
         tokens = get_theme_tokens()
         semantic = get_semantic_palette()
-        
+
         # Статус
         if active:
             self.status_dot.setStyleSheet(f"color: {semantic.success}; font-size: 12px;")
@@ -1664,30 +1458,21 @@ class HostsPage(BasePage):
         else:
             self.status_dot.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 12px;")
             self.status_label.setText("Нет активных")
-        
+
         # Обновляем иконки под текущие выборы
         for name in list(self.service_combos.keys()):
             self._update_profile_row_visual(name)
-        
+
         # Adobe
         is_adobe = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
         self.adobe_status.setText("Активно" if is_adobe else "Откл.")
-        adobe_color = semantic.success if is_adobe else tokens.fg_faint
-        self.adobe_status.setStyleSheet(f"color: {adobe_color}; font-size: 11px;")
         self.adobe_btn.setText("Откл." if is_adobe else "Вкл.")
-        self.adobe_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {semantic.danger_button if is_adobe else semantic.success_button};
-                color: {semantic.on_color}; border: none; border-radius: 4px; font-size: 10px;
-            }}
-            QPushButton:hover {{ background-color: {semantic.danger_button_hover if is_adobe else semantic.success_button_hover}; }}
-        """)
-        
+
     def refresh(self):
         """Обновляет страницу (сбрасывает кеш и перечитывает hosts)"""
         self._invalidate_cache()
         self._update_ui()
-    
+
     def cleanup(self):
         """Очистка потоков при закрытии"""
         from log import log
