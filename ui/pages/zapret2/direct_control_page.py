@@ -309,31 +309,6 @@ class Zapret2DirectControlPage(BasePage):
 
         self.add_spacing(8)
 
-        # Card C — Блобы (ссылка на страницу)
-        blobs_card = CardWidget()
-        blobs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        blobs_row = QHBoxLayout(blobs_card)
-        blobs_row.setContentsMargins(16, 14, 16, 14)
-        blobs_row.setSpacing(12)
-
-        blobs_icon_lbl = QLabel()
-        blobs_icon_lbl.setPixmap(qta.icon("fa5s.file-archive", color="#9c27b0").pixmap(20, 20))
-        blobs_icon_lbl.setFixedSize(24, 24)
-        blobs_row.addWidget(blobs_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        blobs_col = QVBoxLayout()
-        blobs_col.setSpacing(2)
-        blobs_col.addWidget(StrongBodyLabel("Блобы"))
-        blobs_col.addWidget(CaptionLabel("Бинарные данные (.bin / hex) для стратегий"))
-        blobs_row.addLayout(blobs_col, 1)
-
-        blobs_open_btn = PushButton()
-        blobs_open_btn.setText("Открыть")
-        blobs_open_btn.setIcon(FluentIcon.FOLDER)
-        blobs_open_btn.clicked.connect(self.navigate_to_blobs.emit)
-        blobs_row.addWidget(blobs_open_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        self.add_widget(blobs_card)
-
         # Backward-compat hidden attributes
         self.active_preset_desc = CaptionLabel("")
         self.active_preset_desc.setVisible(False)
@@ -474,6 +449,31 @@ class Zapret2DirectControlPage(BasePage):
         self.advanced_card.add_layout(advanced_layout)
         self.add_widget(self.advanced_card)
 
+        # Card C — Блобы (ссылка на страницу)
+        blobs_card = CardWidget()
+        blobs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        blobs_row = QHBoxLayout(blobs_card)
+        blobs_row.setContentsMargins(16, 14, 16, 14)
+        blobs_row.setSpacing(12)
+
+        blobs_icon_lbl = QLabel()
+        blobs_icon_lbl.setPixmap(qta.icon("fa5s.file-archive", color="#9c27b0").pixmap(20, 20))
+        blobs_icon_lbl.setFixedSize(24, 24)
+        blobs_row.addWidget(blobs_icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        blobs_col = QVBoxLayout()
+        blobs_col.setSpacing(2)
+        blobs_col.addWidget(StrongBodyLabel("Блобы"))
+        blobs_col.addWidget(CaptionLabel("Бинарные данные (.bin / hex) для стратегий"))
+        blobs_row.addLayout(blobs_col, 1)
+
+        blobs_open_btn = PushButton()
+        blobs_open_btn.setText("Открыть")
+        blobs_open_btn.setIcon(FluentIcon.FOLDER)
+        blobs_open_btn.clicked.connect(self.navigate_to_blobs.emit)
+        blobs_row.addWidget(blobs_open_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.add_widget(blobs_card)
+        
         # Дополнительные действия
         self.add_section_title("Дополнительно")
         extra_card = SettingsCard()

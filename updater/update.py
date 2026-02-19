@@ -403,17 +403,23 @@ class UpdateWorker(QObject):
         urls = []
         upd_url = release_info["update_url"]
         verify_ssl = release_info.get("verify_ssl", True)
-        
+
         # 1. Основной URL (откуда получили информацию о версии)
-        urls.append((upd_url, verify_ssl))
-        
+        # telegram:// — специальный схема, обрабатывается отдельно; в список не добавляем
+        if not upd_url.startswith("telegram://"):
+            urls.append((upd_url, verify_ssl))
+
         # 2. Добавляем все VPS серверы как fallback
         try:
             from .server_config import VPS_SERVERS, should_verify_ssl
-            
-            # Извлекаем имя файла из URL
-            filename = upd_url.split('/')[-1]  # например Zapret2Setup_TEST.exe
-            
+
+            # Извлекаем имя файла: сначала из поля file_name, затем из update_url
+            filename = (release_info.get("file_name") or "").strip()
+            if not filename and not upd_url.startswith("telegram://"):
+                filename = upd_url.split('/')[-1]
+            if not filename:
+                filename = "Zapret2Setup.exe"
+
             for server in VPS_SERVERS:
                 # HTTPS вариант
                 https_url = f"https://{server['host']}:{server['https_port']}/download/{filename}"
@@ -561,16 +567,25 @@ class UpdateWorker(QObject):
         
         if download_error:
             self._last_release_info = release_info
-            
+
             error_msg = str(download_error)
             if "ConnectionPool" in error_msg or "Connection" in error_msg:
                 error_msg = "Ошибка подключения. Проверьте интернет."
-            
+
             self.download_failed.emit(error_msg)
             self._emit(f"Ошибка: {error_msg}")
             shutil.rmtree(tmp_dir, True)
             return False
-        
+
+        if not os.path.exists(setup_exe):
+            error_msg = "Нет доступных источников для скачивания обновления"
+            log(f"❌ {error_msg}", "🔁❌ ERROR")
+            self._last_release_info = release_info
+            self.download_failed.emit(error_msg)
+            self._emit(f"Ошибка: {error_msg}")
+            shutil.rmtree(tmp_dir, True)
+            return False
+
         # Запуск установщика
         log(f"📦 Скачивание завершено, запускаем установщик: {setup_exe}", "🔁 UPDATE")
         log(f"   Файл существует: {os.path.exists(setup_exe)}", "🔁 UPDATE")

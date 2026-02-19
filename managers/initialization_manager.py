@@ -110,30 +110,12 @@ class InitializationManager:
     # ───────────────────────── инициализация подсистем ───────────────────────
 
     def _init_strategy_manager(self):
-        """Быстрая синхронная инициализация Strategy Manager (локально)"""
-        try:
-            # ВАЖНО: импортируем из 'zapret1_launcher.bat_manager'
-            from zapret1_launcher.bat_manager import BatZapret1Manager
-            from config import STRATEGIES_FOLDER, INDEXJSON_FOLDER
-            import os
-
-            os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
-
-            self.app.strategy_manager = BatZapret1Manager(
-                local_dir=STRATEGIES_FOLDER,
-                json_dir=INDEXJSON_FOLDER,
-                status_callback=self.app.set_status,
-                preload=False
-            )
-            # Работаем только с локальными стратегиями на старте
-            self.app.strategy_manager.local_only_mode = True
-
-            log("Strategy Manager инициализирован (без загрузки из интернета)", "INFO")
-            self.init_tasks_completed.add('strategy_manager')
-
-        except Exception as e:
-            log(f"Ошибка инициализации Strategy Manager: {e}", "❌ ERROR")
-            self.app.set_status(f"Ошибка: {e}")
+        """Stub: BAT strategy manager removed — preset-based zapret1 replaces it."""
+        # BatZapret1Manager was only used for .bat file strategy management.
+        # Zapret1 now uses the preset_zapret1 module for strategy management.
+        self.app.strategy_manager = None
+        log("Strategy Manager (BAT) отключён — используется preset_zapret1", "DEBUG")
+        self.init_tasks_completed.add('strategy_manager')
 
     def _init_strategy_cache(self):
         """Прогрев кэша стратегий для быстрого открытия вкладок"""
@@ -155,19 +137,20 @@ class InitializationManager:
             try:
                 method = get_strategy_launch_method()
 
-                # Убедимся, что preset-zapret2.txt существует до расчёта summary.
+                # Убедимся, что preset файлы существуют до расчёта summary.
                 if method == "direct_zapret2":
                     from preset_zapret2 import ensure_default_preset_exists
                     if not ensure_default_preset_exists():
                         log(
-                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets/_builtin/Default.txt)",
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
                             "ERROR",
                         )
+                elif method == "direct_zapret1":
+                    from preset_zapret1 import ensure_default_preset_exists_v1
+                    if not ensure_default_preset_exists_v1():
+                        log("direct_zapret1: не удалось подготовить preset-zapret1.txt", "ERROR")
 
-                if method == "bat":
-                    from config.reg import get_last_bat_strategy
-                    initial_name = get_last_bat_strategy() or "Не выбрана"
-                elif method == "orchestra":
+                if method == "orchestra":
                     initial_name = getattr(self.app, "current_strategy_name", None) or "Оркестр"
                 else:
                     initial_name = getattr(self.app, "current_strategy_name", None) or "Прямой запуск"
@@ -197,7 +180,7 @@ class InitializationManager:
                     from preset_zapret2 import ensure_default_preset_exists
                     if not ensure_default_preset_exists():
                         log(
-                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets/_builtin/Default.txt)",
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
                             "ERROR",
                         )
                         try:
@@ -205,7 +188,16 @@ class InitializationManager:
                         except Exception:
                             pass
             else:
-                log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")
+                log(f"Используется winws.exe для режима {launch_method}", "INFO")
+                # Ensure default preset exists for direct_zapret1 mode
+                if launch_method == "direct_zapret1":
+                    from preset_zapret1 import ensure_default_preset_exists_v1
+                    if not ensure_default_preset_exists_v1():
+                        log("direct_zapret1: не удалось подготовить preset-zapret1.txt", "ERROR")
+                        try:
+                            self.app.set_status("Ошибка: не удалось создать preset-zapret1.txt")
+                        except Exception:
+                            pass
 
             self.app.dpi_starter = BatDPIStart(
                 winws_exe=winws_exe,
@@ -290,24 +282,6 @@ class InitializationManager:
         """Инициализация меню"""
         # Alt-меню отключено: все настройки/ссылки перенесены в страницы интерфейса.
         try:
-            # На всякий случай убираем старый menubar_widget (если остался после hot-reload)
-            if hasattr(self.app, "menubar_widget") and getattr(self.app, "menubar_widget", None):
-                try:
-                    self.app.menubar_widget.hide()
-                    self.app.menubar_widget.deleteLater()
-                except Exception:
-                    pass
-            if hasattr(self.app, "menubar_widget"):
-                try:
-                    delattr(self.app, "menubar_widget")
-                except Exception:
-                    pass
-            if hasattr(self.app, "menu_bar"):
-                try:
-                    delattr(self.app, "menu_bar")
-                except Exception:
-                    pass
-
             self.init_tasks_completed.add('menu')
             log("Alt-меню отключено (перенесено в страницы)", "INFO")
         except Exception as e:
@@ -318,11 +292,6 @@ class InitializationManager:
         try:
             self.app.start_clicked.connect(self._on_start_clicked)
             self.app.stop_clicked.connect(lambda: self.app.dpi_controller.stop_dpi_async())
-            # display_mode_changed replaces theme_changed (theme selection removed)
-            if hasattr(self.app, 'display_mode_changed'):
-                self.app.display_mode_changed.connect(lambda _mode: None)  # no-op: mode handled in appearance_page
-            elif hasattr(self.app, 'theme_changed'):
-                self.app.theme_changed.connect(self.app.change_theme)
             self.app.open_folder_btn.clicked.connect(self.app.open_folder)
             self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
             self.app.server_status_btn.clicked.connect(self.app.show_servers_page)
@@ -356,8 +325,8 @@ class InitializationManager:
 
         launch_method = get_strategy_launch_method()
 
-        # Для режимов direct/direct_zapret2_orchestra/direct_zapret1 проверяем выбранные категории
-        if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+        # Для режимов direct/direct_zapret2_orchestra проверяем выбранные категории
+        if launch_method in ("direct_zapret2", "direct_zapret2_orchestra"):
             selections = get_direct_strategy_selections()
             # Проверяем есть ли хотя бы одна категория не равная 'none'
             has_any = any(v and v != 'none' for v in selections.values())
@@ -367,13 +336,13 @@ class InitializationManager:
                 self.app.set_status("⚠️ Выберите стратегию для запуска")
                 return
 
-        # Для BAT режима проверяем последнюю выбранную стратегию
-        elif launch_method == "bat":
-            from config.reg import get_last_bat_strategy
-            last_strategy = get_last_bat_strategy()
-            if not last_strategy or last_strategy == "Автостарт DPI отключен":
-                self._show_strategy_required_warning(for_bat=True)
-                self.app.set_status("⚠️ Выберите пресет для запуска")
+        # Для direct_zapret1 проверяем наличие preset-zapret1.txt
+        elif launch_method == "direct_zapret1":
+            from preset_zapret1 import get_active_preset_path_v1, ensure_default_preset_exists_v1
+            ensure_default_preset_exists_v1()
+            if not get_active_preset_path_v1().exists():
+                self._show_strategy_required_warning(for_bat=False)
+                self.app.set_status("⚠️ Выберите стратегию для запуска")
                 return
 
         # orchestra режим не требует выбора стратегии - работает автоматически
@@ -407,29 +376,6 @@ class InitializationManager:
             QMessageBox.warning(self.app, "Стратегия не выбрана", subtitle)
         except Exception:
             pass
-
-    def _navigate_to_strategies(self):
-        """Переходит на страницу стратегий"""
-        try:
-            from strategy_menu import get_strategy_launch_method
-            from ui.page_names import PageName, SectionName
-
-            method = get_strategy_launch_method()
-
-            if method == "orchestra":
-                target_page = PageName.ORCHESTRA
-            elif method in ("direct_zapret2", "direct_zapret2_orchestra"):
-                target_page = PageName.ZAPRET2_DIRECT
-            elif method == "direct_zapret1":
-                target_page = PageName.ZAPRET1_DIRECT
-            else:  # bat
-                target_page = PageName.BAT_STRATEGIES
-
-            self.app.show_page(target_page)
-            if hasattr(self.app, 'side_nav'):
-                self.app.side_nav.set_section_by_name(SectionName.STRATEGIES, emit_signal=False)
-        except Exception as e:
-            log(f"Ошибка навигации на стратегии: {e}", "ERROR")
 
     # ═══════════════════════════════════════════════════════════════════
     # ФАЗА 2: Инициализация менеджеров (разбито на логические группы)
@@ -534,49 +480,13 @@ class InitializationManager:
                 self.app.appearance_page.set_premium_status(is_premium)
                 log(f"🎨 Установлена текущая тема в галерее: '{current_theme}' (premium={is_premium})", "DEBUG")
             
-            # ✅ Проверяем, был ли CSS уже применён синхронно при старте
-            if getattr(self.app, '_css_applied_at_startup', False):
-                startup_theme = getattr(self.app, '_startup_theme', None)
-                
-                if startup_theme == current_theme:
-                    log(
-                        f"⏭️ CSS уже применён при старте для '{current_theme}', пропускаем асинхронное применение",
-                        "DEBUG",
-                    )
-                    self.app._theme_pending = False
-
-                    # Помечаем тему как применённую в ThemeManager
-                    self.app.theme_manager._theme_applied = True
-                    # ✅ Хеш берём от применённого CSS (startup fast-path)
-                    startup_css_hash = getattr(self.app, "_startup_css_hash", None)
-                    if startup_css_hash is None:
-                        try:
-                            from PyQt6.QtWidgets import QApplication
-
-                            app = QApplication.instance()
-                            css_text = app.styleSheet() if app else ""
-                            startup_css_hash = hash(css_text) if css_text else None
-                        except Exception:
-                            startup_css_hash = None
-                    self.app.theme_manager._current_css_hash = startup_css_hash
-                    
-                else:
-                    # Темы разные - применяем асинхронно
-                    log(f"🔄 Тема изменилась: startup='{startup_theme}' -> current='{current_theme}'", "DEBUG")
-                    self.app._theme_pending = True
-                    self.app.theme_manager.apply_theme_async(
-                        persist=True,
-                        progress_callback=self._on_theme_progress,
-                        done_callback=self._on_theme_ready
-                    )
-            else:
-                # CSS не был применён при старте - применяем асинхронно
-                self.app._theme_pending = True
-                self.app.theme_manager.apply_theme_async(
-                    persist=True,
-                    progress_callback=self._on_theme_progress,
-                    done_callback=self._on_theme_ready
-                )
+            # ✅ qfluentwidgets manages ALL styling via setTheme(DARK/LIGHT/AUTO).
+            # Legacy qt-material CSS (overlay_css) conflicts with FluentWindow's internal
+            # theming: applying it via main_window.setStyleSheet() injects hardcoded dark-mode
+            # QLabel colors (color: rgba(255,255,255,0.87)) that persist when the user
+            # switches to Light mode → white text on white background.
+            # Solution: skip apply_theme_async() entirely.
+            log(f"⏭️ Применение CSS пропущено — qfluentwidgets управляет стилями нативно", "DEBUG")
             
             log(f"✅ Theme manager: {(_t.perf_counter() - t0)*1000:.0f}ms (CSS в фоне)", "DEBUG")
             self.init_tasks_completed.add('theme_manager')
@@ -620,44 +530,11 @@ class InitializationManager:
                 self.app.ui_manager.update_autostart_ui(autostart_exists)
                 self.app.ui_manager.update_ui_state(running=False)
 
-            # Combobox-фикс через UI Manager (из HeavyInitManager)
-            for delay in (0, 100, 200):
-                QTimer.singleShot(delay, lambda: (
-                    self.app.ui_manager.force_enable_combos()
-                    if hasattr(self.app, 'ui_manager') else None
-                ))
-
             self.init_tasks_completed.add('managers')
             self._on_managers_init_done()
             log("✅ Managers init finalized", "DEBUG")
         except Exception as e:
             log(f"❌ Ошибка финализации: {e}", "ERROR")
-
-    def _on_theme_progress(self, status: str):
-        """Обработчик прогресса генерации темы"""
-        return
-    
-    def _on_theme_ready(self, success: bool, message: str):
-        """Обработчик завершения генерации/применения темы"""
-        try:
-            self.app._theme_pending = False
-            
-            if success:
-                log(f"✅ Тема применена асинхронно: {message}", "DEBUG")
-                # Устанавливаем текущую тему в галерее
-                if hasattr(self.app, 'appearance_page') and hasattr(self.app, 'theme_manager'):
-                    self.app.appearance_page.set_current_theme(self.app.theme_manager.current_theme)
-
-                # Если окно уже показано (splash закрыт раньше), принудительно обновим стили после применения темы.
-                if hasattr(self.app, '_force_style_refresh'):
-                    try:
-                        QTimer.singleShot(10, self.app._force_style_refresh)
-                    except Exception:
-                        pass
-            else:
-                log(f"⚠ Тема не применена: {message}", "WARNING")
-        except Exception as e:
-            log(f"Ошибка в _on_theme_ready: {e}", "ERROR")
 
     def _init_tray(self):
         """Инициализация системного трея"""
@@ -949,7 +826,7 @@ class InitializationManager:
         try:
             if not ensure_default_preset_exists():
                 log(
-                    "Автозапуск direct_zapret2 пропущен: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets/_builtin/Default.txt)",
+                    "Автозапуск direct_zapret2 пропущен: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
                     "ERROR",
                 )
                 self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")

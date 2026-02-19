@@ -1,7 +1,7 @@
 # ui/pages/strategies_page_base.py
 """Базовый класс для страниц стратегий - общие методы и helper классы"""
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QThread
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QFrame, QScrollArea, QPushButton,
                              QSizePolicy, QApplication,
@@ -36,7 +36,6 @@ from ui.widgets import StrategySearchBar
 from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
 from PyQt6.QtGui import QTextOption
 from strategy_menu.strategy_info import StrategyInfo
-from config import BAT_FOLDER, INDEXJSON_FOLDER
 from log import log
 
 from ui.theme import get_theme_tokens, to_qcolor
@@ -212,11 +211,8 @@ class StrategiesPageBase(QWidget):
         super().__init__(parent)
         self.parent_app = parent
         self._strategy_widget = None
-        self._bat_table = None
         self._initialized = False
         self._current_mode = None
-        self._file_watcher = None
-        self._watcher_active = False
 
         self._applying_theme_styles = False
         self._theme_refresh_scheduled = False
@@ -235,10 +231,7 @@ class StrategiesPageBase(QWidget):
         # Поисковая панель и фильтрация
         self.filter_engine = StrategyFilterEngine()
         self.search_bar = None  # Создаётся в _load_*_mode
-        self._bat_adapter = None
         self._json_adapter = None
-        self._all_bat_strategies = []  # Кэш всех BAT стратегий
-        self._all_bat_strategies_dict = {}  # Оригинальный dict стратегий для фильтрации
 
         # Кэш данных для Direct режима (для фильтрации)
         self._all_direct_strategies = {}  # {category_key: strategies_dict}
@@ -293,7 +286,7 @@ class StrategiesPageBase(QWidget):
         current_layout.addWidget(self.current_strategy_container)
         # current_widget будет вставлен в content_layout при загрузке контента
 
-        # Текстовый лейбл (для fallback и BAT режима)
+        # Текстовый лейбл (fallback)
         self.current_strategy_label = BodyLabel("Не выбрана")
         current_layout.addWidget(self.current_strategy_label)
 
@@ -434,11 +427,8 @@ class StrategiesPageBase(QWidget):
                 item.widget().deleteLater()
 
         self._strategy_widget = None
-        self._bat_table = None
         self.loading_label = None
         self.search_bar = None
-        self._all_bat_strategies = []
-        self._all_bat_strategies_dict = {}
         # Очищаем кэш Direct режима
         self._all_direct_strategies = {}
         self._all_direct_favorites = {}
@@ -665,91 +655,13 @@ class StrategiesPageBase(QWidget):
     def closeEvent(self, event):
         """Очистка ресурсов при закрытии"""
         try:
-            if hasattr(self, 'stop_watching'):
-                self.stop_watching()
             self._stop_process_monitoring()
             self._stop_absolute_timeout()
-
-            if self._file_watcher:
-                self._file_watcher.directoryChanged.disconnect()
-                self._file_watcher.fileChanged.disconnect()
-                self._file_watcher.deleteLater()
-                self._file_watcher = None
-                log("File watcher очищен", "DEBUG")
         except Exception as e:
             log(f"Ошибка очистки ресурсов: {e}", "DEBUG")
 
         super().closeEvent(event)
 
-
-    # ==================== BAT режим: обработчики поиска и фильтрации ====================
-
-    def _apply_bat_filter(self):
-        """Применяет текущие фильтры и сортировку к BAT стратегиям"""
-        try:
-            if not self._all_bat_strategies or not self._bat_table:
-                return
-
-            # Получаем текущий query из SearchBar
-            query = self.search_bar.get_query() if self.search_bar else SearchQuery()
-
-            # Фильтруем
-            filtered = self.filter_engine.filter_strategies(self._all_bat_strategies, query)
-
-            # Сортируем
-            sort_key, reverse = self.search_bar.get_sort_key() if self.search_bar else ("default", False)
-            sorted_strategies = self.filter_engine.sort_strategies(filtered, sort_key, reverse)
-
-            # Конвертируем в dict формат для таблицы, СОХРАНЯЯ порядок из sorted_strategies
-            filtered_dict = {}
-            for strategy in sorted_strategies:
-                strategy_id = strategy.id
-                if strategy_id in self._all_bat_strategies_dict:
-                    filtered_dict[strategy_id] = self._all_bat_strategies_dict[strategy_id]
-
-            # Обновляем таблицу с флагом skip_grouping для сортировки по имени или рейтингу
-            skip_grouping = sort_key in ("name", "rating")
-            self._bat_table.populate_strategies(filtered_dict, "bat", skip_grouping=skip_grouping)
-
-            # Обновляем счётчик
-            if self.search_bar:
-                self.search_bar.set_result_count(len(sorted_strategies))
-
-            log(f"BAT фильтрация: {len(sorted_strategies)} из {len(self._all_bat_strategies)}", "DEBUG")
-
-        except Exception as e:
-            log(f"Ошибка фильтрации BAT стратегий: {e}", "ERROR")
-
-    def _on_bat_search_changed(self, text: str):
-        """Обработчик изменения текста поиска (асинхронно)"""
-        QTimer.singleShot(0, self._apply_bat_filter)
-
-    def _on_bat_filters_changed(self, query):
-        """Обработчик изменения фильтров (асинхронно)"""
-        QTimer.singleShot(0, self._apply_bat_filter)
-
-    def _convert_dict_to_strategy_info_list(self, strategies_dict: dict) -> List[StrategyInfo]:
-        """Конвертирует dict стратегий в List[StrategyInfo] для фильтрации и сортировки."""
-        result = []
-
-        for strategy_id, metadata in strategies_dict.items():
-            try:
-                info = StrategyInfo(
-                    id=strategy_id,
-                    name=metadata.get('name', strategy_id),
-                    source='bat',
-                    description=metadata.get('description', ''),
-                    author=metadata.get('author', ''),
-                    version=metadata.get('version', ''),
-                    label=metadata.get('label', '') or '',
-                    args=metadata.get('args', ''),
-                    file_path=metadata.get('file_path', ''),
-                )
-                result.append(info)
-            except Exception as e:
-                log(f"Ошибка конвертации стратегии {strategy_id}: {e}", "DEBUG")
-
-        return result
 
     # ==================== Direct режим: обработчики поиска и фильтрации ====================
 
@@ -910,8 +822,6 @@ class StrategiesPageBase(QWidget):
 
             if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 self._apply_direct_filter_with_query(query)
-            elif method == "bat":
-                self._apply_bat_filter_with_query(query)
 
         except Exception as e:
             log(f"Ошибка применения внешних фильтров: {e}", "ERROR")
@@ -930,8 +840,6 @@ class StrategiesPageBase(QWidget):
 
             if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 self._apply_direct_sort_with_params(sort_key, reverse)
-            elif method == "bat":
-                self._apply_bat_sort_with_params(sort_key, reverse)
 
         except Exception as e:
             log(f"Ошибка применения внешней сортировки: {e}", "ERROR")
@@ -987,33 +895,6 @@ class StrategiesPageBase(QWidget):
         except Exception as e:
             log(f"Ошибка применения внешнего фильтра Direct: {e}", "ERROR")
 
-    def _apply_bat_filter_with_query(self, query):
-        """Применяет фильтр к BAT режиму с заданным query"""
-        try:
-            if not self._all_bat_strategies or not self._bat_table:
-                return
-
-            filtered = self.filter_engine.filter_strategies(self._all_bat_strategies, query)
-
-            sort_key = getattr(self, '_external_sort_key', 'default')
-            reverse = getattr(self, '_external_sort_reverse', False)
-
-            sorted_strategies = self.filter_engine.sort_strategies(filtered, sort_key, reverse)
-
-            filtered_dict = {}
-            for strategy in sorted_strategies:
-                strategy_id = strategy.id
-                if strategy_id in self._all_bat_strategies_dict:
-                    filtered_dict[strategy_id] = self._all_bat_strategies_dict[strategy_id]
-
-            skip_grouping = sort_key in ("name", "rating")
-            self._bat_table.populate_strategies(filtered_dict, "bat", skip_grouping=skip_grouping)
-
-            log(f"BAT внешняя фильтрация: {len(sorted_strategies)} из {len(self._all_bat_strategies)}", "DEBUG")
-
-        except Exception as e:
-            log(f"Ошибка применения внешнего фильтра BAT: {e}", "ERROR")
-
     def _apply_direct_sort_with_params(self, sort_key: str, reverse: bool):
         """Применяет сортировку к Direct режиму с заданными параметрами"""
         self._external_sort_key = sort_key
@@ -1024,17 +905,6 @@ class StrategiesPageBase(QWidget):
             query = SearchQuery()
 
         self._apply_direct_filter_with_query(query)
-
-    def _apply_bat_sort_with_params(self, sort_key: str, reverse: bool):
-        """Применяет сортировку к BAT режиму с заданными параметрами"""
-        self._external_sort_key = sort_key
-        self._external_sort_reverse = reverse
-
-        query = getattr(self, '_external_query', None)
-        if query is None:
-            query = SearchQuery()
-
-        self._apply_bat_filter_with_query(query)
 
     # ==================== Методы для Direct режима (категории, вкладки) ====================
 

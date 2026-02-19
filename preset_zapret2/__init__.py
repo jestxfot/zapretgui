@@ -2,7 +2,7 @@
 """
 Preset system for direct_zapret2 mode.
 
-Presets are stored as txt files in %APPDATA%/zapret/presets/.
+Presets are stored as txt files in %APPDATA%/zapret/presets_v2/.
 Each preset contains:
 - Metadata (name, created, modified)
 - Base arguments (lua-init, wf-*, blobs)
@@ -154,11 +154,11 @@ def _atomic_write_text(path, content: str, *, encoding: str = "utf-8") -> None:
 
 def ensure_builtin_presets_exist() -> bool:
     """
-    Ensures that preset templates directory (presets_template/) exists and
+    Ensures that preset templates directory (presets_v2_template/) exists and
     syncs templates to presets/ (including version-based auto-updates).
 
     In dev mode, seeds templates from the repo folder
-    `preset_zapret2/builtin_presets/*.txt` into `presets_template/`.
+    `preset_zapret2/builtin_presets/*.txt` into `presets_v2_template/`.
 
     Returns:
         True if presets exist or were created successfully.
@@ -170,13 +170,13 @@ def ensure_builtin_presets_exist() -> bool:
     )
 
     try:
-        # Ensure presets_template/ directory exists
+        # Ensure presets_v2_template/ directory exists
         try:
-            from config import get_zapret_presets_template_dir
+            from config import get_zapret_presets_v2_template_dir
 
-            templates_dir = Path(get_zapret_presets_template_dir())
+            templates_dir = Path(get_zapret_presets_v2_template_dir())
         except Exception:
-            templates_dir = get_presets_dir().parent / "presets_template"
+            templates_dir = get_presets_dir().parent / "presets_v2_template"
         templates_dir.mkdir(parents=True, exist_ok=True)
 
         # Dev convenience: seed templates from the repo (if present)
@@ -300,7 +300,7 @@ def ensure_default_preset_exists() -> bool:
         if not template:
             log(
                 "Cannot create preset-zapret2.txt: no preset templates found. "
-                "Expected at least one file in: %APPDATA%/zapret/presets_template/*.txt",
+                "Expected at least one file in: %APPDATA%/zapret/presets_v2_template/*.txt",
                 "ERROR",
             )
             return False
@@ -322,7 +322,7 @@ def ensure_default_preset_exists() -> bool:
 
 def restore_builtin_preset(preset_name: str) -> bool:
     """
-    Restores a preset from the template in presets_template/.
+    Restores a preset from the template in presets_v2_template/.
 
     Overwrites the preset in presets/ with the template content.
     If the preset is currently active, also updates preset-zapret2.txt.

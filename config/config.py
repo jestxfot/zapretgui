@@ -47,18 +47,27 @@ def get_zapret_userdata_dir() -> str:
     return MAIN_DIRECTORY
 
 
-def get_zapret_presets_dir() -> str:
-    """Returns presets root directory: <userdata>/zapret/presets."""
-    return os.path.join(get_zapret_userdata_dir(), "presets")
+def get_zapret_presets_v2_dir() -> str:
+    """Returns V2 presets root directory: <userdata>/zapret/presets_v2."""
+    return os.path.join(get_zapret_userdata_dir(), "presets_v2")
 
 
-def get_zapret_presets_template_dir() -> str:
-    """Returns preset templates directory: <userdata>/zapret/presets_template.
+def get_zapret_presets_v2_template_dir() -> str:
+    """Returns V2 preset templates directory: <userdata>/zapret/presets_v2_template.
 
     Templates are the source-of-truth for preset reset.
-    User presets in presets/ are editable copies of these templates.
+    User presets in presets_v2/ are editable copies of these templates.
     """
-    return os.path.join(get_zapret_userdata_dir(), "presets_template")
+    return os.path.join(get_zapret_userdata_dir(), "presets_v2_template")
+
+
+def get_zapret_presets_v1_template_dir() -> str:
+    """Returns V1 preset templates directory: <userdata>/zapret/presets_v1_template.
+
+    Templates are installed by the Inno Setup installer.
+    At startup the app copies missing templates to presets_v1/.
+    """
+    return os.path.join(get_zapret_userdata_dir(), "presets_v1_template")
 
 
 def get_zapret_lists_template_dir() -> str:

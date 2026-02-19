@@ -5,7 +5,7 @@
 Все страницы добавляются через addSubInterface() вместо ручного SideNavBar + QStackedWidget.
 Бизнес-логика (сигналы, обработчики) сохранена без изменений.
 """
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QWidget
 from importlib import import_module
 
@@ -47,12 +47,21 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.zapret2_orchestra_strategies_page",
         "Zapret2OrchestraStrategiesPage",
     ),
+    PageName.ZAPRET1_DIRECT_CONTROL: (
+        "zapret1_direct_control_page",
+        "ui.pages.zapret1.direct_control_page",
+        "Zapret1DirectControlPage",
+    ),
     PageName.ZAPRET1_DIRECT: (
         "zapret1_strategies_page",
-        "ui.pages.zapret1_direct_strategies_page",
-        "Zapret1DirectStrategiesPage",
+        "ui.pages.zapret1.direct_zapret1_page",
+        "Zapret1StrategiesPage",
     ),
-    PageName.BAT_STRATEGIES: ("bat_strategies_page", "ui.pages.bat_strategies_page", "BatStrategiesPage"),
+    PageName.ZAPRET1_USER_PRESETS: (
+        "zapret1_user_presets_page",
+        "ui.pages.zapret1.user_presets_page",
+        "Zapret1UserPresetsPage",
+    ),
     PageName.PRESET_CONFIG: ("preset_config_page", "ui.pages.preset_config_page", "PresetConfigPage"),
     PageName.HOSTLIST: ("hostlist_page", "ui.pages.hostlist_page", "HostlistPage"),
     PageName.BLOBS: ("blobs_page", "ui.pages.blobs_page", "BlobsPage"),
@@ -78,25 +87,10 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
     PageName.SUPPORT: ("support_page", "ui.pages.support_page", "SupportPage"),
     PageName.HELP: ("help_page", "ui.pages.help_page", "HelpPage"),
     PageName.ORCHESTRA: ("orchestra_page", "ui.pages.orchestra_page", "OrchestraPage"),
-    PageName.ORCHESTRA_LOCKED: (
-        "orchestra_locked_page",
-        "ui.pages.orchestra_locked_page",
-        "OrchestraLockedPage",
-    ),
-    PageName.ORCHESTRA_BLOCKED: (
-        "orchestra_blocked_page",
-        "ui.pages.orchestra_blocked_page",
-        "OrchestraBlockedPage",
-    ),
-    PageName.ORCHESTRA_WHITELIST: (
-        "orchestra_whitelist_page",
-        "ui.pages.orchestra_whitelist_page",
-        "OrchestraWhitelistPage",
-    ),
-    PageName.ORCHESTRA_RATINGS: (
-        "orchestra_ratings_page",
-        "ui.pages.orchestra_ratings_page",
-        "OrchestraRatingsPage",
+    PageName.ORCHESTRA_SETTINGS: (
+        "orchestra_settings_page",
+        "ui.pages.orchestra",
+        "OrchestraSettingsPage",
     ),
 }
 
@@ -109,6 +103,7 @@ _EAGER_PAGE_NAMES: tuple[PageName, ...] = (
     PageName.HOME,
     PageName.CONTROL,
     PageName.ZAPRET2_DIRECT_CONTROL,
+    PageName.ZAPRET1_DIRECT_CONTROL,
     PageName.AUTOSTART,
     PageName.DPI_SETTINGS,
     PageName.PRESET_CONFIG,
@@ -148,21 +143,19 @@ _NAV_ICONS = {
     PageName.SUPPORT: FluentIcon.CHAT if HAS_FLUENT else None,
     PageName.HELP: FluentIcon.HELP if HAS_FLUENT else None,
     PageName.ORCHESTRA: FluentIcon.MUSIC if HAS_FLUENT else None,
-    PageName.ORCHESTRA_LOCKED: FluentIcon.PIN if HAS_FLUENT else None,
-    PageName.ORCHESTRA_BLOCKED: FluentIcon.CLOSE if HAS_FLUENT else None,
-    PageName.ORCHESTRA_WHITELIST: FluentIcon.ACCEPT if HAS_FLUENT else None,
-    PageName.ORCHESTRA_RATINGS: FluentIcon.CALORIES if HAS_FLUENT else None,
+    PageName.ORCHESTRA_SETTINGS: FluentIcon.SETTING if HAS_FLUENT else None,
     PageName.ZAPRET2_DIRECT: FluentIcon.PLAY if HAS_FLUENT else None,
     PageName.ZAPRET2_ORCHESTRA: FluentIcon.ROBOT if HAS_FLUENT else None,
+    PageName.ZAPRET1_DIRECT_CONTROL: FluentIcon.GAME if HAS_FLUENT else None,
     PageName.ZAPRET1_DIRECT: FluentIcon.PLAY if HAS_FLUENT else None,
-    PageName.BAT_STRATEGIES: FluentIcon.CODE if HAS_FLUENT else None,
+    PageName.ZAPRET1_USER_PRESETS: FluentIcon.FOLDER if HAS_FLUENT else None,
 }
 
 # Russian labels for navigation
 _NAV_LABELS = {
     PageName.HOME: "Главная",
     PageName.CONTROL: "Управление",
-    PageName.ZAPRET2_DIRECT_CONTROL: "Управление Запретом",
+    PageName.ZAPRET2_DIRECT_CONTROL: "Управление Zapret 2",
     PageName.AUTOSTART: "Автозапуск",
     PageName.NETWORK: "Сеть",
     PageName.DIAGNOSTICS_TAB: "Диагностика",
@@ -186,14 +179,12 @@ _NAV_LABELS = {
     PageName.SUPPORT: "Поддержка",
     PageName.HELP: "Справка",
     PageName.ORCHESTRA: "Оркестратор",
-    PageName.ORCHESTRA_LOCKED: "Залоченные",
-    PageName.ORCHESTRA_BLOCKED: "Заблокированные",
-    PageName.ORCHESTRA_WHITELIST: "Белый список",
-    PageName.ORCHESTRA_RATINGS: "Рейтинги",
+    PageName.ORCHESTRA_SETTINGS: "Настройки оркестратора",
     PageName.ZAPRET2_DIRECT: "Прямой запуск",
     PageName.ZAPRET2_ORCHESTRA: "Стратегии",
-    PageName.ZAPRET1_DIRECT: "Стратегии",
-    PageName.BAT_STRATEGIES: "Стратегии",
+    PageName.ZAPRET1_DIRECT_CONTROL: "Управление Zapret 1",
+    PageName.ZAPRET1_DIRECT: "Стратегии Z1",
+    PageName.ZAPRET1_USER_PRESETS: "Мои пресеты Z1",
 }
 
 
@@ -268,27 +259,21 @@ class MainWindowUI:
         _add(PageName.HOME)
         _add(PageName.CONTROL)
         _add(PageName.ZAPRET2_DIRECT_CONTROL)
+        _add(PageName.ZAPRET1_DIRECT_CONTROL) # только direct_zapret1
 
         # ── Точки входа в режим стратегий (одна видна за раз) ────────────────
         _add(PageName.ORCHESTRA)             # только orchestra
         _add(PageName.ZAPRET2_ORCHESTRA)     # только direct_zapret2_orchestra
-        _add(PageName.ZAPRET1_DIRECT)        # только direct_zapret1
-        _add(PageName.BAT_STRATEGIES)        # только bat
 
         # ── Стратегии (под-раздел) ────────────────────────────────────────────
         nav.addItemHeader("Настройки Запрета", POS_SCROLL)
         _add(PageName.ZAPRET2_DIRECT)           # direct only
-        _add(PageName.PRESET_CONFIG)            # zapret2 only
+        _add(PageName.PRESET_CONFIG)            # zapret1 and zapret2 only
         _add(PageName.ZAPRET2_USER_PRESETS)     # zapret2 only
         _add(PageName.HOSTLIST)
-        _add(PageName.ORCHESTRA_LOCKED)         # orchestra only
-        _add(PageName.ORCHESTRA_BLOCKED)        # orchestra only
-        _add(PageName.ORCHESTRA_RATINGS)        # orchestra only
+        _add(PageName.ORCHESTRA_SETTINGS)       # orchestra only (tabbed: locked/blocked/whitelist/ratings)
         _add(PageName.DPI_SETTINGS)
 
-        # ── Кастомные настройки ───────────────────────────────────────────────
-        nav.addItemHeader("Кастомные настройки", POS_SCROLL)
-        _add(PageName.ORCHESTRA_WHITELIST)      # orchestra only
         # BLOBS removed from nav — accessible via direct_control_page card
 
         # ── Система ───────────────────────────────────────────────────────────
@@ -313,6 +298,8 @@ class MainWindowUI:
         for hidden in (
             PageName.STRATEGY_DETAIL,
             PageName.BLOBS,
+            PageName.ZAPRET1_DIRECT,
+            PageName.ZAPRET1_USER_PRESETS,
         ):
             page = self.pages.get(hidden)
             if page is not None:
@@ -387,7 +374,6 @@ class MainWindowUI:
             PageName.ZAPRET1_DIRECT,
             PageName.ZAPRET2_DIRECT,
             PageName.ZAPRET2_ORCHESTRA,
-            PageName.BAT_STRATEGIES,
         ):
             if hasattr(page, "strategy_selected"):
                 self._connect_signal_once(
@@ -409,6 +395,27 @@ class MainWindowUI:
                 page.back_clicked,
                 lambda: self.show_page(PageName.ZAPRET2_DIRECT_CONTROL),
             )
+
+        if page_name in (PageName.ZAPRET1_DIRECT, PageName.ZAPRET1_USER_PRESETS) and hasattr(page, "back_clicked"):
+            self._connect_signal_once(
+                f"back_to_z1_control.{page_name.name}",
+                page.back_clicked,
+                lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL),
+            )
+
+        if page_name == PageName.ZAPRET1_DIRECT_CONTROL:
+            if hasattr(page, "navigate_to_strategies"):
+                self._connect_signal_once(
+                    "z1_control.navigate_to_strategies",
+                    page.navigate_to_strategies,
+                    lambda: self.show_page(PageName.ZAPRET1_DIRECT),
+                )
+            if hasattr(page, "navigate_to_presets"):
+                self._connect_signal_once(
+                    "z1_control.navigate_to_presets",
+                    page.navigate_to_presets,
+                    lambda: self.show_page(PageName.ZAPRET1_USER_PRESETS),
+                )
 
         if page_name == PageName.STRATEGY_DETAIL:
             if hasattr(page, "back_clicked"):
@@ -526,13 +533,6 @@ class MainWindowUI:
         if PageName.HOSTS in self.pages:
             self.hosts_page = self.pages[PageName.HOSTS]
 
-        # Legacy: pages_stack alias
-        if hasattr(self, 'stackedWidget'):
-            self.pages_stack = self.stackedWidget
-
-        # Legacy: side_nav stub (some code checks hasattr(self, 'side_nav'))
-        if not hasattr(self, 'side_nav'):
-            self.side_nav = _SideNavStub(self)
 
     # ------------------------------------------------------------------
     # Signal connections — UNCHANGED from original
@@ -552,6 +552,12 @@ class MainWindowUI:
         # Zapret 1 Direct signals
         if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'strategy_selected'):
             self.zapret1_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
+        if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'back_clicked'):
+            self.zapret1_strategies_page.back_clicked.connect(
+                lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL))
+        if hasattr(self, 'zapret1_user_presets_page') and hasattr(self.zapret1_user_presets_page, 'back_clicked'):
+            self.zapret1_user_presets_page.back_clicked.connect(
+                lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL))
 
         # Zapret 2 Direct signals
         if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'strategy_selected'):
@@ -574,9 +580,6 @@ class MainWindowUI:
 
         if hasattr(self, 'zapret2_orchestra_strategies_page') and hasattr(self.zapret2_orchestra_strategies_page, 'strategy_selected'):
             self.zapret2_orchestra_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
-
-        if hasattr(self, 'bat_strategies_page') and hasattr(self.bat_strategies_page, 'strategy_selected'):
-            self.bat_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
 
         self.autostart_page.autostart_enabled.connect(self._on_autostart_enabled)
         self.autostart_page.autostart_disabled.connect(self._on_autostart_disabled)
@@ -622,6 +625,29 @@ class MainWindowUI:
         except Exception:
             pass
 
+        # Zapret 1 Direct Control page — start/stop buttons
+        try:
+            z1_page = getattr(self, "zapret1_direct_control_page", None)
+            if z1_page is not None:
+                if hasattr(z1_page, 'start_btn'):
+                    z1_page.start_btn.clicked.connect(self._proxy_start_click)
+                if hasattr(z1_page, 'stop_winws_btn'):
+                    z1_page.stop_winws_btn.clicked.connect(self._proxy_stop_click)
+                if hasattr(z1_page, 'stop_and_exit_btn'):
+                    z1_page.stop_and_exit_btn.clicked.connect(self._proxy_stop_and_exit)
+                if hasattr(z1_page, 'test_btn'):
+                    z1_page.test_btn.clicked.connect(self._proxy_test_click)
+                if hasattr(z1_page, 'folder_btn'):
+                    z1_page.folder_btn.clicked.connect(self._proxy_folder_click)
+                if hasattr(z1_page, 'navigate_to_strategies'):
+                    z1_page.navigate_to_strategies.connect(
+                        lambda: self.show_page(PageName.ZAPRET1_DIRECT))
+                if hasattr(z1_page, 'navigate_to_presets'):
+                    z1_page.navigate_to_presets.connect(
+                        lambda: self.show_page(PageName.ZAPRET1_USER_PRESETS))
+        except Exception:
+            pass
+
         # Back nav from subpages (Мои пресеты / Прямой запуск / Блобы → Управление)
         for _back_attr in ("zapret2_user_presets_page", "zapret2_strategies_page", "blobs_page"):
             _back_page = getattr(self, _back_attr, None)
@@ -649,6 +675,12 @@ class MainWindowUI:
         if hasattr(self.appearance_page, 'background_refresh_needed'):
             self.appearance_page.background_refresh_needed.connect(self._on_background_refresh_needed)
 
+        if hasattr(self.appearance_page, 'opacity_changed'):
+            self.appearance_page.opacity_changed.connect(self._on_opacity_changed)
+
+        if hasattr(self.appearance_page, 'mica_changed'):
+            self.appearance_page.mica_changed.connect(self._on_mica_changed)
+
         if hasattr(self.about_page, 'premium_btn'):
             self.about_page.premium_btn.clicked.connect(self._open_subscription_dialog)
 
@@ -668,6 +700,13 @@ class MainWindowUI:
             from preset_zapret2.preset_store import get_preset_store
             store = get_preset_store()
             store.preset_switched.connect(self._on_preset_switched)
+        except Exception:
+            pass
+
+        try:
+            from preset_zapret1.preset_store import get_preset_store_v1
+            store_v1 = get_preset_store_v1()
+            store_v1.preset_switched.connect(self._on_preset_switched)
         except Exception:
             pass
 
@@ -699,6 +738,25 @@ class MainWindowUI:
         try:
             from ui.theme import apply_window_background
             apply_window_background(self.window(), preset=preset)
+        except Exception:
+            pass
+
+    def _on_opacity_changed(self, value: int):
+        """Apply window opacity from appearance_page slider."""
+        win = self.window()
+        if hasattr(win, 'set_window_opacity'):
+            win.set_window_opacity(value)
+
+    def _on_mica_changed(self, enabled: bool):
+        """Save Mica setting and re-apply window background."""
+        try:
+            from config.reg import set_mica_enabled
+            set_mica_enabled(enabled)
+        except Exception:
+            pass
+        try:
+            from ui.theme import apply_window_background
+            apply_window_background(self.window())
         except Exception:
             pass
 
@@ -844,6 +902,21 @@ class MainWindowUI:
         except Exception as e:
             log(f"Ошибка обновления strategy_detail_page после смены пресета: {e}", "DEBUG")
 
+        # Zapret 1 pages
+        try:
+            z1_page = getattr(self, "zapret1_strategies_page", None)
+            if z1_page and hasattr(z1_page, "reload_for_mode_change"):
+                z1_page.reload_for_mode_change()
+        except Exception as e:
+            log(f"Ошибка обновления zapret1_strategies_page после смены пресета: {e}", "DEBUG")
+
+        try:
+            z1_ctrl = getattr(self, "zapret1_direct_control_page", None)
+            if z1_ctrl and hasattr(z1_ctrl, "_refresh_preset_name"):
+                z1_ctrl._refresh_preset_name()
+        except Exception as e:
+            log(f"Ошибка обновления zapret1_direct_control_page после смены пресета: {e}", "DEBUG")
+
         try:
             display_name = self._get_direct_strategy_summary()
             if display_name:
@@ -915,9 +988,18 @@ class MainWindowUI:
                     pass
                 can_autostart = False
 
+        elif method == "direct_zapret1":
+            try:
+                from preset_zapret1 import ensure_default_preset_exists_v1
+                if not ensure_default_preset_exists_v1():
+                    log("direct_zapret1: preset-zapret1.txt не создан", "ERROR")
+                    can_autostart = False
+            except Exception as e:
+                log(f"direct_zapret1: ошибка инициализации пресета: {e}", "WARNING")
+
         # Reload strategy pages
         for attr in ('zapret2_strategies_page', 'zapret2_orchestra_strategies_page',
-                     'zapret1_strategies_page', 'bat_strategies_page'):
+                     'zapret1_strategies_page'):
             page = getattr(self, attr, None)
             if page and hasattr(page, 'reload_for_mode_change'):
                 page.reload_for_mode_change()
@@ -950,8 +1032,8 @@ class MainWindowUI:
         strategies_context_pages = set()
         for attr in (
             "dpi_settings_page", "zapret2_user_presets_page", "zapret2_strategies_page",
-            "zapret2_orchestra_strategies_page", "zapret1_strategies_page",
-            "bat_strategies_page", "strategy_detail_page",
+            "zapret2_orchestra_strategies_page", "zapret1_direct_control_page",
+            "zapret1_strategies_page", "zapret1_user_presets_page", "strategy_detail_page",
         ):
             page = getattr(self, attr, None)
             if page is not None:
@@ -967,9 +1049,9 @@ class MainWindowUI:
         elif method == "direct_zapret2":
             target_page = PageName.ZAPRET2_DIRECT_CONTROL
         elif method == "direct_zapret1":
-            target_page = PageName.ZAPRET1_DIRECT
+            target_page = PageName.ZAPRET1_DIRECT_CONTROL
         else:
-            target_page = PageName.BAT_STRATEGIES
+            target_page = PageName.CONTROL
 
         self.show_page(target_page)
 
@@ -1004,28 +1086,40 @@ class MainWindowUI:
                 }
                 self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=method)
 
-            elif method in ("direct_zapret2_orchestra", "direct_zapret1"):
+            elif method == "direct_zapret2_orchestra":
                 from strategy_menu import get_direct_strategy_selections
                 from launcher_common import combine_strategies
 
                 selections = get_direct_strategy_selections()
                 combined = combine_strategies(**selections)
 
-                mode_name = "Оркестратор Z2" if method == "direct_zapret2_orchestra" else "Прямой Z1"
-
                 selected_mode = {
                     'is_combined': True,
-                    'name': mode_name,
+                    'name': "Оркестратор Z2",
                     'args': combined.get('args', ''),
                     'category_strategies': combined.get('category_strategies', {})
                 }
                 self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=method)
 
-            else:
-                from config.reg import get_last_bat_strategy
-                last_strategy = get_last_bat_strategy()
-                if last_strategy and last_strategy != "Автостарт DPI отключен":
-                    self.dpi_controller.start_dpi_async(selected_mode=last_strategy, launch_method="bat")
+            elif method == "direct_zapret1":
+                from config import get_dpi_autostart
+                if not get_dpi_autostart():
+                    return
+
+                from preset_zapret1 import get_active_preset_path_v1, get_active_preset_name_v1
+
+                preset_path = get_active_preset_path_v1()
+                preset_name = get_active_preset_name_v1() or "Default"
+
+                if not preset_path.exists():
+                    return
+
+                selected_mode = {
+                    'is_preset_file': True,
+                    'name': f"Пресет Z1: {preset_name}",
+                    'preset_path': str(preset_path)
+                }
+                self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=method)
 
         except Exception as e:
             log(f"Ошибка автозапуска после переключения режима: {e}", "ERROR")
@@ -1058,28 +1152,6 @@ class MainWindowUI:
 
     def _open_subscription_dialog(self):
         self.show_page(PageName.PREMIUM)
-
-    def _on_section_changed(self, page_name: PageName):
-        if page_name is None:
-            try:
-                from strategy_menu import get_strategy_launch_method
-                method = get_strategy_launch_method()
-                if method == "orchestra":
-                    target_page = PageName.ORCHESTRA
-                elif method == "direct_zapret2_orchestra":
-                    target_page = PageName.ZAPRET2_ORCHESTRA
-                elif method == "direct_zapret2":
-                    target_page = PageName.ZAPRET2_DIRECT_CONTROL
-                elif method == "direct_zapret1":
-                    target_page = PageName.ZAPRET1_DIRECT
-                else:
-                    target_page = PageName.BAT_STRATEGIES
-                self.show_page(target_page)
-                return
-            except Exception:
-                self.show_page(PageName.ZAPRET2_DIRECT)
-                return
-        self.show_page(page_name)
 
     def _get_direct_strategy_summary(self, max_items: int = 2) -> str:
         try:
@@ -1123,8 +1195,8 @@ class MainWindowUI:
 
         for page_attr in (
             'zapret2_direct_control_page', 'zapret2_strategies_page',
-            'zapret2_orchestra_strategies_page', 'zapret1_strategies_page',
-            'bat_strategies_page',
+            'zapret2_orchestra_strategies_page', 'zapret1_direct_control_page',
+            'zapret1_strategies_page',
         ):
             page = getattr(self, page_attr, None)
             if page and hasattr(page, 'update_current_strategy'):
@@ -1168,7 +1240,7 @@ class MainWindowUI:
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
         except Exception:
-            launch_method = "bat"
+            launch_method = "direct_zapret2"
 
         sender = None
         try:
@@ -1224,9 +1296,9 @@ class MainWindowUI:
         elif method == "direct_zapret2":
             self.show_page(PageName.ZAPRET2_DIRECT)
         elif method == "direct_zapret1":
-            self.show_page(PageName.ZAPRET1_DIRECT)
+            self.show_page(PageName.ZAPRET1_DIRECT_CONTROL)
         else:
-            self.show_page(PageName.BAT_STRATEGIES)
+            self.show_page(PageName.CONTROL)
 
     def _on_strategy_detail_selected(self, category_key: str, strategy_id: str):
         from log import log
@@ -1240,12 +1312,6 @@ class MainWindowUI:
                 self.zapret2_strategies_page.apply_filter_mode_change(category_key, filter_mode)
         except Exception:
             pass
-
-    def init_autostart_page(self, app_instance, bat_folder: str, json_folder: str, strategy_name: str = None):
-        self.autostart_page.set_app_instance(app_instance)
-        self.autostart_page.set_folders(bat_folder, json_folder)
-        if strategy_name:
-            self.autostart_page.set_strategy_name(strategy_name)
 
     def show_autostart_page(self):
         self.show_page(PageName.AUTOSTART)
@@ -1303,9 +1369,9 @@ class MainWindowUI:
                 else:
                     target_page = PageName.ZAPRET2_DIRECT_CONTROL
             elif method == "direct_zapret1":
-                target_page = PageName.ZAPRET1_DIRECT
+                target_page = PageName.ZAPRET1_DIRECT_CONTROL
             else:
-                target_page = PageName.BAT_STRATEGIES
+                target_page = PageName.CONTROL
 
             self.show_page(target_page)
         except Exception as e:
@@ -1315,41 +1381,3 @@ class MainWindowUI:
     def _navigate_to_dpi_settings(self):
         self.show_page(PageName.DPI_SETTINGS)
 
-
-# ---------------------------------------------------------------------------
-# Stub for code that references self.side_nav
-# ---------------------------------------------------------------------------
-
-class _SideNavStub:
-    """Minimal stub so that `hasattr(self, 'side_nav')` checks still work."""
-
-    def __init__(self, window):
-        self._window = window
-
-    # QWidget-compatible no-ops used by theme.py CSS optimization
-    def isVisible(self) -> bool:
-        return False
-
-    def hide(self):
-        pass
-
-    def show(self):
-        pass
-
-    def set_section_by_name(self, section, emit_signal=True):
-        pass
-
-    def update_strategies_submenu_visibility(self):
-        pass
-
-    def update_blobs_visibility(self):
-        pass
-
-    def update_orchestra_visibility(self):
-        pass
-
-    def update_presets_visibility(self):
-        pass
-
-    def set_page_by_name(self, name, emit_signal=True):
-        pass

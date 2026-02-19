@@ -261,7 +261,6 @@ class HomePage(BasePage):
     _LAUNCH_METHOD_LABELS = {
         "direct_zapret2": "Zapret 2",
         "direct_zapret1": "Zapret 1 (прямой запуск)",
-        "bat": "Zapret 1 (bat)",
         "orchestra": "Оркестратор",
         "direct_zapret2_orchestra": "Оркестраторный Zapret 2",
     }

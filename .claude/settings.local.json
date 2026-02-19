@@ -62,7 +62,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(pip uninstall:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(del \"ui\\\\pages\\\\bat_strategies_page.py\" \"ui\\\\pages\\\\zapret1_direct_strategies_page.py\" \"zapret1_launcher\\\\bat_manager.py\")",
+      "Bash(git mv:*)"
     ]
   }
 }

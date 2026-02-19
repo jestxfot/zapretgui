@@ -213,18 +213,35 @@ class StrategyRunnerBase(ABC):
 
         return preset_path
 
+    # Prefixes whose paths are relative to lists_dir (not work_dir)
+    _LISTS_PREFIXES = frozenset([
+        "--hostlist", "--hostlist-exclude", "--hostlist-domains",
+        "--ipset", "--ipset-exclude",
+    ])
+    # Prefixes whose paths are relative to bin_dir
+    _BIN_PREFIXES = frozenset([
+        "--dpi-desync-fake-tls", "--dpi-desync-fake-syndata",
+        "--dpi-desync-fake-quic", "--dpi-desync-fake-unknown-udp",
+        "--dpi-desync-fake-unknown", "--dpi-desync-fake-http",
+        "--dpi-desync-split-seqovl-pattern", "--dpi-desync-fakedsplit-pattern",
+        "--dpi-desync-fake-discord", "--dpi-desync-fake-stun",
+        "--dpi-desync-fake-dht", "--dpi-desync-fake-wireguard",
+        "--dpi-desync-fake-tls-mod",
+    ])
+
     def _make_paths_relative(self, args: List[str]) -> List[str]:
         """
-        Converts absolute paths to relative from work_dir for config readability.
-        Preserves @ prefix for zapret2 file parameters.
+        Converts absolute paths to relative for config readability.
 
-        Args:
-            args: List of arguments with absolute paths
-
-        Returns:
-            List of arguments with relative paths
+        IMPORTANT: paths are made relative to their *source* directory
+        (lists_dir for hostlist/ipset, bin_dir for fake-* files),
+        NOT to work_dir. This prevents the lists/lists/lists nesting bug
+        where resolve_args_paths re-joins lists_dir with an already-
+        prefixed "lists/filename" relative path on each restart.
         """
         result = []
+        lists_dir_normalized = os.path.normpath(self.lists_dir).lower()
+        bin_dir_normalized = os.path.normpath(self.bin_dir).lower()
         work_dir_normalized = os.path.normpath(self.work_dir).lower()
 
         for arg in args:
@@ -265,14 +282,23 @@ class StrategyRunnerBase(ABC):
             path_value = value_clean[1:] if has_at_prefix else value_clean
 
             path_normalized = os.path.normpath(path_value).lower()
-            if path_normalized.startswith(work_dir_normalized):
-                rel_path = os.path.relpath(path_value, self.work_dir).replace('\\', '/')
-                if has_at_prefix:
-                    result.append(f'{prefix}=@{rel_path}')
-                else:
-                    result.append(f'{prefix}={rel_path}')
+
+            # Pick the right base directory for relpath
+            if prefix in self._LISTS_PREFIXES and path_normalized.startswith(lists_dir_normalized):
+                base_dir = self.lists_dir
+            elif prefix in self._BIN_PREFIXES and path_normalized.startswith(bin_dir_normalized):
+                base_dir = self.bin_dir
+            elif path_normalized.startswith(work_dir_normalized):
+                base_dir = self.work_dir
             else:
                 result.append(arg)
+                continue
+
+            rel_path = os.path.relpath(path_value, base_dir).replace('\\', '/')
+            if has_at_prefix:
+                result.append(f'{prefix}=@{rel_path}')
+            else:
+                result.append(f'{prefix}={rel_path}')
 
         return result
 

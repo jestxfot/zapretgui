@@ -257,8 +257,6 @@ class AutostartPage(BasePage):
 
         self._app_instance = None
         self.strategy_name = None
-        self.bat_folder = None
-        self.json_folder = None
         self._current_autostart_type = None  # Текущий активный тип автозапуска
         self._detector_worker = None  # Фоновый поток для определения типа
         self._detection_pending = False  # Флаг ожидания результата
@@ -329,8 +327,6 @@ class AutostartPage(BasePage):
     def _auto_init(self):
         """Автоматическая инициализация из parent или глобального контекста"""
         try:
-            from config import BAT_FOLDER, INDEXJSON_FOLDER
-
             # Ищем главное приложение через цепочку parent
             widget = self.parent()
             while widget is not None:
@@ -341,19 +337,12 @@ class AutostartPage(BasePage):
                     break
                 widget = widget.parent() if hasattr(widget, 'parent') else None
 
-            # Устанавливаем папки
-            if self.bat_folder is None:
-                self.bat_folder = BAT_FOLDER
-            if self.json_folder is None:
-                self.json_folder = INDEXJSON_FOLDER
-
             # Обновляем имя стратегии
             if self._app_instance and self.strategy_name is None:
                 if hasattr(self._app_instance, 'current_strategy_label'):
                     self.strategy_name = self._app_instance.current_strategy_label.text()
                     if self.strategy_name == "Автостарт DPI отключен":
-                        from config.reg import get_last_bat_strategy
-                        self.strategy_name = get_last_bat_strategy()
+                        self.strategy_name = None
                     self.current_strategy_label.setText(self.strategy_name or "Не выбрана")
 
         except Exception as e:
@@ -362,22 +351,6 @@ class AutostartPage(BasePage):
     def set_app_instance(self, app):
         """Устанавливает ссылку на главное приложение"""
         self._app_instance = app
-
-    def set_folders(self, bat_folder: str, json_folder: str):
-        """Устанавливает папки для BAT режима"""
-        self.bat_folder = bat_folder
-        self.json_folder = json_folder
-
-    def _ensure_folders_initialized(self):
-        """Гарантирует что папки инициализированы"""
-        if self.bat_folder is None or self.json_folder is None:
-            from config import BAT_FOLDER, INDEXJSON_FOLDER
-            if self.bat_folder is None:
-                self.bat_folder = BAT_FOLDER
-                log(f"AutostartPage: bat_folder установлен из config: {BAT_FOLDER}", "DEBUG")
-            if self.json_folder is None:
-                self.json_folder = INDEXJSON_FOLDER
-                log(f"AutostartPage: json_folder установлен из config: {INDEXJSON_FOLDER}", "DEBUG")
 
     def set_strategy_name(self, name: str):
         """Устанавливает имя текущей стратегии"""
@@ -796,42 +769,21 @@ class AutostartPage(BasePage):
     def _on_service_autostart(self):
         """Создание службы Windows"""
         try:
-            from strategy_menu import get_strategy_launch_method
-            method = get_strategy_launch_method()
-
-            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                self._setup_direct_service()
-            else:
-                self._setup_bat_service()
-
+            self._setup_direct_service()
         except Exception as e:
             log(f"Ошибка создания службы: {e}", "ERROR")
 
     def _on_logon_autostart(self):
         """Задача при входе пользователя"""
         try:
-            from strategy_menu import get_strategy_launch_method
-            method = get_strategy_launch_method()
-
-            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                self._setup_direct_logon_task()
-            else:
-                self._setup_bat_logon_task()
-
+            self._setup_direct_logon_task()
         except Exception as e:
             log(f"Ошибка создания задачи: {e}", "ERROR")
 
     def _on_boot_autostart(self):
         """Задача при загрузке системы"""
         try:
-            from strategy_menu import get_strategy_launch_method
-            method = get_strategy_launch_method()
-
-            if method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                self._setup_direct_boot_task()
-            else:
-                self._setup_bat_service()  # Для BAT это служба
-
+            self._setup_direct_boot_task()
         except Exception as e:
             log(f"Ошибка создания задачи: {e}", "ERROR")
 
@@ -914,60 +866,3 @@ class AutostartPage(BasePage):
             self.update_status(True, name, "boot")
             self.autostart_enabled.emit()
 
-    def _setup_bat_logon_task(self):
-        """Задача при входе для BAT режима"""
-        from autostart.autostart_strategy import setup_autostart_for_strategy
-        from config.reg import get_last_bat_strategy
-
-        # Инициализируем папки если не установлены
-        self._ensure_folders_initialized()
-
-        if not self.bat_folder:
-            log("Папка стратегий не настроена", "ERROR")
-            return
-
-        # Для BAT режима используем сохранённую BAT-стратегию (отдельный ключ реестра).
-        bat_strategy_name = get_last_bat_strategy()
-        if not bat_strategy_name:
-            log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
-            return
-
-        ok = setup_autostart_for_strategy(
-            selected_mode=bat_strategy_name,
-            bat_folder=self.bat_folder,
-            ui_error_cb=lambda msg: log(msg, "ERROR"),
-        )
-
-        if ok:
-            self._current_autostart_type = "logon"
-            self.update_status(True, bat_strategy_name, "logon")
-            self.autostart_enabled.emit()
-
-    def _setup_bat_service(self):
-        """Служба для BAT режима"""
-        from autostart.autostart_service import setup_service_for_strategy
-        from config.reg import get_last_bat_strategy
-
-        # Инициализируем папки если не установлены
-        self._ensure_folders_initialized()
-
-        if not self.bat_folder:
-            log("Папка стратегий не настроена", "ERROR")
-            return
-
-        # Для BAT режима используем сохранённую BAT-стратегию (отдельный ключ реестра).
-        bat_strategy_name = get_last_bat_strategy()
-        if not bat_strategy_name:
-            log("Для BAT режима необходимо сначала выбрать стратегию", "ERROR")
-            return
-
-        ok = setup_service_for_strategy(
-            selected_mode=bat_strategy_name,
-            bat_folder=self.bat_folder,
-            ui_error_cb=lambda msg: log(msg, "ERROR"),
-        )
-
-        if ok:
-            self._current_autostart_type = "service"
-            self.update_status(True, bat_strategy_name, "service")
-            self.autostart_enabled.emit()

@@ -632,7 +632,7 @@ class OrchestraPage(BasePage):
 
     def _update_domains(self, _data: dict):
         """Данные обученных доменов теперь отображаются на вкладке Залоченное"""
-        pass  # Виджет перемещён в orchestra_locked_page.py
+        pass  # Виджет перемещён в orchestra/locked_page.py
 
     def append_log(self, text: str):
         """Добавляет строку в лог"""
@@ -828,8 +828,8 @@ class OrchestraPage(BasePage):
     # Методы _show_block_strategy_dialog, _show_lock_strategy_dialog,
     # _show_manage_blocked_dialog, _show_manage_locked_dialog удалены -
     # функционал перенесён в отдельные страницы:
-    # - OrchestraLockedPage (ui/pages/orchestra_locked_page.py)
-    # - OrchestraBlockedPage (ui/pages/orchestra_blocked_page.py)
+    # - OrchestraLockedPage (ui/pages/orchestra/locked_page.py)
+    # - OrchestraBlockedPage (ui/pages/orchestra/blocked_page.py)
 
     def _show_log_context_menu(self, pos):
         """Показывает контекстное меню для строки лога"""

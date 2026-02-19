@@ -29,8 +29,9 @@ class PageName(Enum):
     ZAPRET2_DIRECT_CONTROL = auto()  # Zapret 2 Direct: управление (главная вкладка в "Стратегии")
     ZAPRET2_DIRECT = auto()          # Zapret 2 Direct стратегии
     ZAPRET2_ORCHESTRA = auto()       # Zapret 2 Orchestra (direct_zapret2_orchestra режим)
+    ZAPRET1_DIRECT_CONTROL = auto()  # Zapret 1 Direct: управление (главная вкладка)
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
-    BAT_STRATEGIES = auto()          # BAT стратегии
+    ZAPRET1_USER_PRESETS = auto()    # Zapret 1 Direct: пользовательские пресеты
     STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
     HOSTLIST = auto()                # Листы (Hostlist + IPset)
@@ -63,10 +64,7 @@ class PageName(Enum):
 
     # === Оркестратор (автообучение) ===
     ORCHESTRA = auto()               # Оркестр - главная
-    ORCHESTRA_LOCKED = auto()        # Залоченные стратегии
-    ORCHESTRA_BLOCKED = auto()       # Заблокированные стратегии
-    ORCHESTRA_WHITELIST = auto()     # Белый список
-    ORCHESTRA_RATINGS = auto()       # История с рейтингами
+    ORCHESTRA_SETTINGS = auto()      # Настройки оркестратора (вкладки: залоченные, заблокированные, белый список, рейтинги)
 
 
 class SectionName(Enum):
@@ -88,9 +86,7 @@ class SectionName(Enum):
     HOSTLIST = auto()                # - Листы
     IPSET = auto()                   # - Legacy alias (скрыт в UI)
     BLOBS = auto()                   # - Блобы
-    ORCHESTRA_LOCKED = auto()        # - Залоченные
-    ORCHESTRA_BLOCKED = auto()       # - Заблокированные
-    ORCHESTRA_RATINGS = auto()       # - Рейтинги
+    ORCHESTRA_SETTINGS = auto()      # - Настройки оркестратора (вкладки)
     DPI_SETTINGS = auto()            # - Настройки DPI
     PRESETS = auto()                 # - Пресеты настроек
     DIRECT_RUN = auto()              # - Прямой запуск (только direct_zapret2)
@@ -98,7 +94,6 @@ class SectionName(Enum):
     # === Мои списки (collapsible группа) ===
     MY_LISTS_HEADER = auto()         # Заголовок группы (header, не страница!)
     NETROGAT = auto()                # - Исключения
-    ORCHESTRA_WHITELIST = auto()     # - Белый список
     CUSTOM_HOSTLIST = auto()         # - Мои hostlist
     CUSTOM_IPSET = auto()            # - Мои ipset
 
@@ -132,15 +127,12 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.HOSTLIST: PageName.HOSTLIST,
     SectionName.IPSET: PageName.HOSTLIST,
     SectionName.BLOBS: PageName.BLOBS,
-    SectionName.ORCHESTRA_LOCKED: PageName.ORCHESTRA_LOCKED,
-    SectionName.ORCHESTRA_BLOCKED: PageName.ORCHESTRA_BLOCKED,
-    SectionName.ORCHESTRA_RATINGS: PageName.ORCHESTRA_RATINGS,
+    SectionName.ORCHESTRA_SETTINGS: PageName.ORCHESTRA_SETTINGS,
     SectionName.DPI_SETTINGS: PageName.DPI_SETTINGS,
     SectionName.PRESETS: PageName.ZAPRET2_USER_PRESETS,
     SectionName.DIRECT_RUN: PageName.ZAPRET2_DIRECT,
     SectionName.MY_LISTS_HEADER: None,  # Заголовок, нет страницы!
     SectionName.NETROGAT: PageName.NETROGAT,
-    SectionName.ORCHESTRA_WHITELIST: PageName.ORCHESTRA_WHITELIST,
     SectionName.CUSTOM_HOSTLIST: PageName.CUSTOM_DOMAINS,
     SectionName.CUSTOM_IPSET: PageName.CUSTOM_IPSET,
     SectionName.AUTOSTART: PageName.AUTOSTART,
@@ -176,14 +168,11 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
         SectionName.DIRECT_RUN,
         SectionName.HOSTLIST,
         SectionName.BLOBS,
-        SectionName.ORCHESTRA_LOCKED,
-        SectionName.ORCHESTRA_BLOCKED,
-        SectionName.ORCHESTRA_RATINGS,
+        SectionName.ORCHESTRA_SETTINGS,
         SectionName.DPI_SETTINGS,
     ],
     SectionName.MY_LISTS_HEADER: [
         SectionName.NETROGAT,
-        SectionName.ORCHESTRA_WHITELIST,
         SectionName.CUSTOM_HOSTLIST,
         SectionName.CUSTOM_IPSET,
     ],
@@ -198,10 +187,7 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
 
 # Секции которые показываются только в режиме оркестратора
 ORCHESTRA_ONLY_SECTIONS: set[SectionName] = {
-    SectionName.ORCHESTRA_LOCKED,
-    SectionName.ORCHESTRA_BLOCKED,
-    SectionName.ORCHESTRA_RATINGS,
-    SectionName.ORCHESTRA_WHITELIST,
+    SectionName.ORCHESTRA_SETTINGS,
 }
 
 
@@ -210,8 +196,9 @@ STRATEGY_PAGES: set[PageName] = {
     PageName.ZAPRET2_DIRECT_CONTROL,
     PageName.ZAPRET2_DIRECT,
     PageName.ZAPRET2_ORCHESTRA,
+    PageName.ZAPRET1_DIRECT_CONTROL,
     PageName.ZAPRET1_DIRECT,
-    PageName.BAT_STRATEGIES,
+    PageName.ZAPRET1_USER_PRESETS,
     PageName.STRATEGY_DETAIL,
     PageName.ORCHESTRA,
     PageName.ZAPRET2_USER_PRESETS,

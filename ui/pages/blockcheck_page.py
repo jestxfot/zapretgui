@@ -11,13 +11,14 @@ class AnimatedConstructionScene(QWidget):
         super().__init__(parent)
         self.setMinimumHeight(220)
         self._phase = 0.0
-        
+        self._tokens = None  # cached theme tokens — updated on theme change, not per-frame
+
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(30)
-        
-        # Частицы
-        import random
+        self._timer.setInterval(100)  # 10 FPS — good enough for a "coming soon" tease animation
+
+        import random, math as _math
+        self._math = _math  # cache module reference
         self._particles = []
         for _ in range(12):
             self._particles.append({
@@ -27,17 +28,38 @@ class AnimatedConstructionScene(QWidget):
                 "size": random.uniform(3, 6)
             })
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._tokens = None  # invalidate token cache on show (theme may have changed)
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._timer.stop()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            window = self.window()
+            if window and window.isMinimized():
+                self._timer.stop()
+            elif not self._timer.isActive():
+                self._timer.start()
+
     def _tick(self):
-        self._phase = (self._phase + 0.015) % 1.0
+        self._phase = (self._phase + 0.05) % 1.0  # adjusted for 10 FPS
         for p in self._particles:
             p["angle"] = (p["angle"] + p["speed"]) % 360
         self.update()
 
     def paintEvent(self, event):
-        import math
+        math = self._math
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        tokens = get_theme_tokens()
+        if self._tokens is None:
+            self._tokens = get_theme_tokens()
+        tokens = self._tokens
 
         rect = self.rect().adjusted(32, 16, -32, -16)  # Расширенный фон
         cx, cy = rect.center().x(), rect.center().y()

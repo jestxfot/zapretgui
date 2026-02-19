@@ -159,12 +159,27 @@ def _normalize_domain(text: str) -> str | None:
     return None
 
 
+_NETROGAT_HEADER = """\
+# Список доменов-ИСКЛЮЧЕНИЙ (не трогать / не проксировать).
+# ВАЖНО: этот файл передаётся winws как --hostlist-exclude.
+# Домены из этого списка НЕ обрабатываются запретом — трафик идёт напрямую.
+# Здесь должны быть системные, государственные и другие «свои» домены,
+# которые ни в коем случае не нужно проксировать/подменять.
+# Если файл пустой или отсутствует — winws применит обход ко ВСЕМ сайтам,
+# что сломает доступ к банкам, госуслугам, ВКонтакте и т.п.
+#
+# Формат: один домен на строку, без протокола и пути (например: vk.com).
+# Строки, начинающиеся с #, игнорируются.
+"""
+
+
 def ensure_netrogat_exists() -> bool:
     """Создает netrogat.txt если его нет, заполняя дефолтными доменами."""
     try:
         os.makedirs(os.path.dirname(NETROGAT_PATH), exist_ok=True)
         if not os.path.exists(NETROGAT_PATH):
             with open(NETROGAT_PATH, "w", encoding="utf-8") as f:
+                f.write(_NETROGAT_HEADER)
                 for d in DEFAULT_NETROGAT_DOMAINS:
                     f.write(f"{d}\n")
             log(f"Создан netrogat.txt с {len(DEFAULT_NETROGAT_DOMAINS)} доменами", "INFO")

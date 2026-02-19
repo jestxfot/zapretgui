@@ -165,10 +165,8 @@ class PresetConfigPage(BasePage):
         self._is_loading = True
         try:
             if not os.path.exists(self._preset_path):
-                # Check if we're in direct_zapret2 mode - use ensure_default_preset_exists()
                 method = get_strategy_launch_method()
                 if method == "direct_zapret2":
-                    # Use the proper preset creation function with DEFAULT_PRESET_CONTENT
                     from preset_zapret2 import ensure_default_preset_exists
                     ok = ensure_default_preset_exists()
                     if ok:
@@ -176,22 +174,32 @@ class PresetConfigPage(BasePage):
                     else:
                         log(
                             "Не удалось создать preset-zapret2.txt: отсутствует built-in шаблон Default. "
-                            "Ожидается: %APPDATA%/zapret/presets/_builtin/Default.txt",
+                            "Ожидается: %APPDATA%/zapret/presets_v2_template/Default.txt",
                             "ERROR",
                         )
-                        # Create a placeholder file so the editor can still open.
                         try:
                             with open(self._preset_path, 'w', encoding='utf-8') as f:
                                 f.write(
                                     "# ERROR: missing built-in preset template: Default\n"
-                                    "# Expected: %APPDATA%/zapret/presets/_builtin/Default.txt\n"
+                                    "# Expected: %APPDATA%/zapret/presets_v2_template/Default.txt\n"
                                     "#\n"
-                                    "# Fix: reinstall/update the app or restore %APPDATA%/zapret/presets/_builtin.\n\n"
+                                    "# Fix: reinstall/update the app or restore %APPDATA%/zapret/presets_v2_template.\n\n"
                                 )
                         except Exception:
                             pass
+                elif method in ZAPRET1_DIRECT_MODES or method == "direct_zapret1":
+                    from preset_zapret1 import ensure_default_preset_exists_v1
+                    ok = ensure_default_preset_exists_v1()
+                    if ok:
+                        log("Создан дефолтный пресет V1 через ensure_default_preset_exists_v1()", "INFO")
+                    else:
+                        log("Не удалось создать preset-zapret1.txt", "ERROR")
+                        try:
+                            with open(self._preset_path, 'w', encoding='utf-8') as f:
+                                f.write("# Preset: Default\n# Zapret 1\n\n--wf-tcp=443\n--wf-udp=443\n")
+                        except Exception:
+                            pass
                 else:
-                    # For other modes (zapret1, orchestra) - create empty file with comment header
                     with open(self._preset_path, 'w', encoding='utf-8') as f:
                         f.write(f"# {self._preset_display_name}\n# Add your winws arguments here, one per line\n\n")
                     log(f"Создан новый пустой файл: {self._preset_path}", "INFO")
@@ -239,14 +247,23 @@ class PresetConfigPage(BasePage):
 
     def _sync_active_to_preset_file(self, content: str):
         """Writes active preset content back to presets/<name>.txt."""
+        method = get_strategy_launch_method()
         try:
-            from preset_zapret2 import get_active_preset_name, get_preset_path
-            active_name = get_active_preset_name()
-            if not active_name:
-                log("Sync skip: no active preset name", "DEBUG")
-                return
+            if method in ZAPRET1_DIRECT_MODES or method == "direct_zapret1":
+                from preset_zapret1 import get_active_preset_name_v1, get_preset_path_v1
+                active_name = get_active_preset_name_v1()
+                if not active_name:
+                    log("Sync skip: no active V1 preset name", "DEBUG")
+                    return
+                preset_path = get_preset_path_v1(active_name)
+            else:
+                from preset_zapret2 import get_active_preset_name, get_preset_path
+                active_name = get_active_preset_name()
+                if not active_name:
+                    log("Sync skip: no active preset name", "DEBUG")
+                    return
+                preset_path = get_preset_path(active_name)
 
-            preset_path = get_preset_path(active_name)
             preset_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(str(preset_path), 'w', encoding='utf-8') as f:

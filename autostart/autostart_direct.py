@@ -524,7 +524,7 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
 
             if not ensure_default_preset_exists():
                 log(
-                    "DirectZ2 autostart: preset-zapret2.txt not created (missing %APPDATA%/zapret/presets/_builtin/Default.txt)",
+                    "DirectZ2 autostart: preset-zapret2.txt not created (missing %APPDATA%/zapret/presets_v2_template/Default.txt)",
                     "ERROR",
                 )
                 return [], "direct_zapret2", winws_exe
@@ -542,23 +542,46 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
             log(f"DirectZ2 autostart: используем preset файл как @config: {preset_path}", "INFO")
             return args, f"Пресет: {preset_name}", winws_exe
 
+        # direct_zapret1: аргументы берём из preset-zapret1.txt через @file (winws.exe поддерживает @config)
+        if launch_method == "direct_zapret1":
+            from preset_zapret1 import (
+                ensure_default_preset_exists_v1,
+                get_active_preset_path_v1,
+                get_active_preset_name_v1,
+            )
+
+            if not ensure_default_preset_exists_v1():
+                log("DirectZ1 autostart: не удалось создать preset-zapret1.txt", "ERROR")
+                return [], "direct_zapret1", winws_exe
+
+            preset_path_v1 = get_active_preset_path_v1()
+            preset_name_v1 = get_active_preset_name_v1() or "Default"
+
+            if not preset_path_v1.exists():
+                log(f"DirectZ1 autostart: preset-zapret1.txt не найден: {preset_path_v1}", "ERROR")
+                return [], f"Пресет: {preset_name_v1}", winws_exe
+
+            args_v1 = [f"@{preset_path_v1}"]
+            log(f"DirectZ1 autostart: используем preset файл как @config: {preset_path_v1}", "INFO")
+            return args_v1, f"Пресет: {preset_name_v1}", winws_exe
+
         # Получаем выборы стратегий
         selections = get_direct_strategy_selections()
-        
+
         # Комбинируем стратегии
         combined = combine_strategies(**selections)
-        
+
         # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
         import shlex
         args = shlex.split(combined['args'], posix=False)
-        
+
         log(f"Собрано {len(args)} аргументов", "INFO")
-        
-        return args, "direct_zapret2", winws_exe
-        
+
+        return args, launch_method or "direct", winws_exe
+
     except Exception as e:
         log(f"Ошибка сбора аргументов: {e}", "❌ ERROR")
-        return [], "direct_zapret2", ""
+        return [], "direct", ""
 
 
 def _delete_task(task_name: str) -> bool:

@@ -33,12 +33,14 @@ class DPIManager(QObject):
         # 3. Запускаем соответствующий режим
         # ⚠️ ВАЖНО: direct_zapret2 обрабатывается отдельно в initialization_manager._start_direct_zapret2_autostart()
         # и использует preset файл, поэтому НЕ включаем его здесь (иначе будет двойной вызов и перезапись файла)
-        if launch_method in ("direct_zapret2_orchestra", "direct_zapret1"):
+        if launch_method == "direct_zapret2_orchestra":
             self._start_direct_mode()
+        elif launch_method == "direct_zapret1":
+            self._start_direct_zapret1_mode()
         elif launch_method == "orchestra":
             self._start_orchestra_mode()
         else:
-            self._start_bat_mode()
+            log(f"Неизвестный метод автозапуска: {launch_method}", "WARNING")
     
     def _update_ui(self, running: bool):
         """Обновляет UI состояние"""
@@ -88,16 +90,36 @@ class DPIManager(QObject):
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
         self._update_ui(running=True)
 
-    def _start_bat_mode(self):
-        """⚡ Запускает BAT стратегию"""
-        from config.reg import get_last_bat_strategy
+    def _start_direct_zapret1_mode(self):
+        """⚡ Запускает Direct Zapret1 режим через preset файл"""
+        from preset_zapret1 import (
+            get_active_preset_path_v1,
+            get_active_preset_name_v1,
+            ensure_default_preset_exists_v1,
+        )
 
-        strategy_name = get_last_bat_strategy()
-        log(f"Автозапуск BAT: «{strategy_name}»", "INFO")
+        if not ensure_default_preset_exists_v1():
+            log("Автозапуск Zapret1 пропущен: не удалось создать preset-zapret1.txt", "WARNING")
+            self._update_ui(running=False)
+            return
 
-        # Обновляем UI и запускаем
-        self.app.current_strategy_name = strategy_name
-        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_name, launch_method="bat")
+        preset_path = get_active_preset_path_v1()
+        if not preset_path.exists():
+            log("Автозапуск Zapret1 пропущен: preset-zapret1.txt не найден", "INFO")
+            self.app.set_status("⚠️ Выберите стратегию в разделе Zapret1")
+            self._update_ui(running=False)
+            return
+
+        preset_name = get_active_preset_name_v1() or "Default"
+        strategy_data = {
+            'is_preset_file': True,
+            'name': f"Пресет: {preset_name}",
+            'preset_path': str(preset_path),
+        }
+
+        log(f"Автозапуск Zapret1 из preset файла: {preset_path}", "INFO")
+        self.app.current_strategy_name = f"Пресет: {preset_name}"
+        self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method="direct_zapret1")
         self._update_ui(running=True)
 
     def _start_orchestra_mode(self):

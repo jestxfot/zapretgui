@@ -1,37 +1,33 @@
 # strategy_checker.py
 """
 Модуль для проверки и анализа текущей стратегии DPI
-Поддерживает BAT стратегии, встроенные и кастомные комбинированные стратегии
+Поддерживает прямой запуск (direct_zapret1/2/orchestra) и оркестр
 """
 
 import os
-from typing import Dict, Optional, List
-from config import (
-    get_last_strategy,
-    BAT_FOLDER
-)
+from typing import Dict, List
 from log import log
 from strategy_menu import get_strategy_launch_method
 
 
 class StrategyChecker:
     """Класс для проверки и анализа стратегий"""
-    
+
     def __init__(self):
         self.launch_method = get_strategy_launch_method()
         self.current_strategy = None
-        self.strategy_type = None  # 'bat', 'builtin', 'combined'
+        self.strategy_type = None  # 'builtin', 'combined', 'preset'
         self.strategy_details = {}
         
     def check_current_strategy(self) -> Dict:
         """
         Проверяет текущую выбранную стратегию
-        
+
         Returns:
             Dict с информацией о стратегии:
             - name: название стратегии
-            - type: тип ('bat', 'builtin', 'combined')
-            - method: метод запуска ('bat', 'direct')
+            - type: тип ('builtin', 'combined', 'preset')
+            - method: метод запуска
             - file_status: статус файла ('found', 'not_found', 'N/A')
             - details: дополнительные детали
         """
@@ -43,14 +39,10 @@ class StrategyChecker:
                 'file_status': 'N/A',
                 'details': {}
             }
-            
-            if self.launch_method == 'direct':
-                result.update(self._check_direct_strategy())
-            else:
-                result.update(self._check_bat_strategy())
-                
+
+            result.update(self._check_direct_strategy())
             return result
-            
+
         except Exception as e:
             log(f"Ошибка проверки стратегии: {e}", "❌ ERROR")
             return {
@@ -121,65 +113,6 @@ class StrategyChecker:
                 'name': 'Direct стратегия (ошибка чтения)',
                 'type': 'direct',
                 'method': 'direct',
-                'file_status': 'error',
-                'details': {'error': str(e)}
-            }
-    
-    def _check_bat_strategy(self) -> Dict:
-        """Проверка BAT стратегии"""
-        try:
-            strategy_name = get_last_strategy()
-            
-            # Ищем файл стратегии
-            strategy_file = self._find_strategy_file(strategy_name)
-            file_status = 'found' if strategy_file else 'not_found'
-            
-            details = {}
-            
-            if strategy_file and os.path.exists(strategy_file):
-                # Читаем содержимое файла
-                try:
-                    with open(strategy_file, 'r', encoding='utf-8-sig', errors='ignore') as f:
-                        content = f.read()
-                    
-                    # Анализируем содержимое
-                    details['file_size'] = os.path.getsize(strategy_file)
-                    details['file_path'] = strategy_file
-                    
-                    # Ищем версию
-                    for line in content.split('\n'):
-                        if 'VERSION:' in line:
-                            details['version'] = line.split('VERSION:')[1].strip()
-                            break
-                    
-                    # Анализируем команды winws
-                    winws_commands = self._extract_winws_commands(content)
-                    if winws_commands:
-                        details['commands_count'] = len(winws_commands)
-                        
-                        # Анализируем флаги из первой команды
-                        if winws_commands:
-                            flags_analysis = self._analyze_bat_command(winws_commands[0])
-                            details.update(flags_analysis)
-                            
-                except Exception as e:
-                    log(f"Ошибка чтения BAT файла: {e}", "DEBUG")
-                    details['read_error'] = str(e)
-            
-            return {
-                'name': strategy_name,
-                'type': 'bat',
-                'method': 'bat',
-                'file_status': file_status,
-                'details': details
-            }
-            
-        except Exception as e:
-            log(f"Ошибка проверки BAT стратегии: {e}", "DEBUG")
-            return {
-                'name': 'BAT стратегия (ошибка)',
-                'type': 'bat',
-                'method': 'bat',
                 'file_status': 'error',
                 'details': {'error': str(e)}
             }
@@ -278,72 +211,6 @@ class StrategyChecker:
         
         return analysis
     
-    def _analyze_bat_command(self, command: str) -> Dict:
-        """Анализирует команду из BAT файла"""
-        import shlex
-        
-        try:
-            # Парсим команду
-            parts = shlex.split(command, posix=False)
-            
-            # Убираем путь к exe и start /min если есть
-            filtered_parts = []
-            skip_next = False
-            for part in parts:
-                if skip_next:
-                    skip_next = False
-                    continue
-                if 'winws.exe' in part.lower():
-                    continue
-                if part.lower() in ['start', '/min', '/b']:
-                    skip_next = (part.lower() == 'start')
-                    continue
-                filtered_parts.append(part)
-            
-            # Анализируем флаги
-            return self._analyze_strategy_flags(filtered_parts)
-            
-        except Exception as e:
-            log(f"Ошибка анализа BAT команды: {e}", "DEBUG")
-            return {}
-    
-    def _extract_winws_commands(self, bat_content: str) -> List[str]:
-        """Извлекает команды winws из BAT файла"""
-        commands = []
-        
-        for line in bat_content.split('\n'):
-            line = line.strip()
-            if 'winws.exe' in line.lower() and not line.startswith('::') and not line.startswith('REM'):
-                commands.append(line)
-        
-        return commands
-    
-    def _find_strategy_file(self, strategy_name: str) -> Optional[str]:
-        """Ищет файл стратегии в папке bat"""
-        try:
-            if not os.path.exists(BAT_FOLDER):
-                return None
-            
-            # Ищем файлы .bat
-            for file in os.listdir(BAT_FOLDER):
-                if file.lower().endswith('.bat'):
-                    file_path = os.path.join(BAT_FOLDER, file)
-                    
-                    # Простое сопоставление по имени
-                    if strategy_name.lower() in file.lower():
-                        return file_path
-            
-            # Если не нашли по имени, возвращаем первый .bat файл
-            for file in os.listdir(BAT_FOLDER):
-                if file.lower().endswith('.bat'):
-                    return os.path.join(BAT_FOLDER, file)
-            
-            return None
-            
-        except Exception as e:
-            log(f"Ошибка поиска файла стратегии: {e}", "DEBUG")
-            return None
-    
     def format_strategy_info(self, info: Dict) -> List[str]:
         """Форматирует информацию о стратегии для вывода в лог"""
         lines = []
@@ -404,37 +271,27 @@ class StrategyChecker:
         if details.get('special_params'):
             lines.append(f"   Спец. параметры: {', '.join(details['special_params'][:5])}")
         
-        # Для BAT стратегий
-        if info['type'] == 'bat' and details:
-            if details.get('version'):
-                lines.append(f"   Версия: {details['version']}")
-            
-            if details.get('file_size'):
-                size_kb = details['file_size'] / 1024
-                lines.append(f"   Размер файла: {size_kb:.1f} KB")
-            
-            if details.get('commands_count'):
-                lines.append(f"   Команд winws: {details['commands_count']}")
-        
         return lines
     
     def _format_type(self, type_str: str) -> str:
         """Форматирует тип стратегии"""
         types = {
-            'bat': '📄 BAT файл',
             'builtin': '⚡ Встроенная',
             'combined': '🔀 Комбинированная',
+            'preset': '📋 Пресет',
             'direct': '🎯 Прямая',
             'unknown': '❓ Неизвестный',
             'error': '❌ Ошибка'
         }
         return types.get(type_str, type_str)
-    
+
     def _format_method(self, method: str) -> str:
         """Форматирует метод запуска"""
         methods = {
-            'bat': '📄 Классический (BAT)',
-            'direct': '🎯 Прямой запуск',
+            'direct_zapret2': '🎯 Zapret 2 (прямой)',
+            'direct_zapret2_orchestra': '🎭 Zapret 2 (оркестр)',
+            'direct_zapret1': '🎯 Zapret 1 (прямой)',
+            'orchestra': '🎭 Оркестр',
             'unknown': '❓ Неизвестный'
         }
         return methods.get(method, method)
@@ -461,7 +318,5 @@ def get_strategy_summary() -> str:
     if info['type'] == 'combined':
         active_count = len(info['details'].get('active_categories', []))
         return f"🔀 Комбинированная ({active_count} категорий)"
-    elif info['type'] == 'bat':
-        return f"📄 {info['name']}"
     else:
         return f"{info['name']}"

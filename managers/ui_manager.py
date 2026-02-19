@@ -16,8 +16,7 @@ class UIManager:
         if hasattr(self.app, 'current_strategy_label'):
             strategy_name = self.app.current_strategy_label.text()
             if strategy_name == "Автостарт DPI отключен":
-                from config import get_last_strategy
-                return get_last_strategy()
+                return None
             return strategy_name
         return None
 
@@ -100,10 +99,15 @@ class UIManager:
                         self.app.zapret2_direct_control_page.update_strategy(strategy_name)
                 except Exception:
                     pass
-            
-            # Обновляем страницу стратегий
-            if hasattr(self.app, 'strategies_page') and strategy_name:
-                self.app.strategies_page.update_current_strategy(strategy_name)
+
+            # Direct-zapret1: обновляем страницу управления Zapret 1
+            if hasattr(self.app, 'zapret1_direct_control_page'):
+                try:
+                    self.app.zapret1_direct_control_page.update_status(is_running)
+                    if strategy_name:
+                        self.app.zapret1_direct_control_page.update_strategy(strategy_name)
+                except Exception:
+                    pass
             
             # Обновляем страницу автозапуска
             if hasattr(self.app, 'autostart_page'):
@@ -163,28 +167,3 @@ class UIManager:
         except Exception as e:
             log(f"Ошибка обновления кнопки подписки: {e}", "ERROR")
 
-    def force_enable_combos(self) -> bool:
-        """Устаревший метод для обратной совместимости"""
-        log("force_enable_combos вызван (пустая заглушка)", "DEBUG")
-        return True
-
-    def update_strategies_list(self, force_update: bool = False) -> None:
-        """⚡ Обновляет список доступных стратегий"""
-        try:
-            if not hasattr(self.app, 'strategy_manager'):
-                log("Strategy manager не инициализирован", "ERROR")
-                return
-            
-            # Получаем список стратегий
-            strategies = self.app.strategy_manager.get_strategies_list(force_update=force_update)
-            log(f"Загружено {len(strategies) if strategies else 0} стратегий", "INFO")
-            
-            # Обновляем текущую метку если нужно
-            current_strategy = self._get_strategy_name()
-            if current_strategy and current_strategy != "Автостарт DPI отключен":
-                if hasattr(self.app, 'current_strategy_label'):
-                    self.app.current_strategy_label.setText(current_strategy)
-        except Exception as e:
-            log(f"Ошибка обновления списка стратегий: {e}", "ERROR")
-            if hasattr(self.app, 'set_status'):
-                self.app.set_status(f"Ошибка: {e}")

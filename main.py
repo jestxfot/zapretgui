@@ -138,8 +138,7 @@ from ui.fluent_app_window import ZapretFluentWindow
 
 from startup.admin_check import is_admin
 
-from config import ICON_PATH, ICON_TEST_PATH, WIDTH, HEIGHT, MIN_WIDTH
-from config import get_last_strategy, set_last_strategy
+from config import WIDTH, HEIGHT, MIN_WIDTH
 from config import APP_VERSION
 from utils import run_hidden
 
@@ -154,8 +153,7 @@ def _log_startup_metric(marker: str, details: str = "") -> None:
     suffix = f" | {details}" if details else ""
     log(f"⏱ Startup {marker}: {_startup_elapsed_ms()}ms{suffix}", "⏱ STARTUP")
 
-from config import CHANNEL
-from ui.page_names import PageName, SectionName
+from ui.page_names import PageName
 
 # Global icon policy (theme-aware + rgba() normalization for qtawesome).
 install_qtawesome_icon_theme_patch()
@@ -499,11 +497,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         if hasattr(self, 'ui_manager'):
             self.ui_manager.update_ui_state(running)
 
-    def update_strategies_list(self, force_update: bool = False) -> None:
-        """Обновляет список доступных стратегий"""
-        if hasattr(self, 'ui_manager'):
-            self.ui_manager.update_strategies_list(force_update)
-
     def delayed_dpi_start(self) -> None:
         """Выполняет отложенный запуск DPI с проверкой наличия автозапуска"""
         if hasattr(self, 'dpi_manager'):
@@ -513,12 +506,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         """Обновляет интерфейс при включении/выключении автозапуска"""
         if hasattr(self, 'ui_manager'):
             self.ui_manager.update_autostart_ui(service_running)
-
-    def force_enable_combos(self) -> bool:
-        """Принудительно включает комбо-боксы тем"""
-        if hasattr(self, 'ui_manager'):
-            return self.ui_manager.force_enable_combos()
-        return False
 
     def on_strategy_selected_from_dialog(self, strategy_id: str, strategy_name: str) -> None:
         """Обрабатывает выбор стратегии из диалога."""
@@ -552,18 +539,11 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 self.current_strategy_name = display_name
                 strategy_name = display_name
                 log(f"Установлено простое название для режима {launch_method}: {display_name}", "DEBUG")
-            else:
-                # Для BAT режима сохраняем последнюю стратегию
-                from config.reg import set_last_bat_strategy
-                set_last_bat_strategy(strategy_name)
-            
+
             # Обновляем новые страницы интерфейса
             if hasattr(self, 'update_current_strategy_display'):
                 self.update_current_strategy_display(strategy_name)
 
-            # Записываем время изменения стратегии
-            self.last_strategy_change_time = time.time()
-            
             # ✅ ИСПРАВЛЕННАЯ ЛОГИКА для обработки Direct режимов
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
@@ -575,7 +555,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                         # Создаем файл если не существует (первый запуск)
                         if not ensure_default_preset_exists():
                             log(
-                                "Не удалось создать preset-zapret2.txt: отсутствует %APPDATA%/zapret/presets/_builtin/Default.txt",
+                                "Не удалось создать preset-zapret2.txt: отсутствует %APPDATA%/zapret/presets_v2_template/Default.txt",
                                 "ERROR",
                             )
                             self.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
@@ -607,19 +587,45 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                         log(f"Запуск из preset файла: {preset_path}", "INFO")
                         self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
                     
+                    # ✅ ДЛЯ direct_zapret1 - используем preset-zapret1.txt
+                    elif launch_method == "direct_zapret1":
+                        from preset_zapret1 import get_active_preset_path_v1, get_active_preset_name_v1, ensure_default_preset_exists_v1
+
+                        if not ensure_default_preset_exists_v1():
+                            log("Не удалось создать preset-zapret1.txt", "ERROR")
+                            self.set_status("Ошибка: не удалось создать preset-zapret1.txt")
+                            return
+
+                        preset_path = get_active_preset_path_v1()
+                        preset_name = get_active_preset_name_v1() or "Default"
+
+                        if not preset_path.exists():
+                            log(f"preset-zapret1.txt не найден: {preset_path}", "ERROR")
+                            self.set_status("Выберите стратегию в разделе Zapret1")
+                            return
+
+                        combined_data = {
+                            'is_preset_file': True,
+                            'name': f"Пресет: {preset_name}",
+                            'preset_path': str(preset_path),
+                        }
+
+                        log(f"Запуск Zapret1 из preset файла: {preset_path}", "INFO")
+                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
+
                     # ✅ ДЛЯ ДРУГИХ РЕЖИМОВ - используем combine_strategies
                     else:
                         from launcher_common import combine_strategies
                         from strategy_menu import get_direct_strategy_selections, get_default_selections
-                            
+
                         try:
                             category_selections = get_direct_strategy_selections()
                         except:
                             category_selections = get_default_selections()
-                        
+
                         combined_strategy = combine_strategies(**category_selections)
                         combined_args = combined_strategy['args']
-                        
+
                         combined_data = {
                             'id': strategy_id,
                             'name': strategy_name,
@@ -627,12 +633,9 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                             'args': combined_args,
                             'selections': category_selections
                         }
-                        
+
                         log(f"Комбинированная стратегия: {len(combined_args)} символов", "DEBUG")
-                        
-                        self._last_combined_args = combined_args
-                        self._last_category_selections = category_selections
-                        
+
                         self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
                         
                 else:
@@ -716,20 +719,8 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         self.setMinimumSize(MIN_WIDTH, 400)
         self.restore_window_geometry()
 
-        # Splash / startup state
-        self._css_applied_at_startup = False
-        self._startup_theme = None
-        self.splash = None
-
-        self.process_monitor = None
-        self.first_start = True
         self.current_strategy_id = None
         self.current_strategy_name = None
-        self._startup_bootstrap_overlay = None
-        self._startup_bootstrap_hint_label = None
-        self._startup_container_overlay = None
-        self._startup_container_overlay_anim = None
-        self._startup_container_overlay_fading = False
         self._startup_ttff_logged = False
         self._startup_ttff_ms = None
         self._startup_interactive_logged = False
@@ -792,7 +783,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         QTimer.singleShot(50, self.initialization_manager.run_async_init)
         QTimer.singleShot(1000, self.subscription_manager.initialize_async)
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
-        QTimer.singleShot(0, self._fade_out_startup_container_overlay)
         log(f"⏱ Startup: deferred init total {( _time.perf_counter() - _t_total ) * 1000:.0f}ms", "DEBUG")
 
     def _mark_startup_interactive(self, source: str = "ui_signals_connected") -> None:
@@ -848,184 +838,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         _log_startup_metric("PostInitDone", details)
 
-    def _create_startup_bootstrap_overlay(self) -> None:
-        """No-op: FluentWindow shows content directly."""
-        pass
-
-    def _create_startup_bootstrap_overlay_DISABLED(self) -> None:
-        """OLD: Лёгкий placeholder поверх main_widget до построения реального UI."""
-        try:
-            from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar, QSizePolicy
-
-            overlay = QFrame(self)
-            overlay.setObjectName("startupBootstrapOverlay")
-            overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            overlay.setStyleSheet(
-                """
-                QFrame#startupBootstrapOverlay {
-                    background: transparent;
-                }
-                QFrame#startupBootstrapPanel {
-                    background-color: rgba(15, 19, 27, 192);
-                    border: 1px solid rgba(92, 108, 132, 175);
-                    border-radius: 14px;
-                }
-                QLabel#startupBootstrapTitle {
-                    color: #eaf0ff;
-                    font-size: 18px;
-                    font-weight: 600;
-                    letter-spacing: 0.2px;
-                }
-                QLabel#startupBootstrapHint {
-                    color: rgba(226, 234, 248, 0.90);
-                    font-size: 12px;
-                }
-                QLabel#startupBootstrapMeta {
-                    color: rgba(176, 190, 214, 0.78);
-                    font-size: 11px;
-                }
-                QFrame#startupBootstrapAccent {
-                    background-color: rgba(132, 158, 208, 0.55);
-                    border-radius: 2px;
-                    min-height: 4px;
-                    max-height: 4px;
-                }
-                QProgressBar#startupBootstrapProgress {
-                    background-color: rgba(44, 54, 72, 0.95);
-                    border: none;
-                    border-radius: 3px;
-                }
-                QProgressBar#startupBootstrapProgress::chunk {
-                    background-color: rgba(123, 156, 214, 0.95);
-                    border-radius: 3px;
-                }
-                """
-            )
-
-            layout = QVBoxLayout(overlay)
-            layout.setContentsMargins(24, 24, 24, 24)
-            layout.setSpacing(0)
-            layout.addStretch(1)
-
-            panel = QFrame(overlay)
-            panel.setObjectName("startupBootstrapPanel")
-            panel.setFixedWidth(390)
-
-            panel_layout = QVBoxLayout(panel)
-            panel_layout.setContentsMargins(22, 20, 22, 18)
-            panel_layout.setSpacing(10)
-
-            icon_label = QLabel(panel)
-            icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            if getattr(self, "_app_icon", None) is not None:
-                pixmap = self._app_icon.pixmap(40, 40)
-                icon_label.setPixmap(pixmap)
-            else:
-                icon_label.setText("Z2")
-                icon_label.setStyleSheet(
-                    "color: #eaf0ff; font-size: 20px; font-weight: 700;"
-                )
-            panel_layout.addWidget(icon_label)
-
-            title = QLabel("Zapret 2", panel)
-            title.setObjectName("startupBootstrapTitle")
-            title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            panel_layout.addWidget(title)
-
-            accent = QFrame(panel)
-            accent.setObjectName("startupBootstrapAccent")
-            accent.setFixedWidth(76)
-            panel_layout.addWidget(accent, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-            hint = QLabel("Инициализация модулей...", panel)
-            hint.setObjectName("startupBootstrapHint")
-            hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            panel_layout.addWidget(hint)
-            self._startup_bootstrap_hint_label = hint
-
-            meta = QLabel("Проверка системы • Загрузка страниц • Применение темы", panel)
-            meta.setObjectName("startupBootstrapMeta")
-            meta.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            panel_layout.addWidget(meta)
-
-            progress = QProgressBar(panel)
-            progress.setObjectName("startupBootstrapProgress")
-            progress.setRange(0, 0)
-            progress.setTextVisible(False)
-            progress.setFixedHeight(6)
-            progress.setMaximumWidth(320)
-            progress.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            panel_layout.addWidget(progress, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-            layout.addWidget(panel, alignment=Qt.AlignmentFlag.AlignHCenter)
-            layout.addStretch(2)
-
-            self._startup_bootstrap_overlay = overlay
-            self._update_startup_bootstrap_geometry()
-            overlay.raise_()
-            overlay.show()
-        except Exception as e:
-            self._startup_bootstrap_overlay = None
-            self._startup_bootstrap_hint_label = None
-            log(f"Не удалось создать bootstrap overlay: {e}", "DEBUG")
-
-    def _update_startup_bootstrap_geometry(self) -> None:
-        pass
-
-    def _set_startup_bootstrap_message(self, text: str) -> None:
-        label = getattr(self, "_startup_bootstrap_hint_label", None)
-        if label is None:
-            return
-        try:
-            label.setText(str(text or ""))
-        except Exception:
-            pass
-
-    def _clear_startup_bootstrap_overlay(self) -> None:
-        overlay = getattr(self, "_startup_bootstrap_overlay", None)
-        if overlay is None:
-            return
-        try:
-            overlay.hide()
-            overlay.deleteLater()
-        except Exception:
-            pass
-        self._startup_bootstrap_overlay = None
-        self._startup_bootstrap_hint_label = None
-
-    def _create_startup_container_overlay(self) -> None:
-        """No-op: FluentWindow handles initial rendering."""
-        pass
-
-    def _update_startup_container_overlay_geometry(self) -> None:
-        pass
-
-    def _fade_out_startup_container_overlay(self) -> None:
-        """No-op: FluentWindow handles rendering."""
-        pass
-
-    def init_theme_handler(self):
-        """Инициализирует theme_handler после создания theme_manager"""
-        if not hasattr(self, 'theme_handler'):
-            from ui.theme import ThemeHandler
-            self.theme_handler = ThemeHandler(self, target_widget=self)
-            
-            # Если theme_manager уже создан, устанавливаем его
-            if hasattr(self, 'theme_manager'):
-                self.theme_handler.set_theme_manager(self.theme_manager)
-                
-            log("ThemeHandler инициализирован", "DEBUG")
-
-    def _apply_cached_css_at_startup(self) -> None:
-        """No-op: qfluentwidgets handles styling via setTheme(). Legacy qt_material CSS not needed."""
-        self._css_applied_at_startup = True
-        self._startup_theme = "dark"
-        self._startup_css_hash = 0
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # FRAMELESS WINDOW: Обработчики событий мыши для изменения размера
-    # ═══════════════════════════════════════════════════════════════════════
-    
     def setWindowTitle(self, title: str):
         """Override to update FluentWindow's built-in titlebar."""
         super().setWindowTitle(title)
@@ -1456,74 +1268,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         super().moveEvent(event)
         self._on_window_geometry_changed()
     
-    def mousePressEvent(self, event):
-        """Обработка нажатия мыши"""
-        super().mousePressEvent(event)
-        
-    def mouseMoveEvent(self, event):
-        """Обработка движения мыши"""
-        super().mouseMoveEvent(event)
-        
-    def mouseReleaseEvent(self, event):
-        """Обработка отпускания мыши"""
-        super().mouseReleaseEvent(event)
-
-    def _build_main_ui(self) -> None:
-        """Legacy stub — build_ui is now called directly in _deferred_init."""
-        self.build_ui(WIDTH, HEIGHT)
-    
-    def _apply_deferred_css_if_needed(self) -> None:
-        """Применяет отложенный полный CSS (вызывается через 300ms после показа окна)"""
-        log(f"🎨 _apply_deferred_css_if_needed вызван, has_deferred={hasattr(self, '_deferred_css')}", "DEBUG")
-        
-        if not hasattr(self, '_deferred_css'):
-            return
-            
-        log("🎨 Применяем полный CSS (300ms после показа окна)", "DEBUG")
-        try:
-            import time as _time
-            _t = _time.perf_counter()
-            
-            QApplication.instance().setStyleSheet(self._deferred_css)
-            self.setStyleSheet(self._deferred_css)
-            
-            from PyQt6.QtGui import QPalette
-            self.setPalette(QPalette())
-            
-            elapsed_ms = (_time.perf_counter()-_t)*1000
-            log(f"  setStyleSheet took {elapsed_ms:.0f}ms (полный CSS)", "DEBUG")
-            
-            # Обновляем theme_manager
-            if hasattr(self, 'theme_manager'):
-                self.theme_manager._current_css_hash = hash(self.styleSheet())
-                self.theme_manager._theme_applied = True
-                self.theme_manager.current_theme = getattr(self, '_deferred_theme_name', self.theme_manager.current_theme)
-                
-                if getattr(self, '_deferred_persist', False):
-                    from ui.theme import set_selected_theme
-                    set_selected_theme(self.theme_manager.current_theme)
-            
-            # Принудительно обновляем стили виджетов
-            QTimer.singleShot(10, self._force_style_refresh)
-            
-            # Проверяем РКН Тян темы
-            if hasattr(self, 'theme_manager'):
-                current_theme = self.theme_manager.current_theme
-                if current_theme == "РКН Тян":
-                    QTimer.singleShot(200, lambda: self.theme_manager.apply_rkn_background())
-                elif current_theme == "РКН Тян 2":
-                    QTimer.singleShot(200, lambda: self.theme_manager.apply_rkn2_background())
-            
-            # Очищаем отложенные данные
-            delattr(self, '_deferred_css')
-            if hasattr(self, '_deferred_theme_name'):
-                delattr(self, '_deferred_theme_name')
-            if hasattr(self, '_deferred_persist'):
-                delattr(self, '_deferred_persist')
-                
-        except Exception as e:
-            log(f"Ошибка применения отложенного CSS: {e}", "ERROR")
-    
     def _force_style_refresh(self) -> None:
         """Принудительно обновляет стили всех виджетов после показа окна
         
@@ -1540,17 +1284,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         except Exception as e:
             log(f"Ошибка обновления стилей: {e}", "DEBUG")
     
-    def _adjust_window_size(self) -> None:
-        """Корректирует размер окна под значения из config.py"""
-        try:
-            from config import WIDTH, HEIGHT
-            
-            # Используем размеры из конфига
-            self.resize(WIDTH, HEIGHT)
-            log(f"Размер окна установлен из конфига: {WIDTH}x{HEIGHT}", "DEBUG")
-        except Exception as e:
-            log(f"Ошибка корректировки размера: {e}", "DEBUG")
-
     def _init_real_donate_checker(self) -> None:
         """Создает базовый DonateChecker (полная инициализация в SubscriptionManager)"""
         try:
@@ -1561,15 +1294,11 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             log(f"Ошибка создания DonateChecker: {e}", "❌ ERROR")
 
     def show_subscription_dialog(self) -> None:
-        """Переключается на страницу Premium"""
+        """Переключается на страницу Premium."""
         try:
-            # Переключаемся на страницу Premium через sidebar (используя SectionName)
-            if hasattr(self, 'side_nav'):
-                self.side_nav.set_section_by_name(SectionName.PREMIUM)
-
+            self.show_page(PageName.PREMIUM)
         except Exception as e:
             log(f"Ошибка при переходе на страницу Premium: {e}", level="❌ ERROR")
-            self.set_status(f"Ошибка: {e}")
             
     def open_folder(self) -> None:
         """Opens the DPI folder."""
@@ -1595,16 +1324,8 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         """No-op: garland not available in FluentWindow shell (can be re-added later)."""
         pass
 
-    def _update_garland_geometry(self) -> None:
-        """No-op: garland not available in FluentWindow shell."""
-        pass
-
     def set_snowflakes_enabled(self, enabled: bool) -> None:
         """No-op: snowflakes not available in FluentWindow shell (can be re-added later)."""
-        pass
-
-    def _update_snowflakes_geometry(self) -> None:
-        """No-op: snowflakes not available in FluentWindow shell."""
         pass
 
     def set_window_opacity(self, value: int) -> None:
@@ -1636,10 +1357,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # Включаем автосохранение геометрии (после первого show + небольшой паузы)
         QTimer.singleShot(350, self._enable_geometry_persistence)
-
-    def _disable_win11_rounding_if_needed(self) -> None:
-        """No-op: FluentWindow handles window rounding."""
-        pass
 
     def _init_garland_from_registry(self) -> None:
         """Загружает состояние гирлянды и снежинок из реестра при старте"""
@@ -1836,13 +1553,21 @@ def main():
     # СОЗДАЁМ ОКНО
     window = LupiDPIApp(start_in_tray=start_in_tray)
 
-    # ✅ ПРИМЕНЯЕМ ПРЕСЕТ ФОНА (amoled / rkn_chan / standard)
+    # ✅ ПРИМЕНЯЕМ ПРЕСЕТ ФОНА + MICA (amoled / rkn_chan / standard)
     try:
         from config.reg import get_background_preset
         from ui.theme import apply_window_background
         _bg_preset = get_background_preset()
-        if _bg_preset != "standard":
-            apply_window_background(window, preset=_bg_preset)
+        apply_window_background(window, preset=_bg_preset)
+    except Exception:
+        pass
+
+    # ✅ ПРИМЕНЯЕМ СОХРАНЁННУЮ ПРОЗРАЧНОСТЬ ОКНА
+    try:
+        from config.reg import get_window_opacity
+        _opacity = get_window_opacity()
+        if _opacity != 100:
+            window.set_window_opacity(_opacity)
     except Exception:
         pass
 
@@ -2062,10 +1787,73 @@ def main():
             log(f"Ошибка воркера проверки обновлений: {e}", "❌ ERROR")
 
     def _schedule_startup_update_check():
+        try:
+            from config import get_auto_update_enabled
+            if not get_auto_update_enabled():
+                log("Автопроверка обновлений при запуске отключена", "🔁 UPDATE")
+                return
+        except Exception:
+            pass
         import threading
         threading.Thread(target=_startup_update_worker, daemon=True).start()
 
     QTimer.singleShot(4000, _schedule_startup_update_check)
+
+    # ─── CPU Diagnostic ────────────────────────────────────────────────────────
+    # Logs per-process CPU breakdown to identify the 20% CPU source.
+    # Remove after the root cause is confirmed.
+    def _cpu_diagnostic_worker():
+        import threading as _t
+        import traceback as _tb
+        import sys as _sys
+        import time as _time
+        _time.sleep(15)  # wait for full app startup
+        try:
+            import psutil as _psutil
+
+            this_proc = _psutil.Process()
+            # psutil warmup — first call always returns 0
+            this_proc.cpu_percent(interval=None)
+            _time.sleep(1)
+
+            log("=== CPU DIAGNOSTIC: начало ===", "INFO")
+            log(f"Активных тредов Python: {_t.active_count()}", "INFO")
+
+            # — Thread stack dump (one snapshot) —
+            frames = _sys._current_frames()
+            for tid, frame in frames.items():
+                th = next((x for x in _t.enumerate() if x.ident == tid), None)
+                name = th.name if th else f"tid-{tid}"
+                stack = "".join(_tb.format_stack(frame)).strip()
+                # Log only non-trivial stacks (skip pure idle event loop)
+                if "app.exec" not in stack and "select" not in stack.lower():
+                    log(f"[Thread '{name}']\n{stack[-800:]}", "DEBUG")
+
+            # — 5 CPU samples, 2 sec each —
+            samples_gui = []
+            for i in range(5):
+                cpu_gui = this_proc.cpu_percent(interval=2.0)
+                samples_gui.append(cpu_gui)
+                # winws CPU
+                winws_parts = []
+                for p in _psutil.process_iter(['name', 'cpu_percent']):
+                    try:
+                        n = (p.info.get('name') or '').lower()
+                        if n in ('winws.exe', 'winws2.exe'):
+                            winws_parts.append(f"{n}={p.cpu_percent():.1f}%")
+                    except Exception:
+                        pass
+                winws_str = ", ".join(winws_parts) if winws_parts else "не запущен"
+                log(f"[CPU {i+1}/5] Python GUI: {cpu_gui:.1f}%  |  winws: {winws_str}", "INFO")
+
+            avg = sum(samples_gui) / len(samples_gui) if samples_gui else 0
+            log(f"=== CPU DIAGNOSTIC DONE: avg Python GUI = {avg:.1f}% ===", "INFO")
+        except Exception as _e:
+            log(f"CPU diagnostic error: {_e}", "WARNING")
+
+    import threading as _diag_t
+    _diag_t.Thread(target=_cpu_diagnostic_worker, daemon=True, name="CPUDiagnostic").start()
+    del _diag_t
 
     # Exception handler
     def global_exception_handler(exctype, value, tb_obj):

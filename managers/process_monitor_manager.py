@@ -19,8 +19,8 @@ class ProcessMonitorManager(QObject):
         
         from config.process_monitor import ProcessMonitorThread
         
-        # Обновляем статус достаточно часто, но без блокировки UI (в отдельном потоке)
-        self.process_monitor = ProcessMonitorThread(self.app.dpi_starter, interval_ms=1000)
+        # 2000 ms is enough for crash detection; direct start/stop already updates UI immediately.
+        self.process_monitor = ProcessMonitorThread(self.app.dpi_starter, interval_ms=2000)
         self.app.process_monitor = self.process_monitor  # Сохраняем ссылку в app
         
         # Подключаем сигнал изменения статуса

@@ -3,7 +3,6 @@
 from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
-from PyQt6.QtWidgets import QApplication
 from log import log
 
 try:
@@ -189,31 +188,6 @@ class SubscriptionManager:
         # Обновляем UI элементы
         self._update_subscription_ui_elements()
 
-    def _find_alternative_theme(self, available_themes, current_selection):
-        """Находит альтернативную тему при изменении статуса подписки"""
-        clean_theme_name = self.app.theme_manager.get_clean_theme_name(current_selection)
-        
-        # Ищем тему с таким же базовым именем
-        theme_found = False
-        for theme in available_themes:
-            if self.app.theme_manager.get_clean_theme_name(theme) == clean_theme_name:
-                # Обновляем выбор в галерее
-                if hasattr(self.app, 'appearance_page'):
-                    self.app.appearance_page.set_current_theme(theme)
-                theme_found = True
-                break
-        
-        # Если не нашли похожую тему
-        if not theme_found:
-            for theme in available_themes:
-                if "(заблокировано)" not in theme and "(Premium)" not in theme:
-                    # Обновляем выбор в галерее и применяем тему
-                    if hasattr(self.app, 'appearance_page'):
-                        self.app.appearance_page.set_current_theme(theme)
-                    self.app.theme_manager.apply_theme_async(theme, persist=True)
-                    log(f"Автоматически выбрана тема: {theme}", "INFO")
-                    break
-
     def _show_subscription_notifications(self, was_premium, is_premium):
         """Показывает уведомления об изменении статуса подписки"""
         if is_premium and not was_premium:
@@ -257,15 +231,7 @@ class SubscriptionManager:
             )
 
     def _update_subscription_ui_elements(self):
-        """Обновляет UI элементы, зависящие от подписки"""
-        try:
-            if hasattr(self.app, 'button_grid'):
-                self.app.button_grid.update()
-            
-            QApplication.processEvents()
-            
-        except Exception as e:
-            log(f"Ошибка при обновлении UI после изменения подписки: {e}", "❌ ERROR")
+        pass
 
     def update_subscription_ui(self):
         """✅ ОБНОВЛЕННЫЙ метод обновления UI после проверки подписки"""

@@ -929,14 +929,19 @@ class ServersPage(BasePage):
         toggle_row.setSpacing(12)
 
         self.auto_check_toggle = SwitchButton()
-        self.auto_check_toggle.setChecked(True)
+        try:
+            from config import get_auto_update_enabled
+            self._auto_check_enabled = get_auto_update_enabled()
+        except Exception:
+            self._auto_check_enabled = True
+        self.auto_check_toggle.setChecked(self._auto_check_enabled)
         if _HAS_FLUENT:
             self.auto_check_toggle.checkedChanged.connect(self._on_auto_check_toggled)
         else:
             self.auto_check_toggle.toggled.connect(self._on_auto_check_toggled)
         toggle_row.addWidget(self.auto_check_toggle)
 
-        toggle_label = BodyLabel("Проверять обновления при открытии вкладки")
+        toggle_label = BodyLabel("Проверять обновления при запуске")
         toggle_row.addWidget(toggle_label)
         toggle_row.addStretch()
 
@@ -1191,7 +1196,7 @@ class ServersPage(BasePage):
         self._has_cached_data = True
         self.update_card.stop_checking(self._found_update, self._remote_version)
 
-        if self._found_update:
+        if self._found_update and not self.changelog_card._is_downloading:
             self.changelog_card.show_update(self._remote_version, self._release_notes)
 
     def _check_updates(self):
@@ -1217,6 +1222,19 @@ class ServersPage(BasePage):
         self.start_checks(telegram_only=telegram_only)
 
     def _install_update(self):
+        # Guard: if a download thread is already running, ignore the call.
+        # _update_thread stays set until the thread finishes and we clear it below.
+        try:
+            thr = getattr(self, "_update_thread", None)
+            if thr is not None and thr.isRunning():
+                log("Загрузка уже выполняется, повторный запуск проигнорирован", "🔄 UPDATE")
+                return
+        except RuntimeError:
+            # C++ object already deleted — safe to proceed
+            self._update_thread = None
+        except Exception:
+            pass
+
         log(f"Запуск установки обновления v{self._remote_version}", "🔄 UPDATE")
 
         from updater import invalidate_cache
@@ -1239,6 +1257,12 @@ class ServersPage(BasePage):
             self._update_worker.finished.connect(self._update_worker.deleteLater)
             self._update_thread.finished.connect(self._update_thread.deleteLater)
 
+            # Reset refs after the thread dies so the guard above works next time.
+            def _on_thread_done():
+                self._update_thread = None
+                self._update_worker = None
+            self._update_thread.finished.connect(_on_thread_done)
+
             self._update_worker.progress_bytes.connect(
                 lambda p, d, t: self.changelog_card.update_progress(p, d, t)
             )
@@ -1251,6 +1275,8 @@ class ServersPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка при запуске обновления: {e}", "❌ ERROR")
+            self._update_thread = None
+            self._update_worker = None
             self.changelog_card.download_failed(str(e)[:50])
 
     def _on_download_failed(self, error: str):
@@ -1281,6 +1307,12 @@ class ServersPage(BasePage):
     def _on_auto_check_toggled(self, enabled: bool):
         self._auto_check_enabled = enabled
 
+        try:
+            from config import set_auto_update_enabled
+            set_auto_update_enabled(enabled)
+        except Exception:
+            pass
+
         if enabled:
             self.update_card.check_btn.setText("ПРОВЕРИТЬ СНОВА")
             self.update_card.subtitle_label.setText("Автопроверка включена")
@@ -1288,7 +1320,7 @@ class ServersPage(BasePage):
             self.update_card.check_btn.setText("ПРОВЕРИТЬ ВРУЧНУЮ")
             self.update_card.subtitle_label.setText("Нажмите кнопку для проверки")
 
-        log(f"Автопроверка при открытии вкладки: {'включена' if enabled else 'отключена'}", "🔄 UPDATE")
+        log(f"Автопроверка при запуске: {'включена' if enabled else 'отключена'}", "🔄 UPDATE")
 
     def cleanup(self):
         try:

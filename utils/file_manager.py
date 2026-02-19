@@ -12,8 +12,10 @@ def ensure_required_files():
         os.makedirs(LISTS_FOLDER, exist_ok=True)
 
         from utils.hostlists_manager import ensure_hostlists_exist
+        from utils.netrogat_manager import ensure_netrogat_exists
 
         result = ensure_hostlists_exist()
+        ensure_netrogat_exists()
         if result:
             log("Обязательные файлы списков готовы", "DEBUG")
         return result

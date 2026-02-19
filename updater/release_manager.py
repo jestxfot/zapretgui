@@ -212,10 +212,14 @@ class ReleaseManager:
                 log(f"✅ Telegram: версия {version} ({response_time:.2f}с)", "🔄 RELEASE")
                 
                 # Формируем результат в стандартном формате
+                file_name = info.get('file_name') or (
+                    f"Zapret2Setup_TEST.exe" if channel == "dev" else "Zapret2Setup.exe"
+                )
                 return {
                     "version": version,
                     "tag_name": f"v{version}",
-                    "update_url": f"telegram://{info['channel']}/{info['message_id']}",  # Специальный URL
+                    "update_url": f"telegram://{info['channel']}",
+                    "file_name": file_name,
                     "release_notes": "",
                     "prerelease": channel == "dev",
                     "name": f"Zapret {version} ({channel})",

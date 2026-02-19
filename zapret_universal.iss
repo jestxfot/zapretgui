@@ -15,7 +15,7 @@
 ; SOURCEPATH должен указывать на папку, где лежит Zapret.exe и ресурсы Zapret:
 ;   Zapret.exe
 ;   _internal\
-;   bat\ bin\ exe\ json\ lists\ lua\ presets\ ...
+;   bin\ exe\ json\ lists\ lua\ presets\ ...
 #ifndef SOURCEPATH
   #define SOURCEPATH "\\wsl.localhost\Debian\opt\zapret"
 #endif
@@ -88,10 +88,13 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "{#SOURCEPATH}\Zapret.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 
-; ✅ Preset templates -> %APPDATA%\zapret\presets_template
+; ✅ V2 Preset templates -> %APPDATA%\zapret\presets_v2_template
 ; Always overwritten on update to keep templates current.
-; At startup the app copies new templates to presets/ (unless user deleted them).
-Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
+; At startup the app copies new templates to presets_v2/ (unless user deleted them).
+Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v2_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
+
+; V1 Preset templates -> %APPDATA%\zapret\presets_v1_template
+Source: "{#PROJECTPATH}\preset_zapret1\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v1_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
 ; ✅ direct_zapret2 Basic strategies -> %APPDATA%\zapret\direct_zapret2\basic_strategies
 ; Always overwritten on update to keep the Basic catalog current.
@@ -106,7 +109,6 @@ Source: "{#SOURCEPATH}\lists\other.txt"; DestDir: "{userappdata}\zapret\lists_te
 Source: "{#PROJECTPATH}\tracker\ZapretHub-Setup-1.0.0.exe"; DestDir: "{userappdata}\zaprettracker"; DestName: "ZapretHub-Setup.exe"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
 ; Копируем папки
-Source: "{#SOURCEPATH}\bat\*"; DestDir: "{app}\bat"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\bin\*"; DestDir: "{app}\bin"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Excludes: "cygwin1.dll"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ cygwin1.dll копируется только при первичной установке (не заменяем, если уже существует)
@@ -134,6 +136,9 @@ Name: "{commondesktop}\{#ShortcutName}"; Filename: "{app}\Zapret.exe"; Tasks: de
 
 [Tasks]
 Name: desktopicon; Description: "Создать ярлык на рабочем столе";
+; По умолчанию включено (без Flags: unchecked) — при первой установке ZapretHub устанавливается.
+; При автообновлении через приложение передаётся /MERGETASKS=!installzaphub — галочка снимается,
+; чтобы не перезаписывать ZapretHub поверх уже установленной версии.
 Name: installzaphub; Description: "Установить ZapretHub (центр сообщества Zapret: стратегии, пресеты и форум)";
 
 [InstallDelete]

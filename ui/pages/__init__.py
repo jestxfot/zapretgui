@@ -5,13 +5,16 @@ from .home_page import HomePage
 from .control_page import ControlPage
 from .strategies_page_base import StrategiesPageBase
 from .zapret2_orchestra_strategies_page import Zapret2OrchestraStrategiesPage
-from .zapret1_direct_strategies_page import Zapret1DirectStrategiesPage
-from .bat_strategies_page import BatStrategiesPage
 from .zapret2 import (
     Zapret2DirectControlPage,
     Zapret2StrategiesPageNew,
     Zapret2UserPresetsPage,
     StrategyDetailPage,
+)
+from .zapret1 import (
+    Zapret1DirectControlPage,
+    Zapret1StrategiesPage,
+    Zapret1UserPresetsPage,
 )
 from .hostlist_page import HostlistPage
 from .ipset_page import IpsetPage
@@ -35,10 +38,13 @@ from .connection_page import ConnectionTestPage
 from .dns_check_page import DNSCheckPage
 from .diagnostics_tab_page import DiagnosticsTabPage
 from .orchestra_page import OrchestraPage
-from .orchestra_locked_page import OrchestraLockedPage
-from .orchestra_blocked_page import OrchestraBlockedPage
-from .orchestra_whitelist_page import OrchestraWhitelistPage
-from .orchestra_ratings_page import OrchestraRatingsPage
+from .orchestra import (
+    OrchestraSettingsPage,
+    OrchestraLockedPage,
+    OrchestraBlockedPage,
+    OrchestraWhitelistPage,
+    OrchestraRatingsPage,
+)
 from .preset_config_page import PresetConfigPage
 from .presets_page import PresetsPage
 
@@ -47,12 +53,13 @@ __all__ = [
     'ControlPage',
     'Zapret2OrchestraStrategiesPage',
     'StrategiesPageBase',
-    'Zapret1DirectStrategiesPage',
-    'BatStrategiesPage',
     'Zapret2StrategiesPageNew',  # Новая страница Zapret2 из zapret2/
     'Zapret2DirectControlPage',  # Управление для direct_zapret2 (вкладка внутри "Стратегии")
     'Zapret2UserPresetsPage',  # Пользовательские пресеты (direct_zapret2)
     'StrategyDetailPage',  # Страница детального просмотра стратегии
+    'Zapret1DirectControlPage',  # Управление для direct_zapret1
+    'Zapret1StrategiesPage',  # Стратегии для direct_zapret1
+    'Zapret1UserPresetsPage',  # Пользовательские пресеты для direct_zapret1
     'HostlistPage',
     'IpsetPage',
     'BlobsPage',  # Управление блобами для Zapret 2
@@ -75,6 +82,7 @@ __all__ = [
     'DNSCheckPage',  # Страница проверки DNS подмены
     'DiagnosticsTabPage',  # Объединённая страница диагностики с вкладками
     'OrchestraPage',  # Страница оркестратора автообучения
+    'OrchestraSettingsPage',  # Объединённая страница настроек оркестратора (вкладки)
     'OrchestraLockedPage',  # Страница залоченных стратегий оркестратора
     'OrchestraBlockedPage',  # Страница заблокированных стратегий оркестратора
     'OrchestraWhitelistPage',  # Страница белого списка оркестратора

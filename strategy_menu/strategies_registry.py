@@ -53,7 +53,6 @@ def get_current_strategy_set() -> Optional[str]:
             "direct_zapret2": None,           # стандартный набор (tcp.json)
             "direct_zapret2_orchestra": "orchestra",  # tcp_orchestra.json
             "direct_zapret1": "zapret1",      # tcp_zapret1.json (Zapret 1 прямой режим)
-            "bat": None,              # BAT не использует JSON стратегии
             "orchestra": None,        # Orchestra использует свой механизм
         }
         return method_to_set.get(method, None)

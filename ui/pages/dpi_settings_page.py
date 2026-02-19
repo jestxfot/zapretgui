@@ -965,16 +965,6 @@ class DpiSettingsPage(BasePage):
         self.method_direct_zapret1.clicked.connect(lambda: self._select_method("direct_zapret1"))
         method_layout.addWidget(self.method_direct_zapret1)
 
-        # Zapret 1 (bat)
-        self.method_bat = Win11RadioOption(
-            "Zapret 1 BAT",
-            "Запуск через .bat файлы. Классический метод, использует готовые скрипты из папки zapret.",
-            icon_name="mdi.file-code",
-            icon_color="#ff9800"
-        )
-        self.method_bat.clicked.connect(lambda: self._select_method("bat"))
-        method_layout.addWidget(self.method_bat)
-
         # Разделитель 2
         self.separator2 = QFrame()
         self.separator2.setFrameShape(QFrame.Shape.HLine)
@@ -1105,7 +1095,6 @@ class DpiSettingsPage(BasePage):
         self.method_direct.setSelected(method == "direct_zapret2")
         self.method_direct_zapret2_orchestra.setSelected(method == "direct_zapret2_orchestra")
         self.method_direct_zapret1.setSelected(method == "direct_zapret1")
-        self.method_bat.setSelected(method == "bat")
         self.method_orchestra.setSelected(method == "orchestra")
     
     def _select_method(self, method: str):
@@ -1409,7 +1398,21 @@ class DpiSettingsPage(BasePage):
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
             
-            if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
+            if launch_method == "direct_zapret1":
+                # Zapret1: берём из preset-zapret1.txt
+                from preset_zapret1 import get_active_preset_path_v1, get_active_preset_name_v1
+                preset_path = get_active_preset_path_v1()
+                if not preset_path.exists():
+                    log("Перезапуск Zapret1 пропущен: preset-zapret1.txt не найден", "WARNING")
+                    return
+                preset_name = get_active_preset_name_v1() or "Default"
+                selected_mode = {
+                    'is_preset_file': True,
+                    'name': f"Пресет: {preset_name}",
+                    'preset_path': str(preset_path),
+                }
+                app.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=launch_method)
+            elif launch_method in ("direct_zapret2", "direct_zapret2_orchestra"):
                 # Прямой запуск - берём текущие настройки
                 from strategy_menu import get_direct_strategy_selections
                 from launcher_common import combine_strategies
@@ -1479,7 +1482,7 @@ class DpiSettingsPage(BasePage):
 
                     if not ensure_default_preset_exists():
                         log(
-                            "Не удалось обновить preset-zapret2.txt для --debug: отсутствует %APPDATA%/zapret/presets/_builtin/Default.txt",
+                            "Не удалось обновить preset-zapret2.txt для --debug: отсутствует %APPDATA%/zapret/presets_v2_template/Default.txt",
                             "ERROR",
                         )
                         return
@@ -1501,7 +1504,7 @@ class DpiSettingsPage(BasePage):
             # Режимы
             is_direct_mode = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
             is_orchestra_mode = method in ("orchestra", "direct_zapret2_orchestra")
-            is_zapret_mode = method in ("direct_zapret2", "bat", "direct_zapret1")  # Zapret 1/2 без оркестратора
+            is_zapret_mode = method in ("direct_zapret2", "direct_zapret1")  # Zapret 1/2 без оркестратора
 
             # For direct_zapret2 these options are shown on the Strategies/Management page
             # (ui/pages/zapret2/direct_control_page.py), so hide them here.

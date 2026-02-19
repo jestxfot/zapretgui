@@ -91,38 +91,6 @@ def reg(subkey: str,
         return None if value is _UNSET else False
 
 
-# ------------------------------------------------------------------
-# Шорткаты вашей программы - ОТДЕЛЬНЫЕ КЛЮЧИ ДЛЯ РАЗНЫХ РЕЖИМОВ
-# ------------------------------------------------------------------
-
-# ───────────── BAT режим (Запрет 1) ─────────────
-def get_last_bat_strategy():
-    """Получает последнюю BAT-стратегию из реестра"""
-    from config import DEFAULT_STRAT, REGISTRY_PATH
-    return reg(REGISTRY_PATH, "LastBatStrategy") or DEFAULT_STRAT
-
-
-def set_last_bat_strategy(name: str) -> bool:
-    """Сохраняет последнюю BAT-стратегию в реестр"""
-    from config import REGISTRY_PATH
-    return reg(REGISTRY_PATH, "LastBatStrategy", name)
-
-
-# ───────────── Direct режим (Запрет 2) ─────────────
-# Для Direct режима selections сохраняются отдельно через get/set_direct_mode_selections
-# Отдельный ключ LastDirectStrategy не нужен, т.к. selections и есть состояние
-
-
-# ───────────── LEGACY - для обратной совместимости ─────────────
-def get_last_strategy():
-    """УСТАРЕВШАЯ функция - используйте get_last_bat_strategy()"""
-    return get_last_bat_strategy()
-
-
-def set_last_strategy(name: str) -> bool:
-    """УСТАРЕВШАЯ функция - используйте set_last_bat_strategy()"""
-    return set_last_bat_strategy(name)
-
 # ───────────── DPI-автозапуск ─────────────
 _DPI_NAME  = "DPIAutoStart"          # REG_DWORD (0/1)
 
@@ -384,6 +352,21 @@ def set_display_mode(mode: str) -> bool:
     if mode not in ("dark", "light", "system"):
         mode = "dark"
     return reg(REGISTRY_PATH, _DISPLAY_MODE_NAME, mode)
+
+
+# ───────────── Mica эффект ─────────────
+_MICA_ENABLED_NAME = "MicaEnabled"  # REG_DWORD (0 | 1)
+
+def get_mica_enabled() -> bool:
+    """Включён ли Mica-эффект (Win11+). По умолчанию True."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _MICA_ENABLED_NAME)
+    return True if val is None else bool(val)
+
+def set_mica_enabled(value: bool) -> bool:
+    """Сохраняет флаг Mica-эффекта (Win11+)."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _MICA_ENABLED_NAME, int(value))
 
 
 # ───────────── Фоновый пресет ─────────────

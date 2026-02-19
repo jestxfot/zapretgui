@@ -26,7 +26,6 @@ def get_nav_visibility(method: str) -> dict[PageName, bool]:
     is_direct_zapret2          = m == "direct_zapret2"
     is_direct_zapret2_orchestra = m == "direct_zapret2_orchestra"
     is_direct_zapret1          = m == "direct_zapret1"
-    is_bat                     = m == "bat"
     is_pure_orchestra          = m == "orchestra"
 
     # "orchestra" in a broad sense: any mode that uses the orchestra runner
@@ -37,25 +36,27 @@ def get_nav_visibility(method: str) -> dict[PageName, bool]:
 
     return {
         # ── Верх: "Управление" vs "Стратегии" (direct_zapret2 entry point) ───
-        PageName.CONTROL:                  not is_direct_zapret2,
+        # CONTROL скрыта для direct_zapret2 (заменена на ZAPRET2_DIRECT_CONTROL)
+        # и для direct_zapret1 (заменена на ZAPRET1_DIRECT_CONTROL)
+        PageName.CONTROL:                  not is_direct_zapret2 and not is_direct_zapret1,
         PageName.ZAPRET2_DIRECT_CONTROL:   is_direct_zapret2,
 
         # ── Strategy entry-point pages (one visible at a time) ───────────────
         PageName.ORCHESTRA:                is_pure_orchestra,
         PageName.ZAPRET2_ORCHESTRA:        is_direct_zapret2_orchestra,
-        PageName.ZAPRET1_DIRECT:           is_direct_zapret1,
-        PageName.BAT_STRATEGIES:           is_bat,
+        PageName.ZAPRET1_DIRECT_CONTROL:   is_direct_zapret1,
+
+        # Subpages for zapret1 — navigated to via buttons, never in sidebar
+        PageName.ZAPRET1_DIRECT:           False,
+        PageName.ZAPRET1_USER_PRESETS:     False,
 
         # ── Zapret2 sub-section ──────────────────────────────────────────────
-        PageName.PRESET_CONFIG:            is_zapret2_family,
+        PageName.PRESET_CONFIG:            is_zapret2_family or is_direct_zapret1,
 
         # Subpages navigated to via buttons — never in sidebar
         PageName.ZAPRET2_USER_PRESETS:     False,
         PageName.ZAPRET2_DIRECT:           False,
 
-        # ── Orchestra sub-pages ───────────────────────────────────────────────
-        PageName.ORCHESTRA_LOCKED:         is_any_orchestra,
-        PageName.ORCHESTRA_BLOCKED:        is_any_orchestra,
-        PageName.ORCHESTRA_RATINGS:        is_any_orchestra,
-        PageName.ORCHESTRA_WHITELIST:      is_any_orchestra,
+        # ── Orchestra settings (tabbed page) ─────────────────────────────────
+        PageName.ORCHESTRA_SETTINGS:       is_any_orchestra,
     }

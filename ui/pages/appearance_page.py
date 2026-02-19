@@ -41,6 +41,8 @@ class AppearancePage(BasePage):
     accent_color_changed = pyqtSignal(str)
     # Сигнал запроса обновления фона окна (при смене тонировки или акцента)
     background_refresh_needed = pyqtSignal()
+    # Сигнал изменения Mica-эффекта
+    mica_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__("Оформление", "Настройка внешнего вида приложения", parent)
@@ -63,6 +65,7 @@ class AppearancePage(BasePage):
         self._tinted_intensity_container = None
         self._tinted_intensity_slider = None
         self._tinted_intensity_value_label = None
+        self._mica_switch = None
 
         self._build_ui()
 
@@ -144,8 +147,23 @@ class AppearancePage(BasePage):
         rkn_row.addStretch()
         bg_layout.addLayout(rkn_row)
 
+        # Mica row
+        try:
+            from qfluentwidgets import SwitchButton
+            mica_row = SettingsRow("fa5s.magic", "Эффект Mica",
+                "Системная прозрачность Windows 11. Только на Windows 11+. "
+                "Недоступно при AMOLED и РКН Тян.")
+            self._mica_switch = SwitchButton()
+            self._mica_switch.checkedChanged.connect(self._on_mica_changed)
+            mica_row.set_control(self._mica_switch)
+            bg_layout.addWidget(mica_row)
+        except Exception:
+            pass
+
         bg_card.add_layout(bg_layout)
         self.add_widget(bg_card)
+
+        self._load_mica_state()
 
         self.add_spacing(16)
 
@@ -418,7 +436,32 @@ class AppearancePage(BasePage):
             set_background_preset(preset)
         except Exception:
             pass
+        if self._mica_switch:
+            self._mica_switch.setEnabled(preset == "standard")
         self.background_preset_changed.emit(preset)
+
+    def _on_mica_changed(self, checked: bool):
+        """Handle Mica SwitchButton toggle."""
+        self.mica_changed.emit(checked)
+
+    def set_mica_state(self, enabled: bool):
+        """Set Mica SwitchButton state without triggering signal."""
+        if self._mica_switch:
+            self._mica_switch.blockSignals(True)
+            self._mica_switch.setChecked(enabled)
+            self._mica_switch.blockSignals(False)
+
+    def _load_mica_state(self):
+        """Load Mica state from registry."""
+        try:
+            from config.reg import get_mica_enabled, get_background_preset
+            self.set_mica_state(get_mica_enabled())
+            # Disable switch if non-standard preset is active
+            if self._mica_switch:
+                preset = get_background_preset()
+                self._mica_switch.setEnabled(preset == "standard")
+        except Exception:
+            pass
 
     def _apply_theme_tokens(self, theme_name: str) -> None:
         """Refresh qtawesome icon labels on theme change."""

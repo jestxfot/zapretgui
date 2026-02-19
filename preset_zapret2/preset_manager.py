@@ -661,7 +661,7 @@ class PresetManager:
             if not template:
                 log(
                     "Cannot create preset: no built-in preset templates found. "
-                    "Expected at least one file in: %APPDATA%/zapret/presets/_builtin/*.txt",
+                    "Expected at least one file in: %APPDATA%/zapret/presets_v2_template/*.txt",
                     "ERROR",
                 )
                 return None
@@ -791,7 +791,7 @@ class PresetManager:
         """
         Imports preset from external file.
 
-        Copies the file to both presets_template/ (as reset source)
+        Copies the file to both presets_v2_template/ (as reset source)
         and presets/ (as editable copy).
 
         Args:
@@ -805,10 +805,10 @@ class PresetManager:
 
         actual_name = name if name else Path(src_path).stem
 
-        # Copy to presets_template/ as well (so reset works for imported presets)
+        # Copy to presets_v2_template/ as well (so reset works for imported presets)
         try:
-            from config import get_zapret_presets_template_dir
-            template_dir = Path(get_zapret_presets_template_dir())
+            from config import get_zapret_presets_v2_template_dir
+            template_dir = Path(get_zapret_presets_v2_template_dir())
             template_dir.mkdir(parents=True, exist_ok=True)
             template_dest = template_dir / f"{actual_name}.txt"
             shutil.copy2(str(src_path), str(template_dest))
@@ -1566,7 +1566,7 @@ class PresetManager:
             if not template_content:
                 log(
                     "Cannot reset active preset: no preset templates found. "
-                    "Expected at least one file in presets_template/ or _builtin/.",
+                    "Expected at least one file in presets_v2_template/.",
                     "ERROR",
                 )
                 return False
@@ -1659,7 +1659,7 @@ class PresetManager:
 
         By default, also activates it and rewrites preset-zapret2.txt.
 
-        First tries to find a template matching the preset name in presets_template/,
+        First tries to find a template matching the preset name in presets_v2_template/,
         then falls back to the default template.
 
         Overwrites:
@@ -1707,7 +1707,7 @@ class PresetManager:
             if not template_content:
                 log(
                     "Cannot reset preset: no preset templates found. "
-                    "Expected at least one file in presets_template/ or _builtin/.",
+                    "Expected at least one file in presets_v2_template/.",
                     "ERROR",
                 )
                 return False

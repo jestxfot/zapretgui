@@ -6,7 +6,7 @@ from __future__ import annotations
 Handles reading/writing preset files to disk.
 
 Presets are stored in a stable per-user directory (Windows):
-  %APPDATA%\\zapret\\presets
+  %APPDATA%\\zapret\\presets_v2
 
 This avoids reliance on the installation folder location.
 
@@ -53,20 +53,20 @@ def _get_app_core_path() -> str:
 
 
 def _get_presets_root_path() -> str:
-    """Returns the stable presets root (prefer %APPDATA%\\zapret\\presets)."""
+    """Returns the stable presets root (prefer %APPDATA%\\zapret\\presets_v2)."""
     global _PRESETS_ROOT_PATH
     if _PRESETS_ROOT_PATH is None:
         try:
-            from config import get_zapret_presets_dir
+            from config import get_zapret_presets_v2_dir
 
-            p = (get_zapret_presets_dir() or "").strip()
+            p = (get_zapret_presets_v2_dir() or "").strip()
             _PRESETS_ROOT_PATH = p
         except Exception:
             _PRESETS_ROOT_PATH = ""
 
         if not _PRESETS_ROOT_PATH:
             # Fallback for non-Windows/dev environments.
-            _PRESETS_ROOT_PATH = str(Path(_get_app_core_path()) / "presets")
+            _PRESETS_ROOT_PATH = str(Path(_get_app_core_path()) / "presets_v2")
     return _PRESETS_ROOT_PATH
 
 
@@ -112,7 +112,7 @@ def get_presets_dir() -> Path:
     Creates directory if it doesn't exist.
 
     Returns:
-        Path to %APPDATA%/zapret/presets/
+        Path to %APPDATA%/zapret/presets_v2/
     """
     presets_dir = Path(_get_presets_root_path())
     presets_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +153,7 @@ def get_user_settings_path() -> Path:
     This stores user-specific settings like active preset name.
 
     Returns:
-        Path to %APPDATA%/zapret/presets/user_settings.json
+        Path to %APPDATA%/zapret/presets_v2/user_settings.json
     """
     return get_presets_dir() / "user_settings.json"
 

@@ -57,7 +57,6 @@ a = Analysis(
         'ui.pages.home_page',
         'ui.pages.control_page',
         'ui.pages.strategies_page_base',
-        'ui.pages.zapret1_direct_strategies_page',
         'ui.pages.zapret2_orchestra_strategies_page',
         'ui.pages.network_page',
         'ui.pages.autostart_page',
@@ -66,7 +65,11 @@ a = Analysis(
         'ui.pages.logs_page',
         'ui.pages.premium_page',
         'ui.pages.help_page',
-        'ui.pages.bat_strategies_page',
+        # ui.pages.zapret1
+        'ui.pages.zapret1',
+        'ui.pages.zapret1.direct_control_page',
+        'ui.pages.zapret1.direct_zapret1_page',
+        'ui.pages.zapret1.user_presets_page',
         'ui.pages.blockcheck_page',
         'ui.pages.dpi_settings_page',
         'ui.pages.blobs_page',
@@ -94,6 +97,19 @@ a = Analysis(
         'ui.pages.zapret2.direct_zapret2_page',
         'ui.pages.zapret2.user_presets_page',
 
+        # ============= PRESET ZAPRET1 =============
+        'preset_zapret1',
+        'preset_zapret1.preset_manager',
+        'preset_zapret1.preset_model',
+        'preset_zapret1.preset_storage',
+        'preset_zapret1.preset_store',
+        'preset_zapret1.txt_preset_parser',
+        'preset_zapret1.preset_defaults',
+
+        # ============= ZAPRET1 LAUNCHER =============
+        'zapret1_launcher',
+        'zapret1_launcher.strategy_runner',
+
         # ============= LOG МОДУЛИ =============
         'log',
         'log.log',
@@ -116,8 +132,6 @@ a = Analysis(
         'strategy_menu.widgets_favorites',
         'strategy_menu.workers',
         'strategy_menu.profiler',
-        'strategy_menu.strategy_table_widget_favorites',
-        'strategy_menu.strategy_table_widget',
         'strategy_menu.table_builder',
         'strategy_menu.categories_tab_panel',
         'strategy_menu.args_preview_dialog',
@@ -126,7 +140,6 @@ a = Analysis(
         'strategy_menu.preset_editor_dialog',
         'strategy_menu.filter_engine',
         'strategy_menu.search_query',
-        'strategy_menu.strategy_adapters',
         'strategy_menu.strategy_info',
         'strategy_menu.strategy_matching',
         'strategy_menu.user_categories_store',

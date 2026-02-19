@@ -1,11 +1,11 @@
 # preset_zapret2/preset_defaults.py
 """Preset templates management.
 
-Templates are stored in `%APPDATA%/zapret/presets_template/*.txt`.
+Templates are stored in `%APPDATA%/zapret/presets_v2_template/*.txt`.
 They serve as the source-of-truth for preset reset operations.
-Editable copies live in `%APPDATA%/zapret/presets/*.txt`.
+Editable copies live in `%APPDATA%/zapret/presets_v2/*.txt`.
 
-At startup, templates are synced into presets/.
+At startup, templates are synced into presets_v2/.
 Missing presets are recreated, and existing presets can be force-updated
 when template `# BuiltinVersion` is newer.
 """
@@ -128,16 +128,16 @@ def _normalize_template_header(content: str, preset_name: str) -> str:
 
 
 def _get_templates_dir() -> Path:
-    """Returns path to presets_template/ directory."""
+    """Returns path to presets_v2_template/ directory."""
     try:
-        from config import get_zapret_presets_template_dir
-        return Path(get_zapret_presets_template_dir())
+        from config import get_zapret_presets_v2_template_dir
+        return Path(get_zapret_presets_v2_template_dir())
     except Exception:
         return Path("")
 
 
 def _load_templates_from_disk() -> dict[str, str]:
-    """Loads templates from `%APPDATA%/zapret/presets_template/*.txt`."""
+    """Loads templates from `%APPDATA%/zapret/presets_v2_template/*.txt`."""
     templates: dict[str, str] = {}
 
     templates_dir = _get_templates_dir()
@@ -297,10 +297,10 @@ _DELETED_SECTION = "deleted"
 
 
 def _get_deleted_presets_ini_path() -> Path:
-    """Path to deleted_presets.ini inside presets/ directory."""
+    """Path to deleted_presets.ini inside presets_v2/ directory."""
     try:
-        from config import get_zapret_presets_dir
-        return Path(get_zapret_presets_dir()) / "deleted_presets.ini"
+        from config import get_zapret_presets_v2_dir
+        return Path(get_zapret_presets_v2_dir()) / "deleted_presets.ini"
     except Exception:
         return Path("")
 
@@ -394,14 +394,14 @@ def ensure_templates_copied_to_presets() -> bool:
     Returns True on success.
     """
     try:
-        from config import get_zapret_presets_dir
+        from config import get_zapret_presets_v2_dir
         from .preset_storage import get_active_preset_name, get_active_preset_path
 
         templates = get_preset_templates()
         if not templates:
             return True
 
-        presets_dir = Path(get_zapret_presets_dir())
+        presets_dir = Path(get_zapret_presets_v2_dir())
         presets_dir.mkdir(parents=True, exist_ok=True)
 
         backups_dir = presets_dir / "_builtin_version_backups"
@@ -530,7 +530,7 @@ def get_default_category_settings() -> dict:
             from log import log
             log(
                 "Cannot parse default category settings: no preset templates found. "
-                "Expected at least one file in: %APPDATA%/zapret/presets_template/*.txt",
+                "Expected at least one file in: %APPDATA%/zapret/presets_v2_template/*.txt",
                 "ERROR",
             )
             return {}

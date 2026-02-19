@@ -149,7 +149,8 @@ class DPIStartWorker(QObject):
                 # direct_zapret1 работает так же как direct, но использует winws.exe и tcp_zapret1.json
                 success = self._start_direct()
             else:
-                success = self._start_bat()
+                log(f"Неизвестный метод запуска: {self.launch_method}", "❌ ERROR")
+                success = False
             
             if success:
                 self.progress.emit("DPI успешно запущен")
@@ -216,6 +217,20 @@ class DPIStartWorker(QObject):
                     return False
 
                 import os
+                if not os.path.exists(preset_path):
+                    # Try to auto-create for direct_zapret1
+                    if self.launch_method == "direct_zapret1":
+                        try:
+                            from preset_zapret1 import ensure_default_preset_exists_v1, PresetManagerV1
+                            ensure_default_preset_exists_v1()
+                            if not os.path.exists(preset_path):
+                                mgr = PresetManagerV1()
+                                mgr.switch_preset("Default", reload_dpi=False)
+                            if os.path.exists(preset_path):
+                                log(f"Auto-created missing preset: {preset_path}", "INFO")
+                        except Exception as e:
+                            log(f"Failed to auto-create V1 preset: {e}", "WARNING")
+
                 if not os.path.exists(preset_path):
                     log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
                     self._last_error_message = f"Preset файл не найден: {preset_path}"
@@ -316,74 +331,6 @@ class DPIStartWorker(QObject):
             self.progress.emit(diagnosis.split('\n')[0])  # Первая строка как статус
             return False
 
-    def _start_bat(self):
-        """Запуск через старый метод (.bat файлы)"""
-        try:
-            # Нормализуем selected_mode
-            mode_param = self.selected_mode
-            
-            if isinstance(mode_param, dict):
-                mode_param = mode_param.get('name') or 'default'
-            elif mode_param is None:
-                mode_param = 'default'
-            
-            log(f"Запуск BAT стратегии: {mode_param}", "DEBUG")
-            
-            # Используем BatDPIStart для BAT режима
-            result = self.app_instance.dpi_starter.start_dpi(selected_mode=mode_param)
-            
-            # Добавляем дополнительную проверку с несколькими попытками
-            if result:
-                import time
-                
-                # Даем процессу время на инициализацию - несколько проверок
-                max_checks = 5
-                for attempt in range(max_checks):
-                    time.sleep(0.4)  # Проверяем каждые 400мс
-                    
-                    if self.app_instance.dpi_starter.check_process_running_wmi(silent=True):
-                        log(f"✅ Процесс winws.exe успешно запущен и работает (попытка {attempt + 1})", "✅ SUCCESS")
-                        return True
-                
-                # Если после всех проверок процесс не найден
-                log("❌ DPI не запустился - процесс не найден после старта", "❌ ERROR")
-                
-                # Диагностика причин падения
-                try:
-                    from dpi.process_health_check import check_common_crash_causes
-                    causes = check_common_crash_causes()
-                    if causes:
-                        log(f"💡 Возможные причины падения:\n{causes}", "INFO")
-                except Exception as e:
-                    log(f"Ошибка диагностики: {e}", "DEBUG")
-                
-                # Пытаемся получить детальную информацию из событий Windows
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ['wevtutil', 'qe', 'Application', '/c:5', '/rd:true', '/f:text'],
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                    if result.stdout and 'winws' in result.stdout.lower():
-                        log(f"События Windows: {result.stdout[:500]}", "DEBUG")
-                except:
-                    pass
-                return False
-            
-            return result
-            
-        except Exception as e:
-            # Диагностируем ошибку и выводим понятное сообщение
-            exe_path = self._get_winws_exe() if hasattr(self.app_instance, 'dpi_starter') else None
-            diagnosis = diagnose_startup_error(e, exe_path)
-            for line in diagnosis.split('\n'):
-                log(line, "❌ ERROR")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
-            return False
-
     def _start_orchestra(self):
         """Запуск через оркестратор автоматического обучения"""
         try:
@@ -470,7 +417,8 @@ class DPIStopWorker(QObject):
             elif self.launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 success = self._stop_direct()
             else:
-                success = self._stop_bat()
+                # Fallback: try direct stop for any unrecognised launch method
+                success = self._stop_direct()
             
             if success:
                 self.progress.emit("DPI успешно остановлен")
@@ -503,19 +451,6 @@ class DPIStopWorker(QObject):
             log(f"Ошибка прямой остановки: {e}", "❌ ERROR")
             return False
     
-    def _stop_bat(self):
-        """Остановка через старый метод"""
-        try:
-            from dpi.stop import stop_dpi
-            stop_dpi(self.app_instance)
-
-            # Проверяем результат
-            return not self.app_instance.dpi_starter.check_process_running_wmi(silent=True)
-
-        except Exception as e:
-            log(f"Ошибка остановки через .bat: {e}", "❌ ERROR")
-            return False
-
     def _stop_orchestra(self):
         """Остановка оркестратора"""
         try:
@@ -603,7 +538,7 @@ class DPIController:
 
         Args:
             selected_mode: Стратегия для запуска
-            launch_method: Метод запуска ("direct_zapret2" или "bat"). Если None - читается из реестра
+            launch_method: Метод запуска ("direct_zapret2", "direct_zapret1", "orchestra" и т.д.). Если None - читается из реестра
         """
         # Проверка на уже запущенный поток
         try:
@@ -642,6 +577,19 @@ class DPIController:
                 else:  # direct_zapret1
                     preset_path = Path(MAIN_DIRECTORY) / "preset-zapret1.txt"
                     preset_name = "Zapret 1"
+                    # Auto-create default preset if missing
+                    if not preset_path.exists():
+                        try:
+                            from preset_zapret1 import ensure_default_preset_exists_v1, PresetManagerV1
+                            ensure_default_preset_exists_v1()
+                            if not preset_path.exists():
+                                # Switch default preset to active file
+                                mgr = PresetManagerV1()
+                                mgr.switch_preset("Default", reload_dpi=False)
+                            if preset_path.exists():
+                                log("Auto-created preset-zapret1.txt from default", "INFO")
+                        except Exception as e:
+                            log(f"Failed to auto-create V1 preset: {e}", "WARNING")
 
                 if not preset_path.exists():
                     log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
@@ -698,83 +646,10 @@ class DPIController:
                 }
                 log(f"Используется preset файл: {preset_path}", "INFO")
                 
-            else:  # BAT режим
-                # Для BAT режима берем последнюю выбранную стратегию из реестра
-                from config import get_last_strategy
-                
-                last_strategy_name = get_last_strategy()
-                log(f"Последняя использованная стратегия из реестра: {last_strategy_name}", "DEBUG")
-                
-                if last_strategy_name and hasattr(self.app, 'strategy_manager'):
-                    try:
-                        strategies = self.app.strategy_manager.get_local_strategies_only()
-                        
-                        # Ищем стратегию по имени
-                        found_strategy = None
-                        for sid, sinfo in strategies.items():
-                            if sinfo.get('name') == last_strategy_name:
-                                found_strategy = sinfo
-                                break
-                        
-                        if found_strategy:
-                            selected_mode = found_strategy
-                            log(f"Используется сохраненная стратегия: {found_strategy.get('name')}", "INFO")
-                        else:
-                            # Если сохраненная стратегия не найдена, ищем рекомендуемую
-                            log(f"Стратегия '{last_strategy_name}' не найдена, ищем рекомендуемую", "⚠ WARNING")
-                            
-                            # Ищем рекомендуемую стратегию
-                            for sid, sinfo in strategies.items():
-                                if sinfo.get('label') == 'recommended':
-                                    selected_mode = sinfo
-                                    log(f"Используется рекомендуемая стратегия: {sinfo.get('name')}", "INFO")
-                                    break
-                            
-                            # Если не нашли рекомендуемую, берем первую
-                            if not selected_mode and strategies:
-                                selected_mode = next(iter(strategies.values()))
-                                log(f"Используется первая доступная стратегия: {selected_mode.get('name')}", "INFO")
-                            
-                            if not selected_mode:
-                                log("Нет доступных стратегий в папке bat", "❌ ERROR")
-                                self.app.set_status("❌ Нет доступных стратегий")
-                                return
-                                
-                    except Exception as e:
-                        log(f"Ошибка получения стратегии из реестра: {e}", "❌ ERROR")
-                        self.app.set_status(f"❌ Ошибка: {e}")
-                        return
-                else:
-                    # Если в реестре ничего нет, ищем рекомендуемую
-                    if hasattr(self.app, 'strategy_manager'):
-                        try:
-                            strategies = self.app.strategy_manager.get_local_strategies_only()
-                            
-                            # Ищем рекомендуемую стратегию
-                            for sid, sinfo in strategies.items():
-                                if sinfo.get('label') == 'recommended':
-                                    selected_mode = sinfo
-                                    log(f"Используется рекомендуемая стратегия: {sinfo.get('name')}", "INFO")
-                                    break
-                            
-                            # Если не нашли рекомендуемую, берем первую
-                            if not selected_mode and strategies:
-                                selected_mode = next(iter(strategies.values()))
-                                log(f"Используется первая доступная стратегия: {selected_mode.get('name')}", "INFO")
-                            
-                            if not selected_mode:
-                                log("Нет доступных стратегий", "❌ ERROR")
-                                self.app.set_status("❌ Нет доступных стратегий")
-                                return
-                                
-                        except Exception as e:
-                            log(f"Ошибка получения стратегий: {e}", "❌ ERROR")
-                            self.app.set_status(f"❌ Ошибка: {e}")
-                            return
-                    else:
-                        log("strategy_manager недоступен", "❌ ERROR")
-                        self.app.set_status("❌ Менеджер стратегий недоступен")
-                        return
+            else:
+                log(f"Неизвестный метод запуска '{launch_method}': стратегия не выбрана", "❌ ERROR")
+                self.app.set_status("❌ Неизвестный метод запуска")
+                return
         
         # ✅ ОБРАБОТКА всех типов стратегий (остальной код без изменений)
         mode_name = "Неизвестная стратегия"
@@ -797,22 +672,14 @@ class DPIController:
             log(f"Обработка встроенной стратегии: {strategy_name} (ID: {strategy_id})", "DEBUG")
             
         elif isinstance(selected_mode, dict):
-            # BAT стратегия (отдельный ключ реестра)
+            # Preset file strategy (is_preset_file) или другой dict
             mode_name = selected_mode.get('name', str(selected_mode))
-            log(f"Обработка BAT стратегии: {mode_name}", "DEBUG")
-            
-            # Сохраняем имя BAT стратегии в реестр для будущего использования
-            from config.reg import set_last_bat_strategy
-            set_last_bat_strategy(mode_name)
-            
+            log(f"Обработка стратегии: {mode_name}", "DEBUG")
+
         elif isinstance(selected_mode, str):
-            # Строковое название (BAT стратегия)
+            # Строковое название стратегии
             mode_name = selected_mode
-            log(f"Обработка BAT стратегии по имени: {mode_name}", "DEBUG")
-            
-            # Сохраняем имя BAT стратегии в реестр
-            from config.reg import set_last_bat_strategy
-            set_last_bat_strategy(mode_name)
+            log(f"Обработка строковой стратегии: {mode_name}", "DEBUG")
         
         # Показываем состояние запуска
         if launch_method == "orchestra":
@@ -1034,7 +901,8 @@ class DPIController:
         # Too short window causes false negatives like:
         #   "DPI не запустился - процесс не найден после старта"
         # even though the process appears moments later (process monitor sees it).
-        MAX_RETRIES = 12
+        # 25 retries × 300ms = 7.5s — enough for first-run WinDivert driver install.
+        MAX_RETRIES = 25
         RETRY_DELAY_MS = 300
 
         is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
@@ -1061,12 +929,16 @@ class DPIController:
             self.app.intentional_start = True
 
             # Перезапускаем Discord если нужно
-            from discord.discord_restart import get_discord_restart_setting
-            if not self.app.first_start and get_discord_restart_setting():
-                if hasattr(self.app, 'discord_manager'):
-                    self.app.discord_manager.restart_discord_if_running()
-            else:
-                self.app.first_start = False
+            try:
+                from discord.discord_restart import get_discord_restart_setting
+                is_first = getattr(self.app, '_first_dpi_start', True)
+                if not is_first and get_discord_restart_setting():
+                    if hasattr(self.app, 'discord_manager'):
+                        self.app.discord_manager.restart_discord_if_running()
+                else:
+                    self.app._first_dpi_start = False
+            except Exception as e:
+                log(f"Discord restart check error: {e}", "DEBUG")
         else:
             # Процесс не запустился или сразу упал
             log("DPI не запустился - процесс не найден после старта", "❌ ERROR")

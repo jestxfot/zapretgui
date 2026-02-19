@@ -1,17 +1,17 @@
 # zapret1_launcher/strategy_runner.py
 """
-Strategy runner for Zapret 1 (winws.exe) - simple version without hot-reload.
+Strategy runner for Zapret 1 (winws.exe).
 
-This is a simplified version that:
-- Does NOT support hot-reload (no config watcher)
-- Does NOT support Lua functionality
-- Writes to preset-zapret1.txt
+Supports hot-reload via ConfigFileWatcher when preset-zapret1.txt changes.
+Does NOT support Lua functionality.
+Writes args to preset-zapret1.txt and launches winws.exe via @file syntax.
 """
 
 import os
 import subprocess
+import threading
 import time
-from typing import Optional, List
+from typing import Optional, List, Callable
 from datetime import datetime
 from log import log
 
@@ -86,6 +86,68 @@ def log_full_command(cmd_list: List[str], strategy_name: str):
         log(f"Error writing command to log: {e}", "DEBUG")
 
 
+class ConfigFileWatcher:
+    """
+    Monitors preset file changes for hot-reload.
+
+    Watches a config file and calls callback when modification time changes.
+    Runs in a background thread with configurable polling interval.
+    """
+
+    def __init__(self, file_path: str, callback: Callable[[], None], interval: float = 1.0):
+        self._file_path = file_path
+        self._callback = callback
+        self._interval = interval
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._last_mtime: Optional[float] = None
+
+        if os.path.exists(self._file_path):
+            self._last_mtime = os.path.getmtime(self._file_path)
+
+    def start(self):
+        """Start watching the file in background thread"""
+        if self._running:
+            log("ConfigFileWatcher already running", "DEBUG")
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._watch_loop, daemon=True, name="ConfigFileWatcherV1")
+        self._thread.start()
+        log(f"ConfigFileWatcher started for: {self._file_path}", "DEBUG")
+
+    def stop(self):
+        """Stop watching the file"""
+        if not self._running:
+            return
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._thread = None
+        log("ConfigFileWatcher stopped", "DEBUG")
+
+    def _watch_loop(self):
+        """Main watch loop - polls file for changes"""
+        while self._running:
+            try:
+                if os.path.exists(self._file_path):
+                    current_mtime = os.path.getmtime(self._file_path)
+                    if self._last_mtime is not None and current_mtime != self._last_mtime:
+                        log(f"Config file changed: {self._file_path}", "INFO")
+                        self._last_mtime = current_mtime
+                        try:
+                            self._callback()
+                        except Exception as e:
+                            log(f"Error in config change callback: {e}", "ERROR")
+                    self._last_mtime = current_mtime
+            except Exception as e:
+                log(f"Error checking file modification: {e}", "DEBUG")
+
+            sleep_remaining = self._interval
+            while sleep_remaining > 0 and self._running:
+                time.sleep(min(0.1, sleep_remaining))
+                sleep_remaining -= 0.1
+
+
 class StrategyRunnerV1:
     """
     Runner for Zapret 1 (winws.exe).
@@ -101,6 +163,10 @@ class StrategyRunnerV1:
         self.running_process: Optional[subprocess.Popen] = None
         self.current_strategy_name: Optional[str] = None
         self.current_strategy_args: Optional[List[str]] = None
+
+        # Config file watcher for hot-reload on preset change
+        self._config_watcher: Optional[ConfigFileWatcher] = None
+        self._preset_file_path: Optional[str] = None
 
         # Verify exe exists
         if not os.path.exists(self.winws_exe):
@@ -134,16 +200,13 @@ class StrategyRunnerV1:
         preset_path = os.path.join(self.work_dir, preset_filename)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Convert paths to relative for readability
-        relative_args = self._make_paths_relative(args)
-
         with open(preset_path, 'w', encoding='utf-8') as f:
             f.write(f"# Strategy: {strategy_name}\n")
             f.write(f"# Generated: {timestamp}\n")
 
             first_filter_found = False
 
-            for arg in relative_args:
+            for arg in args:
                 if not first_filter_found and (arg.startswith('--filter-tcp') or arg.startswith('--filter-udp')):
                     f.write("\n")
                     first_filter_found = True
@@ -154,69 +217,6 @@ class StrategyRunnerV1:
                     f.write("\n")
 
         return preset_path
-
-    def _make_paths_relative(self, args: List[str]) -> List[str]:
-        """
-        Converts absolute paths to relative from work_dir for config readability.
-        Preserves @ prefix for zapret2 file parameters.
-
-        Args:
-            args: List of arguments with absolute paths
-
-        Returns:
-            List of arguments with relative paths
-        """
-        result = []
-        work_dir_normalized = os.path.normpath(self.work_dir).lower()
-
-        for arg in args:
-            if '=' not in arg:
-                result.append(arg)
-                continue
-
-            prefix, value = arg.split('=', 1)
-
-            value_clean = value.strip('"').strip("'")
-
-            # Check special format --blob=name:@path or --blob=name:+offset@path
-            if ':' in value_clean and prefix == '--blob':
-                colon_idx = value_clean.index(':')
-                blob_name = value_clean[:colon_idx]
-                blob_value = value_clean[colon_idx + 1:]
-
-                offset_prefix = ""
-                if blob_value.startswith('+'):
-                    at_idx = blob_value.find('@')
-                    if at_idx > 0:
-                        offset_prefix = blob_value[:at_idx]
-                        blob_value = blob_value[at_idx:]
-
-                if blob_value.startswith('@'):
-                    path = blob_value[1:]
-                    path_normalized = os.path.normpath(path).lower()
-                    if path_normalized.startswith(work_dir_normalized):
-                        rel_path = os.path.relpath(path, self.work_dir).replace('\\', '/')
-                        result.append(f'{prefix}={blob_name}:{offset_prefix}@{rel_path}')
-                    else:
-                        result.append(arg)
-                else:
-                    result.append(arg)
-                continue
-
-            has_at_prefix = value_clean.startswith('@')
-            path_value = value_clean[1:] if has_at_prefix else value_clean
-
-            path_normalized = os.path.normpath(path_value).lower()
-            if path_normalized.startswith(work_dir_normalized):
-                rel_path = os.path.relpath(path_value, self.work_dir).replace('\\', '/')
-                if has_at_prefix:
-                    result.append(f'{prefix}=@{rel_path}')
-                else:
-                    result.append(f'{prefix}={rel_path}')
-            else:
-                result.append(arg)
-
-        return result
 
     def _create_startup_info(self):
         """Creates STARTUPINFO for hidden process launch"""
@@ -311,6 +311,32 @@ class StrategyRunnerV1:
         from utils.service_manager import stop_and_delete_service
         stop_and_delete_service("Monkey", retry_count=3)
 
+    def _on_config_changed(self) -> None:
+        """Called when preset-zapret1.txt changes. Performs full restart."""
+        log("preset-zapret1.txt changed, restarting winws.exe...", "INFO")
+        try:
+            if self._preset_file_path and os.path.exists(self._preset_file_path):
+                self.start_from_preset_file(
+                    self._preset_file_path,
+                    strategy_name=self.current_strategy_name or "Preset",
+                )
+        except Exception as e:
+            log(f"Error restarting after config change: {e}", "ERROR")
+
+    def _start_config_watcher(self, preset_file: str) -> None:
+        """Starts config file watcher for hot-reload."""
+        # Stop existing watcher
+        if self._config_watcher:
+            self._config_watcher.stop()
+            self._config_watcher = None
+
+        self._config_watcher = ConfigFileWatcher(
+            file_path=preset_file,
+            callback=self._on_config_changed,
+            interval=1.0,
+        )
+        self._config_watcher.start()
+
     def start_strategy_custom(self, custom_args: List[str], strategy_name: str = "Custom Strategy", _retry_count: int = 0) -> bool:
         """
         Starts strategy with arbitrary arguments.
@@ -365,6 +391,20 @@ class StrategyRunnerV1:
                 log("No arguments for startup", "ERROR")
                 return False
 
+            # Self-healing: verify winws.exe still exists before launch
+            if not os.path.exists(self.winws_exe):
+                log(f"winws.exe disappeared: {self.winws_exe}", "ERROR")
+                return False
+
+            # Self-healing: ensure work/lists directories exist
+            for d in (self.work_dir, self.lists_dir, self.bin_dir):
+                if d and not os.path.isdir(d):
+                    try:
+                        os.makedirs(d, exist_ok=True)
+                        log(f"Auto-created missing directory: {d}", "INFO")
+                    except Exception as e:
+                        log(f"Cannot create directory {d}: {e}", "WARNING")
+
             # Resolve paths
             resolved_args = self._resolve_file_paths(custom_args)
 
@@ -373,6 +413,7 @@ class StrategyRunnerV1:
 
             # Write config to file
             preset_file = self._write_preset_file(resolved_args, strategy_name)
+            self._preset_file_path = preset_file
 
             # Build command with @file
             cmd = [self.winws_exe, f"@{preset_file}"]
@@ -404,7 +445,8 @@ class StrategyRunnerV1:
 
             if self.running_process.poll() is None:
                 log(f"Strategy '{strategy_name}' started (PID: {self.running_process.pid})", "SUCCESS")
-                # NO hot-reload watcher for V1
+                # Start config file watcher for hot-reload
+                self._start_config_watcher(preset_file)
                 return True
             else:
                 exit_code = self.running_process.returncode
@@ -447,42 +489,145 @@ class StrategyRunnerV1:
             self.current_strategy_args = None
             return False
 
-    def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+    def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset", _retry_count: int = 0) -> bool:
         """
-        Starts strategy directly from an existing preset file.
+        Starts strategy directly from an existing preset file via @file syntax.
 
-        Used by DPI controller when selected_mode is {'is_preset_file': True, ...}.
+        Unlike the old approach, does NOT re-parse/rewrite the file.
+        Preset file must already contain resolved paths (lists/X, bin/X).
         """
+        MAX_RETRIES = 2
+
+        if not os.path.exists(preset_path):
+            # Self-healing: try to create default preset
+            log(f"Preset file not found: {preset_path}, attempting auto-create...", "WARNING")
+            try:
+                from preset_zapret1 import ensure_default_preset_exists_v1, PresetManagerV1
+                ensure_default_preset_exists_v1()
+                if not os.path.exists(preset_path):
+                    mgr = PresetManagerV1()
+                    mgr.switch_preset("Default", reload_dpi=False)
+                if os.path.exists(preset_path):
+                    log(f"Auto-created preset file: {preset_path}", "INFO")
+            except Exception as e:
+                log(f"Auto-create failed: {e}", "WARNING")
+
         if not os.path.exists(preset_path):
             log(f"Preset file not found: {preset_path}", "ERROR")
             return False
 
         try:
-            with open(preset_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            # Stop previous process
+            if self.running_process and self.is_running():
+                log("Stopping previous process before starting new one", "INFO")
+                self.stop()
 
-            args: List[str] = []
-            for line in lines:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                args.append(line)
+            from utils.process_killer import kill_winws_force
 
-            if not args:
-                log(f"Preset file is empty or has no valid arguments: {preset_path}", "ERROR")
+            if _retry_count > 0:
+                self._aggressive_windivert_cleanup()
+            else:
+                log("Cleaning up previous winws processes...", "DEBUG")
+                kill_winws_force()
+                self._fast_cleanup_services()
+
+                try:
+                    from utils.service_manager import unload_driver
+                    for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
+                        try:
+                            unload_driver(driver)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                time.sleep(0.3)
+
+            # Self-healing: verify winws.exe still exists
+            if not os.path.exists(self.winws_exe):
+                log(f"winws.exe disappeared: {self.winws_exe}", "ERROR")
                 return False
 
-            log(f"Starting from preset file: {preset_path} ({len(args)} args)", "INFO")
-            return self.start_strategy_custom(args, strategy_name)
+            # Store preset file path for hot-reload
+            self._preset_file_path = preset_path
+
+            # Build command with @file
+            cmd = [self.winws_exe, f"@{preset_path}"]
+
+            log(f"Starting from preset file: {preset_path}", "INFO")
+            log(f"Strategy: {strategy_name}" + (f" (attempt {_retry_count + 1})" if _retry_count > 0 else ""), "INFO")
+
+            # Start process
+            self.running_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                startupinfo=self._create_startup_info(),
+                creationflags=CREATE_NO_WINDOW,
+                cwd=self.work_dir
+            )
+
+            # Save info
+            self.current_strategy_name = strategy_name
+            self.current_strategy_args = [f"@{preset_path}"]
+
+            # Quick startup check
+            time.sleep(0.2)
+
+            if self.running_process.poll() is None:
+                log(f"Strategy '{strategy_name}' started from preset (PID: {self.running_process.pid})", "SUCCESS")
+                self._start_config_watcher(preset_path)
+                return True
+            else:
+                exit_code = self.running_process.returncode
+                log(f"Strategy '{strategy_name}' exited immediately (code: {exit_code})", "ERROR")
+
+                stderr_output = ""
+                try:
+                    stderr_output = self.running_process.stderr.read().decode('utf-8', errors='ignore')
+                    if stderr_output:
+                        log(f"Error: {stderr_output[:500]}", "ERROR")
+                except Exception:
+                    pass
+
+                self.running_process = None
+                self.current_strategy_name = None
+                self.current_strategy_args = None
+
+                # Auto retry on WinDivert error
+                if self._is_windivert_conflict_error(stderr_output, exit_code) and _retry_count < MAX_RETRIES:
+                    log(f"Detected WinDivert conflict, automatic retry ({_retry_count + 1}/{MAX_RETRIES})...", "INFO")
+                    return self.start_from_preset_file(preset_path, strategy_name, _retry_count + 1)
+
+                causes = check_common_crash_causes()
+                if causes:
+                    log("Possible causes:", "INFO")
+                    for line in causes.split('\n')[:5]:
+                        log(f"  {line}", "INFO")
+
+                return False
 
         except Exception as e:
-            log(f"Error reading preset file: {e}", "ERROR")
+            diagnosis = diagnose_startup_error(e, self.winws_exe)
+            for line in diagnosis.split('\n'):
+                log(line, "ERROR")
+
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            self.running_process = None
+            self.current_strategy_name = None
+            self.current_strategy_args = None
             return False
 
     def stop(self) -> bool:
         """Stops running process"""
         try:
-            # NO config watcher to stop in V1
+            # Stop config file watcher
+            if self._config_watcher:
+                self._config_watcher.stop()
+                self._config_watcher = None
+
             success = True
 
             if self.running_process and self.is_running():

@@ -17,12 +17,13 @@ from .config import (
     # Функции определения exe по методу
     ZAPRET2_MODES, get_winws_exe_for_method, is_zapret2_mode,
     # Paths for per-user presets/lists templates
-    get_zapret_presets_dir, get_zapret_userdata_dir, get_zapret_presets_template_dir,
+    get_zapret_presets_v2_dir, get_zapret_userdata_dir, get_zapret_presets_v2_template_dir,
+    get_zapret_presets_v1_template_dir,
     get_zapret_lists_template_dir, get_other_template_path,
     get_zapret_lists_backup_dir, get_other_backup_path, get_other_user_backup_path
 )
 from .build_info import APP_VERSION, CHANNEL
-from .reg import reg, HKCU, get_last_strategy, set_last_strategy, get_last_bat_strategy, set_last_bat_strategy, get_dpi_autostart, set_dpi_autostart, get_subscription_check_interval, get_remove_github_api, get_active_hosts_domains, set_active_hosts_domains, get_auto_update_enabled, set_auto_update_enabled, get_tray_hint_shown, set_tray_hint_shown
+from .reg import reg, HKCU, get_dpi_autostart, set_dpi_autostart, get_subscription_check_interval, get_remove_github_api, get_active_hosts_domains, set_active_hosts_domains, get_auto_update_enabled, set_auto_update_enabled, get_tray_hint_shown, set_tray_hint_shown
 
 __all__ = [
     # build_info.py
@@ -43,8 +44,9 @@ __all__ = [
     'APP_CORE_PATH',
     'APPDATA_DIR',
     'get_zapret_userdata_dir',
-    'get_zapret_presets_dir',
-    'get_zapret_presets_template_dir',
+    'get_zapret_presets_v2_dir',
+    'get_zapret_presets_v2_template_dir',
+    'get_zapret_presets_v1_template_dir',
     'get_zapret_lists_template_dir',
     'get_other_template_path',
     'get_zapret_lists_backup_dir',
@@ -80,10 +82,6 @@ __all__ = [
     'MIN_WIDTH',
     'MIN_HEIGHT',
     # reg.py
-    'get_last_strategy',  # УСТАРЕВШАЯ - используйте get_last_bat_strategy
-    'set_last_strategy',  # УСТАРЕВШАЯ - используйте set_last_bat_strategy
-    'get_last_bat_strategy',
-    'set_last_bat_strategy',
     'get_dpi_autostart',
     'set_dpi_autostart',
     'get_subscription_check_interval',
