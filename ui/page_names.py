@@ -32,6 +32,7 @@ class PageName(Enum):
     ZAPRET1_DIRECT_CONTROL = auto()  # Zapret 1 Direct: управление (главная вкладка)
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
     ZAPRET1_USER_PRESETS = auto()    # Zapret 1 Direct: пользовательские пресеты
+    ZAPRET1_STRATEGY_DETAIL = auto() # Zapret 1 Direct: детали стратегии для категории
     STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
     HOSTLIST = auto()                # Листы (Hostlist + IPset)
@@ -199,6 +200,7 @@ STRATEGY_PAGES: set[PageName] = {
     PageName.ZAPRET1_DIRECT_CONTROL,
     PageName.ZAPRET1_DIRECT,
     PageName.ZAPRET1_USER_PRESETS,
+    PageName.ZAPRET1_STRATEGY_DETAIL,
     PageName.STRATEGY_DETAIL,
     PageName.ORCHESTRA,
     PageName.ZAPRET2_USER_PRESETS,

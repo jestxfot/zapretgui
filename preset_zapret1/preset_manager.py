@@ -481,19 +481,13 @@ class PresetManagerV1:
             cat.udp_args = ""
             return
 
-        from preset_zapret2.catalog import load_categories, load_strategies
+        from preset_zapret2.catalog import load_categories
+        from preset_zapret1.strategies_loader import load_v1_strategies
 
         categories = load_categories()
         category_info = categories.get(category_key) or {}
-        strategy_type = (category_info.get("strategy_type") or "tcp").strip() or "tcp"
 
-        try:
-            from strategy_menu.strategies_registry import get_current_strategy_set
-            strategy_set = get_current_strategy_set()
-        except Exception:
-            strategy_set = None
-
-        strategies = load_strategies(strategy_type, strategy_set=strategy_set)
+        strategies = load_v1_strategies(category_key)
         args = (strategies.get(strategy_id) or {}).get("args", "") or ""
 
         if args:

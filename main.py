@@ -1819,15 +1819,13 @@ def main():
             log("=== CPU DIAGNOSTIC: начало ===", "INFO")
             log(f"Активных тредов Python: {_t.active_count()}", "INFO")
 
-            # — Thread stack dump (one snapshot) —
+            # — Thread stack dump (one snapshot) — INFO level so it shows in logs
             frames = _sys._current_frames()
             for tid, frame in frames.items():
                 th = next((x for x in _t.enumerate() if x.ident == tid), None)
                 name = th.name if th else f"tid-{tid}"
                 stack = "".join(_tb.format_stack(frame)).strip()
-                # Log only non-trivial stacks (skip pure idle event loop)
-                if "app.exec" not in stack and "select" not in stack.lower():
-                    log(f"[Thread '{name}']\n{stack[-800:]}", "DEBUG")
+                log(f"[STACK '{name}']\n{stack[-1200:]}", "INFO")
 
             # — 5 CPU samples, 2 sec each —
             samples_gui = []
@@ -1848,6 +1846,31 @@ def main():
 
             avg = sum(samples_gui) / len(samples_gui) if samples_gui else 0
             log(f"=== CPU DIAGNOSTIC DONE: avg Python GUI = {avg:.1f}% ===", "INFO")
+
+            # — Sampling profiler: снимаем стеки ВСЕХ тредов 50 раз за 5с —
+            if avg > 20:
+                try:
+                    from collections import Counter as _Counter
+                    sample_counts: dict = _Counter()
+                    for _ in range(50):
+                        _time.sleep(0.1)
+                        frames2 = _sys._current_frames()
+                        for tid2, frame2 in frames2.items():
+                            th2 = next((x for x in _t.enumerate() if x.ident == tid2), None)
+                            tname2 = th2.name if th2 else f"tid-{tid2}"
+                            # Top 3 frames as key
+                            import traceback as _tb2
+                            stack2 = _tb2.extract_stack(frame2)
+                            key = tname2 + " | " + " → ".join(
+                                f"{f.filename.split('/')[-1].split(chr(92))[-1]}:{f.lineno}:{f.name}"
+                                for f in stack2[-4:]
+                            )
+                            sample_counts[key] += 1
+                    top = sample_counts.most_common(15)
+                    report = "\n".join(f"  {cnt:3d}x  {key}" for key, cnt in top)
+                    log(f"[SAMPLING top-15 hotspots (50 samples × 100ms)]\n{report}", "INFO")
+                except Exception as _pe:
+                    log(f"Sampling error: {_pe}", "WARNING")
         except Exception as _e:
             log(f"CPU diagnostic error: {_e}", "WARNING")
 

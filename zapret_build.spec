@@ -132,7 +132,6 @@ a = Analysis(
         'strategy_menu.widgets_favorites',
         'strategy_menu.workers',
         'strategy_menu.profiler',
-        'strategy_menu.table_builder',
         'strategy_menu.categories_tab_panel',
         'strategy_menu.args_preview_dialog',
         'strategy_menu.dialogs',

@@ -513,6 +513,7 @@ def _load_strategy_file(directory: Path, basename: str) -> Optional[Dict]:
     return None
 
 
+
 def load_category_strategies(category: str, strategy_set: str = None) -> Dict[str, Dict]:
     """
     Загружает стратегии для категории из builtin и user директорий.
@@ -581,29 +582,6 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
     if builtin_data is None and strategy_set:
         log(f"Файл {basename}.txt/.json не найден, используем стандартный {category}", "DEBUG")
         builtin_data = _load_strategy_file(builtin_dir, category)
-
-    # Специальная логика для Zapret 1: все UDP категории используют один файл
-    if builtin_data is None and strategy_set == "zapret1":
-        # UDP категории
-        if category.endswith("_udp") or category.startswith("udp_") or category == "udp":
-            basename = "udp_zapret1"
-            builtin_data = _load_strategy_file(builtin_dir, basename)
-            log(f"Zapret 1: используем {basename} для UDP категории '{category}'", "DEBUG")
-        # Discord Voice
-        elif category == "discord_voice":
-            basename = "discord_voice_zapret1"
-            builtin_data = _load_strategy_file(builtin_dir, basename)
-            log(f"Zapret 1: используем {basename} для Discord Voice", "DEBUG")
-        # HTTP80 категории
-        elif category == "http80" or category.endswith("_http80"):
-            basename = "http80_zapret1"
-            builtin_data = _load_strategy_file(builtin_dir, basename)
-            log(f"Zapret 1: используем {basename} для HTTP80 категории '{category}'", "DEBUG")
-        # TCP категории (все остальные)
-        else:
-            basename = "tcp_zapret1"
-            builtin_data = _load_strategy_file(builtin_dir, basename)
-            log(f"Zapret 1: используем {basename} для TCP категории '{category}'", "DEBUG")
 
     # Авто-нумерация :strategy=N только для orchestra
     auto_number = (strategy_set == "orchestra")

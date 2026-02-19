@@ -27,6 +27,7 @@ from .preset_defaults import (
     ensure_default_preset_exists_v1,
     ensure_v1_templates_copied_to_presets,
 )
+from .strategies_loader import load_v1_strategies, BASIC_STRATEGIES_DIR
 
 __all__ = [
     "CategoryConfigV1",
@@ -51,4 +52,6 @@ __all__ = [
     "get_all_builtin_preset_names_v1",
     "ensure_default_preset_exists_v1",
     "ensure_v1_templates_copied_to_presets",
+    "load_v1_strategies",
+    "BASIC_STRATEGIES_DIR",
 ]

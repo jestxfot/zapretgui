@@ -255,29 +255,3 @@ class PresetEditorDialog(QDialog):
             self._save_timer.stop()
             self._save_file()
         event.accept()
-
-
-def open_preset_editor(preset_path: str, parent=None, center_on_parent: bool = True):
-    """
-    Открывает редактор конфига.
-
-    Args:
-        preset_path: Путь к файлу preset-zapret2.txt
-        parent: Родительский виджет
-        center_on_parent: Центрировать относительно родителя
-
-    Returns:
-        PresetEditorDialog: Экземпляр диалога
-    """
-    dialog = PresetEditorDialog(preset_path, parent)
-
-    if center_on_parent and parent:
-        parent_rect = parent.geometry()
-        dialog_size = dialog.size()
-        x = parent_rect.x() + (parent_rect.width() - dialog_size.width()) // 2
-        y = parent_rect.y() + (parent_rect.height() - dialog_size.height()) // 2
-        dialog.show_animated(dialog.pos().__class__(x, y))
-    else:
-        dialog.show_animated()
-
-    return dialog

@@ -91,8 +91,8 @@ def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> 
         strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
     """
     try:
-        from strategy_menu.strategy_loader import load_strategies_as_dict
-        strategies = load_strategies_as_dict(strategy_type, strategy_set)
+        from preset_zapret2.catalog import load_strategies
+        strategies = load_strategies(strategy_type, strategy_set)
         if strategies:
             set_name = strategy_set or "стандартный"
             log(f"Загружено {len(strategies)} стратегий типа '{strategy_type}' (набор: {set_name})", "DEBUG")
@@ -197,8 +197,8 @@ def _load_categories_from_json() -> Dict[str, CategoryInfo]:
         Словарь {category_key: CategoryInfo}
     """
     try:
-        from strategy_menu.strategy_loader import load_categories
-        
+        from preset_zapret2.catalog import load_categories
+
         raw_categories = load_categories()
         result = {}
         
@@ -271,11 +271,6 @@ def reload_categories():
     _categories_cache = {}
     _categories_loaded = False
     return _get_categories()
-
-# Режимы которые требуют агрессивной фильтрации (все порты)
-AGGRESSIVE_MODES = {"windivert_all", "wf-l3-all"}
-# Режимы аккуратной фильтрации (ограниченные порты)
-CAREFUL_MODES = {"windivert-discord-media-stun-sites", "wf-l3"}
 
 def get_category_icon(category_key: str):
     """Возвращает Font Awesome иконку для категории"""
@@ -545,115 +540,6 @@ class StrategiesRegistry:
             )
         return self._sorted_keys_cache
     
-    def is_category_blocked(self, category_key: str, base_args_mode: str) -> bool:
-        """
-        Проверяет, заблокирована ли категория для данного режима фильтрации.
-        Заблокированные категории показываются полупрозрачными с курсором 🚫.
-        
-        Args:
-            category_key: Ключ категории
-            base_args_mode: Режим фильтрации ('windivert-discord-media-stun-sites', 'wf-l3', 
-                           'windivert_all', 'wf-l3-all')
-        
-        Returns:
-            True если категория заблокирована (полупрозрачная, нельзя выбрать)
-        """
-        category_info = self._categories.get(category_key)
-        if not category_info:
-            return True  # Неизвестные категории блокируем
-        
-        is_careful_mode = base_args_mode in CAREFUL_MODES
-        
-        # Если аккуратный режим и категория требует все порты - блокируем
-        if is_careful_mode and category_info.requires_all_ports:
-            return True
-        
-        return False
-    
-    def get_blocked_categories_for_mode(self, base_args_mode: str) -> List[str]:
-        """
-        Возвращает список заблокированных категорий для данного режима.
-        
-        Args:
-            base_args_mode: Режим фильтрации
-            
-        Returns:
-            Список ключей заблокированных категорий
-        """
-        is_careful_mode = base_args_mode in CAREFUL_MODES
-        
-        if not is_careful_mode:
-            return []
-        
-        return [
-            key for key, info in self._categories.items()
-            if info.requires_all_ports
-        ]
-    
-    def is_category_enabled_by_filters(self, category_key: str) -> bool:
-        """
-        Проверяет, включена ли категория на основе текущих настроек фильтров.
-        Возвращает True если категория должна быть видна.
-        """
-        from strategy_menu import (
-            get_wf_tcp_80_enabled, get_wf_tcp_443_enabled,
-            get_wf_tcp_warp_enabled, get_wf_udp_443_enabled,
-            get_wf_tcp_all_ports_enabled, get_wf_udp_all_ports_enabled,
-            get_wf_raw_discord_media_enabled, get_wf_raw_stun_enabled
-        )
-
-        category_info = self._categories.get(category_key)
-        if not category_info:
-            return False
-
-        protocol = category_info.protocol
-        base_filter = category_info.base_filter
-        requires_all = category_info.requires_all_ports
-        strategy_type = category_info.strategy_type if category_info.strategy_type else ""
-
-        # HTTP 80 port (все категории с strategy_type="http80")
-        if strategy_type == "http80":
-            return get_wf_tcp_80_enabled()
-
-        # WARP категории (TCP 443, 853)
-        is_warp = "warp" in category_key.lower() or strategy_type == "warp"
-        if is_warp and protocol == 'TCP':
-            return get_wf_tcp_warp_enabled()
-
-        # Discord Voice UDP (raw filters)
-        if category_key == 'discord_voice_udp':
-            return get_wf_raw_discord_media_enabled() or get_wf_raw_stun_enabled()
-
-        # YouTube QUIC - теперь зависит от UDP 443 (дублирование с QUIC Initial убрано)
-        if category_key == 'youtube_udp':
-            return get_wf_udp_443_enabled()
-
-        # UDP категории
-        if protocol in ('UDP', 'QUIC/UDP'):
-            # UDP 443 (QUIC) - udp_discord и другие
-            if '443' in category_info.ports and not requires_all:
-                return get_wf_udp_443_enabled()
-            # UDP all ports - игры и ipset (все не-443 порты)
-            return get_wf_udp_all_ports_enabled()
-
-        # TCP категории
-        if protocol == 'TCP':
-            # TCP all ports - ipset категории
-            if requires_all:
-                return get_wf_tcp_all_ports_enabled()
-            # TCP 443 - основные категории
-            return get_wf_tcp_443_enabled()
-
-        return True
-    
-    def get_enabled_category_keys(self) -> List[str]:
-        """Получить ключи категорий, включенных по текущим фильтрам"""
-        enabled = []
-        for key in self._categories.keys():
-            if self.is_category_enabled_by_filters(key):
-                enabled.append(key)
-        return sorted(enabled, key=lambda k: self._categories[k].order)
-
 # ==================== ГЛОБАЛЬНЫЙ ЭКЗЕМПЛЯР ====================
 
 # Создаем глобальный экземпляр реестра
@@ -694,8 +580,6 @@ def get_default_selections() -> Dict[str, str]:
 __all__ = [
     'StrategiesRegistry',
     'CategoryInfo',
-    'AGGRESSIVE_MODES',
-    'CAREFUL_MODES',
     'registry',
     'get_strategies_registry',
     'get_category_strategies',
@@ -705,28 +589,8 @@ __all__ = [
     'get_tab_tooltips',
     'get_default_selections',
     'get_category_icon',
-    'is_category_enabled_by_filters',
-    'get_enabled_category_keys',
     'reload_categories',
-    'is_category_blocked',
-    'get_blocked_categories_for_mode',
     # Strategy set
     'get_current_strategy_set',
     'set_strategy_set',
 ]
-
-def is_category_enabled_by_filters(category_key: str) -> bool:
-    """Совместимость: проверить включена ли категория по фильтрам"""
-    return registry.is_category_enabled_by_filters(category_key)
-
-def get_enabled_category_keys() -> List[str]:
-    """Совместимость: получить включенные категории"""
-    return registry.get_enabled_category_keys()
-
-def is_category_blocked(category_key: str, base_args_mode: str) -> bool:
-    """Совместимость: проверить заблокирована ли категория для режима"""
-    return registry.is_category_blocked(category_key, base_args_mode)
-
-def get_blocked_categories_for_mode(base_args_mode: str) -> List[str]:
-    """Совместимость: получить список заблокированных категорий для режима"""
-    return registry.get_blocked_categories_for_mode(base_args_mode)

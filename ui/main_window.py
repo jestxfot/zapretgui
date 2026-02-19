@@ -62,6 +62,11 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.zapret1.user_presets_page",
         "Zapret1UserPresetsPage",
     ),
+    PageName.ZAPRET1_STRATEGY_DETAIL: (
+        "zapret1_strategy_detail_page",
+        "ui.pages.zapret1.strategy_detail_page_v1",
+        "Zapret1StrategyDetailPage",
+    ),
     PageName.PRESET_CONFIG: ("preset_config_page", "ui.pages.preset_config_page", "PresetConfigPage"),
     PageName.HOSTLIST: ("hostlist_page", "ui.pages.hostlist_page", "HostlistPage"),
     PageName.BLOBS: ("blobs_page", "ui.pages.blobs_page", "BlobsPage"),
@@ -300,6 +305,7 @@ class MainWindowUI:
             PageName.BLOBS,
             PageName.ZAPRET1_DIRECT,
             PageName.ZAPRET1_USER_PRESETS,
+            PageName.ZAPRET1_STRATEGY_DETAIL,
         ):
             page = self.pages.get(hidden)
             if page is not None:
@@ -402,6 +408,27 @@ class MainWindowUI:
                 page.back_clicked,
                 lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL),
             )
+
+        if page_name == PageName.ZAPRET1_DIRECT and hasattr(page, "category_clicked"):
+            self._connect_signal_once(
+                "z1_direct.category_clicked",
+                page.category_clicked,
+                self._open_zapret1_category_detail,
+            )
+
+        if page_name == PageName.ZAPRET1_STRATEGY_DETAIL:
+            if hasattr(page, "back_clicked"):
+                self._connect_signal_once(
+                    "z1_strategy_detail.back_clicked",
+                    page.back_clicked,
+                    lambda: self.show_page(PageName.ZAPRET1_DIRECT),
+                )
+            if hasattr(page, "strategy_selected"):
+                self._connect_signal_once(
+                    "z1_strategy_detail.strategy_selected",
+                    page.strategy_selected,
+                    self._on_z1_strategy_detail_selected,
+                )
 
         if page_name == PageName.ZAPRET1_DIRECT_CONTROL:
             if hasattr(page, "navigate_to_strategies"):
@@ -549,16 +576,6 @@ class MainWindowUI:
         elif hasattr(self.appearance_page, 'theme_changed'):
             self.display_mode_changed = self.appearance_page.theme_changed
 
-        # Zapret 1 Direct signals
-        if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'strategy_selected'):
-            self.zapret1_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
-        if hasattr(self, 'zapret1_strategies_page') and hasattr(self.zapret1_strategies_page, 'back_clicked'):
-            self.zapret1_strategies_page.back_clicked.connect(
-                lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL))
-        if hasattr(self, 'zapret1_user_presets_page') and hasattr(self.zapret1_user_presets_page, 'back_clicked'):
-            self.zapret1_user_presets_page.back_clicked.connect(
-                lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL))
-
         # Zapret 2 Direct signals
         if hasattr(self, 'zapret2_strategies_page') and hasattr(self.zapret2_strategies_page, 'strategy_selected'):
             self.zapret2_strategies_page.strategy_selected.connect(self._on_strategy_selected_from_page)
@@ -639,12 +656,6 @@ class MainWindowUI:
                     z1_page.test_btn.clicked.connect(self._proxy_test_click)
                 if hasattr(z1_page, 'folder_btn'):
                     z1_page.folder_btn.clicked.connect(self._proxy_folder_click)
-                if hasattr(z1_page, 'navigate_to_strategies'):
-                    z1_page.navigate_to_strategies.connect(
-                        lambda: self.show_page(PageName.ZAPRET1_DIRECT))
-                if hasattr(z1_page, 'navigate_to_presets'):
-                    z1_page.navigate_to_presets.connect(
-                        lambda: self.show_page(PageName.ZAPRET1_USER_PRESETS))
         except Exception:
             pass
 
@@ -1312,6 +1323,41 @@ class MainWindowUI:
                 self.zapret2_strategies_page.apply_filter_mode_change(category_key, filter_mode)
         except Exception:
             pass
+
+    # ── Zapret 1 strategy detail ────────────────────────────────────────────
+
+    def _open_zapret1_category_detail(self, category_key: str, category_info: dict) -> None:
+        from log import log
+        try:
+            detail_page = self._ensure_page(PageName.ZAPRET1_STRATEGY_DETAIL)
+            if detail_page is None:
+                log("ZAPRET1_STRATEGY_DETAIL page not found", "ERROR")
+                return
+
+            from preset_zapret1 import PresetManagerV1
+
+            def _reload_dpi():
+                try:
+                    page = getattr(self, "zapret1_direct_control_page", None)
+                    if page and hasattr(page, "_reload_dpi"):
+                        page._reload_dpi()
+                except Exception:
+                    pass
+
+            manager = PresetManagerV1(on_dpi_reload_needed=_reload_dpi)
+            detail_page.set_category(category_key, category_info, manager)
+            self.show_page(PageName.ZAPRET1_STRATEGY_DETAIL)
+        except Exception as e:
+            log(f"Error opening V1 category detail: {e}", "ERROR")
+
+    def _on_z1_strategy_detail_selected(self, category_key: str, strategy_id: str) -> None:
+        from log import log
+        log(f"V1 strategy detail selected: {category_key} = {strategy_id}", "INFO")
+        # Обновить субтитры карточек на странице списка категорий
+        page = getattr(self, "zapret1_strategies_page", None)
+        if page and hasattr(page, "_refresh_subtitles"):
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, page._refresh_subtitles)
 
     def show_autostart_page(self):
         self.show_page(PageName.AUTOSTART)

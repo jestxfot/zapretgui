@@ -536,7 +536,15 @@ class StrategyDetailPage(BasePage):
                     QEvent.Type.WindowDeactivate,
                     QEvent.Type.WindowStateChange,
                 ):
-                    # Always close: prevents "stuck on top of all windows" previews.
+                    # Don't close if focus went to the preview dialog itself.
+                    if et == QEvent.Type.WindowDeactivate and self._preview_dialog is not None:
+                        try:
+                            from PyQt6.QtWidgets import QApplication as _QApp
+                            active = _QApp.activeWindow()
+                            if active is not None and active is self._preview_dialog:
+                                return super().eventFilter(obj, event)
+                        except Exception:
+                            pass
                     self._close_preview_dialog(force=True)
         except Exception:
             pass
