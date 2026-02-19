@@ -46,8 +46,6 @@ from .orchestra import (
     OrchestraRatingsPage,
 )
 from .preset_config_page import PresetConfigPage
-from .presets_page import PresetsPage
-
 __all__ = [
     'HomePage',
     'ControlPage',
@@ -88,5 +86,4 @@ __all__ = [
     'OrchestraWhitelistPage',  # Страница белого списка оркестратора
     'OrchestraRatingsPage',  # Страница истории стратегий с рейтингами
     'PresetConfigPage',  # Страница редактора preset-zapret2.txt
-    'PresetsPage',  # Страница управления пресетами (только direct_zapret2)
 ]

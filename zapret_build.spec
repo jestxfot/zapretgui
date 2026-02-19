@@ -87,7 +87,6 @@ a = Analysis(
         'ui.pages.orchestra_ratings_page',
         'ui.pages.orchestra_whitelist_page',
         'ui.pages.preset_config_page',
-        'ui.pages.presets_page',
         'ui.pages.servers_page',
         'ui.pages.support_page',
         # ui.pages.zapret2

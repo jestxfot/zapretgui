@@ -222,7 +222,7 @@ class OrchestraPage(BasePage):
         # Таймер для обработки очереди логов (50ms - быстро, но не блокирует UI)
         self._log_queue_timer = QTimer(self)
         self._log_queue_timer.timeout.connect(self._process_log_queue)
-        self._log_queue_timer.start(50)
+        # НЕ стартуем здесь — только при start_monitoring() / showEvent()
 
         # Подключаем сигнал для обновления логов (теперь только из main thread)
         self.log_received.connect(self._on_log_received)
@@ -519,7 +519,6 @@ class OrchestraPage(BasePage):
 
     def _on_log_received(self, text: str):
         """Обработчик сигнала - добавляет лог и определяет состояние"""
-        print(f"[DEBUG _on_log_received] {text[:80]}...")  # DEBUG
         self.append_log(text)
         self._detect_state_from_line(text)
 
@@ -704,18 +703,19 @@ class OrchestraPage(BasePage):
             if hasattr(app, 'orchestra_runner') and app.orchestra_runner:
                 runner = app.orchestra_runner
                 if runner.output_callback is None:
-                    print("[DEBUG start_monitoring] Устанавливаем callback на запущенный runner")  # DEBUG
                     runner.set_output_callback(self.emit_log)
-        except Exception as e:
-            print(f"[DEBUG start_monitoring] Ошибка установки callback: {e}")  # DEBUG
+        except Exception:
+            pass
 
         # Сбрасываем позицию чтения лога при старте
         self._last_log_position = 0
+        self._log_queue_timer.start(50)
         self.update_timer.start(5000)  # Обновляем каждые 5 секунд (было 500мс)
         self._update_all()  # Сразу обновляем
 
     def stop_monitoring(self):
         """Останавливает мониторинг"""
+        self._log_queue_timer.stop()
         self.update_timer.stop()
 
     def showEvent(self, event):

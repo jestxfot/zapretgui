@@ -101,7 +101,6 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
 
 _PAGE_ALIASES: dict[PageName, PageName] = {
     PageName.IPSET: PageName.HOSTLIST,
-    PageName.PRESETS: PageName.ZAPRET2_USER_PRESETS,
 }
 
 _EAGER_PAGE_NAMES: tuple[PageName, ...] = (

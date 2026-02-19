@@ -39,7 +39,6 @@ class PageName(Enum):
     IPSET = auto()                   # Legacy alias -> Листы
     BLOBS = auto()                   # Блобы
     DPI_SETTINGS = auto()            # Настройки DPI
-    PRESETS = auto()                 # Пресеты настроек (только direct_zapret2)
     ZAPRET2_USER_PRESETS = auto()      # Zapret 2 Direct: пользовательские пресеты
 
     # === Мои списки ===
