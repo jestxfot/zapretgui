@@ -308,7 +308,7 @@ def load_txt_file(filepath: Path) -> Optional[Dict]:
         return None
 
 
-def validate_strategy(strategy: Dict, strategy_id: str = None) -> tuple[bool, str]:
+def validate_strategy(strategy: Dict, strategy_id: Optional[str] = None) -> tuple[bool, str]:
     """
     Валидирует стратегию.
     
@@ -440,7 +440,7 @@ def _load_strategy_file(directory: Path, basename: str) -> Optional[Dict]:
 
 
 
-def load_category_strategies(category: str, strategy_set: str = None) -> Dict[str, Dict]:
+def load_category_strategies(category: str, strategy_set: Optional[str] = None) -> Dict[str, Dict]:
     """
     Загружает стратегии для категории из builtin и user директорий.
     User стратегии имеют приоритет (перезаписывают builtin с тем же id).
@@ -448,14 +448,16 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
 
     Args:
         category: Имя категории (tcp, udp, http80, discord_voice)
-        strategy_set: Набор стратегий (None = стандартный, "orchestra" = tcp_orchestra и т.д.)
+        strategy_set: Набор стратегий (например: basic/advanced/orchestra, None = стандартный)
 
     Returns:
         Словарь {strategy_id: strategy_dict}
     """
-    # direct_zapret2 Basic: load from a stable per-user directory to avoid
+    strategy_set_key = (strategy_set or "").strip().lower()
+
+    # direct_zapret2 Basic/Advanced: load from a stable per-user directory to avoid
     # depending on the install location / INDEXJSON_FOLDER.
-    if (strategy_set or "").strip().lower() == "basic":
+    if strategy_set_key in ("basic", "advanced"):
         strategies: Dict[str, Dict] = {}
 
         try:
@@ -464,38 +466,38 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
         except Exception:
             base = ""
 
-        basic_dir = Path(base) / "direct_zapret2" / "basic_strategies" if base else None
+        mode_dir = Path(base) / "direct_zapret2" / f"{strategy_set_key}_strategies" if base else None
         try:
-            if basic_dir is not None:
-                basic_dir.mkdir(parents=True, exist_ok=True)
+            if mode_dir is not None:
+                mode_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
 
         basename = category
 
-        # Загружаем стратегии из basic_dir (TXT или JSON)
-        basic_data = _load_strategy_file(basic_dir, basename) if basic_dir is not None else None
+        # Загружаем стратегии из per-mode каталога (TXT или JSON)
+        mode_data = _load_strategy_file(mode_dir, basename) if mode_dir is not None else None
         auto_number = False
 
-        if basic_data and 'strategies' in basic_data:
-            for strategy in basic_data['strategies']:
+        if mode_data and 'strategies' in mode_data:
+            for strategy in mode_data['strategies']:
                 is_valid, error = validate_strategy(strategy)
                 if is_valid:
                     normalized = normalize_strategy(strategy, auto_number=auto_number)
-                    normalized['_source'] = 'basic'
+                    normalized['_source'] = strategy_set_key
                     strategies[normalized['id']] = normalized
                 else:
-                    log(f"Пропущена невалидная basic стратегия: {error}", "WARNING")
+                    log(f"Пропущена невалидная {strategy_set_key} стратегия: {error}", "WARNING")
 
-        log(f"Загружено {len(strategies)} basic стратегий для категории '{category}' ({basic_dir})", "DEBUG")
+        log(f"Загружено {len(strategies)} {strategy_set_key} стратегий для категории '{category}' ({mode_dir})", "DEBUG")
         return strategies
 
     ensure_directories()
     strategies = {}
 
     # Определяем базовое имя файла на основе strategy_set
-    if strategy_set:
-        basename = f"{category}_{strategy_set}"
+    if strategy_set_key:
+        basename = f"{category}_{strategy_set_key}"
     else:
         basename = category
 
@@ -505,12 +507,12 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
     builtin_data = _load_strategy_file(builtin_dir, basename)
 
     # Если файл с суффиксом не найден, fallback на стандартный
-    if builtin_data is None and strategy_set:
+    if builtin_data is None and strategy_set_key:
         log(f"Файл {basename}.txt/.json не найден, используем стандартный {category}", "DEBUG")
         builtin_data = _load_strategy_file(builtin_dir, category)
 
     # Авто-нумерация :strategy=N только для orchestra
-    auto_number = (strategy_set == "orchestra")
+    auto_number = (strategy_set_key == "orchestra")
 
     if builtin_data and 'strategies' in builtin_data:
         for strategy in builtin_data['strategies']:
@@ -541,13 +543,13 @@ def load_category_strategies(category: str, strategy_set: str = None) -> Dict[st
 
 
 # Для обратной совместимости - загрузка в старый формат
-def load_strategies_as_dict(category: str, strategy_set: str = None) -> Dict[str, Dict]:
+def load_strategies_as_dict(category: str, strategy_set: Optional[str] = None) -> Dict[str, Dict]:
     """
     Загружает стратегии и возвращает в формате совместимом со старым кодом.
 
     Args:
         category: Имя категории (tcp, udp, http80, discord_voice)
-        strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
+        strategy_set: Набор стратегий (например: basic/advanced/orchestra, None = стандартный)
 
     Returns:
         Словарь {strategy_id: {name, description, author, label, blobs, args}}

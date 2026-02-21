@@ -263,6 +263,53 @@ def ensure_basic_strategies_exist() -> bool:
         return False
 
 
+def ensure_advanced_strategies_exist() -> bool:
+    """Ensures direct_zapret2 Advanced strategies exist in Roaming AppData.
+
+    Installer target:
+      %APPDATA%\\zapret\\direct_zapret2\\advanced_strategies\\*.txt
+
+    Dev convenience: seed files from repo folder
+      preset_zapret2/advanced_strategies/
+    """
+    from log import log
+
+    try:
+        try:
+            from config import get_zapret_userdata_dir
+            dst_dir = Path(get_zapret_userdata_dir()) / "direct_zapret2" / "advanced_strategies"
+        except Exception:
+            # Fallback: keep everything under presets root.
+            dst_dir = get_presets_dir().parent / "direct_zapret2" / "advanced_strategies"
+
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+        # Dev convenience: seed from repo folder if present (do not overwrite user edits)
+        try:
+            from config import MAIN_DIRECTORY
+            src_dir = Path(MAIN_DIRECTORY) / "preset_zapret2" / "advanced_strategies"
+            if src_dir.exists() and src_dir.is_dir():
+                for p in sorted(list(src_dir.glob("*.txt")) + list(src_dir.glob("*.json")), key=lambda x: x.name.lower()):
+                    if p.name.startswith("_"):
+                        continue
+                    dst = dst_dir / p.name
+                    if dst.exists():
+                        continue
+                    try:
+                        dst.write_text(p.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+                        log(f"Seeded advanced strategies file: {dst}", "DEBUG")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return True
+
+    except Exception as e:
+        log(f"Error ensuring advanced strategies: {e}", "ERROR")
+        return False
+
+
 def ensure_default_preset_exists() -> bool:
     """
     Ensures that a default preset exists for direct_zapret2 mode.
@@ -286,6 +333,9 @@ def ensure_default_preset_exists() -> bool:
 
     # Ensure Basic strategies catalog exists (stable path in Roaming AppData).
     ensure_basic_strategies_exist()
+
+    # Ensure Advanced strategies catalog exists (stable path in Roaming AppData).
+    ensure_advanced_strategies_exist()
 
     # Check if active preset file already exists
     if active_path.exists():

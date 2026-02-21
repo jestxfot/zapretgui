@@ -2050,7 +2050,7 @@ class PresetManager:
 
         try:
             # Keep strategy args resolution in sync with UI-selected strategy set
-            # (direct_zapret2 Basic loads from %APPDATA%\zapret\direct_zapret2\basic_strategies\*.txt).
+            # (direct_zapret2 Basic/Advanced load from %APPDATA%\zapret\direct_zapret2\*_strategies\*.txt).
             from strategy_menu.strategies_registry import get_current_strategy_set
             strategy_set = get_current_strategy_set()
         except Exception:
@@ -2064,8 +2064,9 @@ class PresetManager:
         if not args and strategy_type == "tcp":
             try:
                 # tcp_fake is a special catalog used by the multi-phase TCP UI.
-                # Keep the legacy fallback without tying it to the current set.
-                fake_strategies = load_strategies("tcp_fake", strategy_set=None)
+                # In advanced mode load from advanced_strategies; otherwise keep legacy fallback.
+                fake_strategy_set = "advanced" if strategy_set == "advanced" else None
+                fake_strategies = load_strategies("tcp_fake", strategy_set=fake_strategy_set)
                 args = (fake_strategies.get(strategy_id) or {}).get("args", "") or ""
             except Exception:
                 args = args or ""

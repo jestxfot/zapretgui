@@ -198,20 +198,24 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
     if cache_key in _CACHED_STRATEGIES:
         return _CACHED_STRATEGIES[cache_key]
 
-    # direct_zapret2 Basic strategies live outside the install folder.
-    # Inno Setup copies them to: %APPDATA%\zapret\direct_zapret2\basic_strategies\
+    strategy_set_key = (strategy_set or "").strip().lower()
+
+    # direct_zapret2 Basic/Advanced strategies live outside the install folder.
+    # Inno Setup copies them to:
+    #   %APPDATA%\zapret\direct_zapret2\basic_strategies\
+    #   %APPDATA%\zapret\direct_zapret2\advanced_strategies\
     # We always load them from that stable per-user location.
-    if (strategy_set or "").strip().lower() == "basic":
+    if strategy_set_key in ("basic", "advanced"):
         try:
             from config import get_zapret_userdata_dir
             base = (get_zapret_userdata_dir() or "").strip()
         except Exception:
             base = ""
 
-        basic_dir = Path(base) / "direct_zapret2" / "basic_strategies" if base else None
+        set_dir = Path(base) / "direct_zapret2" / f"{strategy_set_key}_strategies" if base else None
         filename = f"{strategy_type}.txt"
 
-        def _load_one_basic(file_path: Path) -> Dict[str, Dict]:
+        def _load_one_external(file_path: Path) -> Dict[str, Dict]:
             if not file_path.exists():
                 return {}
             text = _read_text(file_path)
@@ -270,7 +274,7 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
             _flush()
             return strategies
 
-        merged = _load_one_basic(basic_dir / filename) if basic_dir else {}
+        merged = _load_one_external(set_dir / filename) if set_dir else {}
         if merged:
             _CACHED_STRATEGIES[cache_key] = merged
         return merged
@@ -280,7 +284,7 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
         # Same rationale as load_categories(): don't cache misses permanently.
         return {}
 
-    filename = f"{strategy_type}.txt" if not strategy_set else f"{strategy_type}_{strategy_set}.txt"
+    filename = f"{strategy_type}.txt" if not strategy_set_key else f"{strategy_type}_{strategy_set_key}.txt"
 
     def _load_one(file_path: Path) -> Dict[str, Dict]:
         if not file_path.exists():

@@ -1377,7 +1377,7 @@ class StrategyDetailPage(BasePage):
 
         # Determine whether to use the TCP multi-phase UI:
         # - only for TCP strategies (tcp.txt)
-        # - only for direct_zapret2 standard set (no orchestra/zapret1)
+        # - only for direct_zapret2 advanced set (no orchestra/zapret1/basic)
         new_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp").strip().lower()
         is_udp_like_now = self._is_udp_like_category()
         try:
@@ -1385,7 +1385,11 @@ class StrategyDetailPage(BasePage):
             strategy_set = get_current_strategy_set()
         except Exception:
             strategy_set = None
-        want_tcp_phase_mode = (new_strategy_type == "tcp") and (not is_udp_like_now) and (strategy_set is None)
+        want_tcp_phase_mode = (
+            (new_strategy_type == "tcp")
+            and (not is_udp_like_now)
+            and (strategy_set in (None, "advanced"))
+        )
 
         self._tcp_phase_mode = bool(want_tcp_phase_mode)
         try:
@@ -1645,8 +1649,11 @@ class StrategyDetailPage(BasePage):
             # TCP multi-phase: load additional pure-fake strategies from tcp_fake.txt
             if self._tcp_phase_mode:
                 try:
+                    from strategy_menu.strategies_registry import get_current_strategy_set
                     from strategy_menu.strategy_loader import load_strategies_as_dict
-                    fake_strategies = load_strategies_as_dict("tcp_fake")
+                    current_set = get_current_strategy_set()
+                    fake_set = "advanced" if current_set == "advanced" else None
+                    fake_strategies = load_strategies_as_dict("tcp_fake", fake_set)
                 except Exception:
                     fake_strategies = {}
 

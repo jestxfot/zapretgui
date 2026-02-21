@@ -21,7 +21,7 @@ from log import log
 _strategies_cache = {}  # {(strategy_type, strategy_set): strategies_dict} - кешируем по типу и набору
 _imported_types = set()  # Какие (type, set) пары уже загружены
 _logged_missing_strategies = set()  # Чтобы не спамить логи одними и теми же предупреждениями
-_current_strategy_set = None  # Текущий набор стратегий (None = стандартный, "orchestra" и т.д.)
+_current_strategy_set = None  # Текущий набор стратегий (например: basic/advanced/orchestra/zapret1)
 _failed_import_last_attempt_at = {}  # {(strategy_type, strategy_set): monotonic_time}
 _failed_import_logged = set()  # {(strategy_type, strategy_set)}
 _FAILED_IMPORT_RETRY_SECONDS = 1.0
@@ -32,7 +32,8 @@ def get_current_strategy_set() -> Optional[str]:
     Возвращает текущий набор стратегий на основе метода запуска.
 
     Returns:
-        None для стандартного набора, "orchestra" для direct_zapret2_orchestra, "zapret1" для direct_zapret1 и т.д.
+        "basic"/"advanced" для direct_zapret2, "orchestra" для direct_zapret2_orchestra,
+        "zapret1" для direct_zapret1 и т.д.
     """
     try:
         from strategy_menu import get_strategy_launch_method, get_direct_zapret2_ui_mode
@@ -45,12 +46,12 @@ def get_current_strategy_set() -> Optional[str]:
                 ui_mode = (get_direct_zapret2_ui_mode() or "").strip().lower()
             except Exception:
                 ui_mode = ""
-            if ui_mode == "basic":
-                return "basic"
+            if ui_mode in ("basic", "advanced"):
+                return ui_mode
 
         # Маппинг метода запуска на набор стратегий
         method_to_set = {
-            "direct_zapret2": None,           # стандартный набор (tcp.json)
+            "direct_zapret2": None,           # fallback: стандартный набор (legacy)
             "direct_zapret2_orchestra": "orchestra",  # tcp_orchestra.json
             "direct_zapret1": "zapret1",      # tcp_zapret1.json (Zapret 1 прямой режим)
             "orchestra": None,        # Orchestra использует свой механизм
@@ -81,14 +82,14 @@ def set_strategy_set(strategy_set: Optional[str]):
 DISCORD_VOICE_FILTER = "--filter-l7=discord,stun"
 
 
-def _load_strategies_from_json(strategy_type: str, strategy_set: str = None) -> Dict:
+def _load_strategies_from_json(strategy_type: str, strategy_set: Optional[str] = None) -> Dict:
     """
     Загружает стратегии из JSON файлов.
     Сначала builtin, потом user (user перезаписывает builtin).
 
     Args:
         strategy_type: Тип стратегий (tcp, udp, http80, discord_voice)
-        strategy_set: Набор стратегий (None = стандартный, "orchestra" и т.д.)
+        strategy_set: Набор стратегий (например: basic/advanced/orchestra, None = стандартный)
     """
     try:
         from preset_zapret2.catalog import load_strategies
@@ -465,9 +466,11 @@ class StrategiesRegistry:
         if not strategy and category_info.strategy_type == "tcp":
             try:
                 from strategy_menu.strategy_loader import load_strategies_as_dict
-                # tcp_fake.txt is a special catalog for the TCP multi-phase UI and
-                # is not tied to the current strategy_set (basic/orchestra/zapret1).
-                fake_strategies = load_strategies_as_dict("tcp_fake", None)
+                # In advanced mode tcp_fake is loaded from advanced_strategies;
+                # in other modes we keep legacy lookup (None).
+                current_set = get_current_strategy_set()
+                fake_set = "advanced" if current_set == "advanced" else None
+                fake_strategies = load_strategies_as_dict("tcp_fake", fake_set)
                 strategy = (fake_strategies or {}).get(strategy_id)
             except Exception:
                 strategy = None

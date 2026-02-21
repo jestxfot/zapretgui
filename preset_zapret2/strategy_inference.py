@@ -100,7 +100,7 @@ def infer_strategy_id_from_args(
         category_key: Category name (e.g., "youtube", "discord")
         args: Strategy arguments from preset file
         protocol: Protocol ("tcp" or "udp") - used only for logging
-        strategy_set: Optional strategies catalog set name (e.g. "basic", "orchestra").
+        strategy_set: Optional strategies catalog set name (e.g. "basic", "advanced", "orchestra").
             When provided, inference compares args against that catalog to keep UI
             selection stable across refreshes.
 
@@ -153,9 +153,13 @@ def infer_strategy_id_from_args(
             from .catalog import load_strategies
 
             # tcp_fake is a special catalog used by the multi-phase TCP UI.
-            # It is not tied to the current strategy_set (and Basic mode likely
-            # doesn't ship tcp_fake.txt in %APPDATA% basic_strategies).
-            set_for_candidate = None if (candidate_type or "").strip().lower() == "tcp_fake" else strategy_set
+            # In advanced mode it is loaded from advanced_strategies; in other
+            # modes keep legacy untied behavior.
+            candidate_type_key = (candidate_type or "").strip().lower()
+            if candidate_type_key == "tcp_fake":
+                set_for_candidate = "advanced" if (strategy_set == "advanced") else None
+            else:
+                set_for_candidate = strategy_set
             candidates = load_strategies(candidate_type, strategy_set=set_for_candidate)
         except Exception:
             candidates = {}

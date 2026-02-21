@@ -101,6 +101,11 @@ Source: "{#PROJECTPATH}\preset_zapret1\builtin_presets\*.txt"; DestDir: "{userap
 Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret2\basic_strategies"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.json"; DestDir: "{userappdata}\zapret\direct_zapret2\basic_strategies"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
+; ✅ direct_zapret2 Advanced strategies -> %APPDATA%\zapret\direct_zapret2\advanced_strategies
+; Always overwritten on update to keep the Advanced catalog current.
+Source: "{#PROJECTPATH}\preset_zapret2\advanced_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret2\advanced_strategies"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+Source: "{#PROJECTPATH}\preset_zapret2\advanced_strategies\*.json"; DestDir: "{userappdata}\zapret\direct_zapret2\advanced_strategies"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+
 ; ✅ Hostlist template other.txt -> %APPDATA%\zapret\lists_template
 ; Source of truth comes from SOURCEPATH\lists\other.txt
 Source: "{#SOURCEPATH}\lists\other.txt"; DestDir: "{userappdata}\zapret\lists_template"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
