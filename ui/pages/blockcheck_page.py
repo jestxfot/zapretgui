@@ -137,11 +137,13 @@ class BlockcheckPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("BlockcheckPage")
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._card_frames = []
         self._card_title_labels = []
         self._card_body_labels = []
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 32, 32, 32)
@@ -208,64 +210,38 @@ class BlockcheckPage(QWidget):
         self._apply_theme()
 
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            self.title_label.setStyleSheet(
-                f"color: {tokens.fg}; font-size: 32px; font-weight: 800; font-family: {tokens.font_family_qss};"
-            )
-            self.subtitle_label.setStyleSheet(
-                f"color: {tokens.fg_muted}; font-size: 16px;"
-            )
-            self.soon_badge.setStyleSheet(
-                f"color: {tokens.fg}; font-weight: 600; letter-spacing: 3px; font-size: 11px; padding: 8px 0; border-radius: 12px; background: {tokens.accent_soft_bg};"
-            )
-            self.soon_text.setStyleSheet(
-                f"color: {tokens.fg_muted}; font-size: 13px;"
-            )
+        tokens = get_theme_tokens()
+        self.title_label.setStyleSheet(
+            f"color: {tokens.fg}; font-size: 32px; font-weight: 800; font-family: {tokens.font_family_qss};"
+        )
+        self.subtitle_label.setStyleSheet(
+            f"color: {tokens.fg_muted}; font-size: 16px;"
+        )
+        self.soon_badge.setStyleSheet(
+            f"color: {tokens.fg}; font-weight: 600; letter-spacing: 3px; font-size: 11px; padding: 8px 0; border-radius: 12px; background: {tokens.accent_soft_bg};"
+        )
+        self.soon_text.setStyleSheet(
+            f"color: {tokens.fg_muted}; font-size: 13px;"
+        )
 
-            card_qss = f"""
-                QFrame {{
-                    background-color: {tokens.surface_bg};
-                    border: none;
-                    border-radius: 12px;
-                }}
-                QFrame:hover {{
-                    background-color: {tokens.surface_bg_hover};
-                }}
-                QLabel {{
-                    border: none;
-                    background: transparent;
-                }}
-            """
-            for card in self._card_frames:
-                card.setStyleSheet(card_qss)
-            for label in self._card_title_labels:
-                label.setStyleSheet(f"color: {tokens.fg}; font-size: 14px; font-weight: 600;")
-            for label in self._card_body_labels:
-                label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
-        finally:
-            self._applying_theme_styles = False
+        card_qss = f"""
+            QFrame {{
+                background-color: {tokens.surface_bg};
+                border: none;
+                border-radius: 12px;
+            }}
+            QFrame:hover {{
+                background-color: {tokens.surface_bg_hover};
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """
+        for card in self._card_frames:
+            card.setStyleSheet(card_qss)
+        for label in self._card_title_labels:
+            label.setStyleSheet(f"color: {tokens.fg}; font-size: 14px; font-weight: 600;")
+        for label in self._card_body_labels:
+            label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 13px;")
 
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-        self.update()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)

@@ -146,6 +146,8 @@ def infer_strategy_id_from_args(
         return [st]
 
     any_strategies_loaded = False
+    loaded_candidates: dict[str, dict] = {}
+
     for candidate_type in _iter_candidate_strategy_types(strategy_type):
         try:
             from .catalog import load_strategies
@@ -160,6 +162,7 @@ def infer_strategy_id_from_args(
 
         if candidates:
             any_strategies_loaded = True
+        loaded_candidates[candidate_type] = candidates or {}
 
         for strategy_id, strategy_data in (candidates or {}).items():
             strategy_args = (strategy_data or {}).get("args", "")
@@ -177,6 +180,28 @@ def infer_strategy_id_from_args(
         # Strategies catalog isn't available (first-run extract/update/etc).
         # Keep the category enabled in UI when args are present.
         return "custom"
+
+    # Fallback: strip --lua-desync=syndata: and --lua-desync=send: lines from both
+    # sides and retry. In basic direct mode, extract_strategy_args() strips these lines
+    # from block args before storing them in cat.tcp_args, but catalog strategy entries
+    # may embed syndata in their own args. Without this fallback, strategies that contain
+    # syndata in the catalog would fail inference and reset the UI selection.
+    def _strip_syndata_lines(a: str) -> str:
+        return "\n".join(
+            ln for ln in a.splitlines()
+            if not ln.strip().lower().startswith(("--lua-desync=syndata:", "--lua-desync=send:"))
+        )
+
+    normalized_input_stripped = normalize_args(_strip_syndata_lines(args))
+    if normalized_input_stripped:
+        for candidate_type in _iter_candidate_strategy_types(strategy_type):
+            for strategy_id, strategy_data in loaded_candidates.get(candidate_type, {}).items():
+                strategy_args = (strategy_data or {}).get("args", "")
+                if not strategy_args:
+                    continue
+                normalized_strategy_stripped = normalize_args(_strip_syndata_lines(strategy_args))
+                if normalized_strategy_stripped == normalized_input_stripped:
+                    return strategy_id
 
     # Non-empty args that don't match any known strategy: keep category enabled in UI.
     return "custom"

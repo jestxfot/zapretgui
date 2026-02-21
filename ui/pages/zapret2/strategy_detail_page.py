@@ -546,9 +546,19 @@ class StrategyDetailPage(BasePage):
                         except Exception:
                             pass
                     self._close_preview_dialog(force=True)
+                    self._close_filter_combo_popup()
         except Exception:
             pass
         return super().eventFilter(obj, event)
+
+    def _close_filter_combo_popup(self) -> None:
+        """Close the technique filter ComboBox dropdown if it is open."""
+        try:
+            combo = getattr(self, "_filter_combo", None)
+            if combo is not None and hasattr(combo, "_closeComboMenu"):
+                combo._closeComboMenu()
+        except Exception:
+            pass
 
     def hideEvent(self, event):  # noqa: N802 (Qt override)
         # Ensure floating preview/tool windows do not keep intercepting mouse events
@@ -559,6 +569,10 @@ class StrategyDetailPage(BasePage):
             pass
         try:
             self._close_preview_dialog(force=True)
+        except Exception:
+            pass
+        try:
+            self._close_filter_combo_popup()
         except Exception:
             pass
         try:

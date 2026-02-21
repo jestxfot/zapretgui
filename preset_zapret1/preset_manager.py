@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Callable, Dict, List, Optional
 
 from log import log
@@ -101,7 +101,7 @@ class PresetManagerV1:
         return preset
 
     def _load_from_active_file(self) -> Optional[PresetV1]:
-        from preset_zapret2.txt_preset_parser import parse_preset_file
+        from .txt_preset_parser import parse_preset_file
         from .preset_model import PresetV1, CategoryConfigV1
 
         active_path = get_active_preset_path_v1()
@@ -139,18 +139,12 @@ class PresetManagerV1:
 
             # Infer strategy_id
             try:
-                from strategy_menu.strategies_registry import get_current_strategy_set
-                current_strategy_set = get_current_strategy_set()
-            except Exception:
-                current_strategy_set = None
-
-            try:
-                from preset_zapret2.strategy_inference import infer_strategy_id_from_args
+                from .strategy_inference import infer_strategy_id_from_args
                 for cat_name, cat in preset.categories.items():
                     if cat.tcp_args and cat.tcp_args.strip():
                         inferred = infer_strategy_id_from_args(
                             category_key=cat_name, args=cat.tcp_args,
-                            protocol="tcp", strategy_set=current_strategy_set,
+                            protocol="tcp",
                         )
                         if inferred != "none":
                             cat.strategy_id = inferred
@@ -158,7 +152,7 @@ class PresetManagerV1:
                     if cat.udp_args and cat.udp_args.strip():
                         inferred = infer_strategy_id_from_args(
                             category_key=cat_name, args=cat.udp_args,
-                            protocol="udp", strategy_set=current_strategy_set,
+                            protocol="udp",
                         )
                         if inferred != "none":
                             cat.strategy_id = inferred
@@ -220,6 +214,7 @@ class PresetManagerV1:
             except PermissionError:
                 last_exc = None
                 delay = 0.03
+                fallback_tmp = None
                 for _ in range(15):
                     time.sleep(delay)
                     try:
@@ -243,7 +238,8 @@ class PresetManagerV1:
                         # Last resort: direct copy (non-atomic but better than crash)
                         shutil.copyfile(str(temp_path), str(active_path))
                         try:
-                            os.unlink(fallback_tmp)
+                            if fallback_tmp:
+                                os.unlink(fallback_tmp)
                         except Exception:
                             pass
                     try:
@@ -323,7 +319,7 @@ class PresetManagerV1:
             return None
         try:
             from .preset_defaults import get_builtin_preset_content_v1
-            from preset_zapret2.txt_preset_parser import parse_preset_content, generate_preset_file
+            from .txt_preset_parser import parse_preset_content, generate_preset_file
 
             template = get_builtin_preset_content_v1("Default")
             if not template:
@@ -373,7 +369,7 @@ class PresetManagerV1:
     def sync_preset_to_active_file(self, preset: PresetV1) -> bool:
         """Writes preset directly to preset-zapret1.txt."""
         import os as _os
-        from preset_zapret2.txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
+        from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
         active_path = get_active_preset_path_v1()
 
@@ -448,6 +444,226 @@ class PresetManagerV1:
             log(f"Error syncing V1 preset to active file: {e}", "ERROR")
             return False
 
+    @staticmethod
+    def _render_template_for_preset(raw_template: str, target_name: str) -> str:
+        """Rewrites # Preset / # ActivePreset headers for target preset name."""
+        text = (raw_template or "").replace("\r\n", "\n").replace("\r", "\n")
+        lines = text.split("\n")
+
+        header_end = 0
+        for i, raw in enumerate(lines):
+            stripped = raw.strip()
+            if stripped and not stripped.startswith("#"):
+                header_end = i
+                break
+        else:
+            header_end = len(lines)
+
+        header = lines[:header_end]
+        body = lines[header_end:]
+
+        out_header: list[str] = []
+        saw_preset = False
+        saw_active = False
+
+        for raw in header:
+            stripped = raw.strip().lower()
+            if stripped.startswith("# preset:"):
+                out_header.append(f"# Preset: {target_name}")
+                saw_preset = True
+                continue
+            if stripped.startswith("# activepreset:"):
+                out_header.append(f"# ActivePreset: {target_name}")
+                saw_active = True
+                continue
+            out_header.append(raw.rstrip("\n"))
+
+        if not saw_preset:
+            out_header.insert(0, f"# Preset: {target_name}")
+        if not saw_active:
+            insert_idx = 1 if out_header and out_header[0].strip().lower().startswith("# preset:") else 0
+            out_header.insert(insert_idx, f"# ActivePreset: {target_name}")
+
+        return "\n".join(out_header + body).rstrip("\n") + "\n"
+
+    def reset_preset_to_default_template(
+        self,
+        preset_name: str,
+        *,
+        make_active: bool = True,
+        sync_active_file: bool = True,
+        emit_switched: bool = True,
+        invalidate_templates: bool = True,
+    ) -> bool:
+        """Force-resets a preset to matching content from presets_v1_template/."""
+        from .preset_defaults import (
+            get_template_content_v1,
+            get_default_template_content_v1,
+            get_builtin_preset_content_v1,
+            get_builtin_base_from_copy_name_v1,
+            invalidate_templates_cache_v1,
+        )
+
+        name = (preset_name or "").strip()
+        if not name:
+            return False
+
+        try:
+            if not preset_exists_v1(name):
+                log(f"Cannot reset V1: preset '{name}' not found", "ERROR")
+                return False
+
+            if invalidate_templates:
+                try:
+                    invalidate_templates_cache_v1()
+                except Exception:
+                    pass
+
+            template_content = get_template_content_v1(name)
+            if not template_content:
+                base = get_builtin_base_from_copy_name_v1(name)
+                if base:
+                    template_content = get_template_content_v1(base)
+            if not template_content:
+                template_content = get_default_template_content_v1()
+            if not template_content:
+                template_content = get_builtin_preset_content_v1("Default")
+            if not template_content:
+                log(
+                    "Cannot reset V1 preset: no templates found. "
+                    "Expected at least one file in presets_v1_template/.",
+                    "ERROR",
+                )
+                return False
+
+            rendered_content = self._render_template_for_preset(template_content, name)
+
+            preset_path = get_preset_path_v1(name)
+            try:
+                preset_path.parent.mkdir(parents=True, exist_ok=True)
+                preset_path.write_text(rendered_content, encoding="utf-8")
+            except PermissionError as e:
+                log(f"Cannot write V1 preset file (locked?): {e}", "ERROR")
+                raise
+            except Exception as e:
+                log(f"Error writing reset V1 preset '{name}': {e}", "ERROR")
+                return False
+
+            self.invalidate_preset_cache(name)
+
+            do_sync = bool(sync_active_file)
+            if do_sync and not make_active:
+                try:
+                    current_active = (get_active_preset_name_v1() or "").strip().lower()
+                except Exception:
+                    current_active = ""
+                if current_active != name.lower():
+                    do_sync = False
+
+            if make_active:
+                set_active_preset_name_v1(name)
+                self._invalidate_active_preset_cache()
+
+            if do_sync:
+                try:
+                    active_path = get_active_preset_path_v1()
+                    active_path.parent.mkdir(parents=True, exist_ok=True)
+                    active_path.write_text(rendered_content, encoding="utf-8")
+                    self._invalidate_active_preset_cache()
+                    if self.on_dpi_reload_needed:
+                        self.on_dpi_reload_needed()
+                except PermissionError as e:
+                    log(f"Cannot write V1 active preset file (locked?): {e}", "ERROR")
+                    raise
+                except Exception as e:
+                    log(f"Error syncing reset V1 preset '{name}' to active file: {e}", "ERROR")
+                    return False
+
+            if make_active:
+                if emit_switched:
+                    self._get_store().notify_preset_switched(name)
+                    if self.on_preset_switched:
+                        try:
+                            self.on_preset_switched(name)
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        self._get_store().notify_active_name_changed()
+                    except Exception:
+                        pass
+
+            return True
+
+        except Exception as e:
+            log(f"Error resetting V1 preset '{name}' to template: {e}", "ERROR")
+            return False
+
+    def reset_active_preset_to_default_template(self) -> bool:
+        """Resets currently active V1 preset to its matching template."""
+        active_name = (self.get_active_preset_name() or "").strip()
+        if not active_name:
+            return False
+        return self.reset_preset_to_default_template(
+            active_name,
+            make_active=True,
+            sync_active_file=True,
+            emit_switched=True,
+            invalidate_templates=True,
+        )
+
+    def reset_all_presets_to_default_templates(self) -> tuple[int, int, list[str]]:
+        """Resets all V1 presets to templates and reapplies the active one."""
+        from .preset_defaults import invalidate_templates_cache_v1, ensure_v1_templates_copied_to_presets
+
+        success_count = 0
+        total_count = 0
+        failed: list[str] = []
+
+        try:
+            try:
+                invalidate_templates_cache_v1()
+                ensure_v1_templates_copied_to_presets()
+            except Exception as e:
+                log(f"V1 bulk reset: template refresh error: {e}", "DEBUG")
+
+            try:
+                self.invalidate_preset_cache(None)
+            except Exception:
+                pass
+
+            names = sorted(self.list_presets(), key=lambda s: s.lower())
+            total_count = len(names)
+            if not names:
+                return (0, 0, [])
+
+            original_active = (self.get_active_preset_name() or "").strip()
+            if original_active and original_active in names:
+                names = [n for n in names if n != original_active] + [original_active]
+
+            for name in names:
+                ok = self.reset_preset_to_default_template(
+                    name,
+                    make_active=False,
+                    sync_active_file=False,
+                    emit_switched=False,
+                    invalidate_templates=False,
+                )
+                if ok:
+                    success_count += 1
+                else:
+                    failed.append(name)
+
+            active_name = (original_active or (self.get_active_preset_name() or "")).strip()
+            if active_name:
+                if not self.switch_preset(active_name, reload_dpi=False):
+                    log(f"V1 bulk reset: failed to re-apply active preset '{active_name}'", "WARNING")
+
+            return (success_count, total_count, failed)
+        except Exception as e:
+            log(f"V1 bulk reset error: {e}", "ERROR")
+            return (success_count, total_count, failed)
+
     def set_strategy_selection(self, category_key: str, strategy_id: str, save_and_sync: bool = True) -> bool:
         category_key = str(category_key or "").strip().lower()
         preset = self.get_active_preset()
@@ -466,11 +682,312 @@ class PresetManagerV1:
             return self._save_and_sync_preset(preset)
         return True
 
+    @staticmethod
+    def _selection_id_from_category(cat: CategoryConfigV1) -> str:
+        """Return stable selection id for UI from category config."""
+        sid = str(getattr(cat, "strategy_id", "") or "").strip().lower() or "none"
+        if sid == "none":
+            has_args = bool((getattr(cat, "tcp_args", "") or "").strip() or (getattr(cat, "udp_args", "") or "").strip())
+            if has_args:
+                # Args exist but strategy id couldn't be matched -> treat as custom.
+                return "custom"
+        return sid
+
+    @staticmethod
+    def _legacy_alias_targets(category_key: str, cat: CategoryConfigV1) -> list[str]:
+        """Map legacy Zapret1 category keys to current registry categories."""
+        key = str(category_key or "").strip().lower()
+        has_tcp = bool((cat.tcp_args or "").strip())
+        has_udp = bool((cat.udp_args or "").strip())
+
+        targets: list[str] = []
+
+        # Old classic Zapret1 keys.
+        if key == "discord" and has_tcp:
+            targets.append("discord_tcp")
+        elif key == "discord_voice" and has_udp:
+            targets.append("discord_voice_udp")
+        elif key == "udp" and has_udp:
+            targets.extend(["ipset_udp", "ipset_udp_all"])
+        elif key == "http80" and has_tcp:
+            targets.append("hostlist_80port")
+        elif key == "youtube":
+            if has_tcp:
+                targets.append("youtube")
+            if has_udp:
+                targets.append("youtube_udp")
+        elif key == "googlevideo" and has_tcp:
+            targets.append("googlevideo_tcp")
+        elif key == "google" and has_tcp:
+            targets.append("google_tcp")
+
+        # Legacy list-based keys from older presets.
+        if key in ("list-google", "list_google") and has_tcp:
+            targets.extend(["googlevideo_tcp", "google_tcp"])
+
+        if key in ("list-general", "list_general", "general"):
+            if has_tcp:
+                targets.append("other")
+            if has_udp:
+                targets.append("youtube_udp")
+
+        if key in ("all", "ipset-all", "ipset_all"):
+            if has_tcp:
+                targets.extend(["ipset", "ipset_all"])
+            if has_udp:
+                targets.extend(["ipset_udp", "ipset_udp_all"])
+
+        # Deduplicate preserving order.
+        unique: list[str] = []
+        seen: set[str] = set()
+        for t in targets:
+            if t and t not in seen:
+                seen.add(t)
+                unique.append(t)
+        return unique
+
+    @staticmethod
+    def _is_udp_protocol(protocol: str) -> bool:
+        value = str(protocol or "").upper()
+        return any(token in value for token in ("UDP", "QUIC", "L7", "RAW"))
+
+    @staticmethod
+    def _resolve_filter_file_path(filter_file: str) -> Path | None:
+        raw = str(filter_file or "").strip().strip('"').strip("'")
+        if not raw:
+            return None
+
+        if raw.startswith("@"):
+            raw = raw[1:].strip()
+        if not raw:
+            return None
+
+        win_path = PureWindowsPath(raw)
+
+        candidates: list[Path] = []
+        try:
+            from config import MAIN_DIRECTORY
+
+            main_dir = Path(MAIN_DIRECTORY)
+        except Exception:
+            main_dir = Path.cwd()
+
+        path_obj = Path(win_path)
+        if path_obj.is_absolute():
+            candidates.append(path_obj)
+        else:
+            candidates.append(main_dir / path_obj)
+            candidates.append(main_dir / "lists" / win_path.name)
+            candidates.append(path_obj)
+
+        for candidate in candidates:
+            try:
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+            except Exception:
+                continue
+
+        return candidates[0] if candidates else None
+
+    @staticmethod
+    def _read_filter_text(filter_file: str) -> str:
+        path = PresetManagerV1._resolve_filter_file_path(filter_file)
+        if path is None:
+            return ""
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore").lower()
+        except Exception:
+            return ""
+
+    def _infer_targets_from_filter_source(
+        self,
+        *,
+        filter_mode: str,
+        filter_file: str,
+        protocol: str,
+        known_keys: set[str],
+        category_protocols: dict[str, str],
+    ) -> list[str]:
+        mode = str(filter_mode or "").strip().lower()
+        proto_udp = self._is_udp_protocol(protocol)
+
+        filename = PureWindowsPath(str(filter_file or "")).name.lower()
+        stem = Path(filename).stem.lower()
+        content = self._read_filter_text(filter_file)
+        haystack = f"{stem}\n{content}"
+
+        targets: list[str] = []
+
+        # IPSet "all" profiles are intentionally broad and should map to broad groups.
+        if mode == "ipset" and "all" in stem:
+            if proto_udp:
+                targets.extend(["ipset_udp", "ipset_udp_all"])
+            else:
+                targets.extend(["ipset", "ipset_all"])
+
+        # Legacy list names from old Zapret1 presets.
+        if mode == "hostlist" and stem in ("list-google", "list_google", "google"):
+            targets.extend(["googlevideo_tcp", "youtube", "google_tcp"])
+        if mode == "hostlist" and stem in ("list-general", "list_general", "general"):
+            if proto_udp:
+                targets.extend(["youtube_udp", "discord_voice_udp"])
+            else:
+                targets.extend(["other", "youtube", "googlevideo_tcp"])
+
+        # Heuristics by list/ipset file name and content.
+        keyword_map: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+            (("googlevideo",), ("googlevideo_tcp",)),
+            (("youtube", "youtu.be"), ("youtube", "youtube_udp")),
+            (("google",), ("google_tcp",)),
+            (("discord",), ("discord_tcp", "discord_voice_udp", "udp_discord", "update_discord")),
+            (("telegram",), ("telegram_tcp",)),
+            (("whatsapp",), ("whatsapp_tcp",)),
+            (("facebook",), ("facebook_tcp",)),
+            (("instagram",), ("instagram_tcp",)),
+            (("twitter", "x.com"), ("twitter_tcp",)),
+            (("github",), ("github_tcp",)),
+            (("twitch",), ("twitch_tcp",)),
+            (("steam",), ("steam_tcp",)),
+            (("soundcloud",), ("soundcloud_tcp",)),
+            (("rutracker",), ("rutracker_tcp",)),
+            (("rutor",), ("rutor_tcp",)),
+            (("roblox",), ("roblox_tcp", "roblox_udp")),
+            (("amazon",), ("amazon_tcp", "amazon_udp")),
+            (("claude",), ("claude_tcp",)),
+            (("warp",), ("warp_tcp",)),
+            (("speedtest",), ("speedtest_tcp",)),
+            (("other", "blacklist", "general"), ("other",)),
+        )
+
+        for keywords, mapped in keyword_map:
+            if any(keyword in haystack for keyword in keywords):
+                targets.extend(mapped)
+
+        # Fallback for generic files with no clear marker.
+        if not targets and mode == "hostlist" and "general" in stem:
+            if proto_udp:
+                targets.append("youtube_udp")
+            else:
+                targets.append("other")
+
+        # Keep only existing categories with matching protocol.
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for target in targets:
+            if not target or target in seen or target not in known_keys:
+                continue
+
+            cat_proto = category_protocols.get(target, "")
+            if cat_proto:
+                if self._is_udp_protocol(cat_proto) != proto_udp:
+                    continue
+
+            seen.add(target)
+            filtered.append(target)
+
+        return filtered
+
+    def _infer_selection_overrides_from_active_file(
+        self,
+        raw: dict[str, str],
+        known_keys: set[str],
+        category_protocols: dict[str, str],
+    ) -> dict[str, str]:
+        """Infer visible category selections from hostlist/ipset filters in active preset."""
+        try:
+            from .txt_preset_parser import parse_preset_file
+        except Exception:
+            return {}
+
+        source_path = get_active_preset_path_v1()
+        if not source_path.exists():
+            active_name = get_active_preset_name_v1()
+            if active_name and preset_exists_v1(active_name):
+                source_path = get_preset_path_v1(active_name)
+
+        if not source_path.exists():
+            return {}
+
+        try:
+            data = parse_preset_file(source_path)
+        except Exception:
+            return {}
+
+        overrides: dict[str, str] = {}
+        for block in (data.categories or []):
+            block_key = str(getattr(block, "category", "") or "").strip().lower()
+            sid = raw.get(block_key, "none")
+            if sid == "none" and str(getattr(block, "strategy_args", "") or "").strip():
+                sid = "custom"
+            if sid == "none":
+                continue
+
+            targets = self._infer_targets_from_filter_source(
+                filter_mode=str(getattr(block, "filter_mode", "") or ""),
+                filter_file=str(getattr(block, "filter_file", "") or ""),
+                protocol=str(getattr(block, "protocol", "") or ""),
+                known_keys=known_keys,
+                category_protocols=category_protocols,
+            )
+            for target in targets:
+                if overrides.get(target, "none") == "none":
+                    overrides[target] = sid
+
+        return overrides
+
     def get_strategy_selections(self) -> dict:
         preset = self.get_active_preset()
         if not preset:
             return {}
-        return {key: cat.strategy_id for key, cat in preset.categories.items()}
+
+        raw: dict[str, str] = {}
+        for key, cat in (preset.categories or {}).items():
+            norm_key = str(key or "").strip().lower()
+            if not norm_key:
+                continue
+            raw[norm_key] = self._selection_id_from_category(cat)
+
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            known_keys = set((registry.categories or {}).keys())
+            category_protocols = {
+                key: str(getattr(info, "protocol", "") or "")
+                for key, info in (registry.categories or {}).items()
+            }
+        except Exception:
+            return raw
+
+        # Keep direct keys and add compatibility aliases for legacy presets.
+        resolved: dict[str, str] = {}
+        for key, sid in raw.items():
+            if key in known_keys:
+                resolved[key] = sid
+
+        # Parser-based compatibility for legacy list-google/list-general/ipset-all blocks.
+        inferred = self._infer_selection_overrides_from_active_file(
+            raw=raw,
+            known_keys=known_keys,
+            category_protocols=category_protocols,
+        )
+        for key, sid in inferred.items():
+            if resolved.get(key, "none") == "none":
+                resolved[key] = sid
+
+        for key, cat in (preset.categories or {}).items():
+            norm_key = str(key or "").strip().lower()
+            if not norm_key:
+                continue
+            sid = raw.get(norm_key, "none")
+            for target in self._legacy_alias_targets(norm_key, cat):
+                if target in known_keys:
+                    resolved.setdefault(target, sid)
+
+        # Keep unknown keys too (for compatibility with old callers).
+        for key, sid in raw.items():
+            resolved.setdefault(key, sid)
+
+        return resolved
 
     def _update_category_args_from_strategy(self, preset: PresetV1, category_key: str, strategy_id: str) -> None:
         cat = preset.categories.get(category_key)

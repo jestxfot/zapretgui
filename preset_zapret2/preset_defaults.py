@@ -694,7 +694,22 @@ def get_builtin_copy_name(builtin_name: str) -> Optional[str]:
 def get_builtin_base_from_copy_name(name: str) -> Optional[str]:
     """DEPRECATED: No longer used. Kept for migration compatibility."""
     raw = (name or "").strip()
-    if not raw or not raw.endswith(BUILTIN_COPY_SUFFIX):
+    if not raw:
         return None
-    base = raw[: -len(BUILTIN_COPY_SUFFIX)].strip()
+
+    # Support both "Name (копия)" and numbered variants like "Name (копия 2)".
+    # Duplicate-of-duplicate names are also unwrapped recursively.
+    copy_suffix_re = re.compile(r"\s+\(копия(?:\s+\d+)?\)\s*$", re.IGNORECASE)
+    base = raw
+    changed = False
+    while True:
+        stripped = copy_suffix_re.sub("", base).strip()
+        if stripped == base:
+            break
+        base = stripped
+        changed = True
+
+    if not changed or not base:
+        return None
+
     return get_template_canonical_name(base)

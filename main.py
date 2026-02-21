@@ -132,6 +132,60 @@ _set_attr_if_exists("AA_UseHighDpiPixmaps")
 # Create QApplication early — qfluentwidgets requires it at import time
 _app = QApplication.instance() or QApplication(sys.argv)
 
+# ── Python 3.14 + PyQt6 6.10 compat ───────────────────────────────────────────
+# В Python 3.14 изменился протокол дескрипторов для C-extension slot'ов.
+# instance.method() больше не связывает self корректно для sip-wrapped Qt методов,
+# из-за чего qfluentwidgets animation.start() / stop() / pause() дают:
+#   TypeError: start(...): first argument of unbound method must have type 'QAbstractAnimation'
+# Решение: заменяем C-слоты тонкими Python-обёртками, у которых __get__ работает правильно.
+def _install_animation_py314_compat() -> None:
+    if sys.version_info < (3, 14):
+        return
+    try:
+        from PyQt6.QtCore import (
+            QAbstractAnimation, QVariantAnimation, QPropertyAnimation,
+            QSequentialAnimationGroup, QParallelAnimationGroup,
+        )
+    except ImportError:
+        return
+    try:
+        _c_start  = QAbstractAnimation.start
+        _c_stop   = QAbstractAnimation.stop
+        _c_pause  = QAbstractAnimation.pause
+        _c_resume = QAbstractAnimation.resume
+    except AttributeError:
+        return
+
+    _DP = QAbstractAnimation.DeletionPolicy
+
+    def _start(self, policy: _DP = _DP.KeepWhenStopped) -> None:  # noqa: E704
+        _c_start(self, policy)
+
+    def _stop(self) -> None:
+        _c_stop(self)
+
+    def _pause(self) -> None:
+        _c_pause(self)
+
+    def _resume(self) -> None:
+        _c_resume(self)
+
+    _patches = {'start': _start, 'stop': _stop, 'pause': _pause, 'resume': _resume}
+    _classes = (
+        QAbstractAnimation, QVariantAnimation, QPropertyAnimation,
+        QSequentialAnimationGroup, QParallelAnimationGroup,
+    )
+    for cls in _classes:
+        for attr, fn in _patches.items():
+            try:
+                if hasattr(cls, attr):
+                    setattr(cls, attr, fn)
+            except Exception:
+                pass
+
+_install_animation_py314_compat()
+# ──────────────────────────────────────────────────────────────────────────────
+
 from ui.main_window import MainWindowUI
 from ui.fluent_app_window import ZapretFluentWindow
 
@@ -1397,6 +1451,11 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             self.set_window_opacity(opacity_saved)
             if hasattr(self, 'appearance_page'):
                 self.appearance_page.set_opacity_value(opacity_saved)
+
+            # Анимации интерфейса
+            from config.reg import get_animations_enabled
+            if not get_animations_enabled() and hasattr(self, '_on_animations_changed'):
+                self._on_animations_changed(False)
 
         except Exception as e:
             log(f"❌ Ошибка загрузки состояния декораций: {e}", "ERROR")

@@ -1,0 +1,4 @@
+Microsoft Windows [Version 10.0.19045.6575]
+(c) Корпорация Майкрософт (Microsoft Corporation). Все права защищены.
+
+H:\Privacy\zapretgui>

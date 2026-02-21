@@ -1,6 +1,6 @@
 # Preset: Ultimate Main YT Discord ValFix
 # ActivePreset: Ultimate Main YT Discord ValFix
-# BuiltinVersion: 1.0
+# BuiltinVersion: 1.1
 # Description: YouTube + Discord (as MAIN) + Valorant/Riot
 # Created: 2026-02-10
 # IconColor: #60cdff
@@ -166,6 +166,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-d5

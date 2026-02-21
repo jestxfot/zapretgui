@@ -653,7 +653,7 @@ class UpdateWorker(QObject):
         log(f"Update check: {CHANNEL}, local={app_ver_norm}, remote={new_ver}, use_cache={use_cache}", "🔁 UPDATE")
 
         cmp_result = compare_versions(app_ver_norm, new_ver)
-        
+
         if cmp_result >= 0:
             self._emit(f"✅ Обновлений нет (v{app_ver_norm})")
             if not self._silent:

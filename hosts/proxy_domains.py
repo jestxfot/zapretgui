@@ -124,30 +124,45 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
     current_section: str | None = None
     pending_domain: str | None = None
     pending_ips: list[str] = []
+    # Named-profile format: maps profile_index → ip (set when "ProfileName: IP" lines are used).
+    pending_named: dict[int, str] = {}
 
     def ensure_service(service_name: str) -> None:
         if service_name not in services:
             services[service_name] = {}
             service_order.append(service_name)
 
+    def _build_ips() -> list[str]:
+        """Resolve pending domain's IPs. Named format wins over positional."""
+        if pending_named:
+            ips = [""] * len(dns_profiles)
+            for idx, ip in pending_named.items():
+                if 0 <= idx < len(ips):
+                    ips[idx] = ip
+            return ips
+        return list(pending_ips)
+
     def flush_domain() -> None:
-        nonlocal pending_domain, pending_ips
+        nonlocal pending_domain, pending_ips, pending_named
         if not current_section:
             pending_domain = None
             pending_ips = []
+            pending_named = {}
             return
 
         sec = current_section.strip()
         if not sec or sec.lower() in _SPECIAL_SECTIONS:
             pending_domain = None
             pending_ips = []
+            pending_named = {}
             return
 
         if pending_domain:
             ensure_service(sec)
-            services[sec][pending_domain] = list(pending_ips)
+            services[sec][pending_domain] = _build_ips()
         pending_domain = None
         pending_ips = []
+        pending_named = {}
 
     def flush_section() -> None:
         flush_domain()
@@ -176,18 +191,43 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
             dns_profiles.append(line)
             continue
 
-        # Service section: support both catalog format and raw hosts lines.
+        # Service section: support three formats:
         #
-        # 1) Catalog format:
+        # 1) Named-profile format (NEW – only 2–3 providers needed):
+        #    domain.tld
+        #    Zapret DNS: 82.22.36.11
+        #    Comss DNS: 95.182.120.241
+        #    (profiles not listed get empty string → unavailable in UI)
+        #
+        # 2) Catalog format (positional, backward-compat):
         #    domain.tld
         #    ip_for_profile_0
-        #    ip_for_profile_1
-        #    ...
+        #    ip_for_profile_1  (use "-" / "none" for unavailable)
         #
-        # 2) Raw hosts lines:
+        # 3) Raw hosts lines:
         #    1.2.3.4 domain.tld
-        #
-        # Raw hosts lines are treated as direct-only entries (IP only in the "direct" profile column).
+
+        # --- Named-profile detection (only when inside a domain block) ---
+        if pending_domain is not None and dns_profiles:
+            named_idx: int | None = None
+            named_ip_val: str = ""
+            for sep in (":", "="):
+                if sep in line:
+                    left, _, right = line.partition(sep)
+                    left_s = left.strip()
+                    right_s = right.strip()
+                    for i, pname in enumerate(dns_profiles):
+                        if left_s.lower() == pname.strip().lower():
+                            named_idx = i
+                            named_ip_val = "" if right_s.lower() in _MISSING_IP_MARKERS else right_s
+                            break
+                    if named_idx is not None:
+                        break
+            if named_idx is not None:
+                pending_named[named_idx] = named_ip_val
+                continue
+
+        # --- Raw hosts lines: "1.2.3.4 domain.tld" ---
         parts = line.split()
         if len(parts) >= 2:
             ip_candidate = parts[0].strip()
@@ -218,10 +258,11 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
                     services[sec][host_candidate] = ips
                 continue
 
-        # Service section: domain line then N IP lines
+        # --- Positional format: domain line then N IP lines ---
         if pending_domain is None:
             pending_domain = line
             pending_ips = []
+            pending_named = {}
         else:
             ip_value = line
             if ip_value.strip().lower() in _MISSING_IP_MARKERS:

@@ -103,6 +103,7 @@ GITHUB_CONFIG = {
     },
     "upload_settings": {
         "use_cli_for_large_files": True,  # Использовать GitHub CLI для больших файлов
+        "always_use_cli": True,           # Всегда использовать CLI (игнорировать порог и rate limit check)
         "large_file_threshold_mb": 40,    # Порог в МБ для переключения на CLI
         "retry_attempts": 0,               # 0 = повторять бесконечно при сетевых ошибках
         "chunk_size_mb": 5                # Размер чанка для загрузки
@@ -297,28 +298,11 @@ def check_gh_cli() -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Ошибка проверки gh: {e}"
 
-    # Проверяем доступ к репозиторию напрямую (без auth status)
-    try:
-        repo = f"{GITHUB_CONFIG['repo_owner']}/{GITHUB_CONFIG['repo_name']}"
-        result = subprocess.run(
-            [*base_cmd, "gh", "repo", "view", repo, "--json", "name"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=env,
-            shell=False,
-        )
-
-        if result.returncode != 0:
-            error = (result.stderr or result.stdout or "").strip()
-            return False, f"Нет доступа к {repo} ({mode}): {error}"
-
-        return True, f"GitHub CLI работает ({mode}) с {repo} (токен из конфига)"
-
-    except subprocess.TimeoutExpired:
-        return False, "GitHub CLI не отвечает"
-    except Exception as e:
-        return False, f"Ошибка проверки: {e}"
+    # gh --version уже прошёл — CLI установлен и работает.
+    # Не делаем gh repo view: это GraphQL-запрос, который может упасть из-за rate limit
+    # даже при валидном токене, что ложно блокирует загрузку через CLI.
+    repo = f"{GITHUB_CONFIG['repo_owner']}/{GITHUB_CONFIG['repo_name']}"
+    return True, f"GitHub CLI готов ({mode}), репозиторий: {repo}"
 
 class GitHubReleaseManager:
     """Менеджер для работы с GitHub releases"""
@@ -731,11 +715,16 @@ class GitHubReleaseManager:
         file_size_mb = file_path.stat().st_size / 1024 / 1024
         upload_settings = GITHUB_CONFIG.get("upload_settings", {})
         use_cli = upload_settings.get("use_cli_for_large_files", True)
+        always_use_cli = upload_settings.get("always_use_cli", False)
         threshold = upload_settings.get("large_file_threshold_mb", 50)
-        force_cli = _env_truthy("ZAPRET_GITHUB_FORCE_CLI") or (use_cli and self.gh_base_cmd)
-        
+        force_cli = _env_truthy("ZAPRET_GITHUB_FORCE_CLI") or always_use_cli or (use_cli and self.gh_base_cmd)
+
+        # Проверяем наличие gh бинарника напрямую (игнорируем cli_available который мог
+        # упасть из-за GraphQL rate limit, не связанного с реальной работоспособностью CLI)
+        gh_binary_ok = bool(self.gh_base_cmd) or bool(shutil.which("gh"))
+
         # Решаем какой метод использовать
-        if use_cli and self.cli_available and (force_cli or file_size_mb > threshold):
+        if use_cli and gh_binary_ok and (force_cli or file_size_mb > threshold):
             if hasattr(self, 'log_queue') and self.log_queue:
                 self.log_queue.put(f"📤 Используем GitHub CLI ({self.gh_mode}) ({file_size_mb:.1f} MB)")
             return self._upload_asset_via_cli(release_id, file_path)
@@ -743,108 +732,128 @@ class GitHubReleaseManager:
             return self._upload_asset_via_api(release_id, file_path, content_type)
 
     def _upload_asset_via_cli(self, release_id: int, file_path: Path) -> Dict[str, Any]:
-        """Загрузить файл через GitHub CLI с выводом прогресса"""
-        response = self._make_request("GET", f"/releases/{release_id}")
-        assert response is not None
-        release_data = response.json()
-        tag = release_data['tag_name']
-        
+        """Загрузить файл через GitHub CLI (gh api REST — без GraphQL).
+
+        Используем `gh api --method POST` вместо `gh release upload`, потому что
+        `gh release upload` внутри делает GraphQL-запросы (auth check / tag resolve),
+        которые быстро упираются в GraphQL rate limit.
+        `gh api` с полным URL к uploads.github.com — чистый REST, без GraphQL.
+        """
         repo = f"{self.repo_owner}/{self.repo_name}"
-        
+        filename = file_path.name
+
         if hasattr(self, 'log_queue') and self.log_queue:
-            self.log_queue.put(f"🚀 Загружаем через GitHub CLI ({self.gh_mode}): {file_path.name}")
+            self.log_queue.put(f"🚀 Загружаем через gh api REST ({self.gh_mode}): {filename}")
 
         cli_file_path = str(file_path)
         if self.gh_base_cmd:
             cli_file_path = _to_wsl_path(file_path, self.wsl_distro)
-        
+
+        # Прямой REST POST на uploads.github.com — GraphQL не используется.
+        upload_url = (
+            f"https://uploads.github.com/repos/{self.repo_owner}/{self.repo_name}"
+            f"/releases/{release_id}/assets?name={filename}"
+        )
+
         cmd = [
             *self.gh_base_cmd,
-            "gh", "release", "upload", tag,
-            cli_file_path,
-            "--repo", repo,
-            "--clobber"
+            "gh", "api",
+            "--method", "POST",
+            "-H", "Content-Type: application/octet-stream",
+            upload_url,
+            "--input", cli_file_path,
         ]
-        
-        try:
-            # ✅ ИСПРАВЛЕНИЕ: Запускаем с Popen для реального вывода
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Объединяем stderr в stdout
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                env=self._get_gh_env(),
-                shell=False,
-                bufsize=1,  # Построчная буферизация
-                universal_newlines=True
-            )
 
-            assert process.stdout is not None
-            
-            # Читаем вывод в реальном времени
-            output_lines = []
-            start_time = time.time()
-            last_update = start_time
-            
-            while True:
-                line = process.stdout.readline()
-                
-                if not line:
-                    # Проверяем завершился ли процесс
-                    if process.poll() is not None:
-                        break
-                        
-                    # Показываем индикатор что процесс жив
-                    current_time = time.time()
-                    if current_time - last_update > 5:  # Каждые 5 секунд
-                        elapsed = int(current_time - start_time)
-                        if hasattr(self, 'log_queue') and self.log_queue:
-                            self.log_queue.put(f"  ⏳ Загрузка... {elapsed}s")
-                        last_update = current_time
-                        
-                    time.sleep(0.1)
-                    continue
-                
-                line = line.rstrip()
-                if line:
-                    output_lines.append(line)
-                    if hasattr(self, 'log_queue') and self.log_queue:
-                        self.log_queue.put(f"  gh> {line}")
-                    last_update = time.time()
-            
-            # Ждем завершения с таймаутом
+        upload_settings = GITHUB_CONFIG.get("upload_settings", {})
+        retry_attempts = int(upload_settings.get("retry_attempts", 3) or 0)
+        retry_forever = retry_attempts <= 0
+
+        attempt = 0
+        while True:
+            attempt += 1
             try:
-                returncode = process.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                raise Exception("GitHub CLI не завершился после загрузки")
-            
-            if returncode != 0:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    env=self._get_gh_env(),
+                    shell=False,
+                    bufsize=1,
+                    universal_newlines=True,
+                )
+
+                assert process.stdout is not None
+
+                output_lines: list[str] = []
+                start_time = time.time()
+                last_update = start_time
+
+                while True:
+                    line = process.stdout.readline()
+                    if not line:
+                        if process.poll() is not None:
+                            break
+                        current_time = time.time()
+                        if current_time - last_update > 5:
+                            elapsed = int(current_time - start_time)
+                            if hasattr(self, 'log_queue') and self.log_queue:
+                                self.log_queue.put(f"  ⏳ Загрузка... {elapsed}s")
+                            last_update = current_time
+                        time.sleep(0.1)
+                        continue
+                    line = line.rstrip()
+                    if line:
+                        output_lines.append(line)
+                        if hasattr(self, 'log_queue') and self.log_queue:
+                            self.log_queue.put(f"  gh> {line}")
+                        last_update = time.time()
+
+                try:
+                    returncode = process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    raise Exception("GitHub CLI не завершился после загрузки")
+
+                if returncode == 0:
+                    elapsed = int(time.time() - start_time)
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"✔ Файл загружен через gh api ({elapsed}s)")
+                    return {
+                        "name": filename,
+                        "browser_download_url": f"https://github.com/{repo}/releases/",
+                    }
+
                 error_msg = "\n".join(output_lines) if output_lines else "Unknown error"
                 if hasattr(self, 'log_queue') and self.log_queue:
-                    self.log_queue.put(f"❌ GitHub CLI ошибка: {error_msg}")
-                # Fallback на API метод
-                return self._upload_asset_via_api(release_id, file_path)
-                
-            if hasattr(self, 'log_queue') and self.log_queue:
-                elapsed = int(time.time() - start_time)
-                self.log_queue.put(f"✔ Файл загружен через CLI ({elapsed}s)")
-                
-            return {
-                "name": file_path.name,
-                "browser_download_url": f"https://github.com/{repo}/releases/download/{tag}/{file_path.name}"
-            }
-            
-        except subprocess.TimeoutExpired:
-            if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put("⚠️ Таймаут GitHub CLI, переключаемся на API")
-            return self._upload_asset_via_api(release_id, file_path)
-        except Exception as e:
-            if hasattr(self, 'log_queue') and self.log_queue:
-                self.log_queue.put(f"⚠️ Ошибка CLI: {e}, переключаемся на API")
-            return self._upload_asset_via_api(release_id, file_path)
+                    suffix = f"/{retry_attempts}" if not retry_forever else ""
+                    self.log_queue.put(
+                        f"⚠️ gh api ошибка (попытка {attempt}{suffix}): {error_msg}"
+                    )
+
+                if not retry_forever and attempt >= retry_attempts:
+                    raise Exception(f"gh api failed: {error_msg}")
+
+                wait_time = _retry_wait_seconds(attempt)
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    self.log_queue.put(f"  Повтор через {wait_time} сек...")
+                time.sleep(wait_time)
+
+            except Exception as e:
+                if not retry_forever and attempt >= retry_attempts:
+                    if hasattr(self, 'log_queue') and self.log_queue:
+                        self.log_queue.put(f"❌ gh api: {e}")
+                    raise
+                wait_time = _retry_wait_seconds(attempt)
+                suffix = f"/{retry_attempts}" if not retry_forever else ""
+                if hasattr(self, 'log_queue') and self.log_queue:
+                    self.log_queue.put(
+                        f"⚠️ Ошибка CLI (попытка {attempt}{suffix}): {e}. "
+                        f"Повтор через {wait_time} сек..."
+                    )
+                time.sleep(wait_time)
     
     def _upload_asset_via_api(self, release_id: int, file_path: Path, 
                             content_type: Optional[str] = None) -> Dict[str, Any]:

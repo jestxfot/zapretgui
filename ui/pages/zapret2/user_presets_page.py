@@ -1465,15 +1465,13 @@ class Zapret2UserPresetsPage(BasePage):
                 else:
                     failed.append(name)
 
-            # 3) Apply active preset once (single write => single hot-reload).
+            # 3) Re-apply active preset once from presets/ file.
+            # Use switch_preset() to copy the just-reset file as-is into
+            # preset-zapret2.txt (avoid model re-generation drift).
             active_name = (original_active or (manager.get_active_preset_name() or "")).strip()
             if active_name:
-                preset = manager.load_preset(active_name)
-                if preset:
-                    if not manager.sync_preset_to_active_file(preset):
-                        log(f"Не удалось применить активный пресет после сброса: {active_name}", "WARNING")
-                else:
-                    log(f"Не удалось загрузить активный пресет после сброса: {active_name}", "WARNING")
+                if not manager.switch_preset(active_name, reload_dpi=False):
+                    log(f"Не удалось применить активный пресет после сброса: {active_name}", "WARNING")
 
             self._load_presets()
 

@@ -926,7 +926,9 @@ class PresetManager:
                             args_lines.append(f"--{cat.filter_mode}={filter_file}")
 
                     # Build TCP args chain.
-                    # In Basic: out-range + strategy args only.
+                    # In Basic: strategy args only (no out-range / send / syndata from UI —
+                    #   these panels are hidden in basic mode and must not pollute args,
+                    #   otherwise infer_strategy_id_from_args fails to match catalog entries).
                     # In Advanced: out-range + (send/syndata settings) + strategy args.
                     # If strategy args already contain send/syndata, do not duplicate them.
                     strategy_text = str(getattr(cat, "tcp_args", "") or "")
@@ -939,14 +941,14 @@ class PresetManager:
                     strategy_text_clean = "\n".join(strat_lines_no_out).strip()
 
                     parts: list[str] = []
-                    try:
-                        out_range_arg = cat._get_out_range_args(cat.syndata_tcp)
-                    except Exception:
-                        out_range_arg = ""
-                    if out_range_arg:
-                        parts.append(str(out_range_arg).strip())
-
                     if not is_basic_direct:
+                        try:
+                            out_range_arg = cat._get_out_range_args(cat.syndata_tcp)
+                        except Exception:
+                            out_range_arg = ""
+                        if out_range_arg:
+                            parts.append(str(out_range_arg).strip())
+
                         try:
                             if bool(getattr(cat.syndata_tcp, "send_enabled", False)) and not send_present:
                                 send_arg = cat._get_send_args(cat.syndata_tcp)
@@ -996,7 +998,9 @@ class PresetManager:
                         if cat.filter_mode in ("hostlist", "ipset"):
                             args_lines.append(f"--{cat.filter_mode}={filter_file}")
 
-                    # Build UDP args chain: out-range + strategy args.
+                    # Build UDP args chain: out-range (advanced only) + strategy args.
+                    # In Basic mode omit out-range (UI panel hidden) so args exactly match
+                    # the catalog entries and infer_strategy_id_from_args works correctly.
                     # Keep out-range controlled by UI/settings only (avoid duplicates).
                     udp_text = str(getattr(cat, "udp_args", "") or "")
                     udp_lines = [ln.strip() for ln in udp_text.splitlines() if ln.strip()]
@@ -1004,12 +1008,13 @@ class PresetManager:
                     udp_text_clean = "\n".join(udp_lines_no_out).strip()
 
                     parts: list[str] = []
-                    try:
-                        out_range_arg = cat._get_out_range_args(cat.syndata_udp)
-                    except Exception:
-                        out_range_arg = ""
-                    if out_range_arg:
-                        parts.append(str(out_range_arg).strip())
+                    if not is_basic_direct:
+                        try:
+                            out_range_arg = cat._get_out_range_args(cat.syndata_udp)
+                        except Exception:
+                            out_range_arg = ""
+                        if out_range_arg:
+                            parts.append(str(out_range_arg).strip())
                     if udp_text_clean:
                         parts.append(udp_text_clean)
 
@@ -1446,7 +1451,7 @@ class PresetManager:
 
     def reset_category_settings(self, category_key: str) -> bool:
         """
-        Resets all category settings to defaults from DEFAULT_PRESET_CONTENT.
+        Resets category settings to defaults from the active preset template.
 
         Args:
             category_key: Category name
@@ -1468,8 +1473,13 @@ class PresetManager:
             get_default_category_settings,
             get_category_default_filter_mode,
             get_category_default_syndata,
+            get_template_content,
+            get_default_template_content,
+            get_builtin_base_from_copy_name,
+            invalidate_templates_cache,
         )
         from .strategy_inference import infer_strategy_id_from_args
+        from .txt_preset_parser import parse_preset_content
 
         try:
             from strategy_menu.strategies_registry import get_current_strategy_set
@@ -1480,13 +1490,97 @@ class PresetManager:
         default_filter_mode = get_category_default_filter_mode(category_key)
         default_settings = get_default_category_settings().get(category_key) or {}
 
+        # Prefer defaults from the active preset's matching template.
+        active_preset_name = (self.get_active_preset_name() or preset.name or "").strip()
+        category_key_l = str(category_key or "").strip().lower()
+        try:
+            try:
+                invalidate_templates_cache()
+            except Exception:
+                pass
+
+            template_content = ""
+            if active_preset_name:
+                template_content = get_template_content(active_preset_name) or ""
+                if not template_content:
+                    base_name = get_builtin_base_from_copy_name(active_preset_name)
+                    if base_name:
+                        template_content = get_template_content(base_name) or ""
+            if not template_content:
+                template_content = get_default_template_content() or ""
+
+            if template_content:
+                template_data = parse_preset_content(template_content)
+                template_category_settings: dict = {}
+
+                for block in template_data.categories:
+                    block_cat = str(getattr(block, "category", "") or "").strip().lower()
+                    if not block_cat or block_cat != category_key_l:
+                        continue
+
+                    if not template_category_settings:
+                        template_category_settings = {
+                            "filter_mode": str(getattr(block, "filter_mode", "") or "").strip().lower() or "hostlist",
+                            "tcp_enabled": False,
+                            "tcp_port": "",
+                            "tcp_args": "",
+                            "udp_enabled": False,
+                            "udp_port": "",
+                            "udp_args": "",
+                            "syndata_overrides_tcp": {},
+                            "syndata_overrides_udp": {},
+                        }
+
+                    overrides = getattr(block, "syndata_dict", None) or {}
+                    if isinstance(overrides, dict) and overrides:
+                        target = "syndata_overrides_tcp" if block.protocol == "tcp" else "syndata_overrides_udp"
+                        template_category_settings[target].update(overrides)
+
+                    if block.protocol == "tcp":
+                        template_category_settings["tcp_enabled"] = True
+                        template_category_settings["tcp_port"] = str(block.port or "").strip()
+                        template_category_settings["tcp_args"] = str(block.strategy_args or "").strip()
+                        mode = str(block.filter_mode or "").strip().lower()
+                        if mode in ("hostlist", "ipset"):
+                            template_category_settings["filter_mode"] = mode
+                    elif block.protocol == "udp":
+                        template_category_settings["udp_enabled"] = True
+                        template_category_settings["udp_port"] = str(block.port or "").strip()
+                        template_category_settings["udp_args"] = str(block.strategy_args or "").strip()
+                        if not template_category_settings.get("tcp_enabled"):
+                            mode = str(block.filter_mode or "").strip().lower()
+                            if mode in ("hostlist", "ipset"):
+                                template_category_settings["filter_mode"] = mode
+
+                if template_category_settings:
+                    default_settings = template_category_settings
+                    mode = str(template_category_settings.get("filter_mode") or "").strip().lower()
+                    if mode in ("hostlist", "ipset"):
+                        default_filter_mode = mode
+        except Exception as e:
+            log(f"Failed to resolve template defaults for category '{category_key}': {e}", "DEBUG")
+
+        if default_settings:
+            tcp_defaults = SyndataSettings.get_defaults().to_dict()
+            udp_defaults = SyndataSettings.get_defaults_udp().to_dict()
+
+            tcp_overrides = default_settings.get("syndata_overrides_tcp") or {}
+            udp_overrides = default_settings.get("syndata_overrides_udp") or {}
+            if isinstance(tcp_overrides, dict) and tcp_overrides:
+                tcp_defaults.update(tcp_overrides)
+            if isinstance(udp_overrides, dict) and udp_overrides:
+                udp_defaults.update(udp_overrides)
+        else:
+            tcp_defaults = get_category_default_syndata(category_key, protocol="tcp")
+            udp_defaults = get_category_default_syndata(category_key, protocol="udp")
+
         # Reset non-strategy state.
-        cat.syndata_tcp = SyndataSettings.from_dict(get_category_default_syndata(category_key, protocol="tcp"))
-        cat.syndata_udp = SyndataSettings.from_dict(get_category_default_syndata(category_key, protocol="udp"))
+        cat.syndata_tcp = SyndataSettings.from_dict(tcp_defaults)
+        cat.syndata_udp = SyndataSettings.from_dict(udp_defaults)
         cat.filter_mode = default_filter_mode
         cat.sort_order = "default"
 
-        # Reset args/ports from DEFAULT_PRESET_CONTENT when available, otherwise keep
+        # Reset args/ports from template when available, otherwise keep
         # selection but normalize args from strategy_id.
         if default_settings:
             cat.tcp_enabled = bool(default_settings.get("tcp_enabled", False))
@@ -1655,7 +1749,7 @@ class PresetManager:
         invalidate_templates: bool = True,
     ) -> bool:
         """
-        Resets a preset to its matching template.
+        Resets a preset by force-copying its matching template content.
 
         By default, also activates it and rewrites preset-zapret2.txt.
 
@@ -1669,29 +1763,57 @@ class PresetManager:
         from .preset_defaults import (
             get_template_content,
             get_default_template_content,
+            get_builtin_base_from_copy_name,
             invalidate_templates_cache,
         )
-        from .txt_preset_parser import parse_preset_content
-        from .strategy_inference import infer_strategy_id_from_args
-
-        try:
-            from strategy_menu.strategies_registry import get_current_strategy_set
-            current_strategy_set = get_current_strategy_set()
-        except Exception:
-            current_strategy_set = None
 
         name = (preset_name or "").strip()
         if not name:
             return False
 
+        def _render_template_for_preset(raw_template: str, target_name: str) -> str:
+            text = (raw_template or "").replace("\r\n", "\n").replace("\r", "\n")
+            lines = text.split("\n")
+
+            header_end = 0
+            for i, raw in enumerate(lines):
+                stripped = raw.strip()
+                if stripped and not stripped.startswith("#"):
+                    header_end = i
+                    break
+            else:
+                header_end = len(lines)
+
+            header = lines[:header_end]
+            body = lines[header_end:]
+
+            out_header: list[str] = []
+            saw_preset = False
+            saw_active = False
+
+            for raw in header:
+                stripped = raw.strip().lower()
+                if stripped.startswith("# preset:"):
+                    out_header.append(f"# Preset: {target_name}")
+                    saw_preset = True
+                    continue
+                if stripped.startswith("# activepreset:"):
+                    out_header.append(f"# ActivePreset: {target_name}")
+                    saw_active = True
+                    continue
+                out_header.append(raw.rstrip("\n"))
+
+            if not saw_preset:
+                out_header.insert(0, f"# Preset: {target_name}")
+            if not saw_active:
+                insert_idx = 1 if out_header and out_header[0].strip().lower().startswith("# preset:") else 0
+                out_header.insert(insert_idx, f"# ActivePreset: {target_name}")
+
+            return "\n".join(out_header + body).rstrip("\n") + "\n"
+
         try:
             if not preset_exists(name):
                 log(f"Cannot reset: preset '{name}' not found", "ERROR")
-                return False
-
-            existing = self.load_preset(name)
-            if not existing:
-                log(f"Cannot reset: failed to load preset '{name}'", "ERROR")
                 return False
 
             if invalidate_templates:
@@ -1703,6 +1825,11 @@ class PresetManager:
             # Try matching template first, then fall back to default
             template_content = get_template_content(name)
             if not template_content:
+                # Try base name for duplicates (e.g. "Default (копия 2)" -> "Default")
+                base = get_builtin_base_from_copy_name(name)
+                if base:
+                    template_content = get_template_content(base)
+            if not template_content:
                 template_content = get_default_template_content()
             if not template_content:
                 log(
@@ -1711,68 +1838,20 @@ class PresetManager:
                     "ERROR",
                 )
                 return False
-            data = parse_preset_content(template_content)
+            rendered_content = _render_template_for_preset(template_content, name)
 
-            preset = Preset(name=name, base_args=data.base_args)
-            preset.created = existing.created
-            preset.description = existing.description
-            preset.icon_color = normalize_preset_icon_color(existing.icon_color)
-
-            for block in data.categories:
-                cat_name = block.category
-                if cat_name not in preset.categories:
-                    preset.categories[cat_name] = CategoryConfig(
-                        name=cat_name,
-                        filter_mode=block.filter_mode or "hostlist",
-                        syndata_tcp=SyndataSettings.get_defaults(),
-                        syndata_udp=SyndataSettings.get_defaults_udp(),
-                    )
-
-                cat = preset.categories[cat_name]
-                cat.filter_mode = block.filter_mode or cat.filter_mode or "hostlist"
-
-                if block.protocol == "tcp":
-                    cat.tcp_enabled = True
-                    cat.tcp_port = block.port
-                    cat.tcp_args = (block.strategy_args or "").strip()
-                elif block.protocol == "udp":
-                    cat.udp_enabled = True
-                    cat.udp_port = block.port
-                    cat.udp_args = (block.strategy_args or "").strip()
-
-                # Prefer explicit overrides from the template block if present.
-                if getattr(block, "syndata_dict", None):
-                    if block.protocol == "tcp":
-                        base = cat.syndata_tcp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
-                        cat.syndata_tcp = SyndataSettings.from_dict(base)
-                    elif block.protocol == "udp":
-                        base = cat.syndata_udp.to_dict()
-                        base.update(block.syndata_dict or {})  # type: ignore[arg-type]
-                        cat.syndata_udp = SyndataSettings.from_dict(base)
-
-            for cat_name, cat in preset.categories.items():
-                inferred = "none"
-                if cat.tcp_args:
-                    inferred = infer_strategy_id_from_args(
-                        category_key=cat_name,
-                        args=cat.tcp_args,
-                        protocol="tcp",
-                        strategy_set=current_strategy_set,
-                    )
-                if inferred == "none" and cat.udp_args:
-                    inferred = infer_strategy_id_from_args(
-                        category_key=cat_name,
-                        args=cat.udp_args,
-                        protocol="udp",
-                        strategy_set=current_strategy_set,
-                    )
-                cat.strategy_id = inferred or "none"
-
-            # Persist reset into the preset file first.
-            preset.base_args = self._update_wf_out_ports_in_base_args(preset)
-            if not save_preset(preset):
+            # Persist exact template reset into the preset file (force, regardless of version).
+            preset_path = get_preset_path(name)
+            try:
+                preset_path.parent.mkdir(parents=True, exist_ok=True)
+                preset_path.write_text(rendered_content, encoding="utf-8")
+            except PermissionError as e:
+                log(f"Cannot write preset file (locked by winws2?): {e}", "ERROR")
+                raise
+            except Exception as e:
+                log(f"Error writing reset preset '{name}': {e}", "ERROR")
                 return False
+
             self.invalidate_preset_cache(name)
 
             # Avoid producing a mismatched active file header.
@@ -1791,7 +1870,18 @@ class PresetManager:
 
             # Sync runtime file before emitting preset_switched (DPI reload expects new file).
             if do_sync:
-                if not self.sync_preset_to_active_file(preset):
+                try:
+                    active_path = get_active_preset_path()
+                    active_path.parent.mkdir(parents=True, exist_ok=True)
+                    active_path.write_text(rendered_content, encoding="utf-8")
+                    self._invalidate_active_preset_cache()
+                    if self.on_dpi_reload_needed:
+                        self.on_dpi_reload_needed()
+                except PermissionError as e:
+                    log(f"Cannot write active preset file (locked by winws2?): {e}", "ERROR")
+                    raise
+                except Exception as e:
+                    log(f"Error syncing reset preset '{name}' to active file: {e}", "ERROR")
                     return False
 
             if make_active:

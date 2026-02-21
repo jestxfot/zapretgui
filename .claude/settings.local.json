@@ -64,7 +64,11 @@
       "Bash(pip uninstall:*)",
       "Bash(pip install:*)",
       "Bash(del \"ui\\\\pages\\\\bat_strategies_page.py\" \"ui\\\\pages\\\\zapret1_direct_strategies_page.py\" \"zapret1_launcher\\\\bat_manager.py\")",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(wmic diskdrive get:*)",
+      "Bash(robocopy \"J:$Windows.~BT\\\\NewOS\" \"J:\"\" /E /COPYALL /B /IS /DCOPY:DAT /XD \"J:$Windows.~BT\" /R:1 /W:1 /NP /LOG+:\"C:UsersPrivacyAppDataLocalTemprobocopy_newos.log \")",
+      "Bash(printf '@echo off\\\\nrobocopy \"\"J:\\\\\\\\$Windows.~BT\\\\\\\\NewOS\"\" \"\"J:\\\\\\\\\"\" /E /COPYALL /B /IS /DCOPY:DAT /R:1 /W:1 /NP\\\\n' cmd /c \"C:\\\\Users\\\\Privacy\\\\AppData\\\\Local\\\\Temp\\\\do_robocopy.bat\")",
+      "Bash(py:*)"
     ]
   }
 }

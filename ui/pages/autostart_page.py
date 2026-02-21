@@ -261,9 +261,11 @@ class AutostartPage(BasePage):
         self._detector_worker = None  # Фоновый поток для определения типа
         self._detection_pending = False  # Флаг ожидания результата
 
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._autostart_enabled = False
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
 
@@ -588,78 +590,49 @@ class AutostartPage(BasePage):
 
     def on_theme_changed(self):
         """Вызывается при смене темы"""
-        self._schedule_theme_refresh()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
         self._apply_theme()
 
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = get_theme_tokens()
 
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
+        # Mode card icon — accent color still needs manual update
+        if hasattr(self, "_mode_icon_label"):
+            self._mode_icon_label.setPixmap(qta.icon("fa5s.cog", color=tokens.accent_hex).pixmap(18, 18))
 
-            # Mode card icon — accent color still needs manual update
-            if hasattr(self, "_mode_icon_label"):
-                self._mode_icon_label.setPixmap(qta.icon("fa5s.cog", color=tokens.accent_hex).pixmap(18, 18))
+        # mode_label gets accent color; Fluent label handles its own fg otherwise
+        if hasattr(self, "mode_label"):
+            self.mode_label.setStyleSheet(
+                f"color: {tokens.accent_hex}; font-size: 13px; font-weight: 600;"
+            )
 
-            # mode_label gets accent color; Fluent label handles its own fg otherwise
-            if hasattr(self, "mode_label"):
-                self.mode_label.setStyleSheet(
-                    f"color: {tokens.accent_hex}; font-size: 13px; font-weight: 600;"
-                )
+        # current_strategy_label bold override
+        if hasattr(self, "current_strategy_label"):
+            self.current_strategy_label.setStyleSheet(
+                f"color: {tokens.fg}; font-size: 13px; font-weight: 500;"
+            )
 
-            # current_strategy_label bold override
-            if hasattr(self, "current_strategy_label"):
-                self.current_strategy_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 13px; font-weight: 500;"
-                )
+        self._update_arrow_color()
 
-            self._update_arrow_color()
+        # Keep the status icon consistent with the current theme.
+        if hasattr(self, "status_icon"):
+            if getattr(self, "_autostart_enabled", False):
+                self.status_icon.setPixmap(qta.icon('fa5s.check-circle', color=get_semantic_palette().success).pixmap(20, 20))
+            else:
+                self.status_icon.setPixmap(qta.icon('fa5s.circle', color=tokens.fg_faint).pixmap(20, 20))
 
-            # Keep the status icon consistent with the current theme.
-            if hasattr(self, "status_icon"):
-                if getattr(self, "_autostart_enabled", False):
-                    self.status_icon.setPixmap(qta.icon('fa5s.check-circle', color=get_semantic_palette().success).pixmap(20, 20))
-                else:
-                    self.status_icon.setPixmap(qta.icon('fa5s.circle', color=tokens.fg_faint).pixmap(20, 20))
-
-            # Refresh option cards.
-            for card_name in ("gui_option", "service_option", "logon_option", "boot_option"):
-                card = getattr(self, card_name, None)
-                if card is not None and hasattr(card, "refresh_theme"):
-                    try:
-                        card.refresh_theme()
-                    except Exception:
-                        pass
-            if hasattr(self, "mode_card") and hasattr(self.mode_card, "refresh_theme"):
+        # Refresh option cards.
+        for card_name in ("gui_option", "service_option", "logon_option", "boot_option"):
+            card = getattr(self, card_name, None)
+            if card is not None and hasattr(card, "refresh_theme"):
                 try:
-                    self.mode_card.refresh_theme()
+                    card.refresh_theme()
                 except Exception:
                     pass
-        finally:
-            self._applying_theme_styles = False
+        if hasattr(self, "mode_card") and hasattr(self.mode_card, "refresh_theme"):
+            try:
+                self.mode_card.refresh_theme()
+            except Exception:
+                pass
 
     def update_status(self, enabled: bool, strategy_name: str = None, autostart_type: str = None):
         """Обновляет отображение статуса автозапуска"""

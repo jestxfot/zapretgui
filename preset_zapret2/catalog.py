@@ -87,24 +87,6 @@ def load_categories() -> Dict[str, Dict]:
     if _CACHED_CATEGORIES is not None:
         return _CACHED_CATEGORIES
 
-    paths = get_catalog_paths()
-    if paths is None:
-        # Do not permanently cache misses: the json catalog can appear later
-        # (first-run install/extract/update). Use a small backoff to avoid
-        # tight retry loops.
-        global _LAST_PATHS_MISS_AT
-        now = time.monotonic()
-        if _LAST_PATHS_MISS_AT and (now - _LAST_PATHS_MISS_AT) < _PATHS_MISS_BACKOFF_SECONDS:
-            return {}
-        _LAST_PATHS_MISS_AT = now
-        return {}
-
-    def _load_one(file_path: Path) -> Dict[str, Dict]:
-        if not file_path.exists():
-            return {}
-        text = _read_text(file_path)
-        return _load_one_text(text)
-
     def _load_one_text(text: str) -> Dict[str, Dict]:
         categories: Dict[str, Dict] = {}
         current_key: Optional[str] = None
@@ -152,6 +134,32 @@ def load_categories() -> Dict[str, Dict]:
 
         _flush()
         return categories
+
+    def _load_one(file_path: Path) -> Dict[str, Dict]:
+        if not file_path.exists():
+            return {}
+        text = _read_text(file_path)
+        return _load_one_text(text)
+
+    paths = get_catalog_paths()
+    if paths is None:
+        # If external json/strategies is unavailable, fall back to embedded
+        # categories immediately instead of returning an empty catalog.
+        global _LAST_PATHS_MISS_AT
+        now = time.monotonic()
+        if _LAST_PATHS_MISS_AT and (now - _LAST_PATHS_MISS_AT) < _PATHS_MISS_BACKOFF_SECONDS:
+            try:
+                from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
+                return _load_one_text(DEFAULT_CATEGORIES_TXT)
+            except Exception:
+                return {}
+
+        _LAST_PATHS_MISS_AT = now
+        try:
+            from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
+            return _load_one_text(DEFAULT_CATEGORIES_TXT)
+        except Exception:
+            return {}
 
     builtin = _load_one(paths.builtin_dir / "categories.txt")
     if not builtin:

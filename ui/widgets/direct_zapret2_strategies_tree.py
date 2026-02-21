@@ -754,7 +754,7 @@ class DirectZapret2StrategiesTree(QTreeWidget):
             item.setForeground(1, QBrush(row_text_color))
         except Exception:
             pass
-        item.setToolTip(1, "Наведение — показать args")
+
         if row.strategy_id != "none":
             techniques = self._infer_techniques(row.strategy_id, args_joined.lower())
             try:

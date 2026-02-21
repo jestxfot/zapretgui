@@ -1,7 +1,7 @@
 # ui/pages/blobs_page.py
 """Страница управления блобами (Zapret 2 / Direct режим)"""
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QFileDialog, QSizePolicy
@@ -47,8 +47,6 @@ class BlobItemWidget(QFrame):
 
         self._tokens = get_theme_tokens()
         self._current_qss = ""
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
 
         self._icon_label = None
         self._name_label = None
@@ -143,82 +141,58 @@ class BlobItemWidget(QFrame):
 
         self._apply_theme()
 
+    def changeEvent(self, event) -> None:
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            self._apply_theme()
+        super().changeEvent(event)
+
     def refresh_theme(self) -> None:
         self._tokens = get_theme_tokens()
         self._apply_theme()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self.refresh_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
 
-        self._applying_theme_styles = True
-        try:
-            tokens = self._tokens or get_theme_tokens("Темная синяя")
+        qss = f"""
+            BlobItemWidget {{
+                background: {tokens.surface_bg};
+                border: 1px solid {tokens.surface_border};
+                border-radius: 6px;
+                padding: 8px;
+            }}
+            BlobItemWidget:hover {{
+                background: {tokens.surface_bg_hover};
+                border: 1px solid {tokens.surface_border_hover};
+            }}
+        """
+        if qss != self._current_qss:
+            self._current_qss = qss
+            self.setStyleSheet(qss)
 
-            qss = f"""
-                BlobItemWidget {{
-                    background: {tokens.surface_bg};
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 6px;
-                    padding: 8px;
-                }}
-                BlobItemWidget:hover {{
-                    background: {tokens.surface_bg_hover};
-                    border: 1px solid {tokens.surface_border_hover};
-                }}
-            """
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
+        if self._name_label is not None:
+            self._name_label.setStyleSheet(
+                f"color: {tokens.fg}; font-size: 13px; font-weight: 600;"
+            )
+        if self._desc_label is not None:
+            self._desc_label.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 11px;"
+            )
+        if self._value_label is not None:
+            self._value_label.setStyleSheet(
+                f"color: {tokens.fg_faint}; font-size: 10px; font-family: Consolas;"
+            )
 
-            if self._name_label is not None:
-                self._name_label.setStyleSheet(
-                    f"color: {tokens.fg}; font-size: 13px; font-weight: 600;"
-                )
-            if self._desc_label is not None:
-                self._desc_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 11px;"
-                )
-            if self._value_label is not None:
-                self._value_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 10px; font-family: Consolas;"
-                )
-
-            if self._icon_label is not None:
-                if self.blob_info.get("type") == "hex":
-                    icon_name = "fa5s.hashtag"
-                    icon_color = "#ffc107"
-                else:
-                    icon_name = "fa5s.file"
-                    icon_color = tokens.accent_hex
-                try:
-                    self._icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(16, 16))
-                except Exception:
-                    self._icon_label.setPixmap(qta.icon("fa5s.file", color=tokens.accent_hex).pixmap(16, 16))
-        finally:
-            self._applying_theme_styles = False
+        if self._icon_label is not None:
+            if self.blob_info.get("type") == "hex":
+                icon_name = "fa5s.hashtag"
+                icon_color = "#ffc107"
+            else:
+                icon_name = "fa5s.file"
+                icon_color = tokens.accent_hex
+            try:
+                self._icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(16, 16))
+            except Exception:
+                self._icon_label.setPixmap(qta.icon("fa5s.file", color=tokens.accent_hex).pixmap(16, 16))
             
     def _on_delete(self):
         """Запрос на удаление блоба"""
@@ -372,11 +346,13 @@ class BlobsPage(BasePage):
 
     def __init__(self, parent=None):
         super().__init__("Блобы", "Управление бинарными данными для стратегий", parent)
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
 
         self._desc_label = None
         self._filter_icon_label = None
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
 
@@ -477,79 +453,50 @@ class BlobsPage(BasePage):
         # Загружаем блобы
         QTimer.singleShot(100, self._load_blobs)
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = get_theme_tokens()
 
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
+        if self._desc_label is not None:
+            self._desc_label.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 13px;"
+            )
 
-            if self._desc_label is not None:
-                self._desc_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 13px;"
-                )
+        if hasattr(self, "count_label") and self.count_label is not None:
+            self.count_label.setStyleSheet(
+                f"color: {tokens.fg_faint}; font-size: 11px; padding-top: 4px;"
+            )
 
-            if hasattr(self, "count_label") and self.count_label is not None:
-                self.count_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 11px; padding-top: 4px;"
-                )
+        if self._filter_icon_label is not None:
+            self._filter_icon_label.setPixmap(
+                qta.icon('fa5s.search', color=tokens.fg_faint).pixmap(14, 14)
+            )
 
-            if self._filter_icon_label is not None:
-                self._filter_icon_label.setPixmap(
-                    qta.icon('fa5s.search', color=tokens.fg_faint).pixmap(14, 14)
-                )
+        # filter_edit is a qfluentwidgets LineEdit — it styles itself.
 
-            # filter_edit is a qfluentwidgets LineEdit — it styles itself.
-
-            # Update section headers + blob items.
-            if hasattr(self, "blobs_layout") and self.blobs_layout is not None:
-                for i in range(self.blobs_layout.count()):
-                    item = self.blobs_layout.itemAt(i)
-                    w = item.widget() if item else None
-                    if w is None:
-                        continue
-                    if isinstance(w, BlobItemWidget):
-                        try:
-                            w.refresh_theme()
-                        except Exception:
-                            pass
-                    elif isinstance(w, QLabel):
-                        section = w.property("blobSection")
-                        if section == "user":
-                            w.setStyleSheet(
-                                "color: #ffc107; font-size: 12px; font-weight: 600; padding: 8px 4px 4px 4px;"
-                            )
-                        elif section == "system":
-                            w.setStyleSheet(
-                                f"color: {tokens.fg_faint}; font-size: 12px; font-weight: 600; padding: 12px 4px 4px 4px;"
-                            )
-                        elif section == "error":
-                            w.setStyleSheet("color: #ff6b6b; font-size: 13px;")
-        finally:
-            self._applying_theme_styles = False
+        # Update section headers + blob items.
+        if hasattr(self, "blobs_layout") and self.blobs_layout is not None:
+            for i in range(self.blobs_layout.count()):
+                item = self.blobs_layout.itemAt(i)
+                w = item.widget() if item else None
+                if w is None:
+                    continue
+                if isinstance(w, BlobItemWidget):
+                    try:
+                        w.refresh_theme()
+                    except Exception:
+                        pass
+                elif isinstance(w, QLabel):
+                    section = w.property("blobSection")
+                    if section == "user":
+                        w.setStyleSheet(
+                            "color: #ffc107; font-size: 12px; font-weight: 600; padding: 8px 4px 4px 4px;"
+                        )
+                    elif section == "system":
+                        w.setStyleSheet(
+                            f"color: {tokens.fg_faint}; font-size: 12px; font-weight: 600; padding: 12px 4px 4px 4px;"
+                        )
+                    elif section == "error":
+                        w.setStyleSheet("color: #ff6b6b; font-size: 13px;")
         
     def _load_blobs(self):
         """Загружает и отображает список блобов"""

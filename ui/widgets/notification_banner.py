@@ -6,9 +6,16 @@
 Поддерживает анимацию появления/исчезновения и автоматическое скрытие.
 """
 
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSize, QEvent
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSize
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QGraphicsOpacityEffect
 import qtawesome as qta
+
+try:
+    from qfluentwidgets import qconfig
+    _HAS_FLUENT = True
+except ImportError:
+    qconfig = None
+    _HAS_FLUENT = False
 
 from ui.theme import get_theme_tokens
 
@@ -54,9 +61,11 @@ class NotificationBanner(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._applying_theme_styles = False
         self._setup_ui()
         self._setup_animation()
+        if qconfig is not None:
+            qconfig.themeChanged.connect(lambda _: self._refresh_theme())
+            qconfig.themeColorChanged.connect(lambda _: self._refresh_theme())
         self._refresh_theme()
         self.hide()  # Скрыт по умолчанию
 
@@ -98,45 +107,30 @@ class NotificationBanner(QWidget):
         self.setGraphicsEffect(self.opacity_effect)
 
     def _refresh_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
         try:
-            try:
-                tokens = get_theme_tokens()
-                icon_color = "#111111" if tokens.is_light else "#f5f5f5"
-                hover_bg = tokens.surface_bg_hover
-                pressed_bg = tokens.surface_bg_pressed
-            except Exception:
-                icon_color = "#f5f5f5"
-                hover_bg = "rgba(245, 245, 245, 0.14)"
-                pressed_bg = "rgba(245, 245, 245, 0.20)"
-
-            self.close_btn.setIcon(qta.icon("mdi.close", color=icon_color))
-            self.close_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: transparent;
-                    border: none;
-                    border-radius: 4px;
-                }}
-                QPushButton:hover {{
-                    background-color: {hover_bg};
-                }}
-                QPushButton:pressed {{
-                    background-color: {pressed_bg};
-                }}
-            """)
-        finally:
-            self._applying_theme_styles = False
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._refresh_theme()
+            tokens = get_theme_tokens()
+            icon_color = "#111111" if tokens.is_light else "#f5f5f5"
+            hover_bg = tokens.surface_bg_hover
+            pressed_bg = tokens.surface_bg_pressed
         except Exception:
-            pass
-        return super().changeEvent(event)
+            icon_color = "#f5f5f5"
+            hover_bg = "rgba(245, 245, 245, 0.14)"
+            pressed_bg = "rgba(245, 245, 245, 0.20)"
+
+        self.close_btn.setIcon(qta.icon("mdi.close", color=icon_color))
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed_bg};
+            }}
+        """)
 
     def _setup_animation(self):
         """Настройка анимаций"""

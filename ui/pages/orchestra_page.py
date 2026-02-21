@@ -50,7 +50,6 @@ class DangerResetButton(FluentPushButton):
         self._confirm_text = confirm_text
         self._pending = False
         self._hovered = False
-        self._applying_theme_styles = False
         self._theme_refresh_scheduled = False
 
         # Иконка
@@ -161,17 +160,15 @@ class DangerResetButton(FluentPushButton):
         return super().changeEvent(event)
 
     def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
         if self._theme_refresh_scheduled:
             return
         self._theme_refresh_scheduled = True
         QTimer.singleShot(0, self._on_debounced_theme_change)
 
     def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
         self._update_icon()
         self._update_style()
+        self._theme_refresh_scheduled = False
 
 
 class OrchestraPage(BasePage):
@@ -193,13 +190,15 @@ class OrchestraPage(BasePage):
             parent
         )
 
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._info_label = None
         self._filter_label = None
         self._clear_filter_btn = None
         self._log_history_desc = None
         self._clear_all_logs_btn = None
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
 
@@ -374,85 +373,56 @@ class OrchestraPage(BasePage):
         # Обновляем статус
         self._update_status(self.STATE_IDLE)
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = get_theme_tokens()
+        selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
 
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            selection_fg = "rgba(0, 0, 0, 0.90)" if tokens.is_light else "rgba(245, 245, 245, 0.92)"
+        if self.status_label is not None:
+            # Final state color is applied by _update_status.
+            self.status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 14px;")
 
-            if self.status_label is not None:
-                # Final state color is applied by _update_status.
-                self.status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 14px;")
+        if self._info_label is not None:
+            self._info_label.setContentsMargins(0, 8, 0, 0)
 
-            if self._info_label is not None:
-                self._info_label.setContentsMargins(0, 8, 0, 0)
+        if self.log_text is not None:
+            self.log_text.setStyleSheet(
+                f"""
+                QTextEdit {{
+                    background-color: {tokens.surface_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 8px;
+                    color: {tokens.fg};
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    font-size: 11px;
+                    padding: 8px;
+                }}
+                QTextEdit::selection {{
+                    background-color: {tokens.accent_soft_bg_hover};
+                    color: {selection_fg};
+                }}
+                """
+            )
 
-            if self.log_text is not None:
-                self.log_text.setStyleSheet(
-                    f"""
-                    QTextEdit {{
-                        background-color: {tokens.surface_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 8px;
-                        color: {tokens.fg};
-                        font-family: 'Consolas', 'Courier New', monospace;
-                        font-size: 11px;
-                        padding: 8px;
-                    }}
-                    QTextEdit::selection {{
-                        background-color: {tokens.accent_soft_bg_hover};
-                        color: {selection_fg};
-                    }}
-                    """
-                )
+        # log_filter_input (LineEdit) and log_protocol_filter (ComboBox) are
+        # qfluentwidgets widgets — they style themselves.
 
-            # log_filter_input (LineEdit) and log_protocol_filter (ComboBox) are
-            # qfluentwidgets widgets — they style themselves.
+        if self._clear_filter_btn is not None:
+            self._clear_filter_btn.setIcon(qta.icon("mdi.close", color=tokens.fg_faint))
 
-            if self._clear_filter_btn is not None:
-                self._clear_filter_btn.setIcon(qta.icon("mdi.close", color=tokens.fg_faint))
+        if self.clear_log_btn is not None:
+            self.clear_log_btn.setIcon(qta.icon("fa5s.broom", color=tokens.fg))
 
-            if self.clear_log_btn is not None:
-                self.clear_log_btn.setIcon(qta.icon("fa5s.broom", color=tokens.fg))
+        if self._clear_all_logs_btn is not None:
+            self._clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color=tokens.fg))
 
-            if self._clear_all_logs_btn is not None:
-                self._clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color=tokens.fg))
+        if self.clear_learned_btn is not None:
+            try:
+                self.clear_learned_btn._update_icon()  # noqa: SLF001
+                self.clear_learned_btn._update_style()  # noqa: SLF001
+            except Exception:
+                pass
 
-            if self.clear_learned_btn is not None:
-                try:
-                    self.clear_learned_btn._update_icon()  # noqa: SLF001
-                    self.clear_learned_btn._update_style()  # noqa: SLF001
-                except Exception:
-                    pass
-
-            self._update_status(getattr(self, "_current_state", self.STATE_IDLE))
-        finally:
-            self._applying_theme_styles = False
+        self._update_status(getattr(self, "_current_state", self.STATE_IDLE))
 
     def _update_status(self, state: str):
         """Обновляет статус на основе состояния"""

@@ -8,7 +8,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
@@ -69,8 +69,9 @@ class HostlistPage(BasePage):
         self._excl_save_timer.setSingleShot(True)
         self._excl_save_timer.timeout.connect(self._excl_auto_save)
 
-        self._theme_refresh_scheduled = False
-        self._applying_theme_styles = False
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_editor_styles())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_editor_styles())
 
     # ──────────────────────────────────────────────────────────────────────────
     # Qt event overrides
@@ -87,29 +88,6 @@ class HostlistPage(BasePage):
             self._info_loaded_once = True
             QTimer.singleShot(0, self._load_info)
 
-    def changeEvent(self, event):  # noqa: N802
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if hasattr(self, "_accent_icon_lbls"):
-                    tokens = get_theme_tokens()
-                    for lbl, icon_name in self._accent_icon_lbls:
-                        lbl.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(18, 18))
-                if not self._theme_refresh_scheduled:
-                    self._theme_refresh_scheduled = True
-                    QTimer.singleShot(0, self._on_debounced_theme_change)
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-    def _on_debounced_theme_change(self):
-        self._theme_refresh_scheduled = False
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            self._apply_editor_styles()
-        finally:
-            self._applying_theme_styles = False
 
     # ──────────────────────────────────────────────────────────────────────────
     # Main UI builder
@@ -437,6 +415,14 @@ class HostlistPage(BasePage):
 
     def _apply_editor_styles(self):
         tokens = get_theme_tokens()
+
+        if hasattr(self, "_accent_icon_lbls"):
+            for lbl, icon_name in self._accent_icon_lbls:
+                try:
+                    lbl.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(18, 18))
+                except Exception:
+                    pass
+
         style = (
             f"QPlainTextEdit {{"
             f"  background: {tokens.surface_bg};"

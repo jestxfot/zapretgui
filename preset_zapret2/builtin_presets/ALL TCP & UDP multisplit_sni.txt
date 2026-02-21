@@ -1,6 +1,6 @@
 # Preset: ALL TCP & UDP multisplit sni
 # ActivePreset: ALL TCP & UDP multisplit sni
-# BuiltinVersion: 1.0
+# BuiltinVersion: 1.1
 # Created: 2026-01-30T14:17:56.182141
 # Modified: 2026-01-30T14:47:35.144031
 # Description: 

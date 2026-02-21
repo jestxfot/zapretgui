@@ -1,6 +1,6 @@
 # Preset: general ALT11 (game filter)
 # ActivePreset: general ALT11 (game filter)
-# BuiltinVersion: 1.0
+# BuiltinVersion: 1.1
 # IconColor: #67d1e4ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -161,6 +161,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-d10
@@ -181,6 +182,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n4

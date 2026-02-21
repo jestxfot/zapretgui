@@ -138,10 +138,12 @@ class ConnectionTestPage(BasePage):
         self.log_send_thread = None
         self.log_send_worker = None
         self.stop_check_timer = None
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
 
         self._hero_frame = None
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         # Контейнер с ограниченной шириной, чтобы не расползалось за края
         self.container = QWidget(self.content)
@@ -162,52 +164,24 @@ class ConnectionTestPage(BasePage):
 
         self._apply_theme()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
+        tokens = get_theme_tokens()
 
-            if self._hero_frame is not None:
-                self._hero_frame.setStyleSheet(
-                    f"""
-                    QFrame#connectionHero {{
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                                    stop:0 {tokens.accent_soft_bg},
-                                                    stop:1 {tokens.surface_bg});
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 12px;
-                    }}
-                    """
-                )
+        if self._hero_frame is not None:
+            self._hero_frame.setStyleSheet(
+                f"""
+                QFrame#connectionHero {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                                stop:0 {tokens.accent_soft_bg},
+                                                stop:1 {tokens.surface_bg});
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 12px;
+                }}
+                """
+            )
 
-            # status_label is now a CaptionLabel — Fluent handles its typography/colour.
-            # result_text is now a Fluent TextEdit — Fluent handles its background/border/colour.
-        finally:
-            self._applying_theme_styles = False
+        # status_label is now a CaptionLabel — Fluent handles its typography/colour.
+        # result_text is now a Fluent TextEdit — Fluent handles its background/border/colour.
 
     # ──────────────────────────────────────────────────────────────
     # UI

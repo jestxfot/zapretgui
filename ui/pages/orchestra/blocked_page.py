@@ -4,7 +4,7 @@
 Каждая блокировка отображается в виде ряда с редактируемым номером стратегии.
 Изменения автоматически сохраняются в реестр.
 """
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame,
@@ -45,8 +45,6 @@ class BlockedDomainRow(QFrame):
 
         self._tokens = get_theme_tokens()
         self._current_qss = ""
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
 
         self._lock_icon_label = None
         self._domain_label = None
@@ -118,94 +116,70 @@ class BlockedDomainRow(QFrame):
 
         self._apply_theme()
 
+    def changeEvent(self, event) -> None:
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            self._apply_theme()
+        super().changeEvent(event)
+
     def refresh_theme(self) -> None:
         self._tokens = get_theme_tokens()
         self._apply_theme()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self.refresh_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
 
-        self._applying_theme_styles = True
-        try:
-            tokens = self._tokens or get_theme_tokens("Темная синяя")
+        if self.is_default:
+            disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
+            qss = f"""
+                BlockedDomainRow {{
+                    background: {disabled_bg};
+                    border: 1px solid {tokens.surface_border_disabled};
+                    border-radius: 6px;
+                }}
+            """
+        else:
+            row_bg = get_card_gradient_qss(tokens.theme_name)
+            row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
+            qss = f"""
+                BlockedDomainRow {{
+                    background: {row_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 6px;
+                }}
+                BlockedDomainRow:hover {{
+                    background: {row_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+            """
 
-            if self.is_default:
-                disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
-                qss = f"""
-                    BlockedDomainRow {{
-                        background: {disabled_bg};
-                        border: 1px solid {tokens.surface_border_disabled};
-                        border-radius: 6px;
-                    }}
-                """
-            else:
-                row_bg = get_card_gradient_qss(tokens.theme_name)
-                row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
-                qss = f"""
-                    BlockedDomainRow {{
-                        background: {row_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                    }}
-                    BlockedDomainRow:hover {{
-                        background: {row_bg_hover};
-                        border: 1px solid {tokens.surface_border_hover};
-                    }}
-                """
+        if qss != self._current_qss:
+            self._current_qss = qss
+            self.setStyleSheet(qss)
 
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
+        if self._lock_icon_label is not None:
+            self._lock_icon_label.setPixmap(
+                qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
+            )
 
-            if self._lock_icon_label is not None:
-                self._lock_icon_label.setPixmap(
-                    qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
-                )
+        if self._domain_label is not None:
+            domain_color = tokens.fg_muted if self.is_default else tokens.fg
+            self._domain_label.setStyleSheet(
+                f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
+            )
+        if self._proto_label is not None:
+            proto_color = tokens.fg_faint if self.is_default else tokens.fg_muted
+            self._proto_label.setStyleSheet(
+                f"color: {proto_color}; font-size: 11px; border: none; background: transparent;"
+            )
+        if self._default_strat_label is not None:
+            self._default_strat_label.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 13px; border: none; background: transparent;"
+            )
 
-            if self._domain_label is not None:
-                domain_color = tokens.fg_muted if self.is_default else tokens.fg
-                self._domain_label.setStyleSheet(
-                    f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
-                )
-            if self._proto_label is not None:
-                proto_color = tokens.fg_faint if self.is_default else tokens.fg_muted
-                self._proto_label.setStyleSheet(
-                    f"color: {proto_color}; font-size: 11px; border: none; background: transparent;"
-                )
-            if self._default_strat_label is not None:
-                self._default_strat_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 13px; border: none; background: transparent;"
-                )
-
-            if self._add_btn is not None:
-                self._add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
-            if self._delete_btn is not None:
-                self._delete_btn.setIcon(qta.icon("mdi.close-circle-outline", color=tokens.fg))
-        finally:
-            self._applying_theme_styles = False
+        if self._add_btn is not None:
+            self._add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
+        if self._delete_btn is not None:
+            self._delete_btn.setIcon(qta.icon("mdi.close-circle-outline", color=tokens.fg))
 
     def _on_strategy_changed(self, new_value: int):
         """При изменении номера стратегии - уведомляем родителя для автосохранения"""
@@ -243,12 +217,15 @@ class OrchestraBlockedPage(BasePage):
             parent
         )
         self.setObjectName("orchestraBlockedPage")
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._hint_label = None
         # Инициализируем пустые данные (будут загружены при первом showEvent)
         self._direct_blocked_by_askey = {askey: {} for askey in ASKEY_ALL}
         self._initial_load_done = False
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
+
         self._setup_ui()
 
         self._apply_theme()
@@ -343,56 +320,27 @@ class OrchestraBlockedPage(BasePage):
         list_card.add_layout(list_layout)
         self.layout.addWidget(list_card)
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = get_theme_tokens()
 
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
+        if hasattr(self, "block_btn") and self.block_btn is not None:
+            self.block_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
 
-            if hasattr(self, "block_btn") and self.block_btn is not None:
-                self.block_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
-
-            for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unblock_all_btn", "mdi.delete-sweep")):
-                btn = getattr(self, btn_attr, None)
-                if btn is None:
-                    continue
-                try:
-                    btn.setIcon(qta.icon(icon_name, color=tokens.fg))
-                except Exception:
-                    pass
-
+        for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unblock_all_btn", "mdi.delete-sweep")):
+            btn = getattr(self, btn_attr, None)
+            if btn is None:
+                continue
             try:
-                for row in list(getattr(self, "_blocked_rows", [])):
-                    if hasattr(row, "refresh_theme"):
-                        row.refresh_theme()
+                btn.setIcon(qta.icon(icon_name, color=tokens.fg))
             except Exception:
                 pass
-        finally:
-            self._applying_theme_styles = False
+
+        try:
+            for row in list(getattr(self, "_blocked_rows", [])):
+                if hasattr(row, "refresh_theme"):
+                    row.refresh_theme()
+        except Exception:
+            pass
 
     def showEvent(self, event):
         """При показе страницы загружаем данные один раз (без авто-обновления)"""

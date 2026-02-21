@@ -197,8 +197,8 @@ class ReleaseManager:
                 log("⏭️ Telegram недоступен (telethon не установлен)", "🔄 RELEASE")
                 return None
             
-            # Маппинг каналов
-            tg_channel = 'test' if channel == 'dev' else 'stable'
+            # Маппинг каналов (и 'dev' и 'test' → test-канал Telegram)
+            tg_channel = 'test' if channel in ('dev', 'test') else 'stable'
             
             log(f"📱 Проверка обновлений через Telegram ({tg_channel})...", "🔄 RELEASE")
             

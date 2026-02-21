@@ -1,7 +1,7 @@
 # ui/pages/orchestra/ratings_page.py
 """Страница истории стратегий с рейтингами (оркестратор)"""
 
-from PyQt6.QtCore import QSize, QTimer
+from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
 )
@@ -30,8 +30,11 @@ class OrchestraRatingsPage(BasePage):
             parent
         )
         self.setObjectName("orchestraRatingsPage")
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
+
         self._setup_ui()
 
         self._apply_theme()
@@ -79,38 +82,10 @@ class OrchestraRatingsPage(BasePage):
         self._http_data = {}
         self._udp_data = {}
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
-                self.refresh_btn.setIcon(qta.icon("mdi.refresh", color=tokens.fg))
-        finally:
-            self._applying_theme_styles = False
+        tokens = get_theme_tokens()
+        if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
+            self.refresh_btn.setIcon(qta.icon("mdi.refresh", color=tokens.fg))
 
     def showEvent(self, event):
         """При показе страницы загружаем данные"""

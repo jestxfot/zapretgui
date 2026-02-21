@@ -49,8 +49,9 @@ class SupportPage(BasePage):
         self._zaphub_action_btn: ActionButton | None = None
         self._hub_icon_label: QLabel | None = None
 
-        self._applying_theme_styles: bool = False
-        self._theme_refresh_scheduled: bool = False
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
 
@@ -135,48 +136,20 @@ class SupportPage(BasePage):
         # Initial state refresh
         self._refresh_zaphub_state()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
+        tokens = get_theme_tokens()
 
-            if self._hub_icon_label is not None:
-                try:
-                    self._hub_icon_label.setPixmap(qta.icon("fa5s.users", color=tokens.accent_hex).pixmap(36, 36))
-                except Exception:
-                    pass
-
-            # Refresh status styles for the current theme.
+        if self._hub_icon_label is not None:
             try:
-                self._refresh_zaphub_state()
+                self._hub_icon_label.setPixmap(qta.icon("fa5s.users", color=tokens.accent_hex).pixmap(36, 36))
             except Exception:
                 pass
-        finally:
-            self._applying_theme_styles = False
+
+        # Refresh status styles for the current theme.
+        try:
+            self._refresh_zaphub_state()
+        except Exception:
+            pass
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)

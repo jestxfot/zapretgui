@@ -19,6 +19,11 @@ from log import log
 # Путь к директории со стратегиями V1
 BASIC_STRATEGIES_DIR = Path(__file__).parent / "basic_strategies"
 
+# Candidate directories checked in order:
+# 1) External folder near app root (single canonical source for V1 strategies)
+_SOURCE_DIRS_CACHE: list[Path] | None = None
+_MISSING_SOURCE_WARNED = False
+
 # Кеш: cache_key -> (mtime_ns, size, data)
 _CACHE: Dict[str, tuple[int, int, Any]] = {}
 
@@ -30,6 +35,50 @@ _LABEL_MAP = {
     "game":        "game",
     "caution":     "caution",
 }
+
+
+def _strategy_dirs() -> list[Path]:
+    """Resolve canonical directory where V1 strategy txt files should exist."""
+    global _SOURCE_DIRS_CACHE
+    if _SOURCE_DIRS_CACHE is not None:
+        return _SOURCE_DIRS_CACHE
+
+    dirs: list[Path] = []
+
+    try:
+        from config import MAIN_DIRECTORY
+
+        main_dir = Path(MAIN_DIRECTORY)
+        dirs.append(main_dir / "preset_zapret1" / "basic_strategies")
+    except Exception:
+        pass
+
+    # Dev fallback only when MAIN_DIRECTORY path is unavailable for some reason.
+    if not dirs:
+        dirs.append(BASIC_STRATEGIES_DIR)
+
+    # De-duplicate while preserving order.
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for d in dirs:
+        key = str(d)
+        if key not in seen:
+            seen.add(key)
+            unique.append(d)
+
+    _SOURCE_DIRS_CACHE = unique
+    return _SOURCE_DIRS_CACHE
+
+
+def _resolve_strategy_file(filename: str) -> Path | None:
+    for d in _strategy_dirs():
+        try:
+            p = d / filename
+            if p.exists() and p.is_file():
+                return p
+        except Exception:
+            continue
+    return None
 
 
 # ── Cache helpers ─────────────────────────────────────────────────────────────
@@ -158,10 +207,7 @@ def load_v1_strategies(category: str) -> Dict[str, Dict]:
         http80_* / *_http80 → http80_zapret1.txt (fallback tcp_zapret1.txt)
         everything else     → tcp_zapret1.txt
     """
-    z1_dir = BASIC_STRATEGIES_DIR
-    if not z1_dir.exists():
-        log(f"V1 strategies_loader: directory not found: {z1_dir}", "WARNING")
-        return {}
+    global _MISSING_SOURCE_WARNED
 
     cat = category.lower()
     if cat == "udp" or cat.endswith("_udp") or cat.startswith("udp_"):
@@ -175,12 +221,28 @@ def load_v1_strategies(category: str) -> Dict[str, Dict]:
 
     raw_data: Optional[Dict] = None
     for basename in candidates:
-        raw_data = _load_txt(z1_dir / f"{basename}.txt")
+        file_path = _resolve_strategy_file(f"{basename}.txt")
+        if not file_path:
+            continue
+
+        raw_data = _load_txt(file_path)
         if raw_data:
-            log(f"V1: '{category}' → {basename}.txt ({len(raw_data.get('strategies', []))} стратегий)", "DEBUG")
+            log(
+                f"V1: '{category}' → {file_path.name} "
+                f"({len(raw_data.get('strategies', []))} стратегий)",
+                "DEBUG",
+            )
             break
 
     if not raw_data:
+        if not _MISSING_SOURCE_WARNED:
+            _MISSING_SOURCE_WARNED = True
+            dirs = ", ".join(str(p) for p in _strategy_dirs())
+            log(
+                "V1 strategies_loader: files not found in known locations: "
+                f"{dirs}",
+                "WARNING",
+            )
         return {}
 
     result: Dict[str, Dict] = {}

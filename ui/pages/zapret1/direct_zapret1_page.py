@@ -1,223 +1,399 @@
 # ui/pages/zapret1/direct_zapret1_page.py
-"""Список категорий Zapret 1 с drill-down к деталям стратегии."""
+"""Zapret 1 categories page with Zapret 2-style interface."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QSizePolicy
+from typing import Any
+
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtWidgets import QWidget, QHBoxLayout
 
 from ui.pages.base_page import BasePage
+from ui.compat_widgets import ActionButton, RefreshButton, SettingsCard
+from ui.widgets import UnifiedStrategiesList
 from log import log
 
 try:
     from qfluentwidgets import (
-        SettingCard, SettingCardGroup,
-        TransparentToolButton, TransparentPushButton,
-        CaptionLabel, BodyLabel,
-        FluentIcon as FIF,
+        BreadcrumbBar,
+        MessageBox,
+        BodyLabel,
     )
     _HAS_FLUENT = True
 except ImportError:
+    from PyQt6.QtWidgets import QLabel as BodyLabel  # type: ignore
+
+    BreadcrumbBar = None  # type: ignore
+    MessageBox = None  # type: ignore
     _HAS_FLUENT = False
-    SettingCard = None          # type: ignore
-    SettingCardGroup = None     # type: ignore
-    TransparentToolButton = None  # type: ignore
-    TransparentPushButton = None  # type: ignore
-    CaptionLabel = None         # type: ignore
-    BodyLabel = None            # type: ignore
-    FIF = None                  # type: ignore
-
-try:
-    import qtawesome as qta
-    _HAS_QTA = True
-except ImportError:
-    _HAS_QTA = False
 
 
-# ── Category card ──────────────────────────────────────────────────────────────
+_INFO_TEXT = (
+    "Здесь выбирается стратегия обхода DPI для каждой категории сайтов.\n\n"
+    "Интерфейс и категории синхронизированы с Zapret 2: используется единый "
+    "каталог categories.txt.\n\n"
+    "Откройте категорию и выберите стратегию Zapret 1. "
+    "Если стратегия не подходит — попробуйте другую или задайте аргументы вручную "
+    "в карточке категории."
+)
 
-class _CategoryCard(SettingCard):
-    """Карточка категории: иконка + название + текущая стратегия + шеврон."""
-
-    clicked = pyqtSignal()
-
-    def __init__(self, icon, title: str, subtitle: str, parent=None):
-        super().__init__(icon, title, subtitle, parent)
-
-        # Шеврон вправо (не кликабельный — весь ряд кликабельный)
-        self._chevron = TransparentToolButton(FIF.CARE_RIGHT, self)
-        self._chevron.setFixedSize(28, 28)
-        self._chevron.setEnabled(False)
-        self._chevron.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.hBoxLayout.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignVCenter)
-        self.hBoxLayout.addSpacing(4)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
-
-    def set_subtitle(self, text: str) -> None:
-        self.contentLabel.setText(text)
-
-
-# ── Main page ──────────────────────────────────────────────────────────────────
 
 class Zapret1StrategiesPage(BasePage):
-    """Список категорий Zapret 1 с drill-down при клике."""
+    """Список категорий Zapret 1 с breadcrumb-навигацией."""
 
     category_clicked = pyqtSignal(str, dict)  # category_key, category_info
     back_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__(title="Стратегии Zapret 1", parent=parent)
+        super().__init__(title="Прямой запуск Zapret 1", parent=parent)
         self.parent_app = parent
 
         self._built = False
         self._build_scheduled = False
-        self._cards: dict[str, _CategoryCard] = {}  # category_key → card
+        self._breadcrumb = None
+        self._unified_list: UnifiedStrategiesList | None = None
+        self.category_selections: dict[str, str] = {}
+        self._categories: dict[str, Any] = {}
 
-        if _HAS_FLUENT:
-            back_btn = TransparentPushButton()
-            back_btn.setText("← Управление")
-            back_btn.setIconSize(QSize(16, 16))
+        self._setup_breadcrumb()
+
+    # ------------------------------------------------------------------
+    # Breadcrumb
+    # ------------------------------------------------------------------
+
+    def _setup_breadcrumb(self) -> None:
+        if _HAS_FLUENT and BreadcrumbBar is not None:
+            try:
+                self._breadcrumb = BreadcrumbBar(self)
+                self._rebuild_breadcrumb()
+                self._breadcrumb.currentItemChanged.connect(self._on_breadcrumb_changed)
+                self.layout.insertWidget(0, self._breadcrumb)
+                return
+            except Exception:
+                pass
+
+        try:
+            back_btn = ActionButton("← Управление")
             back_btn.clicked.connect(self.back_clicked.emit)
-            self.add_widget(back_btn)
+            self.layout.insertWidget(0, back_btn)
+        except Exception:
+            pass
 
-    # ── Build ──────────────────────────────────────────────────────────────
+    def _rebuild_breadcrumb(self) -> None:
+        if self._breadcrumb is None:
+            return
+        self._breadcrumb.blockSignals(True)
+        try:
+            self._breadcrumb.clear()
+            self._breadcrumb.addItem("control", "Управление")
+            self._breadcrumb.addItem("strategies", "Прямой запуск Zapret 1")
+        finally:
+            self._breadcrumb.blockSignals(False)
 
-    def showEvent(self, a0):
-        super().showEvent(a0)
+    def _on_breadcrumb_changed(self, key: str) -> None:
+        self._rebuild_breadcrumb()
+        if key == "control":
+            self.back_clicked.emit()
+
+    # ------------------------------------------------------------------
+    # Build lifecycle
+    # ------------------------------------------------------------------
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._breadcrumb is not None:
+            self._rebuild_breadcrumb()
         if not self._built:
             self._schedule_build()
         else:
-            # Обновить субтитры (стратегии могли измениться)
             QTimer.singleShot(0, self._refresh_subtitles)
 
-    def _schedule_build(self):
+    def _schedule_build(self) -> None:
         if self._build_scheduled:
             return
         self._build_scheduled = True
         QTimer.singleShot(0, self._build_content)
 
-    def _build_content(self):
+    def _build_content(self) -> None:
         self._build_scheduled = False
         try:
             self._do_build()
         except Exception as e:
             log(f"Zapret1StrategiesPage: ошибка построения: {e}", "ERROR")
+            import traceback
+
+            log(traceback.format_exc(), "DEBUG")
         self._built = True
 
-    def _do_build(self):
-        self._cards.clear()
+    def _do_build(self) -> None:
+        self._clear_dynamic_widgets()
 
-        if not _HAS_FLUENT:
-            from PyQt6.QtWidgets import QLabel
-            self.add_widget(QLabel("qfluentwidgets не установлен"))
+        self._build_toolbar()
+
+        self._categories = self._load_categories()
+        if not self._categories:
+            self.add_widget(
+                BodyLabel(
+                    "Категории не найдены. Проверьте наличие json/strategies/builtin/categories.txt"
+                )
+            )
             return
 
-        # Загружаем категории
-        categories: dict = {}
+        self.category_selections = self._load_current_selections()
+        self.category_selections = {
+            key: self.category_selections.get(key, "none")
+            for key in self._categories.keys()
+        }
+
+        filter_modes = self._load_filter_modes()
+
+        self._unified_list = UnifiedStrategiesList(self)
+        self._unified_list.strategy_selected.connect(self._on_category_clicked)
+        self._unified_list.selections_changed.connect(self._on_selections_changed)
+        self._unified_list.build_list(
+            self._categories,
+            self.category_selections,
+            filter_modes=filter_modes,
+        )
+        self.add_widget(self._unified_list, 1)
+
+        # UnifiedStrategiesList показывает названия через registry (Zapret 2).
+        # Для Zapret 1 нужно подставить названия из load_v1_strategies().
+        self._apply_v1_strategy_names()
+
+    def _build_toolbar(self) -> None:
+        actions_card = SettingsCard()
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(8)
+
+        self._reload_btn = RefreshButton()
+        self._reload_btn.clicked.connect(self._reload)
+        actions_layout.addWidget(self._reload_btn)
+
+        expand_btn = ActionButton("Развернуть", "fa5s.expand-alt")
+        expand_btn.clicked.connect(self._expand_all)
+        actions_layout.addWidget(expand_btn)
+
+        collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
+        collapse_btn.clicked.connect(self._collapse_all)
+        actions_layout.addWidget(collapse_btn)
+
+        info_btn = ActionButton("Что это?", "fa5s.question-circle", accent=False)
+        info_btn.clicked.connect(self._show_info)
+        actions_layout.addWidget(info_btn)
+
+        actions_layout.addStretch()
+        actions_card.add_layout(actions_layout)
+        self.add_widget(actions_card)
+
+    # ------------------------------------------------------------------
+    # Data helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _load_categories() -> dict[str, Any]:
         try:
-            from preset_zapret2.catalog import load_categories
-            categories = load_categories()
-        except Exception as e:
-            log(f"Zapret1StrategiesPage: cannot load categories: {e}", "ERROR")
+            from strategy_menu.strategies_registry import registry
 
-        if not categories:
-            self.add_widget(BodyLabel("Нет доступных категорий"))
-            return
+            categories = dict(registry.categories or {})
+            if categories:
+                return categories
 
-        # Текущие выборы стратегий
-        current_selections = self._load_current_selections()
-
-        # Группа карточек
-        group = SettingCardGroup("Категории")
-
-        for cat_key, cat_info in categories.items():
-            if not self._is_v1_compatible(cat_info):
-                continue
-
-            full_name = cat_info.get("full_name", cat_key)
-            icon = self._make_icon(cat_info)
-            subtitle = self._strategy_subtitle(cat_key, cat_info, current_selections)
-
-            card = _CategoryCard(icon, full_name, subtitle, group)
-            card.clicked.connect(lambda k=cat_key, i=cat_info: self.category_clicked.emit(k, i))
-            group.addSettingCard(card)
-            self._cards[cat_key] = card
-
-        self.add_widget(group)
-
-    # ── Helpers ────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _is_v1_compatible(cat_info: dict) -> bool:
-        """Пропускаем категории с --filter-l7= (только orchestra/V2)."""
-        for key in ("base_filter", "base_filter_ipset", "base_filter_hostlist"):
-            val = cat_info.get(key, "")
-            if val and "--filter-l7=" in val:
-                return False
-        return True
-
-    @staticmethod
-    def _make_icon(cat_info: dict):
-        """Иконка категории через qtawesome, fallback на FIF.GAME."""
-        icon_name = cat_info.get("icon_name", "")
-        icon_color = cat_info.get("icon_color", "#909090")
-        if _HAS_QTA and icon_name:
+            # If categories cache was filled before catalog became available,
+            # force one reload to avoid showing an empty page.
             try:
-                return qta.icon(icon_name, color=icon_color)
+                registry.reload_strategies()
+                categories = dict(registry.categories or {})
             except Exception:
                 pass
-        return FIF.GAME
+
+            return categories
+        except Exception:
+            return {}
 
     @staticmethod
-    def _load_current_selections() -> dict:
+    def _load_current_selections() -> dict[str, str]:
         try:
             from preset_zapret1 import PresetManagerV1
+
             return PresetManagerV1().get_strategy_selections() or {}
         except Exception:
             return {}
 
     @staticmethod
-    def _strategy_name(strategy_id: str, cat_key: str, cat_info: dict) -> str:
-        """Возвращает отображаемое имя стратегии по id."""
-        if not strategy_id or strategy_id == "none":
+    def _load_filter_modes() -> dict[str, str]:
+        try:
+            from preset_zapret1 import PresetManagerV1
+
+            manager = PresetManagerV1()
+            preset = manager.get_active_preset()
+            if not preset:
+                return {}
+            return {
+                key: (cat.filter_mode or "")
+                for key, cat in (preset.categories or {}).items()
+                if getattr(cat, "filter_mode", None)
+            }
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _category_info_to_dict(category_key: str, category_info: Any) -> dict:
+        if isinstance(category_info, dict):
+            data = dict(category_info)
+            data.setdefault("key", category_key)
+            data.setdefault("full_name", data.get("name", category_key))
+            data.setdefault("description", "")
+            return data
+
+        data = {
+            "key": getattr(category_info, "key", category_key),
+            "full_name": getattr(category_info, "full_name", category_key),
+            "description": getattr(category_info, "description", ""),
+            "protocol": getattr(category_info, "protocol", ""),
+            "ports": getattr(category_info, "ports", ""),
+            "icon_name": getattr(category_info, "icon_name", ""),
+            "icon_color": getattr(category_info, "icon_color", "#909090"),
+            "command_group": getattr(category_info, "command_group", "default"),
+        }
+
+        data.setdefault("key", category_key)
+        data.setdefault("full_name", category_key)
+        data.setdefault("description", "")
+        return data
+
+    @staticmethod
+    def _strategy_name(strategy_id: str, cat_key: str) -> str:
+        sid = (strategy_id or "").strip()
+        if not sid or sid == "none":
             return "Не задано"
+        if sid == "custom":
+            return "Свой набор"
         try:
             from preset_zapret1.strategies_loader import load_v1_strategies
+
             strats = load_v1_strategies(cat_key)
-            info = strats.get(strategy_id)
+            info = strats.get(sid)
             if info:
-                return info.get("name", strategy_id)
+                return info.get("name", sid)
         except Exception:
             pass
-        return strategy_id
+        return sid
 
-    def _strategy_subtitle(self, cat_key: str, cat_info: dict, selections: dict) -> str:
-        sid = selections.get(cat_key, "none")
-        return self._strategy_name(sid, cat_key, cat_info)
+    def _apply_v1_strategy_names(self) -> None:
+        if not self._unified_list:
+            return
+        for cat_key, sid in (self.category_selections or {}).items():
+            item = self._unified_list.get_category_item(cat_key)
+            if item:
+                item.set_strategy(sid, self._strategy_name(sid, cat_key))
+
+    # ------------------------------------------------------------------
+    # Actions / handlers
+    # ------------------------------------------------------------------
+
+    def _on_category_clicked(self, category_key: str, _strategy_id: str) -> None:
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            category_info = registry.get_category_info(category_key)
+        except Exception:
+            category_info = None
+
+        info_dict = self._category_info_to_dict(category_key, category_info)
+
+        # Важно: отложенная навигация убирает артефакты hover/cursor в Qt.
+        QTimer.singleShot(
+            0,
+            lambda k=category_key, info=dict(info_dict): self.category_clicked.emit(k, info),
+        )
+
+    def _on_selections_changed(self, selections: dict) -> None:
+        self.category_selections = dict(selections or {})
 
     def _refresh_subtitles(self) -> None:
-        """Обновить субтитры карточек без полного перестроения."""
-        selections = self._load_current_selections()
-        try:
-            from preset_zapret2.catalog import load_categories
-            categories = load_categories()
-        except Exception:
+        if not self._unified_list:
             return
-        for cat_key, card in self._cards.items():
-            cat_info = categories.get(cat_key, {})
-            card.set_subtitle(self._strategy_subtitle(cat_key, cat_info, selections))
 
-    # ── Public API ──────────────────────────────────────────────────────────
+        self.category_selections = self._load_current_selections()
+        self.category_selections = {
+            key: self.category_selections.get(key, "none")
+            for key in (self._categories or {}).keys()
+        }
+        self._unified_list.set_selections(self.category_selections)
+        self._apply_v1_strategy_names()
+
+        filter_modes = self._load_filter_modes()
+        for cat_key in (self._categories or {}).keys():
+            try:
+                self._unified_list.update_filter_mode(cat_key, filter_modes.get(cat_key) or "")
+            except Exception:
+                continue
+
+    def _reload(self, *_args) -> None:
+        if hasattr(self, "_reload_btn"):
+            self._reload_btn.set_loading(True)
+        try:
+            try:
+                from strategy_menu.strategies_registry import registry
+
+                registry.reload_strategies()
+            except Exception:
+                pass
+
+            self._built = False
+            self._unified_list = None
+            self._schedule_build()
+        finally:
+            if hasattr(self, "_reload_btn"):
+                self._reload_btn.set_loading(False)
+
+    def _expand_all(self, *_args) -> None:
+        if self._unified_list:
+            self._unified_list.expand_all()
+
+    def _collapse_all(self, *_args) -> None:
+        if self._unified_list:
+            self._unified_list.collapse_all()
+
+    def _show_info(self, *_args) -> None:
+        if _HAS_FLUENT and MessageBox is not None:
+            try:
+                box = MessageBox("Прямой запуск Zapret 1", _INFO_TEXT, self.window())
+                box.hideCancelButton()
+                box.yesButton.setText("Понятно")
+                box.exec()
+            except Exception:
+                pass
+
+    def _clear_dynamic_widgets(self) -> None:
+        keep: set[QWidget] = {self.title_label}
+        if self.subtitle_label:
+            keep.add(self.subtitle_label)
+        if self._breadcrumb:
+            keep.add(self._breadcrumb)
+
+        to_remove = []
+        for i in range(self.vBoxLayout.count()):
+            item = self.vBoxLayout.itemAt(i)
+            w = item.widget() if item else None
+            if w is not None and w not in keep:
+                to_remove.append(w)
+
+        for w in to_remove:
+            self.vBoxLayout.removeWidget(w)
+            w.setParent(None)
+
+    # ------------------------------------------------------------------
+    # Public compatibility API
+    # ------------------------------------------------------------------
 
     def reload_for_mode_change(self) -> None:
         self._built = False
-        self._cards.clear()
+        self._unified_list = None
         if self.isVisible():
             self._schedule_build()
 
     def update_current_strategy(self, name: str) -> None:
-        pass
+        # Compatibility stub (used by legacy paths).
+        _ = name

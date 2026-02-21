@@ -45,15 +45,23 @@ def _get_app_core_path() -> str:
 def _get_presets_root_path() -> str:
     global _PRESETS_ROOT_PATH
     if _PRESETS_ROOT_PATH is None:
+        base = ""
         try:
             from config import get_zapret_userdata_dir
             base = (get_zapret_userdata_dir() or "").strip()
-            if base:
-                _PRESETS_ROOT_PATH = os.path.join(base, "presets_v1")
         except Exception:
-            _PRESETS_ROOT_PATH = ""
-        if not _PRESETS_ROOT_PATH:
-            _PRESETS_ROOT_PATH = str(Path(_get_app_core_path()) / "presets_v1")
+            base = ""
+
+        if not base:
+            appdata = (os.environ.get("APPDATA") or "").strip()
+            if appdata:
+                base = os.path.join(appdata, "zapret")
+
+        if not base:
+            # Conservative fallback for non-standard env without APPDATA.
+            base = str(Path.home() / "AppData" / "Roaming" / "zapret")
+
+        _PRESETS_ROOT_PATH = os.path.join(base, "presets_v1")
     return _PRESETS_ROOT_PATH
 
 
@@ -202,8 +210,7 @@ def _parse_metadata_from_header_v1(header: str) -> Tuple[str, str, str, str]:
 
 def load_preset_v1(name: str) -> Optional["PresetV1"]:
     from .preset_model import PresetV1, CategoryConfigV1
-    # Reuse zapret2 parser (same TXT format)
-    from preset_zapret2.txt_preset_parser import parse_preset_file, extract_strategy_args
+    from .txt_preset_parser import parse_preset_file
 
     preset_path = get_preset_path_v1(name)
     if not preset_path.exists():
@@ -241,20 +248,13 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
 
         # Infer strategy_id from args
         try:
-            from strategy_menu.strategies_registry import get_current_strategy_set
-            current_strategy_set = get_current_strategy_set()
-        except Exception:
-            current_strategy_set = None
-
-        try:
-            from preset_zapret2.strategy_inference import infer_strategy_id_from_args
+            from .strategy_inference import infer_strategy_id_from_args
             for cat_name, cat in preset.categories.items():
                 if cat.tcp_args and cat.tcp_args.strip():
                     inferred_id = infer_strategy_id_from_args(
                         category_key=cat_name,
                         args=cat.tcp_args,
                         protocol="tcp",
-                        strategy_set=current_strategy_set,
                     )
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
@@ -264,7 +264,6 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
                         category_key=cat_name,
                         args=cat.udp_args,
                         protocol="udp",
-                        strategy_set=current_strategy_set,
                     )
                     if inferred_id != "none":
                         cat.strategy_id = inferred_id
@@ -281,8 +280,7 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
 
 def save_preset_v1(preset: "PresetV1") -> bool:
     import os
-    # Reuse zapret2 TXT generator
-    from preset_zapret2.txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
+    from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
     preset_path = get_preset_path_v1(preset.name)
 

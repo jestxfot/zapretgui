@@ -195,8 +195,6 @@ class HostsPage(BasePage):
         self._open_hosts_button = None
         self._close_error_button = None
 
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._services_container = None
         self._services_layout = None
         self._catalog_sig = None
@@ -211,101 +209,76 @@ class HostsPage(BasePage):
         self._startup_initialized = False
         self._service_dns_selection = load_user_hosts_selection()
 
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
+
         self._init_hosts_manager()
         self._build_ui()
 
         # Apply tokens to remaining custom inline-styled widgets.
         self._apply_theme()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
         """Applies theme tokens to widgets that still use raw setStyleSheet."""
-        if self._applying_theme_styles:
-            return
+        tokens = get_theme_tokens()
 
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-
-            # Section title labels (plain QLabel kept for layout/padding control).
-            for label in list(self._services_section_title_labels):
-                try:
-                    label.setStyleSheet(
-                        f"color: {tokens.fg_muted}; font-size: 13px; font-weight: 600; padding-top: 8px; padding-bottom: 4px;"
-                    )
-                except Exception:
-                    pass
-
-            # Chip scroll areas (plain QScrollArea, no Fluent equivalent).
-            chips_qss = (
-                "QScrollArea { background: transparent; border: none; }"
-                "QScrollArea QWidget { background: transparent; }"
-                "QScrollBar:horizontal { height: 4px; background: transparent; margin: 0px; }"
-                f"QScrollBar::handle:horizontal {{ background: {tokens.scrollbar_handle}; border-radius: 2px; min-width: 24px; }}"
-                f"QScrollBar::handle:horizontal:hover {{ background: {tokens.scrollbar_handle_hover}; }}"
-                "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; height: 0px; background: transparent; border: none; }"
-                "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }"
-            )
-            for scroll in list(self._service_group_chips_scrolls):
-                try:
-                    scroll.setStyleSheet(chips_qss)
-                except Exception:
-                    pass
-
-            # Chip buttons (plain QPushButton link-style, no direct Fluent equivalent).
-            chip_qss = _get_fluent_chip_style(tokens)
-            for btn in list(self._service_group_chip_buttons):
-                try:
-                    btn.setStyleSheet(chip_qss)
-                except Exception:
-                    pass
-
-            # Close-error icon button (tiny 20x20, stays plain QPushButton).
-            if self._close_error_button is not None:
-                try:
-                    self._close_error_button.setIcon(qta.icon('fa5s.times', color=tokens.fg_faint))
-                    self._close_error_button.setStyleSheet(
-                        f"""
-                        QPushButton {{
-                            background: transparent;
-                            border: none;
-                        }}
-                        QPushButton:hover {{
-                            background: {tokens.surface_bg_hover};
-                            border-radius: 10px;
-                        }}
-                        """
-                    )
-                except Exception:
-                    pass
-
+        # Section title labels (plain QLabel kept for layout/padding control).
+        for label in list(self._services_section_title_labels):
             try:
-                self._update_ui()
+                label.setStyleSheet(
+                    f"color: {tokens.fg_muted}; font-size: 13px; font-weight: 600; padding-top: 8px; padding-bottom: 4px;"
+                )
             except Exception:
                 pass
-        finally:
-            self._applying_theme_styles = False
+
+        # Chip scroll areas (plain QScrollArea, no Fluent equivalent).
+        chips_qss = (
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea QWidget { background: transparent; }"
+            "QScrollBar:horizontal { height: 4px; background: transparent; margin: 0px; }"
+            f"QScrollBar::handle:horizontal {{ background: {tokens.scrollbar_handle}; border-radius: 2px; min-width: 24px; }}"
+            f"QScrollBar::handle:horizontal:hover {{ background: {tokens.scrollbar_handle_hover}; }}"
+            "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; height: 0px; background: transparent; border: none; }"
+            "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }"
+        )
+        for scroll in list(self._service_group_chips_scrolls):
+            try:
+                scroll.setStyleSheet(chips_qss)
+            except Exception:
+                pass
+
+        # Chip buttons (plain QPushButton link-style, no direct Fluent equivalent).
+        chip_qss = _get_fluent_chip_style(tokens)
+        for btn in list(self._service_group_chip_buttons):
+            try:
+                btn.setStyleSheet(chip_qss)
+            except Exception:
+                pass
+
+        # Close-error icon button (tiny 20x20, stays plain QPushButton).
+        if self._close_error_button is not None:
+            try:
+                self._close_error_button.setIcon(qta.icon('fa5s.times', color=tokens.fg_faint))
+                self._close_error_button.setStyleSheet(
+                    f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: none;
+                    }}
+                    QPushButton:hover {{
+                        background: {tokens.surface_bg_hover};
+                        border-radius: 10px;
+                    }}
+                    """
+                )
+            except Exception:
+                pass
+
+        try:
+            self._update_ui()
+        except Exception:
+            pass
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
@@ -853,6 +826,26 @@ class HostsPage(BasePage):
         if self._applying:
             return
 
+        target_profile = (profile_name or "").strip()
+
+        # Для массового применения по группе используем строгую логику:
+        # профиль должен быть доступен для КАЖДОГО сервиса в группе,
+        # иначе отменяем операцию целиком (без частичного применения).
+        if target_profile:
+            unavailable = [
+                service_name
+                for service_name in service_names
+                if target_profile not in (get_service_available_dns_profiles(service_name) or [])
+            ]
+            if unavailable:
+                log(
+                    f"Hosts: массовое применение отменено — профиль '{target_profile}' недоступен для: "
+                    + ", ".join(unavailable[:8])
+                    + ("…" if len(unavailable) > 8 else ""),
+                    "DEBUG",
+                )
+                return
+
         changed = False
         skipped: list[str] = []
         for service_name in service_names:
@@ -860,14 +853,8 @@ class HostsPage(BasePage):
             if not control:
                 continue
 
-            available = list(get_service_available_dns_profiles(service_name) or [])
-
-            target_profile = (profile_name or "").strip()
             if _is_fluent_combo(control):
                 if target_profile:
-                    if target_profile not in available:
-                        skipped.append(service_name)
-                        continue
                     target_idx = control.findData(target_profile)
                     if target_idx < 0:
                         skipped.append(service_name)
@@ -881,9 +868,6 @@ class HostsPage(BasePage):
                     control.blockSignals(False)
                     changed = True
             elif isinstance(control, QCheckBox):
-                if target_profile and target_profile not in available:
-                    skipped.append(service_name)
-                    continue
                 desired = bool(target_profile)
                 if control.isChecked() != desired:
                     was_building = getattr(self, "_building_services_ui", False)
@@ -922,6 +906,7 @@ class HostsPage(BasePage):
     def _build_services_selectors(self):
         OFF_LABEL = "Откл."
         ON_LABEL = "Вкл."
+        all_dns_profiles = [p for p in (get_dns_profiles() or []) if isinstance(p, str) and p.strip()]
 
         # Карта иконок/цветов по сервису (если есть в QUICK_SERVICES)
         ui_map = {name: (icon_name, icon_color) for icon_name, name, icon_color in QUICK_SERVICES}
@@ -961,6 +946,34 @@ class HostsPage(BasePage):
                 ai.append(service_name)
             else:
                 other.append(service_name)
+
+        def get_common_dns_profiles(service_names: list[str]) -> list[str]:
+            """
+            Возвращает DNS-профили, которые доступны ДЛЯ КАЖДОГО сервиса в группе.
+            Нужно для group-chips, чтобы не показывать провайдеры, недоступные
+            хотя бы для одного сервиса в этой группе.
+            """
+            common: set[str] | None = None
+
+            for service_name in service_names:
+                available = {
+                    p
+                    for p in (get_service_available_dns_profiles(service_name) or [])
+                    if isinstance(p, str) and p.strip()
+                }
+                if common is None:
+                    common = available
+                else:
+                    common &= available
+
+                if not common:
+                    return []
+
+            if not common:
+                return []
+
+            # Сохраняем порядок как в общем списке [DNS].
+            return [profile for profile in all_dns_profiles if profile in common]
 
         self._services_add_section_title("Сервисы")
 
@@ -1061,7 +1074,7 @@ class HostsPage(BasePage):
                     )
                     chips_layout.addWidget(off_btn)
 
-                    for profile_name in (get_dns_profiles() or []):
+                    for profile_name in get_common_dns_profiles(names):
                         label = _format_dns_profile_label(profile_name)
                         if not label:
                             continue

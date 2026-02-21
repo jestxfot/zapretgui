@@ -74,6 +74,15 @@ class BasePage(_FluentScrollArea):
             "QScrollArea { background-color: transparent; border: none; }"
         )
 
+        # Apply smooth scroll preference from registry
+        try:
+            from config.reg import get_smooth_scroll_enabled
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+            if not get_smooth_scroll_enabled():
+                self.setSmoothMode(SmoothMode.NO_SMOOTH, Qt.Orientation.Vertical)
+        except Exception:
+            pass
+
         # --- Content container ---
         self.content = QWidget(self)
         self.content.setStyleSheet("background-color: transparent;")

@@ -3,7 +3,7 @@
 Страница управления белым списком оркестратора (whitelist)
 Домены из этого списка НЕ обрабатываются оркестратором.
 """
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QWidget, QLineEdit, QFrame
@@ -36,8 +36,6 @@ class WhitelistDomainRow(QFrame):
 
         self._tokens = get_theme_tokens()
         self._current_qss = ""
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
 
         self._lock_icon_label = None
         self._domain_label = None
@@ -77,83 +75,59 @@ class WhitelistDomainRow(QFrame):
 
         self._apply_theme()
 
+    def changeEvent(self, event) -> None:
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            self._apply_theme()
+        super().changeEvent(event)
+
     def refresh_theme(self) -> None:
         self._tokens = get_theme_tokens()
         self._apply_theme()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self.refresh_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = self._tokens or get_theme_tokens("Темная синяя")
 
-        self._applying_theme_styles = True
-        try:
-            tokens = self._tokens or get_theme_tokens("Темная синяя")
+        if self.is_default:
+            disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
+            qss = f"""
+                WhitelistDomainRow {{
+                    background: {disabled_bg};
+                    border: 1px solid {tokens.surface_border_disabled};
+                    border-radius: 6px;
+                }}
+            """
+        else:
+            row_bg = get_card_gradient_qss(tokens.theme_name)
+            row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
+            qss = f"""
+                WhitelistDomainRow {{
+                    background: {row_bg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 6px;
+                }}
+                WhitelistDomainRow:hover {{
+                    background: {row_bg_hover};
+                    border: 1px solid {tokens.surface_border_hover};
+                }}
+            """
 
-            if self.is_default:
-                disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
-                qss = f"""
-                    WhitelistDomainRow {{
-                        background: {disabled_bg};
-                        border: 1px solid {tokens.surface_border_disabled};
-                        border-radius: 6px;
-                    }}
-                """
-            else:
-                row_bg = get_card_gradient_qss(tokens.theme_name)
-                row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
-                qss = f"""
-                    WhitelistDomainRow {{
-                        background: {row_bg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                    }}
-                    WhitelistDomainRow:hover {{
-                        background: {row_bg_hover};
-                        border: 1px solid {tokens.surface_border_hover};
-                    }}
-                """
+        if qss != self._current_qss:
+            self._current_qss = qss
+            self.setStyleSheet(qss)
 
-            if qss != self._current_qss:
-                self._current_qss = qss
-                self.setStyleSheet(qss)
+        if self._lock_icon_label is not None:
+            self._lock_icon_label.setPixmap(
+                qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
+            )
 
-            if self._lock_icon_label is not None:
-                self._lock_icon_label.setPixmap(
-                    qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
-                )
+        if self._domain_label is not None:
+            domain_color = tokens.fg_muted if self.is_default else tokens.fg
+            self._domain_label.setStyleSheet(
+                f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
+            )
 
-            if self._domain_label is not None:
-                domain_color = tokens.fg_muted if self.is_default else tokens.fg
-                self._domain_label.setStyleSheet(
-                    f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
-                )
-
-            if self._delete_btn is not None:
-                self._delete_btn.setIcon(qta.icon("mdi.close-circle-outline", color=tokens.fg))
-        finally:
-            self._applying_theme_styles = False
+        if self._delete_btn is not None:
+            self._delete_btn.setIcon(qta.icon("mdi.close-circle-outline", color=tokens.fg))
 
     def _on_delete_clicked(self):
         """При клике на удаление - уведомляем родителя"""
@@ -174,10 +148,13 @@ class OrchestraWhitelistPage(BasePage):
             parent
         )
         self.setObjectName("orchestraWhitelistPage")
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._runner_cache = None  # Кэш для runner когда оркестратор не запущен
         self._all_whitelist_data = []  # Кэш данных для фильтрации
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
+
         self._setup_ui()
 
         self._apply_theme()
@@ -266,76 +243,47 @@ class OrchestraWhitelistPage(BasePage):
         domains_card.add_layout(domains_layout)
         self.layout.addWidget(domains_card, 1)
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
+    def _apply_theme(self) -> None:
+        tokens = get_theme_tokens()
 
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
+        if hasattr(self, "add_btn") and self.add_btn is not None:
+            self.add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
+
+        if hasattr(self, "clear_user_btn") and self.clear_user_btn is not None:
+            self.clear_user_btn.setIcon(qta.icon("mdi.delete-sweep", color=tokens.fg))
+
+        if hasattr(self, "count_label") and self.count_label is not None:
+            self.count_label.setStyleSheet(
+                f"color: {tokens.fg_faint}; font-size: 11px;"
+            )
+
+        # Section headers inside the list.
+        try:
+            if hasattr(self, "rows_layout") and self.rows_layout is not None:
+                for i in range(self.rows_layout.count()):
+                    item = self.rows_layout.itemAt(i)
+                    w = item.widget() if item else None
+                    if not isinstance(w, QLabel):
+                        continue
+                    section = w.property("whitelistSection")
+                    if section == "user":
+                        w.setStyleSheet(
+                            f"color: {tokens.accent_hex}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+                        )
+                    elif section == "system":
+                        w.setStyleSheet(
+                            f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+                        )
         except Exception:
             pass
-        return super().changeEvent(event)
 
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-
-        self._applying_theme_styles = True
+        # Refresh row widgets.
         try:
-            tokens = get_theme_tokens()
-
-            if hasattr(self, "add_btn") and self.add_btn is not None:
-                self.add_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
-
-            if hasattr(self, "clear_user_btn") and self.clear_user_btn is not None:
-                self.clear_user_btn.setIcon(qta.icon("mdi.delete-sweep", color=tokens.fg))
-
-            if hasattr(self, "count_label") and self.count_label is not None:
-                self.count_label.setStyleSheet(
-                    f"color: {tokens.fg_faint}; font-size: 11px;"
-                )
-
-            # Section headers inside the list.
-            try:
-                if hasattr(self, "rows_layout") and self.rows_layout is not None:
-                    for i in range(self.rows_layout.count()):
-                        item = self.rows_layout.itemAt(i)
-                        w = item.widget() if item else None
-                        if not isinstance(w, QLabel):
-                            continue
-                        section = w.property("whitelistSection")
-                        if section == "user":
-                            w.setStyleSheet(
-                                f"color: {tokens.accent_hex}; font-size: 11px; font-weight: 600; padding: 4px 0;"
-                            )
-                        elif section == "system":
-                            w.setStyleSheet(
-                                f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;"
-                            )
-            except Exception:
-                pass
-
-            # Refresh row widgets.
-            try:
-                for row in list(getattr(self, "_domain_rows", [])):
-                    if hasattr(row, "refresh_theme"):
-                        row.refresh_theme()
-            except Exception:
-                pass
-        finally:
-            self._applying_theme_styles = False
+            for row in list(getattr(self, "_domain_rows", [])):
+                if hasattr(row, "refresh_theme"):
+                    row.refresh_theme()
+        except Exception:
+            pass
 
     def showEvent(self, event):
         """При показе страницы обновляем данные"""

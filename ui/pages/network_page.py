@@ -806,6 +806,14 @@ class NetworkPage(BasePage):
             self.force_dns_status_label = QLabel("")
             self.force_dns_status_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
         dns_layout.addWidget(self.force_dns_status_label)
+
+        self.force_dns_reset_dhcp_btn = ResetActionButton(
+            "Сбросить DNS на DHCP",
+            confirm_text="Отключить Force DNS и сбросить DNS на DHCP для всех адаптеров?"
+        )
+        self.force_dns_reset_dhcp_btn.setFixedHeight(30)
+        self.force_dns_reset_dhcp_btn.reset_confirmed.connect(self._reset_dns_to_dhcp)
+        dns_layout.addWidget(self.force_dns_reset_dhcp_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         
         self.force_dns_card.add_layout(dns_layout)
         self.add_widget(self.force_dns_card)
@@ -837,12 +845,12 @@ class NetworkPage(BasePage):
                     self._set_force_dns_toggle(False)
                     self._update_force_dns_status(False, "Не удалось включить")
             else:
-                success, message = manager.disable_force_dns()
+                success, message = manager.disable_force_dns(reset_to_auto=False)
                 log(message, "DNS")
 
                 if success:
                     self._force_dns_active = False
-                    self._update_force_dns_status(False, "DNS сброшен на авто")
+                    self._update_force_dns_status(False, "Текущий DNS сохранен")
                 else:
                     self._set_force_dns_toggle(True)
                     self._update_force_dns_status(True, "Не удалось отключить")
@@ -925,6 +933,49 @@ class NetworkPage(BasePage):
         except Exception as e:
             if InfoBar:
                 InfoBar.warning(title="Ошибка", content=f"Не удалось очистить кэш: {e}", parent=self.window())
+
+    def _reset_dns_to_dhcp(self):
+        """Явно сбрасывает DNS на DHCP и отключает Force DNS"""
+        try:
+            from dns import DNSForceManager
+            manager = DNSForceManager()
+
+            success, message = manager.disable_force_dns(reset_to_auto=True)
+            log(message, "DNS")
+
+            self._force_dns_active = manager.is_force_dns_enabled()
+            self._set_force_dns_toggle(self._force_dns_active)
+
+            if not self._force_dns_active:
+                self._clear_selection()
+                if hasattr(self, 'auto_indicator'):
+                    self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_on())
+                if hasattr(self, 'auto_card'):
+                    self._set_dns_card_selected(self.auto_card, True)
+                self._selected_provider = None
+
+            if success:
+                self._update_force_dns_status(False, "DNS сброшен на DHCP")
+            else:
+                self._update_force_dns_status(False, "Force DNS отключен, DHCP не применён")
+
+            self._update_dns_selection_state()
+            self._refresh_adapters_dns()
+
+            if InfoBar:
+                if success:
+                    InfoBar.success(
+                        title="DNS",
+                        content="DNS сброшен на DHCP для всех адаптеров",
+                        parent=self.window(),
+                    )
+                else:
+                    InfoBar.warning(title="DNS", content=message, parent=self.window())
+
+        except Exception as e:
+            log(f"Ошибка сброса DNS на DHCP: {e}", "ERROR")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось сбросить DNS: {e}", parent=self.window())
 
     def _test_connection(self):
         """Тестирует соединение с интернетом"""

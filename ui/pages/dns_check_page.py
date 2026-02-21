@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QWidget
 )
-from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QTimer, QEvent
+from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QTextCursor
 
 from .base_page import BasePage, ScrollBlockingTextEdit
@@ -58,12 +58,15 @@ class DNSCheckPage(BasePage):
         )
         self.worker = None
         self.thread = None
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._status_tone = "muted"
         self._status_bold = False
         self._info_icon_labels = []
         self._info_text_labels = []
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
+
         self._build_ui()
         self._apply_theme()
     
@@ -188,71 +191,45 @@ class DNSCheckPage(BasePage):
         self._status_bold = bold
 
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
+        tokens = get_theme_tokens()
+        for label in list(self._info_text_labels):
+            try:
+                label.setStyleSheet(f"color: {tokens.fg_muted};")
+            except Exception:
+                pass
+
         try:
-            tokens = get_theme_tokens()
-            for label in list(self._info_text_labels):
+            import qtawesome as qta
+
+            for icon_label in list(self._info_icon_labels):
                 try:
-                    label.setStyleSheet(f"color: {tokens.fg_muted};")
+                    icon_name = (icon_label.property("dnsIconName") or "fa5s.search").strip()
+                    icon_label.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(16, 16))
                 except Exception:
                     pass
-
-            try:
-                import qtawesome as qta
-
-                for icon_label in list(self._info_icon_labels):
-                    try:
-                        icon_name = (icon_label.property("dnsIconName") or "fa5s.search").strip()
-                        icon_label.setPixmap(qta.icon(icon_name, color=tokens.accent_hex).pixmap(16, 16))
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-            try:
-                self.result_text.setStyleSheet(
-                    f"""
-                    QTextEdit {{
-                        background-color: {tokens.surface_bg};
-                        color: {tokens.fg};
-                        border: 1px solid {tokens.surface_border};
-                        border-radius: 6px;
-                        padding: 12px;
-                    }}
-                    """
-                )
-            except Exception:
-                pass
-
-            try:
-                self._set_status(self.status_label.text(), tone=self._status_tone, bold=self._status_bold)
-            except Exception:
-                pass
-        finally:
-            self._applying_theme_styles = False
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
         except Exception:
             pass
-        return super().changeEvent(event)
-    
+
+        try:
+            self.result_text.setStyleSheet(
+                f"""
+                QTextEdit {{
+                    background-color: {tokens.surface_bg};
+                    color: {tokens.fg};
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 6px;
+                    padding: 12px;
+                }}
+                """
+            )
+        except Exception:
+            pass
+
+        try:
+            self._set_status(self.status_label.text(), tone=self._status_tone, bold=self._status_bold)
+        except Exception:
+            pass
+
     def start_check(self):
         """Начинает полную проверку DNS."""
         if self.thread and self.thread.isRunning():

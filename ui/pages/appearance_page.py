@@ -43,6 +43,10 @@ class AppearancePage(BasePage):
     background_refresh_needed = pyqtSignal()
     # Сигнал изменения Mica-эффекта
     mica_changed = pyqtSignal(bool)
+    # Сигнал изменения анимаций интерфейса
+    animations_changed = pyqtSignal(bool)
+    # Сигнал изменения плавной прокрутки
+    smooth_scroll_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__("Оформление", "Настройка внешнего вида приложения", parent)
@@ -66,6 +70,8 @@ class AppearancePage(BasePage):
         self._tinted_intensity_slider = None
         self._tinted_intensity_value_label = None
         self._mica_switch = None
+        self._animations_switch = None
+        self._smooth_scroll_switch = None
 
         self._build_ui()
 
@@ -360,6 +366,39 @@ class AppearancePage(BasePage):
             self._load_accent_color()
             self._load_extra_accent_settings()
 
+        # ═══════════════════════════════════════════════════════════
+        # ПРОИЗВОДИТЕЛЬНОСТЬ
+        # ═══════════════════════════════════════════════════════════
+        self.add_section_title("Производительность")
+
+        perf_card = SettingsCard()
+        perf_layout = QVBoxLayout()
+        perf_layout.setSpacing(12)
+
+        try:
+            from qfluentwidgets import SwitchButton
+
+            anim_row = SettingsRow("fa5s.film", "Анимации интерфейса",
+                "Анимации кнопок, переходов и элементов WinUI")
+            self._animations_switch = SwitchButton()
+            self._animations_switch.checkedChanged.connect(self._on_animations_changed)
+            anim_row.set_control(self._animations_switch)
+            perf_layout.addWidget(anim_row)
+
+            scroll_row = SettingsRow("fa5s.mouse", "Плавная прокрутка",
+                "Инерционная прокрутка страниц настроек")
+            self._smooth_scroll_switch = SwitchButton()
+            self._smooth_scroll_switch.checkedChanged.connect(self._on_smooth_scroll_changed)
+            scroll_row.set_control(self._smooth_scroll_switch)
+            perf_layout.addWidget(scroll_row)
+        except Exception:
+            pass
+
+        perf_card.add_layout(perf_layout)
+        self.add_widget(perf_card)
+        self.add_spacing(16)
+        self._load_performance_settings()
+
         # Load saved display mode and bg preset
         self._load_display_mode()
         self._load_bg_preset()
@@ -438,6 +477,16 @@ class AppearancePage(BasePage):
             pass
         if self._mica_switch:
             self._mica_switch.setEnabled(preset == "standard")
+        # AMOLED and РКН Тян require dark mode — force it automatically
+        if preset in ("amoled", "rkn_chan"):
+            self._on_display_mode_changed("dark")
+            if self._display_mode_seg is not None:
+                self._display_mode_seg.blockSignals(True)
+                try:
+                    self._display_mode_seg.setCurrentItem("dark")
+                except Exception:
+                    pass
+                self._display_mode_seg.blockSignals(False)
         self.background_preset_changed.emit(preset)
 
     def _on_mica_changed(self, checked: bool):
@@ -750,3 +799,38 @@ class AppearancePage(BasePage):
             self._opacity_slider.blockSignals(False)
         if self._opacity_label:
             self._opacity_label.setText(f"{value}%")
+
+    def _on_animations_changed(self, enabled: bool):
+        """Handle animations SwitchButton toggle."""
+        try:
+            from config.reg import set_animations_enabled
+            set_animations_enabled(enabled)
+        except Exception:
+            pass
+        self.animations_changed.emit(enabled)
+
+    def _on_smooth_scroll_changed(self, enabled: bool):
+        """Handle smooth scroll SwitchButton toggle."""
+        try:
+            from config.reg import set_smooth_scroll_enabled
+            set_smooth_scroll_enabled(enabled)
+        except Exception:
+            pass
+        self.smooth_scroll_changed.emit(enabled)
+
+    def _load_performance_settings(self):
+        """Load animations and smooth scroll state from registry into switches."""
+        try:
+            from config.reg import get_animations_enabled, get_smooth_scroll_enabled
+            anim = get_animations_enabled()
+            smooth = get_smooth_scroll_enabled()
+            if self._animations_switch is not None:
+                self._animations_switch.blockSignals(True)
+                self._animations_switch.setChecked(anim)
+                self._animations_switch.blockSignals(False)
+            if self._smooth_scroll_switch is not None:
+                self._smooth_scroll_switch.blockSignals(True)
+                self._smooth_scroll_switch.setChecked(smooth)
+                self._smooth_scroll_switch.blockSignals(False)
+        except Exception:
+            pass

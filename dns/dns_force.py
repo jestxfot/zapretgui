@@ -277,9 +277,13 @@ class DNSForceManager:
             self.set_force_dns_enabled(False)
             return (False, 0, 0, str(e))
     
-    def disable_force_dns(self) -> Tuple[bool, str]:
+    def disable_force_dns(self, reset_to_auto: bool = False) -> Tuple[bool, str]:
         """
-        Отключает принудительный DNS и сбрасывает на автоматическое получение
+        Отключает принудительный DNS.
+
+        Args:
+            reset_to_auto: Если True, дополнительно сбрасывает DNS на
+                автоматическое получение (DHCP) на всех адаптерах.
 
         Returns:
             Tuple[bool, str]: (успех, сообщение)
@@ -288,7 +292,13 @@ class DNSForceManager:
             # Отключаем опцию в реестре
             self.set_force_dns_enabled(False)
 
-            # Сбрасываем на автоматическое получение
+            # По умолчанию сохраняем текущие DNS настройки
+            if not reset_to_auto:
+                msg = "Принудительный DNS отключен. Текущие DNS настройки сохранены."
+                log(msg, "INFO")
+                return (True, msg)
+
+            # Явный сброс на автоматическое получение (DHCP)
             return self._reset_to_auto()
 
         except Exception as e:

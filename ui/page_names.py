@@ -33,7 +33,7 @@ class PageName(Enum):
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
     ZAPRET1_USER_PRESETS = auto()    # Zapret 1 Direct: пользовательские пресеты
     ZAPRET1_STRATEGY_DETAIL = auto() # Zapret 1 Direct: детали стратегии для категории
-    STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
+    ZAPRET2_STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
     PRESET_CONFIG = auto()           # Конфиг preset-zapret2.txt
     HOSTLIST = auto()                # Листы (Hostlist + IPset)
     IPSET = auto()                   # Legacy alias -> Листы
@@ -88,7 +88,6 @@ class SectionName(Enum):
     BLOBS = auto()                   # - Блобы
     ORCHESTRA_SETTINGS = auto()      # - Настройки оркестратора (вкладки)
     DPI_SETTINGS = auto()            # - Настройки DPI
-    PRESETS = auto()                 # - Пресеты настроек
     DIRECT_RUN = auto()              # - Прямой запуск (только direct_zapret2)
 
     # === Мои списки (collapsible группа) ===
@@ -129,7 +128,6 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.BLOBS: PageName.BLOBS,
     SectionName.ORCHESTRA_SETTINGS: PageName.ORCHESTRA_SETTINGS,
     SectionName.DPI_SETTINGS: PageName.DPI_SETTINGS,
-    SectionName.PRESETS: PageName.ZAPRET2_USER_PRESETS,
     SectionName.DIRECT_RUN: PageName.ZAPRET2_DIRECT,
     SectionName.MY_LISTS_HEADER: None,  # Заголовок, нет страницы!
     SectionName.NETROGAT: PageName.NETROGAT,
@@ -164,7 +162,6 @@ COLLAPSIBLE_SECTIONS: set[SectionName] = {
 SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     SectionName.STRATEGIES: [
         SectionName.PRESET_CONFIG,
-        SectionName.PRESETS,
         SectionName.DIRECT_RUN,
         SectionName.HOSTLIST,
         SectionName.BLOBS,
@@ -195,12 +192,14 @@ ORCHESTRA_ONLY_SECTIONS: set[SectionName] = {
 STRATEGY_PAGES: set[PageName] = {
     PageName.ZAPRET2_DIRECT_CONTROL,
     PageName.ZAPRET2_DIRECT,
-    PageName.ZAPRET2_ORCHESTRA,
+    PageName.ZAPRET2_USER_PRESETS,
+    PageName.ZAPRET2_STRATEGY_DETAIL,
+
     PageName.ZAPRET1_DIRECT_CONTROL,
     PageName.ZAPRET1_DIRECT,
     PageName.ZAPRET1_USER_PRESETS,
     PageName.ZAPRET1_STRATEGY_DETAIL,
-    PageName.STRATEGY_DETAIL,
+
+    PageName.ZAPRET2_ORCHESTRA,
     PageName.ORCHESTRA,
-    PageName.ZAPRET2_USER_PRESETS,
 }

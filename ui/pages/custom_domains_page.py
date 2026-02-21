@@ -109,8 +109,10 @@ class CustomDomainsPage(BasePage):
             "Управление доменами (other.txt). Субдомены учитываются автоматически. Строчка rkn.ru учитывает и сайт fuckyou.rkn.ru и сайт ass.rkn.ru. Чтобы исключить субдомены напишите домен с символов ^ в начале, то есть например так ^rkn.ru", 
             parent
         )
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme_styles())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme_styles())
+
         self._build_ui()
         QTimer.singleShot(100, self._load_domains)
         
@@ -286,30 +288,6 @@ class CustomDomainsPage(BasePage):
         except Exception:
             pass
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                if self._applying_theme_styles:
-                    return super().changeEvent(event)
-                if not self._theme_refresh_scheduled:
-                    self._theme_refresh_scheduled = True
-                    QTimer.singleShot(0, self._on_debounced_theme_change)
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            self._apply_theme_styles()
-        finally:
-            self._applying_theme_styles = False
-        
     def _load_domains(self):
         """Загружает домены из файла"""
         try:

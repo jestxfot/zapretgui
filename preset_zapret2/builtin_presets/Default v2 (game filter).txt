@@ -1,6 +1,6 @@
 # Preset: Default v2
 # ActivePreset: Default v2
-# BuiltinVersion: 1.0
+# BuiltinVersion: 1.1
 # Modified: 2026-01-21T17:52:34.648239
 # IconColor: #a8c5ff
 
@@ -176,6 +176,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
@@ -196,6 +197,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8

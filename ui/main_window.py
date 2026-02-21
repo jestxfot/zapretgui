@@ -37,7 +37,7 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.zapret2.direct_zapret2_page",
         "Zapret2StrategiesPageNew",
     ),
-    PageName.STRATEGY_DETAIL: (
+    PageName.ZAPRET2_STRATEGY_DETAIL: (
         "strategy_detail_page",
         "ui.pages.zapret2.strategy_detail_page",
         "StrategyDetailPage",
@@ -300,7 +300,7 @@ class MainWindowUI:
 
         # Pages NOT in navigation — reachable only via show_page() / switchTo()
         for hidden in (
-            PageName.STRATEGY_DETAIL,
+            PageName.ZAPRET2_STRATEGY_DETAIL,
             PageName.BLOBS,
             PageName.ZAPRET1_DIRECT,
             PageName.ZAPRET1_USER_PRESETS,
@@ -422,6 +422,12 @@ class MainWindowUI:
                     page.back_clicked,
                     lambda: self.show_page(PageName.ZAPRET1_DIRECT),
                 )
+            if hasattr(page, "navigate_to_control"):
+                self._connect_signal_once(
+                    "z1_strategy_detail.navigate_to_control",
+                    page.navigate_to_control,
+                    lambda: self.show_page(PageName.ZAPRET1_DIRECT_CONTROL),
+                )
             if hasattr(page, "strategy_selected"):
                 self._connect_signal_once(
                     "z1_strategy_detail.strategy_selected",
@@ -443,7 +449,7 @@ class MainWindowUI:
                     lambda: self.show_page(PageName.ZAPRET1_USER_PRESETS),
                 )
 
-        if page_name == PageName.STRATEGY_DETAIL:
+        if page_name == PageName.ZAPRET2_STRATEGY_DETAIL:
             if hasattr(page, "back_clicked"):
                 self._connect_signal_once(
                     "strategy_detail.back_clicked",
@@ -641,7 +647,7 @@ class MainWindowUI:
         except Exception:
             pass
 
-        # Zapret 1 Direct Control page — start/stop buttons
+        # Zapret 1 Direct Control page — start/stop buttons + navigation
         try:
             z1_page = getattr(self, "zapret1_direct_control_page", None)
             if z1_page is not None:
@@ -655,6 +661,12 @@ class MainWindowUI:
                     z1_page.test_btn.clicked.connect(self._proxy_test_click)
                 if hasattr(z1_page, 'folder_btn'):
                     z1_page.folder_btn.clicked.connect(self._proxy_folder_click)
+                if hasattr(z1_page, 'navigate_to_strategies'):
+                    z1_page.navigate_to_strategies.connect(
+                        lambda: self.show_page(PageName.ZAPRET1_DIRECT))
+                if hasattr(z1_page, 'navigate_to_presets'):
+                    z1_page.navigate_to_presets.connect(
+                        lambda: self.show_page(PageName.ZAPRET1_USER_PRESETS))
         except Exception:
             pass
 
@@ -690,6 +702,12 @@ class MainWindowUI:
 
         if hasattr(self.appearance_page, 'mica_changed'):
             self.appearance_page.mica_changed.connect(self._on_mica_changed)
+
+        if hasattr(self.appearance_page, 'animations_changed'):
+            self.appearance_page.animations_changed.connect(self._on_animations_changed)
+
+        if hasattr(self.appearance_page, 'smooth_scroll_changed'):
+            self.appearance_page.smooth_scroll_changed.connect(self._on_smooth_scroll_changed)
 
         if hasattr(self.about_page, 'premium_btn'):
             self.about_page.premium_btn.clicked.connect(self._open_subscription_dialog)
@@ -767,6 +785,45 @@ class MainWindowUI:
         try:
             from ui.theme import apply_window_background
             apply_window_background(self.window())
+        except Exception:
+            pass
+
+    def _on_animations_changed(self, enabled: bool):
+        """Enable/disable all QPropertyAnimation-based animations (qfluentwidgets + Qt native)."""
+        try:
+            from PyQt6.QtCore import QPropertyAnimation, QAbstractAnimation
+
+            if enabled:
+                # Restore original start()
+                if hasattr(QPropertyAnimation, '_zapret_original_start'):
+                    QPropertyAnimation.start = QPropertyAnimation._zapret_original_start
+                    del QPropertyAnimation._zapret_original_start
+            else:
+                # Monkey-patch start() to set duration=0 before every animation run
+                if not hasattr(QPropertyAnimation, '_zapret_original_start'):
+                    _orig = QPropertyAnimation.start
+                    QPropertyAnimation._zapret_original_start = _orig
+
+                    def _instant_start(
+                        self,
+                        policy=QAbstractAnimation.DeletionPolicy.KeepWhenStopped,
+                    ):
+                        self.setDuration(0)
+                        QPropertyAnimation._zapret_original_start(self, policy)
+
+                    QPropertyAnimation.start = _instant_start
+        except Exception:
+            pass
+
+    def _on_smooth_scroll_changed(self, enabled: bool):
+        """Toggle smooth scrolling on all existing pages."""
+        try:
+            from PyQt6.QtCore import Qt
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+            mode = SmoothMode.COSINE if enabled else SmoothMode.NO_SMOOTH
+            for page in list(self.pages.values()):
+                if hasattr(page, 'setSmoothMode'):
+                    page.setSmoothMode(mode, Qt.Orientation.Vertical)
         except Exception:
             pass
 
@@ -1283,11 +1340,11 @@ class MainWindowUI:
             if not category_info:
                 return
 
-            detail_page = self._ensure_page(PageName.STRATEGY_DETAIL)
+            detail_page = self._ensure_page(PageName.ZAPRET2_STRATEGY_DETAIL)
             if detail_page and hasattr(detail_page, 'show_category'):
                 detail_page.show_category(category_key, category_info, current_strategy_id)
 
-            self.show_page(PageName.STRATEGY_DETAIL)
+            self.show_page(PageName.ZAPRET2_STRATEGY_DETAIL)
 
             try:
                 self._direct_zapret2_last_opened_category_key = category_key
@@ -1396,7 +1453,7 @@ class MainWindowUI:
                     try:
                         from strategy_menu.strategies_registry import registry
                         category_info = registry.get_category_info(last_key)
-                        detail_page = self._ensure_page(PageName.STRATEGY_DETAIL)
+                        detail_page = self._ensure_page(PageName.ZAPRET2_STRATEGY_DETAIL)
                         if category_info and detail_page and hasattr(detail_page, "show_category"):
                             try:
                                 from preset_zapret2 import PresetManager
@@ -1406,7 +1463,7 @@ class MainWindowUI:
                             except Exception:
                                 current_strategy_id = "none"
                             detail_page.show_category(last_key, category_info, current_strategy_id)
-                            target_page = PageName.STRATEGY_DETAIL
+                            target_page = PageName.ZAPRET2_STRATEGY_DETAIL
                         else:
                             target_page = PageName.ZAPRET2_DIRECT_CONTROL
                     except Exception:

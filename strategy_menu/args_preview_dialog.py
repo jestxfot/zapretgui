@@ -12,7 +12,9 @@ from PyQt6.QtGui import QCursor
 from qfluentwidgets import (
     BodyLabel, CaptionLabel, StrongBodyLabel,
     TextEdit, PushButton, TogglePushButton,
+    isDarkTheme,
 )
+from qfluentwidgets.common.style_sheet import FluentStyleSheet
 
 from log import log
 
@@ -32,6 +34,14 @@ class ArgsPreviewDialog(QDialog):
     closed = pyqtSignal()
     rating_changed = pyqtSignal(str, str)  # strategy_id, new_rating
 
+    _PROVIDER_NAMES = {
+        "universal": "All",
+        "rostelecom": "Ростелеком",
+        "mts": "МТС",
+        "megafon": "МегаФон",
+        "beeline": "Билайн",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Информация о стратегии")
@@ -45,7 +55,21 @@ class ArgsPreviewDialog(QDialog):
         self._rating_getter = None
         self._rating_toggler = None
         self._original_args = ""
+
+        # Info label data (kept for theme refresh)
+        self._info_strategy_id = None
+        self._info_provider = None
+
+        # Let qfluentwidgets manage background and text colors
+        FluentStyleSheet.DIALOG.apply(self)
+
         self._init_ui()
+
+        try:
+            from qfluentwidgets import qconfig
+            qconfig.themeChanged.connect(lambda _: self._refresh_info_label())
+        except Exception:
+            pass
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -154,38 +178,9 @@ class ArgsPreviewDialog(QDialog):
         else:
             self.author_label.hide()
 
-        try:
-            from qfluentwidgets import isDarkTheme as _idt
-            _dark = _idt()
-        except Exception:
-            _dark = True
-        _id_color = "#60cdff" if _dark else "#0066cc"
-        _prov_color = "#a78bfa" if _dark else "#7c3aed"
-
-        info_parts = []
-        if strategy_id:
-            info_parts.append(
-                f"<span style='color:{_id_color}'>ID:</span> {strategy_id}"
-            )
-        provider = strategy_data.get("provider", "universal")
-        provider_names = {
-            "universal": "All",
-            "rostelecom": "Ростелеком",
-            "mts": "МТС",
-            "megafon": "МегаФон",
-            "beeline": "Билайн",
-        }
-        info_parts.append(
-            f"<span style='color:{_prov_color}'>"
-            f"{provider_names.get(provider, provider)}</span>"
-        )
-
-        if info_parts:
-            self.info_label.setText(" • ".join(info_parts))
-            self.info_label.setTextFormat(Qt.TextFormat.RichText)
-            self.info_label.show()
-        else:
-            self.info_label.hide()
+        self._info_strategy_id = strategy_id
+        self._info_provider = strategy_data.get("provider", "universal")
+        self._refresh_info_label()
 
         args = strategy_data.get("args", "")
         self._original_args = str(args)
@@ -197,6 +192,30 @@ class ArgsPreviewDialog(QDialog):
 
         self._update_rating_buttons()
         self.adjustSize()
+
+    def _refresh_info_label(self) -> None:
+        """Rebuild info_label rich text with theme-correct colors."""
+        if self._info_strategy_id is None and self._info_provider is None:
+            return
+        _dark = isDarkTheme()
+        id_color = "#60cdff" if _dark else "#0066cc"
+        prov_color = "#a78bfa" if _dark else "#7c3aed"
+
+        info_parts = []
+        if self._info_strategy_id:
+            info_parts.append(
+                f"<span style='color:{id_color}'>ID:</span> {self._info_strategy_id}"
+            )
+        if self._info_provider:
+            prov_name = self._PROVIDER_NAMES.get(self._info_provider, self._info_provider)
+            info_parts.append(f"<span style='color:{prov_color}'>{prov_name}</span>")
+
+        if info_parts:
+            self.info_label.setText(" • ".join(info_parts))
+            self.info_label.setTextFormat(Qt.TextFormat.RichText)
+            self.info_label.show()
+        else:
+            self.info_label.hide()
 
     def show_animated(self, pos=None):
         """Show the dialog near the given global QPoint (or current cursor)."""

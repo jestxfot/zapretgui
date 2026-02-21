@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QListView,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QSize
-from PyQt6.QtCore import QEvent
 from PyQt6.QtGui import QIcon, QAction
 
 try:
@@ -108,9 +107,13 @@ class StrategySearchBar(QWidget):
         self._tokens = get_theme_tokens()
         self._current_qss = ""
         self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._has_active_filters = False
         self._last_theme_refresh_key: tuple[str, str, str] | None = None
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._refresh_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._refresh_theme())
+
         self._setup_ui()
         self._setup_connections()
         self._refresh_theme()
@@ -396,29 +399,6 @@ class StrategySearchBar(QWidget):
             self._last_theme_refresh_key = theme_key
         finally:
             self._applying_theme_styles = False
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if (not self._applying_theme_styles) and event.type() in (
-                QEvent.Type.StyleChange,
-                QEvent.Type.PaletteChange,
-            ):
-                try:
-                    tokens = get_theme_tokens()
-                    if self._build_theme_refresh_key(tokens) == self._last_theme_refresh_key:
-                        return super().changeEvent(event)
-                except Exception:
-                    pass
-                if not self._theme_refresh_scheduled:
-                    self._theme_refresh_scheduled = True
-                    QTimer.singleShot(0, self._on_debounced_theme_change)
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._refresh_theme()
 
     def _setup_ui(self) -> None:
         """Set up UI components in two rows."""

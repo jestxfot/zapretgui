@@ -214,9 +214,6 @@ class StrategiesPageBase(QWidget):
         self._initialized = False
         self._current_mode = None
 
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
-
         # Таймер для проверки статуса процесса
         self._process_check_timer = QTimer(self)
         self._process_check_timer.timeout.connect(self._check_process_status)
@@ -237,6 +234,10 @@ class StrategiesPageBase(QWidget):
         self._all_direct_strategies = {}  # {category_key: strategies_dict}
         self._all_direct_favorites = {}   # {category_key: favorites_list}
         self._all_direct_selections = {}  # {category_key: current_selection}
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
 
@@ -338,63 +339,34 @@ class StrategiesPageBase(QWidget):
 
         self._apply_theme()
 
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
+        tokens = get_theme_tokens()
 
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
+        if hasattr(self, "loading_label") and self.loading_label:
+            self.loading_label.setStyleSheet(
+                f"color: {tokens.fg_muted}; font-size: 13px;"
+            )
+        if hasattr(self, "status_indicator"):
+            self.status_indicator.apply_theme()
+        if hasattr(self, "favorites_count_label"):
+            semantic = get_semantic_palette()
+            self.favorites_count_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {semantic.warning};
+                    font-size: 13px;
+                    font-weight: 600;
+                    padding: 4px 12px;
+                    background: {semantic.warning_soft_bg};
+                    border-radius: 12px;
+                }}
+                """
+            )
 
-            if hasattr(self, "loading_label") and self.loading_label:
-                self.loading_label.setStyleSheet(
-                    f"color: {tokens.fg_muted}; font-size: 13px;"
-                )
-            if hasattr(self, "status_indicator"):
-                self.status_indicator.apply_theme()
-            if hasattr(self, "favorites_count_label"):
-                semantic = get_semantic_palette()
-                self.favorites_count_label.setStyleSheet(
-                    f"""
-                    QLabel {{
-                        color: {semantic.warning};
-                        font-size: 13px;
-                        font-weight: 600;
-                        padding: 4px 12px;
-                        background: {semantic.warning_soft_bg};
-                        border-radius: 12px;
-                    }}
-                    """
-                )
-
-            if hasattr(self, "scroll_area"):
-                self.scroll_area.setStyleSheet(
-                    "QScrollArea { background: transparent; border: none; }"
-                )
-        finally:
-            self._applying_theme_styles = False
+        if hasattr(self, "scroll_area"):
+            self.scroll_area.setStyleSheet(
+                "QScrollArea { background: transparent; border: none; }"
+            )
 
     def showEvent(self, event):
         """При показе страницы загружаем стратегии"""

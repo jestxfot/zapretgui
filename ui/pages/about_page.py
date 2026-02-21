@@ -10,7 +10,7 @@ import time
 import webbrowser
 
 import qtawesome as qta
-from PyQt6.QtCore import Qt, QEvent, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QStackedWidget,
@@ -73,13 +73,13 @@ class AboutPage(BasePage):
         self._zaphub_action_btn: ActionButton | None = None
         self._hub_icon_label: QLabel | None = None
 
-        # Theme refresh
-        self._applying_theme_styles: bool = False
-        self._theme_refresh_scheduled: bool = False
-
         # Tab lazy init flags
         self._support_tab_initialized = False
         self._help_tab_initialized = False
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
 
@@ -904,43 +904,19 @@ class AboutPage(BasePage):
     # Theme
     # ─────────────────────────────────────────────────────────────────────────
 
-    def changeEvent(self, event):
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles or self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            if self._hub_icon_label is not None:
-                try:
-                    self._hub_icon_label.setPixmap(
-                        qta.icon("fa5s.users", color=tokens.accent_hex).pixmap(36, 36)
-                    )
-                except Exception:
-                    pass
+        tokens = get_theme_tokens()
+        if self._hub_icon_label is not None:
             try:
-                self._refresh_zaphub_state()
+                self._hub_icon_label.setPixmap(
+                    qta.icon("fa5s.users", color=tokens.accent_hex).pixmap(36, 36)
+                )
             except Exception:
                 pass
-        finally:
-            self._applying_theme_styles = False
+        try:
+            self._refresh_zaphub_state()
+        except Exception:
+            pass
 
     # ─────────────────────────────────────────────────────────────────────────
     # showEvent

@@ -170,7 +170,7 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ Используется иконка: {icon_path}")
     
-    # ✅ Datas для PyInstaller (сертификат + json/hosts.ini если есть)
+    # ✅ Datas для PyInstaller: только встраиваемый сертификат (если есть)
     datas_items: list[tuple[str, str]] = []
 
     cert_file = Path(__file__).parent / "zapret_certificate.cer"
@@ -179,18 +179,16 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ Сертификат будет встроен: {cert_file}")
 
-    hosts_ini = root_path / "json" / "hosts.ini"
-    if not hosts_ini.exists():
-        # Dev fallback: some setups generate catalog in sibling repo (e.g. `../zapret/json/hosts.ini`)
-        alt_hosts_ini = root_path.parent / "zapret" / "json" / "hosts.ini"
-        if alt_hosts_ini.exists():
-            hosts_ini = alt_hosts_ini
-
-    if hosts_ini.exists():
-        # Нужен как `<project>/json/hosts.ini` (в onefile попадает в sys._MEIPASS/json/hosts.ini)
-        datas_items.append((str(hosts_ini), "json"))
+    # Zapret1 built-in strategy catalogs (required by direct_zapret1 UI).
+    v1_strategies_dir = root_path / "preset_zapret1" / "basic_strategies"
+    if v1_strategies_dir.exists():
+        for txt_file in sorted(v1_strategies_dir.glob("*.txt")):
+            datas_items.append((str(txt_file), "preset_zapret1/basic_strategies"))
         if log_queue:
-            log_queue.put(f"✅ json/hosts.ini будет встроен: {hosts_ini}")
+            log_queue.put(
+                f"✅ V1 стратегии будут встроены: {v1_strategies_dir} "
+                f"({len(list(v1_strategies_dir.glob('*.txt')))} файлов)"
+            )
 
     if datas_items:
         datas_line = "datas=[" + ", ".join([f"(r'{src}', r'{dst}')" for src, dst in datas_items]) + "]"
@@ -269,6 +267,7 @@ a = Analysis(
         'ui.pages.zapret1.direct_control_page',
         'ui.pages.zapret1.direct_zapret1_page',
         'ui.pages.zapret1.user_presets_page',
+        'ui.pages.zapret1.strategy_detail_page_v1',
         'ui.pages.blockcheck_page',
         'ui.pages.dpi_settings_page',
         'ui.pages.blobs_page',
@@ -305,6 +304,7 @@ a = Analysis(
         'preset_zapret1.preset_storage',
         'preset_zapret1.preset_store',
         'preset_zapret1.txt_preset_parser',
+        'preset_zapret1.strategy_inference',
         'preset_zapret1.preset_defaults',
 
         # ============= ZAPRET1 LAUNCHER =============

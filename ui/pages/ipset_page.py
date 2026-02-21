@@ -1,7 +1,7 @@
 # ui/pages/ipset_page.py
 """Страница управления IP-сетами"""
 
-from PyQt6.QtCore import Qt, QTimer, QEvent
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame)
 from PyQt6.QtGui import QFont
@@ -26,11 +26,14 @@ class IpsetPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__("IPset", "Управление IP-адресами и подсетями", parent)
-        self._applying_theme_styles = False
-        self._theme_refresh_scheduled = False
         self._desc_label = None
         self._open_icon_label = None
         self._open_text_label = None
+
+        from qfluentwidgets import qconfig
+        qconfig.themeChanged.connect(lambda _: self._apply_theme())
+        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
+
         self._build_ui()
         self._apply_theme()
         
@@ -99,42 +102,16 @@ class IpsetPage(BasePage):
         self.layout.addStretch()
 
     def _apply_theme(self) -> None:
-        if self._applying_theme_styles:
-            return
-        self._applying_theme_styles = True
-        try:
-            tokens = get_theme_tokens()
-            if self._desc_label is not None:
-                self._desc_label.setStyleSheet(f"color: {tokens.fg_muted};")
-            if self._open_icon_label is not None:
-                self._open_icon_label.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
-            if self._open_text_label is not None:
-                self._open_text_label.setStyleSheet(f"color: {tokens.fg};")
-            if self.files_info_label is not None:
-                self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
-        finally:
-            self._applying_theme_styles = False
+        tokens = get_theme_tokens()
+        if self._desc_label is not None:
+            self._desc_label.setStyleSheet(f"color: {tokens.fg_muted};")
+        if self._open_icon_label is not None:
+            self._open_icon_label.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
+        if self._open_text_label is not None:
+            self._open_text_label.setStyleSheet(f"color: {tokens.fg};")
+        if self.files_info_label is not None:
+            self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
 
-    def _schedule_theme_refresh(self) -> None:
-        if self._applying_theme_styles:
-            return
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._theme_refresh_scheduled = False
-        self._apply_theme()
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-        
     def _open_ipset_folder(self):
         """Открывает папку IP-сетов"""
         try:

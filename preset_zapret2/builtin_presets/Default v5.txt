@@ -1,6 +1,6 @@
 # Preset: CrazyMaxs
 # Preset: CrazyMaxs
-# BuiltinVersion: 1.0
+# BuiltinVersion: 1.1
 # Created: 2026-02-07T07:20:56.595477
 # Modified: 2026-02-07T07:20:56.597914
 # Description: 
@@ -181,6 +181,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
@@ -202,6 +203,7 @@
 --ipset=lists/ipset-lol-euw.txt
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
+--ipset=lists/ipset-warp.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
