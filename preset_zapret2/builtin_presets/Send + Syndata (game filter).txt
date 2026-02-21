@@ -1,6 +1,6 @@
 # Preset: Send + Syndata (game filter)
 # ActivePreset: Send + Syndata (game filter)
-# BuiltinVersion: 1.1
+# BuiltinVersion: 1.2
 # Modified: 2026-01-21T17:52:34.648239
 # IconColor: #a8c5ff
 
@@ -155,7 +155,7 @@
 --new
 
 --filter-tcp=80,443
---ipset-ip=130.255.77.28
+--hostlist-domains=ntc.party
 --out-range=-d9
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls7

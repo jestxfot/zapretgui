@@ -1,6 +1,6 @@
 # Preset: general FAKE TLS AUTO ALT2 (game filter)
 # ActivePreset: general FAKE TLS AUTO ALT2 (game filter)
-# BuiltinVersion: 1.1
+# BuiltinVersion: 1.2
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

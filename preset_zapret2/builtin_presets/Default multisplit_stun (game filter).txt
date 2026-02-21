@@ -1,6 +1,6 @@
 # Preset: Default multisplit stun (game filter)
 # ActivePreset: Default multisplit stun (game filter)
-# BuiltinVersion: 1.1
+# BuiltinVersion: 1.2
 # Created: 2026-02-03T17:52:52.760817
 # Modified: 2026-02-03T17:52:52.760985
 # Description: 
@@ -138,7 +138,7 @@
 --new
 
 --filter-tcp=80,443
---ipset-ip=130.255.77.28
+--hostlist-domains=ntc.party
 --out-range=-d9
 --lua-desync=multisplit:pos=1:seqovl=740:seqovl_pattern=stun_pat
 

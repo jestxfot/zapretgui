@@ -210,7 +210,7 @@ def _parse_metadata_from_header_v1(header: str) -> Tuple[str, str, str, str]:
 
 def load_preset_v1(name: str) -> Optional["PresetV1"]:
     from .preset_model import PresetV1, CategoryConfigV1
-    from .txt_preset_parser import parse_preset_file
+    from preset_zapret2.txt_preset_parser import parse_preset_file
 
     preset_path = get_preset_path_v1(name)
     if not preset_path.exists():
@@ -280,7 +280,7 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
 
 def save_preset_v1(preset: "PresetV1") -> bool:
     import os
-    from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
+    from preset_zapret2.txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
     preset_path = get_preset_path_v1(preset.name)
 

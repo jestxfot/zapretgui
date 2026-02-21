@@ -1,6 +1,6 @@
 # Preset: Preset X (game filter)
 # ActivePreset: Preset X (game filter)
-# BuiltinVersion: 1.1
+# BuiltinVersion: 1.2
 # Created: 2026-02-07T10:02:40.762406
 # Modified: 2026-02-07T10:02:40.763682
 # Description: 

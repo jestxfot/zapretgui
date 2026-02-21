@@ -1,6 +1,6 @@
 # Preset: Gaming
 # ActivePreset: Gaming
-# BuiltinVersion: 1.1
+# BuiltinVersion: 1.2
 # IconColor: #f07575ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -157,7 +157,7 @@
 --new
 
 --filter-tcp=80,443
---ipset-ip=130.255.77.28
+--hostlist-domains=ntc.party
 --out-range=-d9
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 

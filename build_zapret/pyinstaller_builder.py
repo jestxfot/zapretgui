@@ -439,6 +439,24 @@ a = Analysis(
         'pytest',
         'setuptools',
         'pip',
+        
+        # ❌ ИСКЛЮЧАЕМ: тяжелые библиотеки ML/Data Science, которые случайно тянутся
+        'numpy',
+        'scipy',
+        'pandas',
+        'torch',
+        'PIL',           # Pillow (мы используем PyQt6 для графики)
+        'lxml',
+        'fsspec',
+        'bcrypt',
+        'cryptography',
+        'pygments',
+        'pycparser',
+        'jinja2',
+        'tomli',
+        'IPython',
+        'importlib_resources',
+        
         # ❌ УДАЛЕНО: 'email' - этот модуль НУЖЕН!
         # ✅ ИСКЛЮЧАЕМ: лишние Qt биндинги, чтобы PyInstaller не ругался
         'PySide6',
@@ -529,7 +547,8 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
         Exception: При ошибке сборки
     """
     spec_path = root_path / "zapret_build.spec"
-    work = Path(tempfile.mkdtemp(prefix="pyi_"))
+    work = root_path / "build" / "pyinstaller_cache"
+    work.mkdir(parents=True, exist_ok=True)
     out = root_path.parent / "zapret"
     exe_path = None  # Инициализируем до try блока
 
@@ -560,7 +579,6 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
             sys.executable, "-m", "PyInstaller",
             "--workpath", str(work),
             "--distpath", str(out),
-            "--clean",
             "--noconfirm",
             str(spec_path)
         ])
@@ -583,15 +601,6 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
         raise
     
     finally:
-        # Очищаем временную рабочую папку
-        try:
-            if work.exists():
-                shutil.rmtree(work, ignore_errors=True)
-                if log_queue:
-                    log_queue.put(f"🧹 Удалена рабочая папка: {work}")
-        except Exception:
-            pass
-
         # ✅ Подписываем exe файл если есть сертификат и сборка прошла успешно
         if exe_path is not None and exe_path.exists():
             sign_exe_if_available(exe_path, log_queue)

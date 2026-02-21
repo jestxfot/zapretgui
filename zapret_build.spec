@@ -249,6 +249,24 @@ a = Analysis(
         'pytest',
         'setuptools',
         'pip',
+        
+        # ❌ ИСКЛЮЧАЕМ: тяжелые библиотеки ML/Data Science, которые случайно тянутся
+        'numpy',
+        'scipy',
+        'pandas',
+        'torch',
+        'PIL',           # Pillow (мы используем PyQt6 для графики)
+        'lxml',
+        'fsspec',
+        'bcrypt',
+        'cryptography',
+        'pygments',
+        'pycparser',
+        'jinja2',
+        'tomli',
+        'IPython',
+        'importlib_resources',
+        
         # ❌ УДАЛЕНО: 'email' - этот модуль НУЖЕН!
         # ✅ ИСКЛЮЧАЕМ: лишние Qt биндинги, чтобы PyInstaller не ругался
         'PySide6',

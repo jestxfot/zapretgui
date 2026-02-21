@@ -101,7 +101,7 @@ class PresetManagerV1:
         return preset
 
     def _load_from_active_file(self) -> Optional[PresetV1]:
-        from .txt_preset_parser import parse_preset_file
+        from preset_zapret2.txt_preset_parser import parse_preset_file
         from .preset_model import PresetV1, CategoryConfigV1
 
         active_path = get_active_preset_path_v1()
@@ -319,7 +319,7 @@ class PresetManagerV1:
             return None
         try:
             from .preset_defaults import get_builtin_preset_content_v1
-            from .txt_preset_parser import parse_preset_content, generate_preset_file
+            from preset_zapret2.txt_preset_parser import parse_preset_content, generate_preset_file
 
             template = get_builtin_preset_content_v1("Default")
             if not template:
@@ -369,7 +369,7 @@ class PresetManagerV1:
     def sync_preset_to_active_file(self, preset: PresetV1) -> bool:
         """Writes preset directly to preset-zapret1.txt."""
         import os as _os
-        from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
+        from preset_zapret2.txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
         active_path = get_active_preset_path_v1()
 
@@ -388,12 +388,17 @@ class PresetManagerV1:
 # IconColor: {icon_color}"""
 
             for cat_name, cat in preset.categories.items():
+                from preset_zapret2.base_filter import build_category_base_filter_lines
+
                 if cat.tcp_enabled and cat.has_tcp():
-                    filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                    filter_file = filter_file_relative.replace("\\", "/")
-                    args_lines = [f"--filter-tcp={cat.tcp_port}"]
-                    if cat.filter_mode in ("hostlist", "ipset"):
-                        args_lines.append(f"--{cat.filter_mode}={filter_file}")
+                    args_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
+                    custom_port = str(cat.tcp_port or "").strip()
+                    if custom_port and custom_port != "443":
+                        for i, line in enumerate(args_lines):
+                            if line.startswith("--filter-tcp="):
+                                args_lines[i] = f"--filter-tcp={custom_port}"
+                            elif line.startswith("--filter-l7="):
+                                args_lines[i] = f"--filter-l7={custom_port}"
                     for raw in cat.tcp_args.splitlines():
                         line = raw.strip()
                         if line:
@@ -407,12 +412,14 @@ class PresetManagerV1:
                     data.categories.append(block)
 
                 if cat.udp_enabled and cat.has_udp():
-                    filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                    from config import MAIN_DIRECTORY
-                    filter_file = _os.path.normpath(_os.path.join(MAIN_DIRECTORY, filter_file_relative))
-                    args_lines = [f"--filter-udp={cat.udp_port}"]
-                    if cat.filter_mode in ("hostlist", "ipset"):
-                        args_lines.append(f"--{cat.filter_mode}={filter_file}")
+                    args_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
+                    custom_port = str(cat.udp_port or "").strip()
+                    if custom_port and custom_port != "443":
+                        for i, line in enumerate(args_lines):
+                            if line.startswith("--filter-udp="):
+                                args_lines[i] = f"--filter-udp={custom_port}"
+                            elif line.startswith("--filter-l7="):
+                                args_lines[i] = f"--filter-l7={custom_port}"
                     for raw in cat.udp_args.splitlines():
                         line = raw.strip()
                         if line:
@@ -692,248 +699,6 @@ class PresetManagerV1:
                 return "custom"
         return sid
 
-    @staticmethod
-    def _legacy_alias_targets(category_key: str, cat: CategoryConfigV1) -> list[str]:
-        """Map legacy Zapret1 category keys to current registry categories."""
-        key = str(category_key or "").strip().lower()
-        has_tcp = bool((cat.tcp_args or "").strip())
-        has_udp = bool((cat.udp_args or "").strip())
-
-        targets: list[str] = []
-
-        # Old classic Zapret1 keys.
-        if key == "discord" and has_tcp:
-            targets.append("discord_tcp")
-        elif key == "discord_voice" and has_udp:
-            targets.append("discord_voice_udp")
-        elif key == "udp" and has_udp:
-            targets.extend(["ipset_udp", "ipset_udp_all"])
-        elif key == "http80" and has_tcp:
-            targets.append("hostlist_80port")
-        elif key == "youtube":
-            if has_tcp:
-                targets.append("youtube")
-            if has_udp:
-                targets.append("youtube_udp")
-        elif key == "googlevideo" and has_tcp:
-            targets.append("googlevideo_tcp")
-        elif key == "google" and has_tcp:
-            targets.append("google_tcp")
-
-        # Legacy list-based keys from older presets.
-        if key in ("list-google", "list_google") and has_tcp:
-            targets.extend(["googlevideo_tcp", "google_tcp"])
-
-        if key in ("list-general", "list_general", "general"):
-            if has_tcp:
-                targets.append("other")
-            if has_udp:
-                targets.append("youtube_udp")
-
-        if key in ("all", "ipset-all", "ipset_all"):
-            if has_tcp:
-                targets.extend(["ipset", "ipset_all"])
-            if has_udp:
-                targets.extend(["ipset_udp", "ipset_udp_all"])
-
-        # Deduplicate preserving order.
-        unique: list[str] = []
-        seen: set[str] = set()
-        for t in targets:
-            if t and t not in seen:
-                seen.add(t)
-                unique.append(t)
-        return unique
-
-    @staticmethod
-    def _is_udp_protocol(protocol: str) -> bool:
-        value = str(protocol or "").upper()
-        return any(token in value for token in ("UDP", "QUIC", "L7", "RAW"))
-
-    @staticmethod
-    def _resolve_filter_file_path(filter_file: str) -> Path | None:
-        raw = str(filter_file or "").strip().strip('"').strip("'")
-        if not raw:
-            return None
-
-        if raw.startswith("@"):
-            raw = raw[1:].strip()
-        if not raw:
-            return None
-
-        win_path = PureWindowsPath(raw)
-
-        candidates: list[Path] = []
-        try:
-            from config import MAIN_DIRECTORY
-
-            main_dir = Path(MAIN_DIRECTORY)
-        except Exception:
-            main_dir = Path.cwd()
-
-        path_obj = Path(win_path)
-        if path_obj.is_absolute():
-            candidates.append(path_obj)
-        else:
-            candidates.append(main_dir / path_obj)
-            candidates.append(main_dir / "lists" / win_path.name)
-            candidates.append(path_obj)
-
-        for candidate in candidates:
-            try:
-                if candidate.exists() and candidate.is_file():
-                    return candidate
-            except Exception:
-                continue
-
-        return candidates[0] if candidates else None
-
-    @staticmethod
-    def _read_filter_text(filter_file: str) -> str:
-        path = PresetManagerV1._resolve_filter_file_path(filter_file)
-        if path is None:
-            return ""
-        try:
-            return path.read_text(encoding="utf-8", errors="ignore").lower()
-        except Exception:
-            return ""
-
-    def _infer_targets_from_filter_source(
-        self,
-        *,
-        filter_mode: str,
-        filter_file: str,
-        protocol: str,
-        known_keys: set[str],
-        category_protocols: dict[str, str],
-    ) -> list[str]:
-        mode = str(filter_mode or "").strip().lower()
-        proto_udp = self._is_udp_protocol(protocol)
-
-        filename = PureWindowsPath(str(filter_file or "")).name.lower()
-        stem = Path(filename).stem.lower()
-        content = self._read_filter_text(filter_file)
-        haystack = f"{stem}\n{content}"
-
-        targets: list[str] = []
-
-        # IPSet "all" profiles are intentionally broad and should map to broad groups.
-        if mode == "ipset" and "all" in stem:
-            if proto_udp:
-                targets.extend(["ipset_udp", "ipset_udp_all"])
-            else:
-                targets.extend(["ipset", "ipset_all"])
-
-        # Legacy list names from old Zapret1 presets.
-        if mode == "hostlist" and stem in ("list-google", "list_google", "google"):
-            targets.extend(["googlevideo_tcp", "youtube", "google_tcp"])
-        if mode == "hostlist" and stem in ("list-general", "list_general", "general"):
-            if proto_udp:
-                targets.extend(["youtube_udp", "discord_voice_udp"])
-            else:
-                targets.extend(["other", "youtube", "googlevideo_tcp"])
-
-        # Heuristics by list/ipset file name and content.
-        keyword_map: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-            (("googlevideo",), ("googlevideo_tcp",)),
-            (("youtube", "youtu.be"), ("youtube", "youtube_udp")),
-            (("google",), ("google_tcp",)),
-            (("discord",), ("discord_tcp", "discord_voice_udp", "udp_discord", "update_discord")),
-            (("telegram",), ("telegram_tcp",)),
-            (("whatsapp",), ("whatsapp_tcp",)),
-            (("facebook",), ("facebook_tcp",)),
-            (("instagram",), ("instagram_tcp",)),
-            (("twitter", "x.com"), ("twitter_tcp",)),
-            (("github",), ("github_tcp",)),
-            (("twitch",), ("twitch_tcp",)),
-            (("steam",), ("steam_tcp",)),
-            (("soundcloud",), ("soundcloud_tcp",)),
-            (("rutracker",), ("rutracker_tcp",)),
-            (("rutor",), ("rutor_tcp",)),
-            (("roblox",), ("roblox_tcp", "roblox_udp")),
-            (("amazon",), ("amazon_tcp", "amazon_udp")),
-            (("claude",), ("claude_tcp",)),
-            (("warp",), ("warp_tcp",)),
-            (("speedtest",), ("speedtest_tcp",)),
-            (("other", "blacklist", "general"), ("other",)),
-        )
-
-        for keywords, mapped in keyword_map:
-            if any(keyword in haystack for keyword in keywords):
-                targets.extend(mapped)
-
-        # Fallback for generic files with no clear marker.
-        if not targets and mode == "hostlist" and "general" in stem:
-            if proto_udp:
-                targets.append("youtube_udp")
-            else:
-                targets.append("other")
-
-        # Keep only existing categories with matching protocol.
-        filtered: list[str] = []
-        seen: set[str] = set()
-        for target in targets:
-            if not target or target in seen or target not in known_keys:
-                continue
-
-            cat_proto = category_protocols.get(target, "")
-            if cat_proto:
-                if self._is_udp_protocol(cat_proto) != proto_udp:
-                    continue
-
-            seen.add(target)
-            filtered.append(target)
-
-        return filtered
-
-    def _infer_selection_overrides_from_active_file(
-        self,
-        raw: dict[str, str],
-        known_keys: set[str],
-        category_protocols: dict[str, str],
-    ) -> dict[str, str]:
-        """Infer visible category selections from hostlist/ipset filters in active preset."""
-        try:
-            from .txt_preset_parser import parse_preset_file
-        except Exception:
-            return {}
-
-        source_path = get_active_preset_path_v1()
-        if not source_path.exists():
-            active_name = get_active_preset_name_v1()
-            if active_name and preset_exists_v1(active_name):
-                source_path = get_preset_path_v1(active_name)
-
-        if not source_path.exists():
-            return {}
-
-        try:
-            data = parse_preset_file(source_path)
-        except Exception:
-            return {}
-
-        overrides: dict[str, str] = {}
-        for block in (data.categories or []):
-            block_key = str(getattr(block, "category", "") or "").strip().lower()
-            sid = raw.get(block_key, "none")
-            if sid == "none" and str(getattr(block, "strategy_args", "") or "").strip():
-                sid = "custom"
-            if sid == "none":
-                continue
-
-            targets = self._infer_targets_from_filter_source(
-                filter_mode=str(getattr(block, "filter_mode", "") or ""),
-                filter_file=str(getattr(block, "filter_file", "") or ""),
-                protocol=str(getattr(block, "protocol", "") or ""),
-                known_keys=known_keys,
-                category_protocols=category_protocols,
-            )
-            for target in targets:
-                if overrides.get(target, "none") == "none":
-                    overrides[target] = sid
-
-        return overrides
-
     def get_strategy_selections(self) -> dict:
         preset = self.get_active_preset()
         if not preset:
@@ -946,47 +711,7 @@ class PresetManagerV1:
                 continue
             raw[norm_key] = self._selection_id_from_category(cat)
 
-        try:
-            from strategy_menu.strategies_registry import registry
-
-            known_keys = set((registry.categories or {}).keys())
-            category_protocols = {
-                key: str(getattr(info, "protocol", "") or "")
-                for key, info in (registry.categories or {}).items()
-            }
-        except Exception:
-            return raw
-
-        # Keep direct keys and add compatibility aliases for legacy presets.
-        resolved: dict[str, str] = {}
-        for key, sid in raw.items():
-            if key in known_keys:
-                resolved[key] = sid
-
-        # Parser-based compatibility for legacy list-google/list-general/ipset-all blocks.
-        inferred = self._infer_selection_overrides_from_active_file(
-            raw=raw,
-            known_keys=known_keys,
-            category_protocols=category_protocols,
-        )
-        for key, sid in inferred.items():
-            if resolved.get(key, "none") == "none":
-                resolved[key] = sid
-
-        for key, cat in (preset.categories or {}).items():
-            norm_key = str(key or "").strip().lower()
-            if not norm_key:
-                continue
-            sid = raw.get(norm_key, "none")
-            for target in self._legacy_alias_targets(norm_key, cat):
-                if target in known_keys:
-                    resolved.setdefault(target, sid)
-
-        # Keep unknown keys too (for compatibility with old callers).
-        for key, sid in raw.items():
-            resolved.setdefault(key, sid)
-
-        return resolved
+        return raw
 
     def _update_category_args_from_strategy(self, preset: PresetV1, category_key: str, strategy_id: str) -> None:
         cat = preset.categories.get(category_key)

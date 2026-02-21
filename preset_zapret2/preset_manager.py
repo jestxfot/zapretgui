@@ -941,29 +941,28 @@ class PresetManager:
                     strategy_text_clean = "\n".join(strat_lines_no_out).strip()
 
                     parts: list[str] = []
-                    if not is_basic_direct:
-                        try:
-                            out_range_arg = cat._get_out_range_args(cat.syndata_tcp)
-                        except Exception:
-                            out_range_arg = ""
-                        if out_range_arg:
-                            parts.append(str(out_range_arg).strip())
+                    try:
+                        out_range_arg = cat._get_out_range_args(cat.syndata_tcp)
+                    except Exception:
+                        out_range_arg = ""
+                    if out_range_arg:
+                        parts.append(str(out_range_arg).strip())
 
-                        try:
-                            if bool(getattr(cat.syndata_tcp, "send_enabled", False)) and not send_present:
-                                send_arg = cat._get_send_args(cat.syndata_tcp)
-                                if send_arg:
-                                    parts.append(str(send_arg).strip())
-                        except Exception:
-                            pass
+                    try:
+                        if bool(getattr(cat.syndata_tcp, "send_enabled", False)) and not send_present:
+                            send_arg = cat._get_send_args(cat.syndata_tcp)
+                            if send_arg:
+                                parts.append(str(send_arg).strip())
+                    except Exception:
+                        pass
 
-                        try:
-                            if bool(getattr(cat.syndata_tcp, "enabled", False)) and not syndata_present:
-                                syndata_arg = cat._get_syndata_args(cat.syndata_tcp)
-                                if syndata_arg:
-                                    parts.append(str(syndata_arg).strip())
-                        except Exception:
-                            pass
+                    try:
+                        if bool(getattr(cat.syndata_tcp, "enabled", False)) and not syndata_present:
+                            syndata_arg = cat._get_syndata_args(cat.syndata_tcp)
+                            if syndata_arg:
+                                parts.append(str(syndata_arg).strip())
+                    except Exception:
+                        pass
 
                     if strategy_text_clean:
                         parts.append(strategy_text_clean)

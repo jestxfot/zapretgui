@@ -655,7 +655,9 @@ def extract_strategy_args(
            line.startswith('--ipset-ip=') or \
            line.startswith('--out-range') or \
            line.startswith('--lua-desync=syndata:') or \
-           line.startswith('--lua-desync=send:'):
+           line == '--lua-desync=syndata' or \
+           line.startswith('--lua-desync=send:') or \
+           line == '--lua-desync=send':
             continue
         strategy_lines.append(line)
 

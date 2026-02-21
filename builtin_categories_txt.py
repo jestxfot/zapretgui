@@ -346,7 +346,7 @@ needs_new_separator = true
 command_group = trackers
 icon_name = fa5s.tools
 icon_color = #6C5CE7
-base_filter = --filter-tcp=80,443 --ipset-ip=130.255.77.28
+base_filter = --filter-tcp=80,443 --hostlist-domains=ntc.party
 strategy_type = tcp
 
 [twitch_tcp]

@@ -1,6 +1,6 @@
 # Preset: general ALT5
 # ActivePreset: general ALT5
-# BuiltinVersion: 1.1
+# BuiltinVersion: 1.2
 # IconColor: #b475f0ff
 
 --lua-init=@lua/zapret-lib.lua

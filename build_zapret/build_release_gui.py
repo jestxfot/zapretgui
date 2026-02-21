@@ -391,51 +391,51 @@ def run(cmd: Sequence[str] | str, check: bool = True, cwd: Path | None = None, c
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
     
-    res = subprocess.run(
+    process = subprocess.Popen(
         cmd, 
         shell=isinstance(cmd, str), 
         cwd=cwd,
         stdout=subprocess.PIPE, 
-        stderr=subprocess.PIPE, 
+        stderr=subprocess.STDOUT, 
         text=True, 
         encoding='utf-8',
-        errors='ignore',
-        startupinfo=startupinfo
+        errors='replace',
+        startupinfo=startupinfo,
+        bufsize=1
     )
     
-    # Выводим stdout если есть
-    if res.stdout and log_queue is not None:
-        for line in res.stdout.strip().split('\n'):
-            if line.strip():
-                log_queue.put(line)
-    
-    # Выводим stderr если есть ошибки
-    if res.stderr and log_queue is not None:
-        for line in res.stderr.strip().split('\n'):
-            if line.strip():
-                log_queue.put(f"❌ {line}")
+    output_lines = []
+    if process.stdout is not None:
+        for line in iter(process.stdout.readline, ''):
+            if not line:
+                break
+            stripped = line.rstrip('\n')
+            if log_queue is not None and stripped:
+                log_queue.put(stripped)
+            output_lines.append(stripped)
+            
+    process.stdout.close()
+    returncode = process.wait()
+    full_output = '\n'.join(output_lines)
     
     # Проверяем код возврата
-    if check and res.returncode != 0:
-        error_msg = f"Command failed with code {res.returncode}"
-        
-        if res.stderr:
-            error_msg += f"\n\nОшибки:\n{res.stderr}"
-        if res.stdout:
-            error_msg += f"\n\nВывод:\n{res.stdout}"
+    if check and returncode != 0:
+        error_msg = f"Command failed with code {returncode}"
+        if full_output:
+            error_msg += f"\n\nВывод:\n{full_output}"
             
         if log_queue is not None:
             log_queue.put(f"❌ {error_msg}")
             
         if capture:
-            raise subprocess.CalledProcessError(res.returncode, cmd, res.stdout, res.stderr)
+            raise subprocess.CalledProcessError(returncode, cmd, full_output, "")
         else:
             raise RuntimeError(error_msg)
     
     if capture:
-        return res.stdout
+        return full_output
     else:
-        return res.returncode
+        return returncode
 
 def is_admin() -> bool:
     try:
@@ -1514,11 +1514,20 @@ class BuildReleaseGUI:
     def process_log_queue(self):
         """Обработка очереди логов"""
         try:
-            while True:
-                message = self.log_queue.get_nowait()
-                self.add_log(message)
-        except:
-            pass
+            batch = []
+            while len(batch) < 100:
+                try:
+                    message = self.log_queue.get_nowait()
+                    batch.append(message)
+                except:
+                    break
+            
+            if batch:
+                self.log_text.config(state='normal')
+                self.log_text.insert('end', '\n'.join(batch) + '\n')
+                self.log_text.see('end')
+                self.log_text.config(state='disabled')
+                self.root.update_idletasks()
         finally:
             self.root.after(100, self.process_log_queue)
             
