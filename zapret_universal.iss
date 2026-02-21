@@ -155,6 +155,8 @@ Type: filesandordirs; Name: "{commonappdata}\Zapret2Dev"
 Type: filesandordirs; Name: "{commonappdata}\Zapret2"
 Type: filesandordirs; Name: "{commonappdata}\ZapretDev"
 Type: filesandordirs; Name: "{commonappdata}\Zapret"
+; Удаляем legacy-каталог стратегий из _internal (теперь direct_zapret1 только в %APPDATA%\zapret\direct_zapret1)
+Type: filesandordirs; Name: "{app}\_internal\preset_zapret1"
 ; Удаляем старые ярлыки (без версии и с версией), чтобы не копились при обновлениях
 Type: files; Name: "{commondesktop}\{#AppName}.lnk"
 Type: files; Name: "{commondesktop}\{#AppName} v*.lnk"

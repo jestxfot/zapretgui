@@ -179,16 +179,9 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
         if log_queue:
             log_queue.put(f"✅ Сертификат будет встроен: {cert_file}")
 
-    # Zapret1 built-in strategy catalogs (required by direct_zapret1 UI).
-    v1_strategies_dir = root_path / "preset_zapret1" / "basic_strategies"
-    if v1_strategies_dir.exists():
-        for txt_file in sorted(v1_strategies_dir.glob("*.txt")):
-            datas_items.append((str(txt_file), "preset_zapret1/basic_strategies"))
-        if log_queue:
-            log_queue.put(
-                f"✅ V1 стратегии будут встроены: {v1_strategies_dir} "
-                f"({len(list(v1_strategies_dir.glob('*.txt')))} файлов)"
-            )
+    # direct_zapret1 strategies must stay external-only:
+    # %APPDATA%\zapret\direct_zapret1\*.txt
+    # Do not embed them into PyInstaller _internal.
 
     if datas_items:
         datas_line = "datas=[" + ", ".join([f"(r'{src}', r'{dst}')" for src, dst in datas_items]) + "]"

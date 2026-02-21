@@ -25,7 +25,7 @@ a = Analysis(
         (os.path.join(_pyqt6_dir, 'QtXml.pyd'), 'PyQt6'),
         (os.path.join(_pyqt6_qt6_bin, 'Qt6Xml.dll'), 'PyQt6/Qt6/bin'),
     ],
-    datas=[(r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\discord_udp_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\discord_voice_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\http80_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\tcp_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\udp_zapret1.txt', r'preset_zapret1/basic_strategies')],  # Включаем data файлы
+    datas=[],  # Включаем data файлы
     hiddenimports=[
         # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
         'ui',

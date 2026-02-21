@@ -390,8 +390,7 @@ class PresetManagerV1:
             for cat_name, cat in preset.categories.items():
                 if cat.tcp_enabled and cat.has_tcp():
                     filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                    from config import MAIN_DIRECTORY
-                    filter_file = _os.path.normpath(_os.path.join(MAIN_DIRECTORY, filter_file_relative))
+                    filter_file = filter_file_relative.replace("\\", "/")
                     args_lines = [f"--filter-tcp={cat.tcp_port}"]
                     if cat.filter_mode in ("hostlist", "ipset"):
                         args_lines.append(f"--{cat.filter_mode}={filter_file}")
