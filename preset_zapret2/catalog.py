@@ -28,6 +28,31 @@ _LAST_PATHS_MISS_AT: float = 0.0
 _PATHS_MISS_BACKOFF_SECONDS: float = 1.0
 
 
+_EXTERNAL_STRATEGY_BASENAME_MAP: Dict[str, Dict[str, str]] = {
+    "basic": {
+        "tcp": "tcp_zapret2_basic",
+        "udp": "udp_zapret_basic",
+        "http80": "http80_zapret2_basic",
+        "discord_voice": "discord_voice_zapret2_basic",
+    },
+    "advanced": {
+        "tcp": "tcp_zapret2_advanced",
+        "tcp_fake": "tcp_fake_zapret2_advanced",
+        "udp": "udp_zapret2_advanced",
+        "http80": "http80_zapret2_advanced",
+        "discord_voice": "discord_voice_zapret2_advanced",
+    },
+}
+
+
+def _external_strategy_basenames(strategy_type: str, strategy_set_key: str) -> list[str]:
+    # Strict mapping: only explicitly listed filenames are supported.
+    strategy_key = (strategy_type or "").strip().lower()
+    set_key = (strategy_set_key or "").strip().lower()
+    mapped = _EXTERNAL_STRATEGY_BASENAME_MAP.get(set_key, {}).get(strategy_key)
+    return [mapped] if mapped else []
+
+
 def _candidate_indexjson_dirs() -> Iterable[Path]:
     env = os.environ.get("ZAPRET_INDEXJSON_FOLDER")
     if env:
@@ -213,7 +238,7 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
             base = ""
 
         set_dir = Path(base) / "direct_zapret2" / f"{strategy_set_key}_strategies" if base else None
-        filename = f"{strategy_type}.txt"
+        basenames = _external_strategy_basenames(strategy_type, strategy_set_key)
 
         def _load_one_external(file_path: Path) -> Dict[str, Dict]:
             if not file_path.exists():
@@ -274,7 +299,15 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
             _flush()
             return strategies
 
-        merged = _load_one_external(set_dir / filename) if set_dir else {}
+        merged: Dict[str, Dict] = {}
+        if set_dir:
+            for basename in basenames:
+                file_path = set_dir / f"{basename}.txt"
+                if not file_path.exists():
+                    continue
+                merged = _load_one_external(file_path)
+                break
+
         if merged:
             _CACHED_STRATEGIES[cache_key] = merged
         return merged

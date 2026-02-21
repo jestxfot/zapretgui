@@ -55,6 +55,23 @@ _TXT_FILE_CACHE: Dict[str, tuple[int, int, Any]] = {}
 _CATEGORIES_TXT_CACHE: Dict[str, tuple[int, int, Any]] = {}
 
 
+_EXTERNAL_STRATEGY_BASENAME_MAP: Dict[str, Dict[str, str]] = {
+    "basic": {
+        "tcp": "tcp_zapret2_basic",
+        "udp": "udp_zapret_basic",
+        "http80": "http80_zapret2_basic",
+        "discord_voice": "discord_voice_zapret2_basic",
+    },
+    "advanced": {
+        "tcp": "tcp_zapret2_advanced",
+        "tcp_fake": "tcp_fake_zapret2_advanced",
+        "udp": "udp_zapret2_advanced",
+        "http80": "http80_zapret2_advanced",
+        "discord_voice": "discord_voice_zapret2_advanced",
+    },
+}
+
+
 def _to_cache_key(filepath: Path) -> str:
     try:
         return str(filepath.resolve())
@@ -439,6 +456,14 @@ def _load_strategy_file(directory: Path, basename: str) -> Optional[Dict]:
     return None
 
 
+def _external_strategy_basenames(category: str, strategy_set_key: str) -> List[str]:
+    # Strict mapping: only explicitly listed filenames are supported.
+    category_key = (category or "").strip().lower()
+    set_key = (strategy_set_key or "").strip().lower()
+    mapped = _EXTERNAL_STRATEGY_BASENAME_MAP.get(set_key, {}).get(category_key)
+    return [mapped] if mapped else []
+
+
 
 def load_category_strategies(category: str, strategy_set: Optional[str] = None) -> Dict[str, Dict]:
     """
@@ -473,10 +498,17 @@ def load_category_strategies(category: str, strategy_set: Optional[str] = None) 
         except Exception:
             pass
 
-        basename = category
-
-        # Загружаем стратегии из per-mode каталога (TXT или JSON)
-        mode_data = _load_strategy_file(mode_dir, basename) if mode_dir is not None else None
+        mode_data = None
+        loaded_basename = None
+        if mode_dir is not None:
+            for basename in _external_strategy_basenames(category, strategy_set_key):
+                txt_path = mode_dir / f"{basename}.txt"
+                json_path = mode_dir / f"{basename}.json"
+                if not txt_path.exists() and not json_path.exists():
+                    continue
+                mode_data = _load_strategy_file(mode_dir, basename)
+                loaded_basename = basename
+                break
         auto_number = False
 
         if mode_data and 'strategies' in mode_data:
@@ -489,7 +521,11 @@ def load_category_strategies(category: str, strategy_set: Optional[str] = None) 
                 else:
                     log(f"Пропущена невалидная {strategy_set_key} стратегия: {error}", "WARNING")
 
-        log(f"Загружено {len(strategies)} {strategy_set_key} стратегий для категории '{category}' ({mode_dir})", "DEBUG")
+        log(
+            f"Загружено {len(strategies)} {strategy_set_key} стратегий для категории "
+            f"'{category}' ({mode_dir}, file={loaded_basename or 'missing'})",
+            "DEBUG",
+        )
         return strategies
 
     ensure_directories()

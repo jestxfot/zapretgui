@@ -25,7 +25,7 @@ a = Analysis(
         (os.path.join(_pyqt6_dir, 'QtXml.pyd'), 'PyQt6'),
         (os.path.join(_pyqt6_qt6_bin, 'Qt6Xml.dll'), 'PyQt6/Qt6/bin'),
     ],
-    datas=[(r'H:\Privacy\zapret\json\hosts.ini', r'json')],  # Включаем data файлы
+    datas=[(r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\discord_udp_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\discord_voice_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\http80_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\tcp_zapret1.txt', r'preset_zapret1/basic_strategies'), (r'H:\Privacy\zapretgui\preset_zapret1\basic_strategies\udp_zapret1.txt', r'preset_zapret1/basic_strategies')],  # Включаем data файлы
     hiddenimports=[
         # ============= UI МОДУЛИ (ОБЯЗАТЕЛЬНО!) =============
         'ui',
@@ -70,6 +70,7 @@ a = Analysis(
         'ui.pages.zapret1.direct_control_page',
         'ui.pages.zapret1.direct_zapret1_page',
         'ui.pages.zapret1.user_presets_page',
+        'ui.pages.zapret1.strategy_detail_page_v1',
         'ui.pages.blockcheck_page',
         'ui.pages.dpi_settings_page',
         'ui.pages.blobs_page',
@@ -106,6 +107,7 @@ a = Analysis(
         'preset_zapret1.preset_storage',
         'preset_zapret1.preset_store',
         'preset_zapret1.txt_preset_parser',
+        'preset_zapret1.strategy_inference',
         'preset_zapret1.preset_defaults',
 
         # ============= ZAPRET1 LAUNCHER =============

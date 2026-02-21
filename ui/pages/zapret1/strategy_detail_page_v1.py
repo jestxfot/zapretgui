@@ -267,7 +267,7 @@ class Zapret1StrategyDetailPage(BasePage):
         self._tree.strategy_clicked.connect(self._on_strategy_selected)
         list_layout.addWidget(self._tree, 1)
 
-        self._empty_label = CaptionLabel("Нет доступных стратегий. Проверьте preset_zapret1/basic_strategies/")
+        self._empty_label = CaptionLabel("Нет доступных стратегий. Проверьте %APPDATA%\\zapret\\direct_zapret1\\")
         self._empty_label.setWordWrap(True)
         self._empty_label.hide()
         list_layout.addWidget(self._empty_label)

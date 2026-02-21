@@ -1,7 +1,7 @@
 # preset_zapret1/strategies_loader.py
 """Self-contained V1 strategy loader for Zapret 1 (direct_zapret1) mode.
 
-No dependency on strategy_menu/. Reads from preset_zapret1/basic_strategies/.
+No dependency on strategy_menu/. Reads from %APPDATA%/zapret/direct_zapret1/.
 
 Usage:
     from preset_zapret1.strategies_loader import load_v1_strategies
@@ -10,19 +10,127 @@ Usage:
 
 from __future__ import annotations
 
+import os
+import shutil
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from log import log
 
-# Путь к директории со стратегиями V1
-BASIC_STRATEGIES_DIR = Path(__file__).parent / "basic_strategies"
+
+_V1_STRATEGY_FILENAMES = (
+    "tcp_zapret1.txt",
+    "udp_zapret1.txt",
+    "http80_zapret1.txt",
+    "discord_voice_zapret1.txt",
+    "discord_udp_zapret1.txt",
+)
 
 # Candidate directories checked in order:
 # 1) External folder near app root (single canonical source for V1 strategies)
 _SOURCE_DIRS_CACHE: list[Path] | None = None
 _MISSING_SOURCE_WARNED = False
+
+
+def _contains_internal_segment(path: Path) -> bool:
+    try:
+        return any(part.strip().lower() == "_internal" for part in path.parts)
+    except Exception:
+        return "\\_internal\\" in str(path).lower().replace("/", "\\")
+
+
+def get_v1_strategies_dir() -> Path:
+    """Canonical directory for direct_zapret1 strategies.
+
+    Only valid runtime location:
+      %APPDATA%\\zapret\\direct_zapret1
+    """
+    try:
+        from config import get_zapret_userdata_dir
+
+        base = (get_zapret_userdata_dir() or "").strip()
+        if base:
+            return Path(base) / "direct_zapret1"
+    except Exception:
+        pass
+
+    appdata = (os.environ.get("APPDATA") or "").strip()
+    if appdata:
+        return Path(appdata) / "zapret" / "direct_zapret1"
+
+    return Path.home() / "AppData" / "Roaming" / "zapret" / "direct_zapret1"
+
+
+def _seed_source_dirs() -> list[Path]:
+    dirs: list[Path] = []
+
+    try:
+        from config import MAIN_DIRECTORY
+
+        candidate = Path(MAIN_DIRECTORY) / "preset_zapret1" / "basic_strategies"
+        if not _contains_internal_segment(candidate):
+            dirs.append(candidate)
+    except Exception:
+        pass
+
+    # Source-tree fallback for local dev only (never in frozen runtime).
+    if not getattr(sys, "frozen", False):
+        candidate = Path(__file__).resolve().parent / "basic_strategies"
+        if not _contains_internal_segment(candidate):
+            dirs.append(candidate)
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for d in dirs:
+        key = str(d)
+        if key not in seen:
+            seen.add(key)
+            unique.append(d)
+    return unique
+
+
+def ensure_v1_strategies_exist() -> bool:
+    """Ensure direct_zapret1 strategies exist in the canonical AppData directory."""
+    dst_dir = get_v1_strategies_dir()
+    try:
+        dst_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        log(f"V1 strategies_loader: cannot create {dst_dir}: {e}", "ERROR")
+        return False
+
+    existing = {f.name.lower() for f in dst_dir.glob("*.txt") if f.is_file()}
+    missing = [name for name in _V1_STRATEGY_FILENAMES if name.lower() not in existing]
+    if not missing:
+        return True
+
+    copied = 0
+    for src_dir in _seed_source_dirs():
+        if not src_dir.is_dir():
+            continue
+        for filename in list(missing):
+            src = src_dir / filename
+            if not src.exists() or not src.is_file():
+                continue
+
+            dst = dst_dir / filename
+            try:
+                shutil.copy2(src, dst)
+                copied += 1
+                missing.remove(filename)
+                log(f"V1 strategies_loader: seeded {dst}", "DEBUG")
+            except Exception as e:
+                log(f"V1 strategies_loader: failed to seed {filename}: {e}", "DEBUG")
+
+        if not missing:
+            break
+
+    return copied > 0 or not missing
+
+
+# Backward-compatible export name.
+BASIC_STRATEGIES_DIR = get_v1_strategies_dir()
 
 # Кеш: cache_key -> (mtime_ns, size, data)
 _CACHE: Dict[str, tuple[int, int, Any]] = {}
@@ -43,30 +151,13 @@ def _strategy_dirs() -> list[Path]:
     if _SOURCE_DIRS_CACHE is not None:
         return _SOURCE_DIRS_CACHE
 
-    dirs: list[Path] = []
-
+    canonical = get_v1_strategies_dir()
     try:
-        from config import MAIN_DIRECTORY
-
-        main_dir = Path(MAIN_DIRECTORY)
-        dirs.append(main_dir / "preset_zapret1" / "basic_strategies")
+        canonical.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
 
-    # Dev fallback only when MAIN_DIRECTORY path is unavailable for some reason.
-    if not dirs:
-        dirs.append(BASIC_STRATEGIES_DIR)
-
-    # De-duplicate while preserving order.
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for d in dirs:
-        key = str(d)
-        if key not in seen:
-            seen.add(key)
-            unique.append(d)
-
-    _SOURCE_DIRS_CACHE = unique
+    _SOURCE_DIRS_CACHE = [canonical]
     return _SOURCE_DIRS_CACHE
 
 
@@ -74,6 +165,8 @@ def _resolve_strategy_file(filename: str) -> Path | None:
     for d in _strategy_dirs():
         try:
             p = d / filename
+            if _contains_internal_segment(p):
+                continue
             if p.exists() and p.is_file():
                 return p
         except Exception:
@@ -201,13 +294,15 @@ def _is_valid_id(sid: str) -> bool:
 def load_v1_strategies(category: str) -> Dict[str, Dict]:
     """Return {strategy_id: strategy_dict} for the given V1 category.
 
-    Maps category name → file in preset_zapret1/basic_strategies/:
+    Maps category name → file in %APPDATA%/zapret/direct_zapret1/:
         udp_* / *_udp       → udp_zapret1.txt
         discord_voice_*     → discord_voice_zapret1.txt (fallback udp_zapret1.txt)
         http80_* / *_http80 → http80_zapret1.txt (fallback tcp_zapret1.txt)
         everything else     → tcp_zapret1.txt
     """
     global _MISSING_SOURCE_WARNED
+
+    ensure_v1_strategies_exist()
 
     cat = category.lower()
     if cat == "udp" or cat.endswith("_udp") or cat.startswith("udp_"):

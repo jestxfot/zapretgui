@@ -96,6 +96,9 @@ Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userap
 ; V1 Preset templates -> %APPDATA%\zapret\presets_v1_template
 Source: "{#PROJECTPATH}\preset_zapret1\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v1_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
+; ✅ direct_zapret1 strategies -> %APPDATA%\zapret\direct_zapret1
+Source: "{#PROJECTPATH}\preset_zapret1\basic_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret1"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+
 ; ✅ direct_zapret2 Basic strategies -> %APPDATA%\zapret\direct_zapret2\basic_strategies
 ; Always overwritten on update to keep the Basic catalog current.
 Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret2\basic_strategies"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist

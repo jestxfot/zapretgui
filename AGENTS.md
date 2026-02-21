@@ -35,3 +35,10 @@ hosts.ini (каталог доменов)
 - Для exe-сборки это тоже внешний файл рядом с папкой приложения: `<exe_dir>/json/hosts.ini`.
 - Единственный валидный путь: внешний `./json/hosts.ini` (рядом с репой или рядом с exe).
 - Любые пути вида `.../_internal/json/hosts.ini`, `sys._MEIPASS/...` и вычисление от `__file__` внутри frozen-бандла считаются багом и должны быть устранены (не использовать как fallback).
+
+Каталоги стратегий (канонические пути)
+
+- direct_zapret1: только `%APPDATA%/zapret/direct_zapret1/*.txt`.
+- direct_zapret2 basic: только `%APPDATA%/zapret/direct_zapret2/basic_strategies/*`.
+- direct_zapret2 advanced: только `%APPDATA%/zapret/direct_zapret2/advanced_strategies/*`.
+- Пути внутри `_internal` (например `.../_internal/preset_zapret1/...`, `.../_internal/preset_zapret2/...`), `sys._MEIPASS/...` и вычисление от `__file__` внутри frozen-бандла для загрузки стратегий считаются багом и не допускаются даже как fallback.

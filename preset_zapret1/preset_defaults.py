@@ -313,6 +313,14 @@ def ensure_default_preset_exists_v1() -> bool:
 
     Returns True if Default preset exists or was created successfully.
     """
+    # Ensure direct_zapret1 strategy catalogs exist in canonical AppData location.
+    try:
+        from .strategies_loader import ensure_v1_strategies_exist
+
+        ensure_v1_strategies_exist()
+    except Exception as e:
+        log(f"Error ensuring V1 strategies catalog: {e}", "DEBUG")
+
     # Step 1: copy templates to user presets
     ensure_v1_templates_copied_to_presets()
 
