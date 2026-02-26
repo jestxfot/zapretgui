@@ -5,18 +5,24 @@
 Все страницы добавляются через addSubInterface() вместо ручного SideNavBar + QStackedWidget.
 Бизнес-логика (сигналы, обработчики) сохранена без изменений.
 """
-from PyQt6.QtCore import QTimer, QCoreApplication, QEventLoop
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtCore import QTimer, QCoreApplication, QEventLoop, pyqtSignal
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit
 from importlib import import_module
 
 
 try:
     from qfluentwidgets import (
-        NavigationItemPosition, FluentIcon,
+        NavigationItemPosition, FluentIcon, NavigationWidget,
     )
+    try:
+        from qfluentwidgets import SearchLineEdit
+    except ImportError:
+        SearchLineEdit = QLineEdit
     HAS_FLUENT = True
 except ImportError:
     HAS_FLUENT = False
+    NavigationWidget = None
+    SearchLineEdit = QLineEdit
 
 from ui.page_names import PageName, SectionName
 
@@ -209,6 +215,44 @@ _NAV_LABELS = {
 }
 
 
+if HAS_FLUENT:
+    class _SidebarSearchNavWidget(NavigationWidget):
+        textChanged = pyqtSignal(str)
+
+        def __init__(self, parent: QWidget | None = None):
+            super().__init__(isSelectable=False, parent=parent)
+            self._search = SearchLineEdit(self)
+            self._search.setPlaceholderText("Найти раздел")
+            try:
+                self._search.setClearButtonEnabled(True)
+            except Exception:
+                pass
+            self._search.textChanged.connect(self.textChanged.emit)
+
+            layout = QHBoxLayout(self)
+            layout.setContentsMargins(12, 4, 12, 4)
+            layout.setSpacing(0)
+            layout.addWidget(self._search)
+
+            self._apply_compact_state(self.isCompacted)
+
+        def _apply_compact_state(self, is_compacted: bool) -> None:
+            self.setFixedHeight(40)
+            self._search.setVisible(not is_compacted)
+            self.setVisible(not is_compacted)
+
+        def setCompacted(self, isCompacted: bool):
+            if isCompacted != self.isCompacted:
+                super().setCompacted(isCompacted)
+            self._apply_compact_state(isCompacted)
+
+        def clear(self) -> None:
+            self._search.clear()
+
+        def text(self) -> str:
+            return self._search.text()
+
+
 class MainWindowUI:
     """
     Mixin: creates pages and registers them with FluentWindow navigation.
@@ -225,6 +269,10 @@ class MainWindowUI:
         self._page_aliases: dict[PageName, PageName] = dict(_PAGE_ALIASES)
         self._lazy_signal_connections: set[str] = set()
         self._startup_ui_pump_counter = 0
+        self._nav_search_query = ""
+        self._nav_mode_visibility: dict[PageName, bool] = {}
+        self._nav_headers: list[tuple[QWidget, tuple[PageName, ...]]] = []
+        self._sidebar_search_nav_widget = None
 
         self._page_signal_bootstrap_complete = False
         self._create_pages()
@@ -282,6 +330,10 @@ class MainWindowUI:
         POS_SCROLL = NavigationItemPosition.SCROLL
 
         self._nav_items: dict = {}
+        self._nav_search_query = ""
+        self._nav_mode_visibility = {}
+        self._nav_headers = []
+        self._sidebar_search_nav_widget = None
 
         def _add(page_name, position=POS_SCROLL):
             from log import log as _log
@@ -312,6 +364,15 @@ class MainWindowUI:
 
         nav = self.navigationInterface  # shorthand
 
+        if HAS_FLUENT:
+            self._sidebar_search_nav_widget = _SidebarSearchNavWidget()
+            self._sidebar_search_nav_widget.textChanged.connect(self._on_sidebar_search_changed)
+            nav.addWidget(
+                "sidebar_search",
+                self._sidebar_search_nav_widget,
+                position=POS_SCROLL,
+            )
+
         # ── Верхние ──────────────────────────────────────────────────────────
         _add(PageName.HOME)
         _add(PageName.CONTROL)
@@ -323,31 +384,48 @@ class MainWindowUI:
         _add(PageName.ORCHESTRA)             # только orchestra
 
         # ── Стратегии (под-раздел) ────────────────────────────────────────────
-        nav.addItemHeader("Настройки Запрета", POS_SCROLL)
-        _add(PageName.PRESET_CONFIG)            # zapret1 and zapret2 only
-        _add(PageName.HOSTLIST)
-        _add(PageName.ORCHESTRA_SETTINGS)       # orchestra only (tabbed: locked/blocked/whitelist/ratings)
-        _add(PageName.DPI_SETTINGS)
+        settings_header = nav.addItemHeader("Настройки Запрета", POS_SCROLL)
+        settings_pages = (
+            PageName.PRESET_CONFIG,
+            PageName.HOSTLIST,
+            PageName.ORCHESTRA_SETTINGS,
+            PageName.DPI_SETTINGS,
+        )
+        for page_name in settings_pages:
+            _add(page_name)
+        self._nav_headers.append((settings_header, settings_pages))
 
         # BLOBS removed from nav — accessible via direct_control_page card
 
         # ── Система ───────────────────────────────────────────────────────────
-        nav.addItemHeader("Система", POS_SCROLL)
-        _add(PageName.AUTOSTART)
-        _add(PageName.NETWORK)
+        system_header = nav.addItemHeader("Система", POS_SCROLL)
+        system_pages = (PageName.AUTOSTART, PageName.NETWORK)
+        for page_name in system_pages:
+            _add(page_name)
+        self._nav_headers.append((system_header, system_pages))
 
         # ── Диагностика ───────────────────────────────────────────────────────
-        nav.addItemHeader("Диагностика", POS_SCROLL)
-        _add(PageName.DIAGNOSTICS_TAB)
-        _add(PageName.HOSTS)
-        _add(PageName.BLOCKCHECK)
+        diagnostics_header = nav.addItemHeader("Диагностика", POS_SCROLL)
+        diagnostics_pages = (
+            PageName.DIAGNOSTICS_TAB,
+            PageName.HOSTS,
+            PageName.BLOCKCHECK,
+        )
+        for page_name in diagnostics_pages:
+            _add(page_name)
+        self._nav_headers.append((diagnostics_header, diagnostics_pages))
 
         # ── Оформление / Донат / Логи ─────────────────────────────────────────
-        nav.addItemHeader("Оформление", POS_SCROLL)
-        _add(PageName.APPEARANCE)
-        _add(PageName.PREMIUM)
-        _add(PageName.LOGS)
-        _add(PageName.ABOUT)
+        appearance_header = nav.addItemHeader("Оформление", POS_SCROLL)
+        appearance_pages = (
+            PageName.APPEARANCE,
+            PageName.PREMIUM,
+            PageName.LOGS,
+            PageName.ABOUT,
+        )
+        for page_name in appearance_pages:
+            _add(page_name)
+        self._nav_headers.append((appearance_header, appearance_pages))
 
         # Pages NOT in navigation — reachable only via show_page() / switchTo()
         for hidden in (
@@ -397,13 +475,44 @@ class MainWindowUI:
 
         from log import log as _log
         _log(f"[NAV] _sync_nav_visibility method={method!r}, _nav_items keys={[p.name for p in self._nav_items]}", "DEBUG")
+        mode_visibility: dict[PageName, bool] = {
+            page_name: True for page_name in self._nav_items
+        }
         for page_name, should_show in targets.items():
             item = self._nav_items.get(page_name)
             if item is not None:
-                item.setVisible(should_show)
-                _log(f"[NAV]   {page_name.name} → setVisible({should_show})", "DEBUG")
+                mode_visibility[page_name] = bool(should_show)
+                _log(f"[NAV]   {page_name.name} → modeVisible({should_show})", "DEBUG")
             else:
                 _log(f"[NAV]   {page_name.name} → NOT in _nav_items!", "WARNING")
+
+        self._nav_mode_visibility = mode_visibility
+        self._apply_nav_visibility_filter()
+
+    def _on_sidebar_search_changed(self, text: str) -> None:
+        self._nav_search_query = (text or "").strip()
+        self._apply_nav_visibility_filter()
+
+    def _apply_nav_visibility_filter(self) -> None:
+        if not getattr(self, "_nav_items", None):
+            return
+
+        search_query = (getattr(self, "_nav_search_query", "") or "").casefold()
+        mode_visibility = getattr(self, "_nav_mode_visibility", {}) or {}
+        visible_by_page: dict[PageName, bool] = {}
+
+        for page_name, item in self._nav_items.items():
+            mode_visible = bool(mode_visibility.get(page_name, True))
+            label = _NAV_LABELS.get(page_name, page_name.name)
+            matches_query = not search_query or (search_query in label.casefold())
+            final_visible = mode_visible and matches_query
+            item.setVisible(final_visible)
+            visible_by_page[page_name] = final_visible
+
+        for header, grouped_pages in getattr(self, "_nav_headers", []):
+            if header is None:
+                continue
+            header.setVisible(any(visible_by_page.get(page_name, False) for page_name in grouped_pages))
 
     # ------------------------------------------------------------------
     # Page creation (lazy + eager) — UNCHANGED logic
