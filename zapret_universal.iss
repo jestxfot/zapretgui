@@ -93,6 +93,10 @@ Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recurses
 ; At startup the app copies new templates to presets_v2/ (unless user deleted them).
 Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v2_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
+; ✅ Orchestra Z2 preset templates -> %APPDATA%\zapret\orchestra_zapret2\presets_orchestra_zapret2_template
+; Required to auto-create preset-zapret2-orchestra.txt on first run.
+Source: "{#PROJECTPATH}\preset_orchestra_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\orchestra_zapret2\presets_orchestra_zapret2_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
+
 ; V1 Preset templates -> %APPDATA%\zapret\presets_v1_template
 Source: "{#PROJECTPATH}\preset_zapret1\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v1_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
@@ -109,6 +113,10 @@ Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.json"; DestDir: "{user
 Source: "{#PROJECTPATH}\preset_zapret2\advanced_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret2\advanced_strategies"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 Source: "{#PROJECTPATH}\preset_zapret2\advanced_strategies\*.json"; DestDir: "{userappdata}\zapret\direct_zapret2\advanced_strategies"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
+; ✅ direct_zapret2_orchestra strategies -> %APPDATA%\zapret\orchestra_zapret2
+Source: "{#PROJECTPATH}\orchestra_zapret2\*.txt"; DestDir: "{userappdata}\zapret\orchestra_zapret2"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+Source: "{#PROJECTPATH}\orchestra_zapret2\*.json"; DestDir: "{userappdata}\zapret\orchestra_zapret2"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+
 ; ✅ Hostlist template other.txt -> %APPDATA%\zapret\lists_template
 ; Source of truth comes from SOURCEPATH\lists\other.txt
 Source: "{#SOURCEPATH}\lists\other.txt"; DestDir: "{userappdata}\zapret\lists_template"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
@@ -123,11 +131,11 @@ Source: "{#SOURCEPATH}\exe\*"; DestDir: "{app}\exe"; Excludes: "cygwin1.dll"; Fl
 Source: "{#SOURCEPATH}\exe\cygwin1.dll"; DestDir: "{app}\exe"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\json\*"; DestDir: "{app}\json"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\ico\*"; DestDir: "{app}\ico"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
-; ✅ Копируем lists, но исключаем пользовательские файлы (other.txt, my-ipset.txt, netrogat.txt)
-Source: "{#SOURCEPATH}\lists\*"; DestDir: "{app}\lists"; Excludes: "other.txt;my-ipset.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
+; ✅ Копируем lists, но исключаем пользовательские файлы (other.txt, ipset-all.user.txt, ipset-all.txt, netrogat.txt)
+Source: "{#SOURCEPATH}\lists\*"; DestDir: "{app}\lists"; Excludes: "other.txt;ipset-all.user.txt;ipset-all.txt;netrogat.txt"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
 ; ✅ other.txt создаётся и сбрасывается приложением из %APPDATA%\zapret\lists_template\other.txt
-; ✅ my-ipset.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские IP при обновлении)
-Source: "{#SOURCEPATH}\lists\my-ipset.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+; ✅ ipset-all.user.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские IP при обновлении)
+Source: "{#SOURCEPATH}\lists\ipset-all.user.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 ; ✅ netrogat.txt копируется ТОЛЬКО если его нет (сохраняем пользовательские исключения)
 Source: "{#SOURCEPATH}\lists\netrogat.txt"; DestDir: "{app}\lists"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 Source: "{#SOURCEPATH}\lua\*"; DestDir: "{app}\lua"; Flags: recursesubdirs ignoreversion createallsubdirs skipifsourcedoesntexist
@@ -164,12 +172,13 @@ Type: files; Name: "{group}\{#AppName}.lnk"
 Type: files; Name: "{group}\{#AppName} v*.lnk"
 Type: files; Name: "{group}\Удалить {#AppName}.lnk"
 Type: files; Name: "{group}\Удалить {#AppName} v*.lnk"
-; Удаляем старые версионные имена инсталлятора (если были)
-Type: files; Name: "{userappdata}\zaprettracker\ZapretHub-Setup-*.exe"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
+Type: filesandordirs; Name: "{userappdata}\zapret"
+Type: filesandordirs; Name: "{localappdata}\ZapretUpdate"
+Type: filesandordirs; Name: "{app}\logs"
 
 [Run]
 Filename: "{userappdata}\zaprettracker\ZapretHub-Setup.exe"; \

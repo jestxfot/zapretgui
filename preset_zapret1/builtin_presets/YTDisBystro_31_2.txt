@@ -26,13 +26,13 @@
 # === HTTPS YouTube ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/googlevideo.com
+--hostlist-domains=googlevideo.com
 --hostlist=lists/russia-youtube.txt
 --dpi-desync=fake,multisplit
 --dpi-desync-split-pos=sld+1
 --dpi-desync-fake-tls=0x0F0F0E0F
 --dpi-desync-fake-tls=bin/tls_clienthello_1.bin
---dpi-desync-fake-tls-mod=bin/rnd,dupsid
+--dpi-desync-fake-tls-mod=rnd,dupsid
 --dpi-desync-fooling=md5sig
 --dpi-desync-autottl
 --dup=2
@@ -58,7 +58,7 @@
 # === HTTPS ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/animego.online,doramy.club,animejoy.ru,getchu.com
+--hostlist-domains=animego.online,doramy.club,animejoy.ru,getchu.com
 --dpi-desync=multisplit
 --dpi-desync-split-seqovl=308
 --dpi-desync-split-seqovl-pattern=bin/tls_clienthello_15.bin

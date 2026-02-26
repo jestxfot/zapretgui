@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QFrame,
 )
 
 try:
@@ -29,7 +28,6 @@ except ImportError:
 
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.compat_widgets import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens
 from connection_test import ConnectionTestWorker, LogSendWorker
 from config import LOGS_FOLDER, APP_VERSION
 from tgram.tg_log_delta import get_client_id
@@ -58,49 +56,15 @@ else:
     _ScrollBlockingTextBase = ScrollBlockingTextEdit
 
 
-class StatusBadge(QLabel):
-    """Небольшой бейдж состояния."""
-
-    _SEMANTIC_FG = {
-        "success": "#6ccb5f",
-        "warning": "#ffc107",
-        "error": "#ff6b6b",
-    }
+class StatusBadge(CaptionLabel):
+    """Status label — delegates all styling to qfluentwidgets CaptionLabel."""
 
     def __init__(self, text: str = "", status: str = "muted", parent=None):
-        super().__init__(text, parent)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setFixedHeight(28)
-        self.set_status(text, status)
+        super().__init__(parent)
+        self.setText(text)
 
     def set_status(self, text: str, status: str = "muted"):
-        tokens = get_theme_tokens()
-        if status == "info":
-            fg = tokens.accent_hex
-            bg = tokens.accent_soft_bg
-            border = f"1px solid rgba({tokens.accent_rgb_str}, 0.25)"
-        elif status == "muted":
-            fg = tokens.fg_muted
-            bg = tokens.surface_bg
-            border = f"1px solid {tokens.surface_border}"
-        else:
-            fg = self._SEMANTIC_FG.get(status, tokens.fg_muted)
-            bg = tokens.surface_bg
-            border = f"1px solid {tokens.surface_border}"
         self.setText(text)
-        self.setStyleSheet(
-            f"""
-            QLabel {{
-                color: {fg};
-                background-color: {bg};
-                border: {border};
-                border-radius: 14px;
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            """
-        )
 
 
 class SupportAuthWorker(QObject):
@@ -139,12 +103,6 @@ class ConnectionTestPage(BasePage):
         self.log_send_worker = None
         self.stop_check_timer = None
 
-        self._hero_frame = None
-
-        from qfluentwidgets import qconfig
-        qconfig.themeChanged.connect(lambda _: self._apply_theme())
-        qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
-
         # Контейнер с ограниченной шириной, чтобы не расползалось за края
         self.container = QWidget(self.content)
         self.container.setObjectName("connectionContainer")
@@ -162,46 +120,20 @@ class ConnectionTestPage(BasePage):
         self.add_widget(self.container)
         self.add_spacing(8)
 
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        tokens = get_theme_tokens()
-
-        if self._hero_frame is not None:
-            self._hero_frame.setStyleSheet(
-                f"""
-                QFrame#connectionHero {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                                stop:0 {tokens.accent_soft_bg},
-                                                stop:1 {tokens.surface_bg});
-                    border: 1px solid {tokens.surface_border};
-                    border-radius: 12px;
-                }}
-                """
-            )
-
-        # status_label is now a CaptionLabel — Fluent handles its typography/colour.
-        # result_text is now a Fluent TextEdit — Fluent handles its background/border/colour.
-
     # ──────────────────────────────────────────────────────────────
     # UI
     # ──────────────────────────────────────────────────────────────
     def _build_header(self):
-        hero = QFrame(self.container)
-        hero.setObjectName("connectionHero")
-        self._hero_frame = hero
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(20, 18, 20, 18)
-        hero_layout.setSpacing(8)
+        hero_card = SettingsCard()
 
         title = StrongBodyLabel("Диагностика сетевых соединений")
-        title.setProperty("tone", "primary")
+        hero_card.add_widget(title)
 
         subtitle = BodyLabel(
             "Проверьте доступность Discord и YouTube, найдите подмену DNS и быстро отправьте лог в поддержку."
         )
         subtitle.setWordWrap(True)
-        subtitle.setProperty("tone", "muted")
+        hero_card.add_widget(subtitle)
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(8)
@@ -210,12 +142,9 @@ class ConnectionTestPage(BasePage):
         badges_layout.addWidget(self.status_badge)
         badges_layout.addWidget(self.progress_badge)
         badges_layout.addStretch()
+        hero_card.add_layout(badges_layout)
 
-        hero_layout.addWidget(title)
-        hero_layout.addWidget(subtitle)
-        hero_layout.addLayout(badges_layout)
-
-        self.container_layout.addWidget(hero)
+        self.container_layout.addWidget(hero_card)
 
     def _build_controls(self):
         card = SettingsCard("Тестирование")
@@ -236,33 +165,25 @@ class ConnectionTestPage(BasePage):
         selector_row.addWidget(self.test_combo, 1)
         card.add_layout(selector_row)
 
-        # Кнопки - первый ряд (основные)
-        buttons_row1 = QHBoxLayout()
-        buttons_row1.setSpacing(8)
+        # Кнопки
+        buttons_row = QHBoxLayout()
+        buttons_row.setSpacing(8)
 
         self.start_btn = ActionButton("Запустить тест", "fa5s.play", accent=True)
         self.start_btn.clicked.connect(self.start_test)
-        buttons_row1.addWidget(self.start_btn)
+        buttons_row.addWidget(self.start_btn, 1)
 
         self.stop_btn = ActionButton("Стоп", "fa5s.stop")
         self.stop_btn.clicked.connect(self.stop_test)
         self.stop_btn.setEnabled(False)
-        buttons_row1.addWidget(self.stop_btn)
-
-        buttons_row1.addStretch()
-        card.add_layout(buttons_row1)
-
-        # Кнопки - второй ряд (дополнительные)
-        buttons_row2 = QHBoxLayout()
-        buttons_row2.setSpacing(8)
+        buttons_row.addWidget(self.stop_btn, 1)
 
         self.send_log_btn = ActionButton("Отправить лог", "fa5s.paper-plane")
         self.send_log_btn.clicked.connect(self.send_log_to_telegram)
         self.send_log_btn.setEnabled(False)
-        buttons_row2.addWidget(self.send_log_btn)
+        buttons_row.addWidget(self.send_log_btn, 1)
 
-        buttons_row2.addStretch()
-        card.add_layout(buttons_row2)
+        card.add_layout(buttons_row)
 
         # Прогресс + статус
         status_layout = QHBoxLayout()

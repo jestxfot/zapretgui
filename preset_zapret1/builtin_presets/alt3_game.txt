@@ -9,7 +9,7 @@
 # === QUIC Discord ===
 --filter-udp=443
 --hostlist=lists/discord.txt
---hostlist-domains=lists/riotcdn.net,playvalorant.com,riotgames.com,pvp.net,rgpub.io,rdatasrv.net,riotcdn.com,riotgames.es,RiotClientServices.com,LeagueofLegends.com
+--hostlist-domains=riotcdn.net,playvalorant.com,riotgames.com,pvp.net,rgpub.io,rdatasrv.net,riotcdn.com,riotgames.es,RiotClientServices.com,LeagueofLegends.com
 --dpi-desync=fake
 --dpi-desync-repeats=6
 --dpi-desync-fake-quic=bin/quic_initial_www_google_com.bin

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -74,12 +73,6 @@ def _seed_source_dirs() -> list[Path]:
             dirs.append(candidate)
     except Exception:
         pass
-
-    # Source-tree fallback for local dev only (never in frozen runtime).
-    if not getattr(sys, "frozen", False):
-        candidate = Path(__file__).resolve().parent / "basic_strategies"
-        if not _contains_internal_segment(candidate):
-            dirs.append(candidate)
 
     unique: list[Path] = []
     seen: set[str] = set()

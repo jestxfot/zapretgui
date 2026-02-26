@@ -1,6 +1,6 @@
 # Preset: ALL TCP & UDP ultisplit stun
 # ActivePreset: ALL TCP & UDP multisplit stun
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # Created: 2026-01-30T14:17:56.182141
 # Modified: 2026-01-30T14:47:35.144031
 # Description: 
@@ -97,4 +97,4 @@
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-d8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

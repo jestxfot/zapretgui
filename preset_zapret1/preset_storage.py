@@ -281,6 +281,7 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
 def save_preset_v1(preset: "PresetV1") -> bool:
     import os
     from preset_zapret2.txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
+    from preset_zapret2.base_filter import build_category_base_filter_lines
 
     preset_path = get_preset_path_v1(preset.name)
 
@@ -290,7 +291,21 @@ def save_preset_v1(preset: "PresetV1") -> bool:
         icon_color = normalize_preset_icon_color_v1(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
         preset.icon_color = icon_color
 
+        # Preserve BuiltinVersion if the preset file already carries one
+        # (so version-based auto-updates can still compare on next startup).
+        existing_builtin_version: Optional[str] = None
+        if preset_path.exists():
+            try:
+                from preset_zapret2.preset_defaults import _extract_builtin_version
+                existing_builtin_version = _extract_builtin_version(
+                    preset_path.read_text(encoding="utf-8", errors="replace")
+                )
+            except Exception:
+                pass
+
         header_lines = [f"# Preset: {preset.name}"]
+        if existing_builtin_version:
+            header_lines.append(f"# BuiltinVersion: {existing_builtin_version}")
         header_lines.extend([
             f"# Created: {preset.created}",
             f"# Modified: {datetime.now().isoformat()}",
@@ -301,11 +316,20 @@ def save_preset_v1(preset: "PresetV1") -> bool:
 
         for cat_name, cat in preset.categories.items():
             if cat.tcp_enabled and cat.has_tcp():
-                filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
-                args_lines = [f"--filter-tcp={cat.tcp_port}"]
-                if cat.filter_mode in ("hostlist", "ipset"):
-                    args_lines.append(f"--{cat.filter_mode}={filter_file}")
+                args_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
+                if not args_lines:
+                    filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+                    args_lines = [f"--filter-tcp={cat.tcp_port}"]
+                    if cat.filter_mode in ("hostlist", "ipset"):
+                        args_lines.append(f"--{cat.filter_mode}={filter_file_relative}")
+                custom_port = str(cat.tcp_port or "").strip()
+                if custom_port:
+                    for i, line in enumerate(args_lines):
+                        low = line.lower()
+                        if low.startswith("--filter-tcp="):
+                            args_lines[i] = f"--filter-tcp={custom_port}"
+                        elif low.startswith("--filter-l7="):
+                            args_lines[i] = f"--filter-l7={custom_port}"
                 for line in cat.tcp_args.strip().split('\n'):
                     if line.strip():
                         args_lines.append(line.strip())
@@ -321,11 +345,20 @@ def save_preset_v1(preset: "PresetV1") -> bool:
                 data.categories.append(block)
 
             if cat.udp_enabled and cat.has_udp():
-                filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                filter_file = os.path.normpath(os.path.join(_get_main_directory(), filter_file_relative))
-                args_lines = [f"--filter-udp={cat.udp_port}"]
-                if cat.filter_mode in ("hostlist", "ipset"):
-                    args_lines.append(f"--{cat.filter_mode}={filter_file}")
+                args_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
+                if not args_lines:
+                    filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+                    args_lines = [f"--filter-udp={cat.udp_port}"]
+                    if cat.filter_mode in ("hostlist", "ipset"):
+                        args_lines.append(f"--{cat.filter_mode}={filter_file_relative}")
+                custom_port = str(cat.udp_port or "").strip()
+                if custom_port:
+                    for i, line in enumerate(args_lines):
+                        low = line.lower()
+                        if low.startswith("--filter-udp="):
+                            args_lines[i] = f"--filter-udp={custom_port}"
+                        elif low.startswith("--filter-l7="):
+                            args_lines[i] = f"--filter-l7={custom_port}"
                 for line in cat.udp_args.strip().split('\n'):
                     if line.strip():
                         args_lines.append(line.strip())

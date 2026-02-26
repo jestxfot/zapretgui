@@ -25,7 +25,7 @@
 # === Googlevideo ===
 --new
 --filter-tcp=80,443
---hostlist-domains=lists/googlevideo.com
+--hostlist-domains=googlevideo.com
 --dpi-desync=multidisorder
 --dpi-desync-split-pos=1,host+2,sld+2,endhost-2
 --dpi-desync-split-seqovl=1
@@ -33,7 +33,7 @@
 # === Discord updates ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/updates.discord.com
+--hostlist-domains=updates.discord.com
 --dpi-desync=fake,split2
 --dpi-desync-repeats=6
 --dpi-desync-fooling=md5sig
@@ -62,7 +62,7 @@
 # === Discord Media ===
 --new
 --filter-tcp=80,443
---hostlist-domains=lists/discord.media
+--hostlist-domains=discord.media
 --dpi-desync=fake,split2
 --dpi-desync-repeats=6
 --dpi-desync-fooling=md5sig
@@ -135,7 +135,7 @@
 # === Tankix ===
 --new
 --filter-tcp=80,443
---ipset=lists/ipset-tankix.txt
+--hostlist-domains=resources.txrevive.com,main.txrevive.com
 --dpi-desync=fake,split2
 --dpi-desync-repeats=4
 --dpi-desync-fooling=md5sig

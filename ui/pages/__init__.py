@@ -26,13 +26,12 @@ from .hosts_page import HostsPage
 from .appearance_page import AppearancePage
 from .about_page import AboutPage
 from .support_page import SupportPage
-from .help_page import HelpPage
 from .logs_page import LogsPage
 from .premium_page import PremiumPage
 from .blockcheck_page import BlockcheckPage
 from .servers_page import ServersPage  # ✅ НОВАЯ СТРАНИЦА
-from .custom_domains_page import CustomDomainsPage  # Страница управления other.txt
-from .custom_ipset_page import CustomIpSetPage  # Страница управления my-ipset.txt
+from .custom_domains_page import CustomDomainsPage  # Страница управления other.user.txt
+from .custom_ipset_page import CustomIpSetPage  # Страница управления ipset-all.user.txt
 from .netrogat_page import NetrogatPage  # Страница управления netrogat.txt
 from .connection_page import ConnectionTestPage
 from .dns_check_page import DNSCheckPage
@@ -68,13 +67,12 @@ __all__ = [
     'AppearancePage',
     'AboutPage',
     'SupportPage',
-    'HelpPage',
     'LogsPage',
     'PremiumPage',
     'BlockcheckPage',
     'ServersPage',  # ✅ НОВАЯ СТРАНИЦА
-    'CustomDomainsPage',  # Страница управления other.txt
-    'CustomIpSetPage',  # Страница управления my-ipset.txt
+    'CustomDomainsPage',  # Страница управления other.user.txt
+    'CustomIpSetPage',  # Страница управления ipset-all.user.txt
     'NetrogatPage',  # Страница управления netrogat.txt
     'ConnectionTestPage',
     'DNSCheckPage',  # Страница проверки DNS подмены

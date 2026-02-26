@@ -21,6 +21,18 @@ def _is_startup_debug_enabled() -> bool:
 
     return False
 
+
+def _is_cpu_diagnostic_enabled() -> bool:
+    raw = os.environ.get("ZAPRET_CPU_DIAGNOSTIC")
+    if raw is not None and str(raw).strip() != "":
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    for arg in sys.argv[1:]:
+        if str(arg).strip().lower() in {"--cpu-diagnostic", "--cpu-debug"}:
+            return True
+
+    return False
+
 # ──────────────────────────────────────────────────────────────
 # Делаем рабочей директорией папку, где лежит exe/скрипт
 # Нужно выполнить до любых других импортов!
@@ -28,15 +40,12 @@ def _is_startup_debug_enabled() -> bool:
 def _set_workdir_to_app():
     """Устанавливает рабочую директорию"""
     try:
-        # Nuitka
         if "__compiled__" in globals():
+            # Nuitka
             app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        # PyInstaller
-        elif getattr(sys, 'frozen', False):
-            app_dir = os.path.dirname(sys.executable)
-        # Обычный Python
         else:
-            app_dir = os.path.dirname(os.path.abspath(__file__))
+            # PyInstaller
+            app_dir = os.path.dirname(sys.executable)
 
         os.chdir(app_dir)
         
@@ -64,6 +73,26 @@ Directory contents: {os.listdir(app_dir) if os.path.exists(app_dir) else 'N/A'}
             f.write(traceback.format_exc())
 
 _set_workdir_to_app()
+
+# ──────────────────────────────────────────────────────────────
+# Запрещаем запуск из исходников — только exe (PyInstaller/Nuitka)
+# ──────────────────────────────────────────────────────────────
+def _require_frozen():
+    is_frozen = getattr(sys, "frozen", False) or ("__compiled__" in globals())
+    if not is_frozen:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Запустите программу через Zapret.exe\n\nЗапуск напрямую из исходников не поддерживается.",
+                "Zapret — Ошибка запуска",
+                0x10,  # MB_ICONERROR | MB_OK
+            )
+        except Exception:
+            print("ERROR: Запуск из исходников не поддерживается. Используйте Zapret.exe")
+        sys.exit(1)
+
+_require_frozen()
 
 # ──────────────────────────────────────────────────────────────
 # ✅ УБРАНО: Очистка _MEI* папок больше не нужна
@@ -112,7 +141,7 @@ _preload_slow_modules()
 # ──────────────────────────────────────────────────────────────
 import subprocess, time
 
-from PyQt6.QtCore    import QTimer, QEvent, Qt, QCoreApplication
+from PyQt6.QtCore    import QTimer, QEvent, Qt, QCoreApplication, pyqtSlot, QMetaObject, Q_ARG
 from PyQt6.QtWidgets import QMessageBox, QWidget, QApplication
 
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
@@ -184,6 +213,59 @@ def _install_animation_py314_compat() -> None:
                 pass
 
 _install_animation_py314_compat()
+
+
+def _install_qfluent_label_ctor_compat() -> None:
+    """Accept legacy (text, parent) for qfluent label classes.
+
+    Newer qfluentwidgets builds expose label ctors as either `(text)` or `(parent)`.
+    A lot of project code still passes `(text, parent)`, which crashes at runtime.
+    """
+    try:
+        from qfluentwidgets import (
+            SubtitleLabel,
+            TitleLabel,
+            BodyLabel,
+            StrongBodyLabel,
+            CaptionLabel,
+        )
+    except Exception:
+        return
+
+    classes = (SubtitleLabel, TitleLabel, BodyLabel, StrongBodyLabel, CaptionLabel)
+
+    for cls in classes:
+        try:
+            if getattr(cls, "_zapret_ctor_compat", False):
+                continue
+
+            original_init = cls.__init__
+
+            def _make_init(_orig):
+                def _compat_init(self, *args, **kwargs):
+                    if len(args) == 2 and not kwargs:
+                        text, parent = args
+                        try:
+                            _orig(self, parent)
+                            try:
+                                self.setText(str(text))
+                            except Exception:
+                                pass
+                            return
+                        except Exception:
+                            pass
+
+                    _orig(self, *args, **kwargs)
+
+                return _compat_init
+
+            cls.__init__ = _make_init(original_init)
+            cls._zapret_ctor_compat = True
+        except Exception:
+            pass
+
+
+_install_qfluent_label_ctor_compat()
 # ──────────────────────────────────────────────────────────────────────────────
 
 from ui.main_window import MainWindowUI
@@ -200,7 +282,7 @@ from ui.theme_subscription_manager import ThemeSubscriptionManager
 from ui.theme import install_qtawesome_icon_theme_patch
 
 # DNS настройки теперь интегрированы в network_page
-from log import log, is_verbose_logging_enabled
+from log import log, is_verbose_logging_enabled, global_logger
 
 
 def _log_startup_metric(marker: str, details: str = "") -> None:
@@ -272,6 +354,12 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
     def closeEvent(self, event):
         """Обрабатывает событие закрытия окна"""
         self._is_exiting = True
+
+        try:
+            if hasattr(global_logger, "set_ui_error_notifier"):
+                global_logger.set_ui_error_notifier(None)
+        except Exception:
+            pass
         
         # ✅ Гарантированно сохраняем геометрию/состояние окна при выходе
         try:
@@ -546,6 +634,67 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 status_type = "warning"
             self.home_page.set_status(text, status_type)
 
+    def _register_global_error_notifier(self) -> None:
+        """Подключает глобальные ERROR/CRITICAL логи к верхнему InfoBar."""
+        try:
+            if hasattr(global_logger, "set_ui_error_notifier"):
+                global_logger.set_ui_error_notifier(self._enqueue_global_error_infobar)
+        except Exception as e:
+            log(f"Ошибка подключения глобального error-notifier: {e}", "DEBUG")
+
+    def _enqueue_global_error_infobar(self, message: str) -> None:
+        """Thread-safe показ ошибки в верхнем InfoBar."""
+        text = str(message or "").strip()
+        if not text:
+            return
+
+        try:
+            QMetaObject.invokeMethod(
+                self,
+                "show_dpi_launch_error",
+                Qt.ConnectionType.QueuedConnection,
+                Q_ARG(str, text),
+            )
+        except Exception:
+            try:
+                self.show_dpi_launch_error(text)
+            except Exception:
+                pass
+
+    @pyqtSlot(str)
+    def show_dpi_launch_error(self, message: str) -> None:
+        """Показывает ошибку сверху окна через InfoBar."""
+        text = str(message or "").strip()
+        if not text:
+            text = "Не удалось запустить DPI"
+
+        # Дедупликация одинаковых ошибок, прилетевших подряд.
+        try:
+            now = time.time()
+            last_msg = str(getattr(self, "_last_dpi_launch_error_message", "") or "")
+            last_ts = float(getattr(self, "_last_dpi_launch_error_ts", 0.0) or 0.0)
+            if text == last_msg and (now - last_ts) < 1.5:
+                return
+            self._last_dpi_launch_error_message = text
+            self._last_dpi_launch_error_ts = now
+        except Exception:
+            pass
+
+        try:
+            from qfluentwidgets import InfoBar as _InfoBar, InfoBarPosition as _IBPos
+
+            _InfoBar.error(
+                title="Ошибка",
+                content=text,
+                orient=Qt.Orientation.Vertical if len(text) > 90 else Qt.Orientation.Horizontal,
+                isClosable=True,
+                position=_IBPos.TOP,
+                duration=10000,
+                parent=self,
+            )
+        except Exception as e:
+            log(f"Ошибка показа InfoBar запуска DPI: {e}", "DEBUG")
+
     def update_ui(self, running: bool) -> None:
         """Обновляет состояние кнопок в зависимости от статуса запуска"""
         if hasattr(self, 'ui_manager'):
@@ -587,7 +736,12 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 log(f"Установлено имя пресета для direct_zapret2: {display_name}", "DEBUG")
             elif strategy_id == "DIRECT_MODE" or launch_method in ("direct_zapret2_orchestra", "direct_zapret1"):
                 if launch_method == "direct_zapret2_orchestra":
-                    display_name = "Оркестратор Z2"
+                    try:
+                        from preset_orchestra_zapret2 import get_active_preset_name
+                        preset_name = get_active_preset_name() or "Default"
+                        display_name = f"Пресет оркестра: {preset_name}"
+                    except Exception:
+                        display_name = "Оркестратор Z2"
                 else:
                     display_name = "Прямой Z1"
                 self.current_strategy_name = display_name
@@ -667,6 +821,51 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                         log(f"Запуск Zapret1 из preset файла: {preset_path}", "INFO")
                         self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
 
+                    # ✅ ДЛЯ direct_zapret2_orchestra - используем preset-zapret2-orchestra.txt
+                    elif launch_method == "direct_zapret2_orchestra":
+                        from preset_orchestra_zapret2 import (
+                            get_active_preset_path,
+                            get_active_preset_name,
+                            ensure_default_preset_exists,
+                        )
+
+                        if not ensure_default_preset_exists():
+                            log(
+                                "Не удалось создать preset-zapret2-orchestra.txt: отсутствует шаблон Default",
+                                "ERROR",
+                            )
+                            self.set_status("Ошибка: отсутствует шаблон Default для оркестра")
+                            return
+
+                        preset_path = get_active_preset_path()
+                        preset_name = get_active_preset_name() or "Default"
+
+                        if not preset_path.exists():
+                            log(f"preset-zapret2-orchestra.txt не найден: {preset_path}", "ERROR")
+                            self.set_status("Выберите стратегию в разделе Оркестратор Z2")
+                            return
+
+                        try:
+                            content = preset_path.read_text(encoding='utf-8').strip()
+                            has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                            if not has_filters:
+                                log("Orchestra preset файл не содержит активных фильтров", "WARNING")
+                                self.set_status("Выберите хотя бы одну категорию для запуска")
+                                return
+                        except Exception as e:
+                            log(f"Ошибка чтения orchestra preset файла: {e}", "ERROR")
+                            self.set_status(f"Ошибка чтения preset: {e}")
+                            return
+
+                        combined_data = {
+                            'is_preset_file': True,
+                            'name': f"Пресет оркестра: {preset_name}",
+                            'preset_path': str(preset_path)
+                        }
+
+                        log(f"Запуск direct_zapret2_orchestra из preset файла: {preset_path}", "INFO")
+                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
+
                     # ✅ ДЛЯ ДРУГИХ РЕЖИМОВ - используем combine_strategies
                     else:
                         from launcher_common import combine_strategies
@@ -728,6 +927,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         log(f"Метод запуска стратегий: {current_method}", "INFO")
 
         self.start_in_tray = start_in_tray
+        self._register_global_error_notifier()
 
         # Flags
         self._dpi_autostart_initiated = False
@@ -735,6 +935,12 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         self._stop_dpi_on_exit = False
         self._closing_completely = False
         self._deferred_init_started = False
+        self._startup_splash = None
+        self._startup_splash_shown_at = None
+        self._startup_splash_finish_pending = False
+        self._startup_splash_min_visible_ms = 2200
+        self._startup_post_init_ready = False
+        self._startup_subscription_ready = False
 
         # Window geometry persistence (debounce)
         self._geometry_restore_in_progress = False
@@ -769,7 +975,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # FluentWindow handles: frameless, titlebar, acrylic, resize, drag
         # We only need to set title and restore geometry
-        self.setWindowTitle(f"Zapret2 v{APP_VERSION} - загрузка...")
+        self.setWindowTitle(f"Zapret2 v{APP_VERSION}")
         self.setMinimumSize(MIN_WIDTH, 400)
         self.restore_window_geometry()
 
@@ -786,11 +992,170 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # Show window right away (FluentWindow handles rendering)
         if not self.start_in_tray and not self.isVisible():
+            self._show_startup_splash()
             self.show()
             log("Основное окно показано (FluentWindow, init в фоне)", "DEBUG")
 
         deferred_init_delay_ms = 0 if self.start_in_tray else 60
         QTimer.singleShot(deferred_init_delay_ms, self._deferred_init)
+
+    def _show_startup_splash(self) -> None:
+        if self.start_in_tray or getattr(self, "_startup_splash", None) is not None:
+            return
+        try:
+            from PyQt6.QtCore import QSize
+            from qfluentwidgets import SplashScreen
+
+            try:
+                from qframelesswindow import StandardTitleBar
+            except Exception:
+                StandardTitleBar = None
+
+            class _StartupSplashScreen(SplashScreen):
+                def __init__(self, icon, parent=None):
+                    super().__init__(icon, parent)
+                    self._pulse_timer = QTimer(self)
+                    self._pulse_timer.setInterval(40)  # ~25 FPS
+                    self._pulse_timer.timeout.connect(self._pulse_tick)
+                    self._pulse_phase = 0.0
+                    self._base_icon_size = QSize(self.iconSize())
+
+                def start_pulse(self) -> None:
+                    self._base_icon_size = QSize(self.iconSize())
+                    self._pulse_phase = 0.0
+                    self._pulse_timer.start()
+
+                def stop_pulse(self) -> None:
+                    try:
+                        self._pulse_timer.stop()
+                    except Exception:
+                        pass
+                    try:
+                        self.setIconSize(self._base_icon_size)
+                        self._center_icon_widget()
+                    except Exception:
+                        pass
+
+                def _center_icon_widget(self) -> None:
+                    try:
+                        iw = int(self.iconSize().width())
+                        ih = int(self.iconSize().height())
+                        self.iconWidget.move(self.width() // 2 - iw // 2, self.height() // 2 - ih // 2)
+                    except Exception:
+                        pass
+
+                def _pulse_tick(self) -> None:
+                    try:
+                        import math
+
+                        self._pulse_phase += 0.22
+                        if self._pulse_phase >= 6.283185307179586:
+                            self._pulse_phase -= 6.283185307179586
+
+                        t = (math.sin(self._pulse_phase) + 1.0) * 0.5
+                        scale = 0.94 + (0.12 * t)  # 0.94..1.06
+                        w = max(64, int(self._base_icon_size.width() * scale))
+                        h = max(64, int(self._base_icon_size.height() * scale))
+
+                        cur = self.iconSize()
+                        if int(cur.width()) == w and int(cur.height()) == h:
+                            return
+
+                        self.setIconSize(QSize(w, h))
+                        self._center_icon_widget()
+                    except Exception:
+                        pass
+
+                def resizeEvent(self, e):
+                    super().resizeEvent(e)
+                    self._center_icon_widget()
+
+            splash = _StartupSplashScreen(self.windowIcon(), self)
+
+            splash.setIconSize(QSize(104, 104))
+            splash.start_pulse()
+
+            # Stock title bar from qframelesswindow (as in qfluent docs).
+            if StandardTitleBar is not None:
+                title_bar = StandardTitleBar(splash)
+                title_bar.setIcon(self.windowIcon())
+                title_bar.setTitle(self.windowTitle())
+                splash.setTitleBar(title_bar)
+
+            splash.raise_()
+            splash.show()
+            self._startup_splash = splash
+            self._startup_splash_shown_at = _startup_clock.perf_counter()
+            self._startup_splash_finish_pending = False
+
+            # Safety: never keep splash forever if post-init callback is skipped.
+            QTimer.singleShot(20000, self._finish_startup_splash)
+        except Exception as e:
+            log(f"Startup splash create failed: {e}", "DEBUG")
+
+    def _request_finish_startup_splash(self, *, force: bool = False, reason: str = "") -> None:
+        if getattr(self, "_startup_splash", None) is None:
+            return
+
+        if force:
+            self._finish_startup_splash()
+            return
+
+        shown_at = getattr(self, "_startup_splash_shown_at", None)
+        if shown_at is None:
+            self._finish_startup_splash()
+            return
+
+        elapsed_ms = int((_startup_clock.perf_counter() - shown_at) * 1000)
+        delay_ms = max(0, int(self._startup_splash_min_visible_ms) - elapsed_ms)
+        if delay_ms <= 0:
+            self._finish_startup_splash()
+            return
+
+        if self._startup_splash_finish_pending:
+            return
+
+        self._startup_splash_finish_pending = True
+        log(f"Startup splash finish scheduled in {delay_ms}ms ({reason or 'no-reason'})", "DEBUG")
+        QTimer.singleShot(delay_ms, self._finish_startup_splash)
+
+    def _try_finish_startup_splash(self, reason: str = "") -> None:
+        if getattr(self, "_startup_splash", None) is None:
+            return
+
+        if not self._startup_post_init_ready:
+            return
+        if not self._startup_subscription_ready:
+            return
+
+        self._request_finish_startup_splash(reason=reason or "all-startup-phases-ready")
+
+    def _mark_startup_subscription_ready(self, source: str = "subscription_ready") -> None:
+        self._startup_subscription_ready = True
+        self._try_finish_startup_splash(source)
+
+    def _finish_startup_splash(self) -> None:
+        self._startup_splash_finish_pending = False
+        splash = getattr(self, "_startup_splash", None)
+        if splash is None:
+            return
+        self._startup_splash = None
+        self._startup_splash_shown_at = None
+
+        try:
+            stop_pulse = getattr(splash, "stop_pulse", None)
+            if callable(stop_pulse):
+                stop_pulse()
+        except Exception:
+            pass
+
+        try:
+            splash.finish()
+        except Exception:
+            try:
+                splash.close()
+            except Exception:
+                pass
 
     def _deferred_init(self) -> None:
         """Heavy initialization — runs after first frame is shown."""
@@ -813,6 +1178,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 log(traceback.format_exc(), "DEBUG")
             except Exception:
                 pass
+            self._request_finish_startup_splash(force=True, reason="build_ui_failed")
             return
         log(f"⏱ Startup: build_ui {(_time.perf_counter() - _t_build) * 1000:.0f}ms", "DEBUG")
 
@@ -891,6 +1257,8 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             details = f"{source}, +{delta_ms}ms after Interactive"
 
         _log_startup_metric("PostInitDone", details)
+        self._startup_post_init_ready = True
+        self._try_finish_startup_splash("post_init_done")
 
     def setWindowTitle(self, title: str):
         """Override to update FluentWindow's built-in titlebar."""
@@ -1383,12 +1751,21 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         pass
 
     def set_window_opacity(self, value: int) -> None:
-        """Устанавливает прозрачность окна (0-100%)"""
+        """Устанавливает прозрачность фона окна (0–100%).
+
+        Win11: обновляет тинт-оверлей поверх Mica (apply_aero_effect fast path).
+        Win10: применяет setWindowOpacity через apply_aero_effect.
+        """
         try:
-            # Преобразуем процент в значение 0.0-1.0
-            opacity = max(0.0, min(1.0, value / 100.0))
-            self.setWindowOpacity(opacity)
-            log(f"Прозрачность окна установлена: {value}%", "DEBUG")
+            # Эффект применяется только для standard пресета
+            from config.reg import get_background_preset
+            if get_background_preset() != "standard":
+                log(f"Transparent effect проигнорирован (не standard пресет)", "DEBUG")
+                return
+
+            from ui.theme import apply_aero_effect
+            apply_aero_effect(self, value)
+            log(f"Прозрачность обновлена: {value}%", "DEBUG")
         except Exception as e:
             log(f"❌ Ошибка при установке прозрачности окна: {e}", "ERROR")
 
@@ -1503,11 +1880,7 @@ def main():
     
     # ---------------- Проверка прав администратора ----------------
     if not is_admin():
-        if getattr(sys, 'frozen', False):
-            params = subprocess.list2cmdline(list(sys.argv[1:]))
-        else:
-            script_path = os.path.abspath(sys.argv[0]) if sys.argv else os.path.abspath(__file__)
-            params = subprocess.list2cmdline([script_path, *list(sys.argv[1:])])
+        params = subprocess.list2cmdline(list(sys.argv[1:]))
 
         shell_exec_result = ctypes.windll.shell32.ShellExecuteW(
             None,
@@ -1618,6 +1991,13 @@ def main():
         from ui.theme import apply_window_background
         _bg_preset = get_background_preset()
         apply_window_background(window, preset=_bg_preset)
+    except Exception:
+        pass
+
+    # Re-apply window background when AUTO mode follows OS theme changes.
+    try:
+        from ui.theme import apply_window_background
+        qconfig.themeChanged.connect(lambda _: apply_window_background(window))
     except Exception:
         pass
 
@@ -1933,9 +2313,10 @@ def main():
         except Exception as _e:
             log(f"CPU diagnostic error: {_e}", "WARNING")
 
-    import threading as _diag_t
-    _diag_t.Thread(target=_cpu_diagnostic_worker, daemon=True, name="CPUDiagnostic").start()
-    del _diag_t
+    if _is_cpu_diagnostic_enabled():
+        import threading as _diag_t
+        _diag_t.Thread(target=_cpu_diagnostic_worker, daemon=True, name="CPUDiagnostic").start()
+        del _diag_t
 
     # Exception handler
     def global_exception_handler(exctype, value, tb_obj):

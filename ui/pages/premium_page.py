@@ -2,11 +2,11 @@
 """Страница управления Premium подпиской"""
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QApplication, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QApplication, QSizePolicy
 
 try:
     from qfluentwidgets import (
-        LineEdit, MessageBox, InfoBar, InfoBarIcon, InfoBarPosition,
+        LineEdit, MessageBox, InfoBar,
         BodyLabel, CaptionLabel, StrongBodyLabel, SubtitleLabel,
     )
     _HAS_FLUENT = True
@@ -17,8 +17,6 @@ except ImportError:
     )
     MessageBox = None
     InfoBar = None
-    InfoBarIcon = None
-    InfoBarPosition = None
     _HAS_FLUENT = False
 
 import webbrowser
@@ -51,55 +49,69 @@ class WorkerThread(QThread):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# StatusCard — InfoBar-based subscription status display
+# StatusCard — full-width subscription status display
 # ─────────────────────────────────────────────────────────────────────────────
 
-class StatusCard(QWidget):
-    """Виджет статуса подписки на основе InfoBar."""
+class StatusCard(QFrame):
+    """Full-width subscription status card (no InfoBar dependency)."""
 
-    _ICON_MAP = {
-        'active':  'SUCCESS',
-        'warning': 'WARNING',
-        'expired': 'ERROR',
-        'neutral': 'INFORMATION',
+    _STATUS_CONFIG = {
+        'active':  {'bg': '#1c2e24', 'fg': '#7ecb9a', 'icon': '✓'},
+        'warning': {'bg': '#2a2516', 'fg': '#c8a96e', 'icon': '⚠'},
+        'expired': {'bg': '#2a1e1e', 'fg': '#c98080', 'icon': '✕'},
+        'neutral': {'bg': '#1a2030', 'fg': '#7aa8d4', 'icon': 'ℹ'},
     }
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self._layout = layout
-        self._bar = None
+        self.setMinimumHeight(52)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(14, 10, 14, 10)
+        row.setSpacing(10)
+
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setFixedWidth(22)
+        self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._title_lbl = QLabel()
+        self._detail_lbl = QLabel()
+
+        row.addWidget(self._icon_lbl)
+        row.addWidget(self._title_lbl)
+        row.addSpacing(8)
+        row.addWidget(self._detail_lbl)
+        row.addStretch(1)
+
         self.set_status("Проверка...", "", "neutral")
 
     def set_status(self, text: str, details: str = "", status: str = "neutral"):
-        if self._bar is not None:
-            self._layout.removeWidget(self._bar)
-            self._bar.deleteLater()
-            self._bar = None
+        cfg = self._STATUS_CONFIG.get(status, self._STATUS_CONFIG['neutral'])
 
-        if not _HAS_FLUENT:
-            return
-
-        icon_name = self._ICON_MAP.get(status, 'INFORMATION')
-        icon = getattr(InfoBarIcon, icon_name, InfoBarIcon.INFORMATION)
-
-        bar = InfoBar(
-            icon=icon,
-            title=text,
-            content=details,
-            orient=Qt.Orientation.Horizontal,
-            isClosable=False,
-            duration=-1,
-            position=InfoBarPosition.NONE,
-            parent=self,
+        self._icon_lbl.setText(cfg['icon'])
+        self._icon_lbl.setStyleSheet(
+            f"color: {cfg['fg']}; font-size: 15px; font-weight: bold; background: transparent;"
         )
-        # Override InfoBar's SetMinimumSize constraint so it stretches full width
-        bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        bar.hBoxLayout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetDefaultConstraint)
-        self._layout.addWidget(bar)
-        self._bar = bar
+
+        self._title_lbl.setText(text)
+        self._title_lbl.setStyleSheet(
+            f"color: {cfg['fg']}; font-weight: 600; font-size: 13px; background: transparent;"
+        )
+
+        self._detail_lbl.setText(details)
+        self._detail_lbl.setStyleSheet(
+            "color: rgba(255,255,255,180); font-size: 13px; background: transparent;"
+        )
+        self._detail_lbl.setVisible(bool(details))
+
+        self.setStyleSheet(f"""
+            StatusCard {{
+                background-color: {cfg['bg']};
+                border: none;
+                border-radius: 8px;
+            }}
+        """)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -245,27 +257,26 @@ class PremiumPage(BasePage):
 
         actions_card = SettingsCard()
 
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(8)
+
         self.refresh_btn = RefreshButton("Обновить статус")
         self.refresh_btn.clicked.connect(self._check_status)
-        row1.addWidget(self.refresh_btn)
+        actions_row.addWidget(self.refresh_btn, 1)
+
         self.change_key_btn = ActionButton("Сбросить активацию", "fa5s.exchange-alt")
         self.change_key_btn.clicked.connect(self._change_key)
-        row1.addWidget(self.change_key_btn)
-        row1.addStretch()
-        actions_card.add_layout(row1)
+        actions_row.addWidget(self.change_key_btn, 1)
 
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
         self.test_btn = ActionButton("Проверить соединение", "fa5s.plug")
         self.test_btn.clicked.connect(self._test_connection)
-        row2.addWidget(self.test_btn)
+        actions_row.addWidget(self.test_btn, 1)
+
         self.extend_btn = ActionButton("Продлить подписку", "fa5b.telegram", accent=True)
         self.extend_btn.clicked.connect(self._open_extend_bot)
-        row2.addWidget(self.extend_btn)
-        row2.addStretch()
-        actions_card.add_layout(row2)
+        actions_row.addWidget(self.extend_btn, 1)
+
+        actions_card.add_layout(actions_row)
 
         self.add_widget(actions_card)
 

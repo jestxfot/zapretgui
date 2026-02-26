@@ -254,7 +254,6 @@ a = Analysis(
         'ui.pages.about_page',
         'ui.pages.logs_page',
         'ui.pages.premium_page',
-        'ui.pages.help_page',
         # ui.pages.zapret1
         'ui.pages.zapret1',
         'ui.pages.zapret1.direct_control_page',
@@ -289,6 +288,10 @@ a = Analysis(
         'ui.pages.zapret2.direct_control_page',
         'ui.pages.zapret2.direct_zapret2_page',
         'ui.pages.zapret2.user_presets_page',
+        # ui.pages.orchestra_zapret2 (lazy routes)
+        'ui.pages.orchestra_zapret2',
+        'ui.pages.orchestra_zapret2.direct_control_page',
+        'ui.pages.orchestra_zapret2.strategy_detail_page',
 
         # ============= PRESET ZAPRET1 =============
         'preset_zapret1',
@@ -449,7 +452,6 @@ a = Analysis(
         'lxml',
         'fsspec',
         'bcrypt',
-        'cryptography',
         'pygments',
         'pycparser',
         'jinja2',

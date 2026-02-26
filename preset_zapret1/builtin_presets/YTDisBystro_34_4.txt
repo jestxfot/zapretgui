@@ -28,14 +28,24 @@
 --new
 --filter-tcp=443
 --hostlist=lists/other.txt
---hostlist=lists/faceinsta.txt
---hostlist-domains=lists/googlevideo.com
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
+--hostlist-domains=googlevideo.com
 --hostlist=lists/russia-youtube.txt
 --dpi-desync=fake,multidisorder
 --dpi-desync-split-pos=7,sld+1
 --dpi-desync-fake-tls=0x0F0F0F0F
 --dpi-desync-fake-tls=bin/tls_clienthello_4.bin
---dpi-desync-fake-tls-mod=bin/rnd,dupsid,sni=fonts.google.com
+--dpi-desync-fake-tls-mod=rnd,dupsid,sni=fonts.google.com
 --dpi-desync-fooling=badseq
 --dpi-desync-autottl
 
@@ -48,7 +58,7 @@
 --dpi-desync=fake,multisplit
 --dpi-desync-split-pos=2,midsld
 --dpi-desync-fake-tls=bin/tls_clienthello_17.bin
---dpi-desync-fake-tls-mod=bin/rnd,dupsid
+--dpi-desync-fake-tls-mod=rnd,dupsid
 --dpi-desync-fooling=md5sig
 --dpi-desync-autottl
 --dup=2
@@ -59,7 +69,7 @@
 # === HTTPS Discord ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com
+--hostlist-domains=updates.discord.com,stable.dl2.discordapp.net,animego.online,animejoy.ru,rutracker.org,static.rutracker.cc,pixiv.net,cdn77.com
 --dpi-desync=multisplit
 --dpi-desync-split-seqovl=293
 --dpi-desync-split-seqovl-pattern=bin/tls_clienthello_12.bin
@@ -67,7 +77,7 @@
 # === HTTPS ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com
+--hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com
 --dpi-desync=multisplit
 --dpi-desync-split-seqovl=211
 --dpi-desync-split-seqovl-pattern=bin/tls_clienthello_5.bin

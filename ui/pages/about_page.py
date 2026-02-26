@@ -770,7 +770,7 @@ class AboutPage(BasePage):
         android_card = HyperlinkCard(
             ANDROID_URL, "Открыть",
             FluentIcon.PHONE,
-            "На Android (ByeByeDPI)",
+            "На Android (Magisk Zapret, ByeByeDPI и др.)",
             "Открыть инструкцию на сайте",
         )
 
@@ -795,6 +795,13 @@ class AboutPage(BasePage):
         )
         telegram_card.clicked.connect(self._open_telegram_news)
 
+        youtube_card = HyperlinkCard(
+            "https://www.youtube.com/@приватность", "Открыть",
+            FluentIcon.PLAY,
+            "YouTube канал",
+            "Видео и обновления",
+        )
+
         mastodon_card = HyperlinkCard(
             "https://mastodon.social/@zapret", "Открыть",
             FluentIcon.GLOBE,
@@ -809,7 +816,7 @@ class AboutPage(BasePage):
             "Новости в Bastyon",
         )
 
-        news_group.addSettingCards([telegram_card, mastodon_card, bastyon_card])
+        news_group.addSettingCards([telegram_card, youtube_card, mastodon_card, bastyon_card])
         layout.addWidget(news_group)
 
         layout.addStretch()

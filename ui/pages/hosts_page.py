@@ -22,7 +22,7 @@ from ui.theme_semantic import get_semantic_palette
 try:
     from qfluentwidgets import (
         BodyLabel, CaptionLabel, StrongBodyLabel,
-        PushButton, ComboBox, InfoBar, MessageBox,
+        PushButton, ComboBox, InfoBar, MessageBox, SwitchButton,
     )
     _HAS_FLUENT = True
 except ImportError:
@@ -34,6 +34,7 @@ except ImportError:
     ComboBox = None  # type: ignore[misc,assignment]
     InfoBar = None  # type: ignore[misc,assignment]
     MessageBox = None  # type: ignore[misc,assignment]
+    SwitchButton = None  # type: ignore[misc,assignment]
 
 try:
     # Simple Win11 toggle without text (QCheckBox-based).
@@ -91,6 +92,7 @@ def _format_dns_profile_label(profile_name: str) -> str:
 try:
     from hosts.proxy_domains import (
         QUICK_SERVICES,
+        ensure_ipv6_catalog_sections_if_available,
         get_dns_profiles,
         get_all_services,
         get_service_has_geohide_ips,
@@ -105,17 +107,42 @@ try:
     )
 except ImportError:
     QUICK_SERVICES = []
-    def get_dns_profiles(): return []
-    def get_all_services(): return []
-    def get_service_has_geohide_ips(s): return False
-    def get_service_available_dns_profiles(s): return []
-    def get_service_domain_ip_map(*args, **kwargs): return {}
-    def get_service_domain_names(s): return []
-    def get_service_domains(s): return {}
-    def get_hosts_catalog_signature(): return None
-    def invalidate_hosts_catalog_cache(): return None
-    def load_user_hosts_selection(): return {}
-    def save_user_hosts_selection(*args, **kwargs): return False
+
+    def ensure_ipv6_catalog_sections_if_available() -> tuple[bool, bool]:
+        return (False, False)
+
+    def get_dns_profiles() -> list[str]:
+        return []
+
+    def get_all_services() -> list[str]:
+        return []
+
+    def get_service_has_geohide_ips(service_name: str) -> bool:
+        return False
+
+    def get_service_available_dns_profiles(service_name: str) -> list[str]:
+        return []
+
+    def get_service_domain_ip_map(*args, **kwargs) -> dict[str, str]:
+        return {}
+
+    def get_service_domain_names(service_name: str) -> list[str]:
+        return []
+
+    def get_service_domains(service_name: str) -> dict[str, str]:
+        return {}
+
+    def get_hosts_catalog_signature() -> tuple[str, int, int] | None:
+        return None
+
+    def invalidate_hosts_catalog_cache() -> None:
+        return None
+
+    def load_user_hosts_selection() -> dict[str, str]:
+        return {}
+
+    def save_user_hosts_selection(selected_profiles: dict[str, str]) -> bool:
+        return False
 
 
 
@@ -208,6 +235,7 @@ class HostsPage(BasePage):
         self._current_operation = None
         self._startup_initialized = False
         self._service_dns_selection = load_user_hosts_selection()
+        self._ipv6_infobar_shown = False
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -286,6 +314,8 @@ class HostsPage(BasePage):
         if event.spontaneous():
             return
 
+        ipv6_catalog_changed, _ = self._ensure_ipv6_catalog_sections()
+
         # Лениво инициализируем тяжёлые части страницы только при первом открытии вкладки.
         if not self._startup_initialized:
             self._check_hosts_access()
@@ -293,6 +323,8 @@ class HostsPage(BasePage):
             self._startup_initialized = True
 
         self._start_catalog_watcher()
+        if ipv6_catalog_changed:
+            self._refresh_catalog_if_needed(trigger="ipv6")
         self._refresh_catalog_if_needed(trigger="tab")
 
     def hideEvent(self, event):  # noqa: N802 (Qt naming)
@@ -526,6 +558,24 @@ class HostsPage(BasePage):
         if not self._catalog_watch_timer.isActive():
             self._catalog_watch_timer.start()
 
+    def _ensure_ipv6_catalog_sections(self) -> tuple[bool, bool]:
+        """Добавляет managed IPv6 секции в hosts.ini при доступном IPv6."""
+        try:
+            changed, ipv6_available = ensure_ipv6_catalog_sections_if_available()
+            if changed:
+                log("Hosts: обнаружен IPv6, каталог hosts.ini дополнен IPv6 секциями", "INFO")
+                if InfoBar is not None and not self._ipv6_infobar_shown:
+                    self._ipv6_infobar_shown = True
+                    InfoBar.success(
+                        title="IPv6",
+                        content="У провайдера обнаружен IPv6. В hosts.ini добавлены IPv6 разделы DNS-провайдеров.",
+                        parent=self.window(),
+                    )
+            return (bool(changed), bool(ipv6_available))
+        except Exception as e:
+            log(f"Hosts: ошибка проверки IPv6 для hosts.ini: {e}", "DEBUG")
+            return (False, False)
+
     def _stop_catalog_watcher(self) -> None:
         if self._catalog_watch_timer is not None and self._catalog_watch_timer.isActive():
             self._catalog_watch_timer.stop()
@@ -631,7 +681,7 @@ class HostsPage(BasePage):
             }}
             """
         )
-        close_btn.clicked.connect(lambda: self.error_panel.hide())
+        close_btn.clicked.connect(lambda: self.error_panel.hide() if self.error_panel is not None else None)
         top_row.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
 
         error_layout.addLayout(top_row)
@@ -651,6 +701,9 @@ class HostsPage(BasePage):
 
         error_layout.addLayout(btn_row)
 
+        if self.error_panel is None:
+            return
+
         self.error_panel.setStyleSheet(
             f"""
             QWidget {{
@@ -668,12 +721,14 @@ class HostsPage(BasePage):
         """Показывает ошибку на панели"""
         self._last_error = message
         self.error_text.setText(message)
-        self.error_panel.show()
+        if self.error_panel is not None:
+            self.error_panel.show()
 
     def _hide_error(self):
         """Скрывает панель ошибок"""
         self._last_error = None
-        self.error_panel.hide()
+        if self.error_panel is not None:
+            self.error_panel.hide()
 
     def _restore_hosts_permissions(self):
         """Восстанавливает права доступа к файлу hosts"""
@@ -1293,15 +1348,16 @@ class HostsPage(BasePage):
 
         is_adobe_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
 
-        self.adobe_status = CaptionLabel("Активно" if is_adobe_active else "Откл.")
-        adobe_layout.addWidget(self.adobe_status)
-
-        self.adobe_btn = PushButton()
-        self.adobe_btn.setText("Откл." if is_adobe_active else "Вкл.")
-        self.adobe_btn.setFixedHeight(28)
-        self.adobe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.adobe_btn.clicked.connect(self._toggle_adobe)
-        adobe_layout.addWidget(self.adobe_btn)
+        if SwitchButton is not None:
+            self.adobe_switch = SwitchButton()
+            self.adobe_switch.setChecked(is_adobe_active)
+            self.adobe_switch.checkedChanged.connect(self._toggle_adobe)
+        else:
+            from PyQt6.QtWidgets import QCheckBox
+            self.adobe_switch = QCheckBox()
+            self.adobe_switch.setChecked(is_adobe_active)
+            self.adobe_switch.toggled.connect(self._toggle_adobe)
+        adobe_layout.addWidget(self.adobe_switch)
 
         adobe_card.add_layout(adobe_layout)
         self.add_widget(adobe_card)
@@ -1393,11 +1449,14 @@ class HostsPage(BasePage):
             if InfoBar:
                 InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
 
-    def _toggle_adobe(self):
+    def _toggle_adobe(self, checked: bool):
         if self._applying:
+            # Revert the switch without re-triggering the signal
+            self.adobe_switch.blockSignals(True)
+            self.adobe_switch.setChecked(not checked)
+            self.adobe_switch.blockSignals(False)
             return
-        is_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
-        self._run_operation('adobe_remove' if is_active else 'adobe_add')
+        self._run_operation('adobe_add' if checked else 'adobe_remove')
 
     def _run_operation(self, operation: str, payload=None):
         if not self.hosts_manager or self._applying:
@@ -1478,8 +1537,9 @@ class HostsPage(BasePage):
 
         # Adobe
         is_adobe = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
-        self.adobe_status.setText("Активно" if is_adobe else "Откл.")
-        self.adobe_btn.setText("Откл." if is_adobe else "Вкл.")
+        self.adobe_switch.blockSignals(True)
+        self.adobe_switch.setChecked(is_adobe)
+        self.adobe_switch.blockSignals(False)
 
     def refresh(self):
         """Обновляет страницу (сбрасывает кеш и перечитывает hosts)"""

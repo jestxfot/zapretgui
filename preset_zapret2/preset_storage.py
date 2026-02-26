@@ -252,6 +252,11 @@ def load_preset(name: str) -> Optional[Preset]:
         preset.created, preset.modified, preset.description, preset.icon_color = _parse_metadata_from_header(data.raw_header)
 
         # Convert category blocks to CategoryConfig
+        # Also track full block args (filter-stripped but syndata/send-inclusive) for inference.
+        # This is needed so basic-mode strategies that embed syndata/send in their args
+        # are correctly identified on reload (block.strategy_args strips those lines).
+        _full_args_for_inference: dict = {}  # cat_name -> (tcp_full, udp_full)
+
         for block in data.categories:
             cat_name = block.category
 
@@ -282,6 +287,18 @@ def load_preset(name: str) -> Optional[Preset]:
                 cat.tcp_enabled = True
                 # TCP filter_mode takes priority over UDP
                 cat.filter_mode = block.filter_mode
+                # Compute filter-stripped but syndata/send-inclusive args for inference
+                try:
+                    from .txt_preset_parser import extract_strategy_args_incl_syndata
+                    full_tcp = extract_strategy_args_incl_syndata(
+                        block.args,
+                        category_key=cat_name,
+                        filter_mode=block.filter_mode,
+                    )
+                    prev = _full_args_for_inference.get(cat_name, ("", ""))
+                    _full_args_for_inference[cat_name] = (full_tcp, prev[1])
+                except Exception:
+                    pass
             elif block.protocol == "udp":
                 cat.udp_args = block.strategy_args
                 cat.udp_port = block.port
@@ -301,11 +318,15 @@ def load_preset(name: str) -> Optional[Preset]:
             current_strategy_set = None
 
         for cat_name, cat in preset.categories.items():
+            # Use full args (syndata/send inclusive, filter stripped) for inference when
+            # available so that basic-mode strategies embedding syndata/send are found.
+            tcp_full, _ = _full_args_for_inference.get(cat_name, ("", ""))
+
             # Try TCP first (most common)
             if cat.tcp_args and cat.tcp_args.strip():
                 inferred_id = infer_strategy_id_from_args(
                     category_key=cat_name,
-                    args=cat.tcp_args,
+                    args=tcp_full if tcp_full and tcp_full.strip() else cat.tcp_args,
                     protocol="tcp",
                     strategy_set=current_strategy_set,
                 )

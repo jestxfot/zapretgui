@@ -511,7 +511,7 @@ class Win11NumberRow(QWidget):
         self.spinbox.setMaximum(max_val)
         self.spinbox.setValue(default_val)
         self.spinbox.setSuffix(suffix)
-        self.spinbox.setFixedWidth(80)
+        self.spinbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         # Do NOT force height on qfluentwidgets SpinBox — its default 33px is correct.
         # Forcing 28px squishes the widget and may clip text/padding.
         if not _HAS_FLUENT:
@@ -920,7 +920,7 @@ class DpiSettingsPage(BasePage):
         # Zapret 2 (direct) - рекомендуется
         self.method_direct = Win11RadioOption(
             "Zapret 2",
-            "Прямой запуск с гибкими настройками. Поддерживает фильтры трафика и раздельные стратегии.",
+            "Режим со второй версией Zapret (winws2.exe) + готовые пресеты для быстрого запуска. Поддерживает кастомный lua-код чтобы писать свои стратегии.",
             icon_name="mdi.rocket-launch",
             recommended=True
         )
@@ -957,8 +957,8 @@ class DpiSettingsPage(BasePage):
 
         # Zapret 1 Direct (прямой запуск winws.exe с JSON стратегиями)
         self.method_direct_zapret1 = Win11RadioOption(
-            "Zapret 1 Direct",
-            "Прямой запуск Zapret 1 (winws.exe) с гибкими настройками как у Zapret 2. Не использует Lua.",
+            "Zapret 1",
+            "Режим первой версии Zapret 1 (winws.exe) + готовые пресеты для быстрого запуска. Не использует Lua код, нет понятия блобов.",
             icon_name="mdi.rocket-launch-outline",
             icon_color="#ff9800"
         )
@@ -1102,18 +1102,15 @@ class DpiSettingsPage(BasePage):
         try:
             from strategy_menu import (
                 set_strategy_launch_method, get_strategy_launch_method, invalidate_direct_selections_cache,
-                is_direct_zapret2_orchestra_initialized, set_direct_zapret2_orchestra_initialized, clear_direct_zapret2_orchestra_strategies
             )
             from strategy_menu.strategies_registry import registry
+            from preset_orchestra_zapret2 import ensure_default_preset_exists
 
             # Запоминаем предыдущий метод для определения необходимости перезагрузки стратегий
             previous_method = get_strategy_launch_method()
 
-            # ✅ При ПЕРВОМ переключении на direct_zapret2_orchestra - сбрасываем все стратегии в "none"
-            if method == "direct_zapret2_orchestra" and not is_direct_zapret2_orchestra_initialized():
-                log("🆕 Первая инициализация режима DirectOrchestra - сброс всех стратегий в 'none'", "INFO")
-                clear_direct_zapret2_orchestra_strategies()
-                set_direct_zapret2_orchestra_initialized(True)
+            if method == "direct_zapret2_orchestra":
+                ensure_default_preset_exists()
 
             set_strategy_launch_method(method)
             self._update_method_selection(method)
@@ -1503,7 +1500,6 @@ class DpiSettingsPage(BasePage):
 
             # Режимы
             is_direct_mode = method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1")
-            is_orchestra_mode = method in ("orchestra", "direct_zapret2_orchestra")
             is_zapret_mode = method in ("direct_zapret2", "direct_zapret1")  # Zapret 1/2 без оркестратора
 
             # For direct_zapret2 these options are shown on the Strategies/Management page
@@ -1532,8 +1528,10 @@ class DpiSettingsPage(BasePage):
                 except Exception:
                     pass
 
-            # Настройки оркестратора только для режимов оркестратора
-            self.orchestra_settings_container.setVisible(is_orchestra_mode)
+            # Настройки оркестратора только для Python-оркестратора.
+            # В direct_zapret2_orchestra оркестрация выполняется Lua-модулем circular —
+            # параметры LOCK/UNLOCK/Discord/strict_detection к нему не применяются.
+            self.orchestra_settings_container.setVisible(method == "orchestra")
 
         except:
             pass

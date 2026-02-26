@@ -1,6 +1,7 @@
 import os
 import sys
 import traceback
+import time
 from datetime import datetime
 import glob
 
@@ -145,6 +146,12 @@ class Logger:
 
         self.orig_stdout = sys.stdout
         self.orig_stderr = sys.stderr
+        self._ui_error_notifier = None
+        self._ui_error_last_signature = ""
+        self._ui_error_last_ts = 0.0
+        self._stream_line_buffer = ""
+        self._traceback_capture = False
+        self._traceback_lines = []
         if os.environ.get("ZAPRET_DISABLE_STDIO_REDIRECT") != "1":
             sys.stdout = sys.stderr = self
 
@@ -166,6 +173,8 @@ class Logger:
         with open(self.log_file, "a", encoding="utf-8-sig") as f:
             f.write(f"[{datetime.now():%H:%M:%S}] {message}")
 
+        self._scan_stream_for_unhandled_exception(message)
+
     def flush(self):
         if self.orig_stdout:
             self.orig_stdout.flush()
@@ -180,23 +189,141 @@ class Logger:
         normalized = str(level).strip().upper()
         return normalized not in {"DEBUG", "🔍 DIAG"}
 
+    def _should_notify_ui_error(self, level: str) -> bool:
+        normalized = str(level or "").strip().upper()
+        if not normalized:
+            return False
+        return (
+            "ERROR" in normalized
+            or "CRITICAL" in normalized
+            or "ОШИБ" in normalized
+            or "КРИТ" in normalized
+        )
+
+    def set_ui_error_notifier(self, callback) -> None:
+        """Registers callback used to show top UI error notifications."""
+        self._ui_error_notifier = callback if callable(callback) else None
+
+    def _notify_ui_error(self, message: str, level: str) -> None:
+        notifier = self._ui_error_notifier
+        if not notifier:
+            return
+
+        text = str(message or "").strip()
+        if not text:
+            return
+
+        signature = " ".join(text.split()).lower()
+        now_ts = time.time()
+        if signature and signature == self._ui_error_last_signature and (now_ts - self._ui_error_last_ts) < 2.0:
+            return
+
+        self._ui_error_last_signature = signature
+        self._ui_error_last_ts = now_ts
+
+        level_text = str(level or "").strip()
+        payload = f"[{level_text}] {text}" if level_text else text
+
+        try:
+            notifier(payload)
+        except Exception:
+            pass
+
+    def _is_exception_summary_line(self, line: str) -> bool:
+        text = str(line or "").strip()
+        if not text or ":" not in text:
+            return False
+
+        head = text.split(":", 1)[0].strip().lower()
+        if not head:
+            return False
+
+        return (
+            head.endswith("error")
+            or head.endswith("exception")
+            or head.endswith("interrupt")
+            or head in {"systemexit", "keyboardinterrupt"}
+        )
+
+    def _flush_captured_traceback(self, summary_line: str = "") -> None:
+        summary = str(summary_line or "").strip()
+        if not summary and self._traceback_lines:
+            for line in reversed(self._traceback_lines):
+                if self._is_exception_summary_line(line):
+                    summary = line.strip()
+                    break
+
+        if summary:
+            self._notify_ui_error(f"Необработанное исключение: {summary}", "ERROR")
+
+        self._traceback_capture = False
+        self._traceback_lines = []
+
+    def _process_stream_line(self, line: str) -> None:
+        text = str(line or "").rstrip("\r")
+        stripped = text.strip()
+
+        if not stripped:
+            return
+
+        if stripped.startswith("Traceback (most recent call last):"):
+            self._traceback_capture = True
+            self._traceback_lines = [stripped]
+            return
+
+        if self._traceback_capture:
+            self._traceback_lines.append(stripped)
+            if self._is_exception_summary_line(stripped):
+                self._flush_captured_traceback(stripped)
+                return
+
+            if len(self._traceback_lines) >= 100:
+                self._flush_captured_traceback()
+                return
+
+        lower = stripped.lower()
+        if lower.startswith("fatal python error:"):
+            self._notify_ui_error(stripped, "CRITICAL")
+
+    def _scan_stream_for_unhandled_exception(self, message: str) -> None:
+        # Нужен только когда есть UI notifier.
+        if not self._ui_error_notifier:
+            return
+
+        chunk = str(message or "")
+        if not chunk:
+            return
+
+        self._stream_line_buffer += chunk
+        if len(self._stream_line_buffer) > 65536:
+            self._stream_line_buffer = self._stream_line_buffer[-32768:]
+
+        while "\n" in self._stream_line_buffer:
+            line, self._stream_line_buffer = self._stream_line_buffer.split("\n", 1)
+            self._process_stream_line(line)
+
     def log(self, message, level="INFO", component=None):
         if not self._should_emit_level(level):
             return
         prefix = f"[{component}][{level}]" if component else f"[{level}]"
         self.write(f"{prefix} {message}\n")
+        if self._should_notify_ui_error(level):
+            self._notify_ui_error(str(message), str(level))
 
     def log_exception(self, e, context=""):
         """Log an exception with its traceback"""
         try:
             tb = traceback.format_exc()
-            self.write(f"[ERROR] Exception in {context}: {str(e)}\n{tb}\n")
+            msg = f"Exception in {context}: {str(e)}" if context else str(e)
+            self.write(f"[ERROR] {msg}\n{tb}\n")
+            self._notify_ui_error(msg, "ERROR")
         except Exception:
             try:
                 with open(self.log_file, 'a', encoding='utf-8') as f:
                     timestamp = datetime.now().strftime('%H:%M:%S')
                     f.write(f"[{timestamp}] [ERROR] Exception in {context}: {str(e)}\n")
                     f.write(f"[{timestamp}] {traceback.format_exc()}\n")
+                self._notify_ui_error(str(e), "ERROR")
             except Exception:
                 pass
 
@@ -458,6 +585,8 @@ except Exception:
     class _FallbackLogger:
         def log(self, *_a, **_kw): pass
         def log_exception(self, *_a, **_kw): pass
+        def set_ui_error_notifier(self, *_a, **_kw): pass
+        def is_verbose_logging_enabled(self): return False
         def get_log_content(self): return "Logging system initialization failed."
     global_logger = _FallbackLogger()
 

@@ -4,37 +4,37 @@
 Предоставляет единый интерфейс для работы со стратегиями.
 """
 
-import winreg
+import os
+import configparser
 import json
+import winreg
 from log import log
-from config import reg, REGISTRY_PATH
+from config import APPDATA_DIR, get_zapret_userdata_dir, reg, REGISTRY_PATH
+from safe_construct import safe_construct
 
 DIRECT_PATH = rf"{REGISTRY_PATH}\DirectMethod"
 DIRECT_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectStrategy"
-DIRECT_ZAPRET2_ORCHESTRA_STRATEGY_KEY = rf"{REGISTRY_PATH}\DirectOrchestraStrategy"
 
-
-# ==================== ФЛАГ ИНИЦИАЛИЗАЦИИ ОРКЕСТРАТОРА ====================
+# ==================== ИНИЦИАЛИЗАЦИЯ DIRECT ORCHESTRA ====================
 
 def is_direct_zapret2_orchestra_initialized() -> bool:
-    """Проверяет, был ли режим direct_zapret2_orchestra уже инициализирован (первый запуск)"""
+    """Compatibility helper: mode is considered initialized when default preset exists."""
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "DirectOrchestraInitialized")
-            return bool(value)
-    except:
+        from preset_orchestra_zapret2 import ensure_default_preset_exists
+
+        return bool(ensure_default_preset_exists() is not False)
+    except Exception:
         return False
 
 
 def set_direct_zapret2_orchestra_initialized(initialized: bool = True) -> bool:
-    """Устанавливает флаг инициализации режима direct_zapret2_orchestra"""
+    """Compatibility no-op to avoid registry state for orchestra mode."""
+    _ = initialized
     try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_PATH) as key:
-            winreg.SetValueEx(key, "DirectOrchestraInitialized", 0, winreg.REG_DWORD, 1 if initialized else 0)
-            log(f"Флаг инициализации DirectOrchestra: {initialized}", "DEBUG")
-            return True
-    except Exception as e:
-        log(f"Ошибка установки флага DirectOrchestraInitialized: {e}", "ERROR")
+        from preset_orchestra_zapret2 import ensure_default_preset_exists
+
+        return bool(ensure_default_preset_exists() is not False)
+    except Exception:
         return False
 
 
@@ -45,10 +45,14 @@ def clear_direct_zapret2_orchestra_strategies() -> bool:
     try:
         log("🧹 Очистка стратегий DirectOrchestra (первая инициализация)...", "INFO")
 
-        # Устанавливаем все категории в "none"
-        for category_key in registry.get_all_category_keys():
-            reg_key = _category_to_reg_key(category_key)
-            reg(DIRECT_ZAPRET2_ORCHESTRA_STRATEGY_KEY, reg_key, "none")
+        from preset_orchestra_zapret2 import ensure_default_preset_exists, PresetManager
+
+        if not ensure_default_preset_exists():
+            return False
+
+        manager = PresetManager()
+        selections = {category_key: "none" for category_key in registry.get_all_category_keys()}
+        manager.set_strategy_selections(selections, save_and_sync=True)
 
         # Сбрасываем кэш
         invalidate_direct_selections_cache()
@@ -62,18 +66,10 @@ def clear_direct_zapret2_orchestra_strategies() -> bool:
 
 
 def _get_current_strategy_key() -> str:
-    """Возвращает ключ реестра для выборов стратегий в зависимости от метода запуска"""
-    method = get_strategy_launch_method()
-    if method == "direct_zapret2_orchestra":
-        return DIRECT_ZAPRET2_ORCHESTRA_STRATEGY_KEY
+    """Возвращает ключ реестра для legacy direct-режимов."""
     return DIRECT_STRATEGY_KEY
 
 # ==================== МЕТОД ЗАПУСКА ====================
-
-import os
-import configparser
-from config import APPDATA_DIR, get_zapret_userdata_dir
-from safe_construct import safe_construct
 
 _LAUNCH_METHOD_FILE = os.path.join(APPDATA_DIR, "strategy_Launch_method.ini")
 _LAUNCH_METHOD_SECTION = "Settings"
@@ -521,7 +517,7 @@ def get_direct_strategy_selections() -> dict:
 
     ✅ Кэширует результат на 5 секунд для быстрого доступа
     ✅ Валидирует каждый сохранённый strategy_id:
-    - Если стратегия не найдена в реестре, использует значение по умолчанию
+    - Если стратегия не найдена в каталоге, использует значение по умолчанию
     - Логирует предупреждения о замене невалидных стратегий
     """
     import time
@@ -580,6 +576,18 @@ def get_direct_strategy_selections() -> dict:
             selections = infer_direct_zapret1_selections_from_preset()
             if not selections:
                 # Если не удалось распарсить preset — не делаем догадок по дефолтам.
+                selections = {k: "none" for k in registry.get_all_category_keys()}
+        elif method == "direct_zapret2_orchestra":
+            try:
+                from preset_orchestra_zapret2 import PresetManager, ensure_default_preset_exists
+
+                ensure_default_preset_exists()
+                preset_manager = PresetManager()
+                preset_selections = preset_manager.get_strategy_selections() or {}
+                selections = {k: "none" for k in registry.get_all_category_keys()}
+                selections.update({k: (v or "none") for k, v in preset_selections.items()})
+            except Exception as e:
+                log(f"Ошибка чтения preset-zapret2-orchestra.txt для выбора стратегий: {e}", "DEBUG")
                 selections = {k: "none" for k in registry.get_all_category_keys()}
         else:
             strategy_key = _get_current_strategy_key()
@@ -658,10 +666,32 @@ def set_direct_strategy_selections(selections: dict) -> bool:
 
         # direct_zapret1: selections are stored in preset-zapret1.txt (not registry)
         if get_strategy_launch_method() == "direct_zapret1":
-            from zapret1_launcher.preset_selections import write_preset_zapret1_from_selections
-            write_preset_zapret1_from_selections(selections or {})
+            from preset_zapret1 import PresetManagerV1
+
+            manager = PresetManagerV1()
+            success = True
+            for category_key, strategy_id in (selections or {}).items():
+                if category_key in registry.get_all_category_keys():
+                    result = manager.set_strategy_selection(category_key, strategy_id, save_and_sync=True)
+                    success = success and bool(result)
             invalidate_direct_selections_cache()
             log("Выборы стратегий сохранены (preset-zapret1.txt)", "DEBUG")
+            return success
+
+        if get_strategy_launch_method() == "direct_zapret2_orchestra":
+            from preset_orchestra_zapret2 import PresetManager, ensure_default_preset_exists
+
+            if not ensure_default_preset_exists():
+                return False
+
+            preset_manager = PresetManager()
+            payload = {
+                category_key: (str((selections or {}).get(category_key) or "none").strip() or "none")
+                for category_key in registry.get_all_category_keys()
+            }
+            preset_manager.set_strategy_selections(payload, save_and_sync=True)
+            invalidate_direct_selections_cache()
+            log("Выборы стратегий сохранены (preset-zapret2-orchestra.txt)", "DEBUG")
             return True
 
         success = True
@@ -698,6 +728,11 @@ def get_direct_strategy_for_category(category_key: str) -> str:
         selections = get_direct_strategy_selections()
         return selections.get(category_key, "none") or "none"
 
+    method = get_strategy_launch_method()
+    if method == "direct_zapret2_orchestra":
+        selections = get_direct_strategy_selections()
+        return selections.get(category_key, "none") or "none"
+
     strategy_key = _get_current_strategy_key()
     reg_key = _category_to_reg_key(category_key)
     value = reg(strategy_key, reg_key)
@@ -721,7 +756,9 @@ def get_direct_strategy_for_category(category_key: str) -> str:
 
 def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> bool:
     """Сохраняет выбранную стратегию для категории"""
-    if get_strategy_launch_method() == "direct_zapret2":
+    method = get_strategy_launch_method()
+
+    if method == "direct_zapret2":
         try:
             from preset_zapret2 import PresetManager
 
@@ -733,16 +770,31 @@ def set_direct_strategy_for_category(category_key: str, strategy_id: str) -> boo
             log(f"Ошибка сохранения стратегии в preset-zapret2.txt: {e}", "DEBUG")
             return False
 
-    if get_strategy_launch_method() == "direct_zapret1":
+    if method == "direct_zapret1":
         try:
-            current = get_direct_strategy_selections()
-            current[category_key] = strategy_id
-            from zapret1_launcher.preset_selections import write_preset_zapret1_from_selections
-            write_preset_zapret1_from_selections(current)
+            from preset_zapret1 import PresetManagerV1
+
+            preset_manager = PresetManagerV1()
+            preset_manager.set_strategy_selection(category_key, strategy_id, save_and_sync=True)
             invalidate_direct_selections_cache()
             return True
         except Exception as e:
             log(f"Ошибка сохранения стратегии в preset-zapret1.txt: {e}", "DEBUG")
+            return False
+
+    if method == "direct_zapret2_orchestra":
+        try:
+            from preset_orchestra_zapret2 import PresetManager, ensure_default_preset_exists
+
+            if not ensure_default_preset_exists():
+                return False
+
+            preset_manager = PresetManager()
+            preset_manager.set_strategy_selection(category_key, strategy_id or "none", save_and_sync=True)
+            invalidate_direct_selections_cache()
+            return True
+        except Exception as e:
+            log(f"Ошибка сохранения стратегии в preset-zapret2-orchestra.txt: {e}", "DEBUG")
             return False
 
     strategy_key = _get_current_strategy_key()

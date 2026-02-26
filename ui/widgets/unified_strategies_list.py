@@ -43,6 +43,7 @@ class UnifiedStrategiesList(QWidget):
         "discord": "Discord",
         "telegram": "Telegram",
         "messengers": "Мессенджеры",
+        "obsidian": "Обсидиан",
         "social": "Социальные сети",
         "music": "Музыка",
         "games": "Игры",
@@ -59,7 +60,7 @@ class UnifiedStrategiesList(QWidget):
 
     # Порядок групп
     GROUP_ORDER = [
-        "youtube", "discord", "telegram", "messengers", "social",
+        "youtube", "discord", "telegram", "obsidian", "messengers", "social",
         "music", "streaming", "games", "remote", "trackers",
         "hostlists", "github", "ipsets", "vpn", "user", "default"
     ]

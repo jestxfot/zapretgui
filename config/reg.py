@@ -142,6 +142,37 @@ def set_remove_github_api(enabled: bool) -> bool:
     from config import REGISTRY_PATH
     return reg(REGISTRY_PATH, _GITHUB_API_NAME, 1 if enabled else 0)
 
+
+# ───────────── Единоразовый bootstrap hosts ─────────────
+_HOSTS_BOOTSTRAP_V1_DONE_NAME = "HostsBootstrapV1Done"  # REG_DWORD (1/0)
+
+def get_hosts_bootstrap_v1_done() -> bool:
+    """True - bootstrap hosts уже выполнен, False - ещё нет."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _HOSTS_BOOTSTRAP_V1_DONE_NAME)
+    return bool(val) if val is not None else False
+
+def set_hosts_bootstrap_v1_done(done: bool = True) -> bool:
+    """Отмечает выполнение единоразового bootstrap hosts."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _HOSTS_BOOTSTRAP_V1_DONE_NAME, 1 if done else 0)
+
+
+_HOSTS_BOOTSTRAP_SIGNATURE_NAME = "HostsBootstrapSignature"  # REG_SZ
+
+def get_hosts_bootstrap_signature() -> str | None:
+    """Возвращает последнюю применённую сигнатуру bootstrap hosts или None."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _HOSTS_BOOTSTRAP_SIGNATURE_NAME)
+    if isinstance(val, str) and val.strip():
+        return val
+    return None
+
+def set_hosts_bootstrap_signature(signature: str) -> bool:
+    """Сохраняет сигнатуру применённого bootstrap hosts."""
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _HOSTS_BOOTSTRAP_SIGNATURE_NAME, str(signature))
+
 # ───────────── Активные домены hosts ─────────────
 _HOSTS_DOMAINS_NAME = "ActiveHostsDomains"  # REG_SZ (JSON строка)
 

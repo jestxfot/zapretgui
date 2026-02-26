@@ -153,23 +153,10 @@ class AppearancePage(BasePage):
         rkn_row.addStretch()
         bg_layout.addLayout(rkn_row)
 
-        # Mica row
-        try:
-            from qfluentwidgets import SwitchButton
-            mica_row = SettingsRow("fa5s.magic", "Эффект Mica",
-                "Системная прозрачность Windows 11. Только на Windows 11+. "
-                "Недоступно при AMOLED и РКН Тян.")
-            self._mica_switch = SwitchButton()
-            self._mica_switch.checkedChanged.connect(self._on_mica_changed)
-            mica_row.set_control(self._mica_switch)
-            bg_layout.addWidget(mica_row)
-        except Exception:
-            pass
+        # Mica is always enabled on Win11 — no user toggle needed.
 
         bg_card.add_layout(bg_layout)
         self.add_widget(bg_card)
-
-        self._load_mica_state()
 
         self.add_spacing(16)
 

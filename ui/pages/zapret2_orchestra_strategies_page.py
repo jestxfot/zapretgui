@@ -55,11 +55,11 @@ class Zapret2OrchestraStrategiesPage(BasePage):
     launch_method_changed = pyqtSignal(str)
     strategy_selected = pyqtSignal(str, str)
 
-    _ROOT_TITLE = "Сменить стратегию для обхода блокировок (Оркестратор)"
+    _ROOT_TITLE = "Прямой запуск (Orchestra Z2)"
     _ROOT_SUBTITLE = (
         "Здесь для каждой категории можно выбрать свою стратегию обхода. "
-        "Нажмите на категорию, чтобы открыть детальную страницу со списком "
-        "стратегий, поиском и сортировкой."
+        "После изменения выбор сразу сохраняется в активный orchestra-пресет "
+        "и применяется к запущенному DPI."
     )
 
     def __init__(self, parent=None):
@@ -164,7 +164,7 @@ class Zapret2OrchestraStrategiesPage(BasePage):
             from ui.page_names import PageName
 
             if self.parent_app and hasattr(self.parent_app, "show_page"):
-                self.parent_app.show_page(PageName.ZAPRET2_DIRECT_CONTROL)
+                self.parent_app.show_page(PageName.ZAPRET2_ORCHESTRA_CONTROL)
         except Exception:
             pass
 
@@ -584,6 +584,11 @@ class Zapret2OrchestraStrategiesPage(BasePage):
             if self._unified_list:
                 self._unified_list.update_selection(category_key, sid)
 
+            if self._detail_tree:
+                self._detail_tree.set_selected_strategy(
+                    sid if self._detail_tree.has_strategy(sid) else "none"
+                )
+
             self._update_current_strategies_display()
             self._update_dpi_filters_display()
 
@@ -592,7 +597,7 @@ class Zapret2OrchestraStrategiesPage(BasePage):
             else:
                 self._stop_dpi_for_no_active_strategies()
 
-            self.strategy_selected.emit("combined", "Прямой запуск (Запрет 2)")
+            self.strategy_selected.emit("orchestra", "Оркестратор Z2")
             log(f"Orchestra strategy set: {category_key} = {sid}", "INFO")
 
             if _HAS_FLUENT and InfoBar is not None:
@@ -603,6 +608,8 @@ class Zapret2OrchestraStrategiesPage(BasePage):
                     duration=1600,
                 )
 
+            self.show_success()
+
         except Exception as e:
             log(f"Ошибка применения стратегии: {e}", "ERROR")
             if _HAS_FLUENT and InfoBar is not None:
@@ -611,20 +618,29 @@ class Zapret2OrchestraStrategiesPage(BasePage):
 
     def _restart_dpi_with_current_selections(self) -> None:
         try:
-            from strategy_menu import combine_strategies
+            from preset_orchestra_zapret2 import (
+                ensure_default_preset_exists,
+                get_active_preset_name,
+                get_active_preset_path,
+            )
 
-            combined = combine_strategies(**(self.category_selections or {}))
-            combined_data = {
-                "id": "DIRECT_MODE",
-                "name": "Прямой запуск (Запрет 2)",
-                "is_combined": True,
-                "args": combined.get("args", ""),
-                "selections": dict(self.category_selections or {}),
+            if not ensure_default_preset_exists():
+                raise RuntimeError("Не удалось подготовить orchestra preset")
+
+            preset_path = str(get_active_preset_path())
+            preset_name = get_active_preset_name() or "Default"
+            mode_data = {
+                "name": f"Пресет: {preset_name}",
+                "is_preset_file": True,
+                "preset_path": preset_path,
             }
 
             app = self.parent_app
             if app and hasattr(app, "dpi_controller") and app.dpi_controller:
-                app.dpi_controller.start_dpi_async(selected_mode=combined_data)
+                app.dpi_controller.start_dpi_async(
+                    selected_mode=mode_data,
+                    launch_method="direct_zapret2_orchestra",
+                )
                 self._start_process_monitoring()
                 return
         except Exception as e:
@@ -690,9 +706,11 @@ class Zapret2OrchestraStrategiesPage(BasePage):
     @staticmethod
     def _open_folder(*_args) -> None:
         try:
-            from config import STRATEGIES_FOLDER
+            from config import get_zapret_userdata_dir
 
-            os.startfile(STRATEGIES_FOLDER)
+            folder = os.path.join(get_zapret_userdata_dir(), "orchestra_zapret2")
+            os.makedirs(folder, exist_ok=True)
+            os.startfile(folder)
         except Exception as e:
             log(f"Ошибка открытия папки стратегий: {e}", "ERROR")
 
@@ -719,12 +737,9 @@ class Zapret2OrchestraStrategiesPage(BasePage):
 
     def _reset_to_defaults(self) -> None:
         try:
-            from config.reg import reg_delete_all_values
-            from strategy_menu import _get_current_strategy_key, invalidate_direct_selections_cache
+            from strategy_menu import clear_direct_zapret2_orchestra_strategies
 
-            strategy_key = _get_current_strategy_key()
-            reg_delete_all_values(strategy_key)
-            invalidate_direct_selections_cache()
+            clear_direct_zapret2_orchestra_strategies()
 
             self.category_selections = self._load_current_selections()
             self._update_dpi_filters_display()

@@ -218,6 +218,11 @@ class StrategyRunnerBase(ABC):
         "--hostlist", "--hostlist-exclude", "--hostlist-domains",
         "--ipset", "--ipset-exclude",
     ])
+    # Prefixes that always point to files under lists/
+    _LISTS_FILE_PREFIXES = frozenset([
+        "--hostlist", "--hostlist-exclude",
+        "--ipset", "--ipset-exclude",
+    ])
     # Prefixes whose paths are relative to bin_dir
     _BIN_PREFIXES = frozenset([
         "--dpi-desync-fake-tls", "--dpi-desync-fake-syndata",
@@ -234,10 +239,10 @@ class StrategyRunnerBase(ABC):
         Converts absolute paths to relative for config readability.
 
         IMPORTANT: paths are made relative to their *source* directory
-        (lists_dir for hostlist/ipset, bin_dir for fake-* files),
-        NOT to work_dir. This prevents the lists/lists/lists nesting bug
-        where resolve_args_paths re-joins lists_dir with an already-
-        prefixed "lists/filename" relative path on each restart.
+        (lists_dir for hostlist/ipset, bin_dir for fake-* files).
+
+        For list-file options we keep explicit "lists/..." in preset values,
+        because winws/winws2 resolves @preset lines relative to work_dir.
         """
         result = []
         lists_dir_normalized = os.path.normpath(self.lists_dir).lower()
@@ -295,6 +300,13 @@ class StrategyRunnerBase(ABC):
                 continue
 
             rel_path = os.path.relpath(path_value, base_dir).replace('\\', '/')
+
+            # Keep list paths explicit for @preset launches from work_dir:
+            # --hostlist=lists/file.txt (not bare --hostlist=file.txt).
+            if prefix in self._LISTS_FILE_PREFIXES and rel_path:
+                if not rel_path.lower().startswith("lists/"):
+                    rel_path = f"lists/{rel_path.lstrip('/')}"
+
             if has_at_prefix:
                 result.append(f'{prefix}=@{rel_path}')
             else:

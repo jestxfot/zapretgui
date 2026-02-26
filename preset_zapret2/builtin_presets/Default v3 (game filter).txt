@@ -1,6 +1,6 @@
 # Preset: Default v3
 # ActivePreset: Default v3
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # Created: 2026-02-04T21:46:04.398349
 # Modified: 2026-02-04T21:46:04.400216
 # Description: 
@@ -61,6 +61,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin
@@ -122,6 +123,15 @@
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
 --out-range=-d10
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+
+--new
+
+--filter-tcp=80,443
+--hostlist-domains=obsidian.md
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
@@ -210,7 +220,7 @@
 --new
 
 --filter-tcp=80,443
---ipset=lists/ipset-tankix.txt
+--hostlist-domains=resources.txrevive.com,main.txrevive.com
 --out-range=-n8
 --lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
 --lua-desync=multidisorder:pos=host+1

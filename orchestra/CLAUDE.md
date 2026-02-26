@@ -465,4 +465,4 @@ LUA: strategy-stats: APPLIED httpbin.org = strategy X
 ```
 
 ## Документация Zapret 2
-F:\doc\zapret2
+H:\Privacy\zapret2_orig_bolvan

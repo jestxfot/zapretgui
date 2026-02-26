@@ -120,8 +120,12 @@ class ConfigFileWatcher:
         if not self._running:
             return
         self._running = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+        watcher_thread = self._thread
+        if watcher_thread and watcher_thread.is_alive():
+            if watcher_thread is threading.current_thread():
+                log("ConfigFileWatcherV1.stop called from watcher thread; skip self-join", "DEBUG")
+            else:
+                watcher_thread.join(timeout=2.0)
         self._thread = None
         log("ConfigFileWatcher stopped", "DEBUG")
 
@@ -163,6 +167,8 @@ class StrategyRunnerV1:
         self.running_process: Optional[subprocess.Popen] = None
         self.current_strategy_name: Optional[str] = None
         self.current_strategy_args: Optional[List[str]] = None
+        # Human-readable last start error (for UI/status).
+        self.last_error: Optional[str] = None
 
         # Config file watcher for hot-reload on preset change
         self._config_watcher: Optional[ConfigFileWatcher] = None
@@ -183,6 +189,46 @@ class StrategyRunnerV1:
         log(f"Working directory: {self.work_dir}", "DEBUG")
         log(f"Lists folder: {self.lists_dir}", "DEBUG")
         log(f"Bin folder: {self.bin_dir}", "DEBUG")
+
+    def _set_last_error(self, message: Optional[str]) -> None:
+        try:
+            text = str(message or "").strip()
+        except Exception:
+            text = ""
+        self.last_error = text or None
+        if text:
+            self._notify_ui_launch_error(text)
+
+    @staticmethod
+    def _notify_ui_launch_error(message: str) -> None:
+        """Best-effort UI notification from any thread (queued to main Qt thread)."""
+        text = str(message or "").strip()
+        if not text:
+            return
+        try:
+            from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+            from PyQt6.QtWidgets import QApplication
+
+            app = QApplication.instance()
+            if app is None:
+                return
+
+            target = app.activeWindow()
+            if target is None or not hasattr(target, "show_dpi_launch_error"):
+                for widget in app.topLevelWidgets():
+                    if hasattr(widget, "show_dpi_launch_error"):
+                        target = widget
+                        break
+
+            if target is not None and hasattr(target, "show_dpi_launch_error"):
+                QMetaObject.invokeMethod(
+                    target,
+                    "show_dpi_launch_error",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(str, text),
+                )
+        except Exception:
+            pass
 
     def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
         """
@@ -357,6 +403,8 @@ class StrategyRunnerV1:
             warning_report = get_conflicting_processes_report()
             log(warning_report, "WARNING")
 
+        self._set_last_error(None)
+
         try:
             # Stop previous process
             if self.running_process and self.is_running():
@@ -389,11 +437,13 @@ class StrategyRunnerV1:
 
             if not custom_args:
                 log("No arguments for startup", "ERROR")
+                self._set_last_error("Не заданы аргументы стратегии")
                 return False
 
             # Self-healing: verify winws.exe still exists before launch
             if not os.path.exists(self.winws_exe):
                 log(f"winws.exe disappeared: {self.winws_exe}", "ERROR")
+                self._set_last_error(f"winws.exe не найден: {self.winws_exe}")
                 return False
 
             # Self-healing: ensure work/lists directories exist
@@ -447,6 +497,7 @@ class StrategyRunnerV1:
                 log(f"Strategy '{strategy_name}' started (PID: {self.running_process.pid})", "SUCCESS")
                 # Start config file watcher for hot-reload
                 self._start_config_watcher(preset_file)
+                self._set_last_error(None)
                 return True
             else:
                 exit_code = self.running_process.returncode
@@ -459,6 +510,16 @@ class StrategyRunnerV1:
                         log(f"Error: {stderr_output[:500]}", "ERROR")
                 except:
                     pass
+
+                first_line = ""
+                try:
+                    first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
+                except Exception:
+                    first_line = ""
+                if first_line:
+                    self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
+                else:
+                    self._set_last_error(f"winws завершился сразу (код {exit_code})")
 
                 self.running_process = None
                 self.current_strategy_name = None
@@ -481,6 +542,11 @@ class StrategyRunnerV1:
             diagnosis = diagnose_startup_error(e, self.winws_exe)
             for line in diagnosis.split('\n'):
                 log(line, "ERROR")
+
+            try:
+                self._set_last_error(diagnosis.split("\n")[0].strip())
+            except Exception:
+                self._set_last_error(None)
 
             import traceback
             log(traceback.format_exc(), "DEBUG")
@@ -514,7 +580,10 @@ class StrategyRunnerV1:
 
         if not os.path.exists(preset_path):
             log(f"Preset file not found: {preset_path}", "ERROR")
+            self._set_last_error(f"Preset файл не найден: {preset_path}")
             return False
+
+        self._set_last_error(None)
 
         try:
             # Stop previous process
@@ -546,6 +615,7 @@ class StrategyRunnerV1:
             # Self-healing: verify winws.exe still exists
             if not os.path.exists(self.winws_exe):
                 log(f"winws.exe disappeared: {self.winws_exe}", "ERROR")
+                self._set_last_error(f"winws.exe не найден: {self.winws_exe}")
                 return False
 
             # Store preset file path for hot-reload
@@ -578,6 +648,7 @@ class StrategyRunnerV1:
             if self.running_process.poll() is None:
                 log(f"Strategy '{strategy_name}' started from preset (PID: {self.running_process.pid})", "SUCCESS")
                 self._start_config_watcher(preset_path)
+                self._set_last_error(None)
                 return True
             else:
                 exit_code = self.running_process.returncode
@@ -590,6 +661,16 @@ class StrategyRunnerV1:
                         log(f"Error: {stderr_output[:500]}", "ERROR")
                 except Exception:
                     pass
+
+                first_line = ""
+                try:
+                    first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
+                except Exception:
+                    first_line = ""
+                if first_line:
+                    self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
+                else:
+                    self._set_last_error(f"winws завершился сразу (код {exit_code})")
 
                 self.running_process = None
                 self.current_strategy_name = None
@@ -612,6 +693,11 @@ class StrategyRunnerV1:
             diagnosis = diagnose_startup_error(e, self.winws_exe)
             for line in diagnosis.split('\n'):
                 log(line, "ERROR")
+
+            try:
+                self._set_last_error(diagnosis.split("\n")[0].strip())
+            except Exception:
+                self._set_last_error(None)
 
             import traceback
             log(traceback.format_exc(), "DEBUG")

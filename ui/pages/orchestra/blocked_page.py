@@ -8,17 +8,34 @@ from PyQt6.QtCore import Qt, QSize, QTimer, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QFrame,
-    QLineEdit, QSpinBox, QComboBox
+    QLineEdit, QSpinBox, QComboBox, QPushButton
 )
 import qtawesome as qta
 
 try:
-    from qfluentwidgets import ComboBox, SpinBox, LineEdit, MessageBox, InfoBar, InfoBarPosition, CaptionLabel, BodyLabel
+    from qfluentwidgets import (
+        ComboBox,
+        SpinBox,
+        LineEdit,
+        PushButton,
+        TransparentToolButton,
+        CardWidget,
+        StrongBodyLabel,
+        MessageBox,
+        InfoBar,
+        InfoBarPosition,
+        CaptionLabel,
+        BodyLabel,
+    )
     _HAS_FLUENT = True
 except ImportError:
     ComboBox = QComboBox
     SpinBox = QSpinBox
     LineEdit = QLineEdit
+    PushButton = QPushButton
+    TransparentToolButton = QPushButton
+    CardWidget = QFrame
+    StrongBodyLabel = QLabel
     MessageBox = None
     InfoBar = None
     InfoBarPosition = None
@@ -27,8 +44,8 @@ except ImportError:
     _HAS_FLUENT = False
 
 from ..base_page import BasePage
-from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton, set_tooltip
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_card_disabled_gradient_qss
+from ui.compat_widgets import set_tooltip
+from ui.theme import get_theme_tokens
 from log import log
 from orchestra.blocked_strategies_manager import ASKEY_ALL
 
@@ -67,23 +84,27 @@ class BlockedDomainRow(QFrame):
             lock_icon = QLabel()
             self._lock_icon_label = lock_icon
             set_tooltip(lock_icon, "Системная блокировка (нельзя изменить)")
-            lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)
 
         # Домен
-        domain_label = QLabel(hostname)
+        domain_label = BodyLabel(hostname)
+        if is_default:
+            domain_label.setEnabled(False)
         self._domain_label = domain_label
         layout.addWidget(domain_label, 1)
 
         # Протокол
-        proto_label = QLabel(f"[{askey.upper()}]")
+        proto_label = CaptionLabel(f"[{askey.upper()}]")
+        if is_default:
+            proto_label.setEnabled(False)
         self._proto_label = proto_label
         proto_label.setFixedWidth(60)
         layout.addWidget(proto_label)
 
         if is_default:
             # Для системных - только текст стратегии
-            strat_label = QLabel(f"#{strategy}")
+            strat_label = CaptionLabel(f"#{strategy}")
+            strat_label.setEnabled(False)
             self._default_strat_label = strat_label
             strat_label.setFixedWidth(50)
             layout.addWidget(strat_label)
@@ -92,12 +113,12 @@ class BlockedDomainRow(QFrame):
             self.strat_spin = SpinBox()
             self.strat_spin.setRange(1, 999)
             self.strat_spin.setValue(strategy)
-            self.strat_spin.setFixedWidth(70)
+            self.strat_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.strat_spin.valueChanged.connect(self._on_strategy_changed)
             layout.addWidget(self.strat_spin)
 
             # Кнопка добавления ещё одной блокировки для этого домена
-            add_btn = ActionButton("")
+            add_btn = TransparentToolButton(self)
             self._add_btn = add_btn
             add_btn.setIconSize(QSize(14, 14))
             add_btn.setFixedSize(24, 24)
@@ -106,7 +127,7 @@ class BlockedDomainRow(QFrame):
             layout.addWidget(add_btn)
 
             # Кнопка удаления (разблокировать)
-            delete_btn = ActionButton("")
+            delete_btn = TransparentToolButton(self)
             self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
@@ -129,25 +150,22 @@ class BlockedDomainRow(QFrame):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
 
         if self.is_default:
-            disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
             qss = f"""
                 BlockedDomainRow {{
-                    background: {disabled_bg};
+                    background: transparent;
                     border: 1px solid {tokens.surface_border_disabled};
                     border-radius: 6px;
                 }}
             """
         else:
-            row_bg = get_card_gradient_qss(tokens.theme_name)
-            row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
             qss = f"""
                 BlockedDomainRow {{
-                    background: {row_bg};
+                    background: transparent;
                     border: 1px solid {tokens.surface_border};
                     border-radius: 6px;
                 }}
                 BlockedDomainRow:hover {{
-                    background: {row_bg_hover};
+                    background: {tokens.surface_bg};
                     border: 1px solid {tokens.surface_border_hover};
                 }}
             """
@@ -159,21 +177,6 @@ class BlockedDomainRow(QFrame):
         if self._lock_icon_label is not None:
             self._lock_icon_label.setPixmap(
                 qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
-            )
-
-        if self._domain_label is not None:
-            domain_color = tokens.fg_muted if self.is_default else tokens.fg
-            self._domain_label.setStyleSheet(
-                f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
-            )
-        if self._proto_label is not None:
-            proto_color = tokens.fg_faint if self.is_default else tokens.fg_muted
-            self._proto_label.setStyleSheet(
-                f"color: {proto_color}; font-size: 11px; border: none; background: transparent;"
-            )
-        if self._default_strat_label is not None:
-            self._default_strat_label.setStyleSheet(
-                f"color: {tokens.fg_muted}; font-size: 13px; border: none; background: transparent;"
             )
 
         if self._add_btn is not None:
@@ -221,6 +224,7 @@ class OrchestraBlockedPage(BasePage):
         # Инициализируем пустые данные (будут загружены при первом showEvent)
         self._direct_blocked_by_askey = {askey: {} for askey in ASKEY_ALL}
         self._initial_load_done = False
+        self._refresh_loading = False
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -230,9 +234,28 @@ class OrchestraBlockedPage(BasePage):
 
         self._apply_theme()
 
+    def _create_card(self, title: str):
+        card = CardWidget(self)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(12)
+
+        title_label = StrongBodyLabel(title, card) if _HAS_FLUENT else QLabel(title)
+        if not _HAS_FLUENT:
+            title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        card_layout.addWidget(title_label)
+
+        return card, card_layout
+
+    def _set_refresh_loading(self, loading: bool) -> None:
+        self._refresh_loading = loading
+        if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
+            self.refresh_btn.setEnabled(not loading)
+        self._apply_theme()
+
     def _setup_ui(self):
         # === Карточка добавления ===
-        add_card = SettingsCard("Заблокировать стратегию вручную")
+        add_card, add_card_layout = self._create_card("Заблокировать стратегию вручную")
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
@@ -252,11 +275,11 @@ class OrchestraBlockedPage(BasePage):
         self.strat_spin = SpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(1)
-        self.strat_spin.setFixedWidth(70)
+        self.strat_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
         add_layout.addWidget(self.strat_spin)
 
         # Кнопка добавления
-        self.block_btn = ActionButton("")
+        self.block_btn = TransparentToolButton(self)
         # Icon styled in _apply_theme()
         self.block_btn.setIconSize(QSize(18, 18))
         self.block_btn.setFixedSize(36, 36)
@@ -264,12 +287,11 @@ class OrchestraBlockedPage(BasePage):
         self.block_btn.clicked.connect(self._block_strategy)
         add_layout.addWidget(self.block_btn)
 
-        add_card.add_layout(add_layout)
+        add_card_layout.addLayout(add_layout)
         self.layout.addWidget(add_card)
 
         # === Карточка списка ===
-        list_card = SettingsCard("Чёрный список")
-        list_layout = QVBoxLayout()
+        list_card, list_layout = self._create_card("Чёрный список")
         list_layout.setSpacing(8)
 
         # Кнопка и счётчик сверху
@@ -285,11 +307,14 @@ class OrchestraBlockedPage(BasePage):
         top_row.addWidget(self.search_input)
 
         # Кнопка обновления списка из реестра
-        self.refresh_btn = RefreshButton()
+        self.refresh_btn = TransparentToolButton(self)
+        self.refresh_btn.setFixedSize(32, 32)
+        set_tooltip(self.refresh_btn, "Обновить")
         self.refresh_btn.clicked.connect(self._reload_from_registry)
         top_row.addWidget(self.refresh_btn)
 
-        self.unblock_all_btn = ActionButton("Очистить пользовательские", "mdi.delete-sweep")
+        self.unblock_all_btn = PushButton("Очистить пользовательские")
+        self.unblock_all_btn.setFixedHeight(32)
         set_tooltip(self.unblock_all_btn, "Удалить все пользовательские блокировки (системные останутся)")
         self.unblock_all_btn.clicked.connect(self._unblock_all)
         top_row.addWidget(self.unblock_all_btn)
@@ -308,7 +333,6 @@ class OrchestraBlockedPage(BasePage):
 
         # Контейнер для рядов (без скролла - страница сама прокручивается)
         self.rows_container = QWidget()
-        self.rows_container.setStyleSheet("background: transparent;")
         self.rows_layout = QVBoxLayout(self.rows_container)
         self.rows_layout.setContentsMargins(0, 8, 0, 0)
         self.rows_layout.setSpacing(4)
@@ -317,7 +341,6 @@ class OrchestraBlockedPage(BasePage):
         # Храним ссылки на ряды для быстрого доступа
         self._blocked_rows: list[BlockedDomainRow] = []
 
-        list_card.add_layout(list_layout)
         self.layout.addWidget(list_card)
 
     def _apply_theme(self) -> None:
@@ -326,14 +349,32 @@ class OrchestraBlockedPage(BasePage):
         if hasattr(self, "block_btn") and self.block_btn is not None:
             self.block_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
 
-        for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unblock_all_btn", "mdi.delete-sweep")):
-            btn = getattr(self, btn_attr, None)
-            if btn is None:
-                continue
-            try:
-                btn.setIcon(qta.icon(icon_name, color=tokens.fg))
-            except Exception:
-                pass
+        if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
+            refresh_icon = "mdi.loading" if self._refresh_loading else "mdi.refresh"
+            refresh_color = tokens.fg_faint if self._refresh_loading else tokens.fg
+            self.refresh_btn.setIcon(qta.icon(refresh_icon, color=refresh_color))
+
+        if hasattr(self, "unblock_all_btn") and self.unblock_all_btn is not None:
+            self.unblock_all_btn.setIcon(qta.icon("mdi.delete-sweep", color=tokens.fg))
+
+        try:
+            if hasattr(self, "rows_layout") and self.rows_layout is not None:
+                for i in range(self.rows_layout.count()):
+                    item = self.rows_layout.itemAt(i)
+                    w = item.widget() if item else None
+                    if not isinstance(w, QLabel):
+                        continue
+                    section = w.property("blockedSection")
+                    if section == "user":
+                        w.setStyleSheet(
+                            f"color: {tokens.accent_hex}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+                        )
+                    elif section == "default":
+                        w.setStyleSheet(
+                            f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+                        )
+        except Exception:
+            pass
 
         try:
             for row in list(getattr(self, "_blocked_rows", [])):
@@ -363,7 +404,7 @@ class OrchestraBlockedPage(BasePage):
 
     def _reload_from_registry(self):
         """Перезагружает данные из реестра и обновляет список"""
-        self.refresh_btn.set_loading(True)
+        self._set_refresh_loading(True)
 
         def _do_reload():
             try:
@@ -376,7 +417,7 @@ class OrchestraBlockedPage(BasePage):
                     log("Список заблокированных перезагружен из реестра (direct)", "INFO")
                 self._refresh_data()
             finally:
-                self.refresh_btn.set_loading(False)
+                self._set_refresh_loading(False)
 
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, _do_reload)
@@ -438,10 +479,8 @@ class OrchestraBlockedPage(BasePage):
         default_items = [x for x in all_blocked if x[3]]
 
         if user_items:
-            tokens = get_theme_tokens()
             user_header = QLabel(f"Пользовательские ({len(user_items)})")
             user_header.setProperty("blockedSection", "user")
-            user_header.setStyleSheet("color: #ff6b6b; font-size: 11px; font-weight: 600; padding: 4px 0;")
             self.rows_layout.addWidget(user_header)
 
             for hostname, strategy, askey, is_default in user_items:
@@ -454,13 +493,10 @@ class OrchestraBlockedPage(BasePage):
                 # Разделитель
                 spacer = QWidget()
                 spacer.setFixedHeight(12)
-                spacer.setStyleSheet("background: transparent;")
                 self.rows_layout.addWidget(spacer)
 
-            tokens = get_theme_tokens()
             default_header = QLabel(f"Системные ({len(default_items)}) - заблокированные РКН сайты")
             default_header.setProperty("blockedSection", "default")
-            default_header.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px; font-weight: 600; padding: 4px 0;")
             self.rows_layout.addWidget(default_header)
 
             for hostname, strategy, askey, is_default in default_items:

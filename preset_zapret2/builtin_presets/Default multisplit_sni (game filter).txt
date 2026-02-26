@@ -1,6 +1,6 @@
 # Preset: Default multisplit sni (game filter)
 # ActivePreset: Default multisplit sni (game filter)
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # Created: 2026-02-03T17:52:52.760817
 # Modified: 2026-02-03T17:52:52.760985
 # Description: 
@@ -203,7 +203,7 @@
 --ipset-exclude=lists/ipset-dns.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 

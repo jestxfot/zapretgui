@@ -1738,6 +1738,44 @@ class PresetManager:
             log(f"Error resetting active preset to built-in template: {e}", "ERROR")
             return False
 
+    def reset_all_presets_to_default_templates(self) -> tuple[int, int, list[str]]:
+        """Overwrites V2 presets from templates and reapplies the active one."""
+        from .preset_defaults import invalidate_templates_cache, overwrite_templates_to_presets
+
+        success_count = 0
+        total_count = 0
+        failed: list[str] = []
+
+        try:
+            try:
+                invalidate_templates_cache()
+                success_count, total_count, failed = overwrite_templates_to_presets()
+            except Exception as e:
+                log(f"Bulk reset: template overwrite error: {e}", "DEBUG")
+
+            try:
+                self.invalidate_preset_cache(None)
+            except Exception:
+                pass
+
+            names = sorted(self.list_presets(), key=lambda s: s.lower())
+            if not names:
+                return (success_count, total_count, failed)
+
+            name_by_key = {name.lower(): name for name in names}
+            original_active = (self.get_active_preset_name() or "").strip()
+            active_name = name_by_key.get(original_active.lower(), "") if original_active else ""
+            if not active_name:
+                active_name = name_by_key.get("default", "") or names[0]
+
+            if active_name and not self.switch_preset(active_name, reload_dpi=False):
+                log(f"Bulk reset: failed to re-apply active preset '{active_name}'", "WARNING")
+
+            return (success_count, total_count, failed)
+        except Exception as e:
+            log(f"Bulk reset error: {e}", "ERROR")
+            return (success_count, total_count, failed)
+
     def reset_preset_to_default_template(
         self,
         preset_name: str,
@@ -2070,15 +2108,82 @@ class PresetManager:
             except Exception:
                 args = args or ""
 
+        from .txt_preset_parser import (
+            extract_strategy_args,
+            extract_syndata_from_args,
+            extract_send_from_args,
+            extract_out_range_from_args
+        )
+
         if args:
             protocol = (category_info.get("protocol") or "").upper()
             is_udp = any(t in protocol for t in ("UDP", "QUIC", "L7", "RAW"))
-            if is_udp:
-                cat.udp_args = args
-                cat.tcp_args = ""
+            
+            # If we are in 'advanced', we extract syndata properties so the UI sliders map correctly.
+            # If 'basic', we shouldn't map them; just leave them raw in tcp_args.
+            if strategy_set == "advanced":
+                pure_strategy_args = extract_strategy_args(args, category_key=category_key)
+                
+                if is_udp:
+                    cat.udp_args = pure_strategy_args
+                    cat.tcp_args = ""
+                    
+                    # Update out-range for UDP
+                    out_range = extract_out_range_from_args(args)
+                    if out_range.get("enabled"):
+                        cat.syndata_udp.out_range_enabled = True
+                        cat.syndata_udp.out_range_arg = out_range.get("arg", "")
+                    else:
+                        cat.syndata_udp.out_range_enabled = False
+                else:
+                    cat.tcp_args = pure_strategy_args
+                    cat.udp_args = ""
+                    
+                    # Update syndata/send/out-range for TCP
+                    out_range = extract_out_range_from_args(args)
+                    if out_range.get("enabled"):
+                        cat.syndata_tcp.out_range_enabled = True
+                        cat.syndata_tcp.out_range_arg = out_range.get("arg", "")
+                    else:
+                        cat.syndata_tcp.out_range_enabled = False
+                        
+                    syndata = extract_syndata_from_args(args)
+                    if syndata.get("enabled"):
+                        cat.syndata_tcp.enabled = True
+                        cat.syndata_tcp.blob = syndata.get("blob", "none")
+                        cat.syndata_tcp.tls_mod = syndata.get("tls_mod", "none")
+                        cat.syndata_tcp.autottl_delta = syndata.get("autottl_delta", 0)
+                        cat.syndata_tcp.autottl_min = syndata.get("autottl_min", 3)
+                        cat.syndata_tcp.autottl_max = syndata.get("autottl_max", 20)
+                        cat.syndata_tcp.tcp_flags_unset = syndata.get("tcp_flags_unset", "none")
+                    else:
+                        cat.syndata_tcp.enabled = False
+                        
+                    send = extract_send_from_args(args)
+                    if send.get("send_enabled"):
+                        cat.syndata_tcp.send_enabled = True
+                        cat.syndata_tcp.send_repeats = send.get("send_repeats", 1)
+                        cat.syndata_tcp.send_ip_ttl = send.get("send_ip_ttl", 0)
+                        cat.syndata_tcp.send_ip6_ttl = send.get("send_ip6_ttl", 0)
+                        cat.syndata_tcp.send_ip_id = send.get("send_ip_id", "")
+                        cat.syndata_tcp.send_badsum = send.get("send_badsum", False)
+                    else:
+                        cat.syndata_tcp.send_enabled = False
             else:
-                cat.tcp_args = args
-                cat.udp_args = ""
+                # Basic mode: keep the strategy exact strings as they are in the file.
+                if is_udp:
+                    cat.udp_args = args
+                    cat.tcp_args = ""
+                else:
+                    cat.tcp_args = args
+                    cat.udp_args = ""
+                    
+                # We must also explicitly disable dynamic syndata/send/out-range injection 
+                # so get_full_tcp_args doesn't append default values on top of the raw args.
+                cat.syndata_tcp.enabled = False
+                cat.syndata_tcp.send_enabled = False
+                cat.syndata_tcp.out_range_enabled = False
+                cat.syndata_udp.out_range_enabled = False
 
     def set_strategy_selections(
         self,

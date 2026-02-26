@@ -20,6 +20,10 @@ from datetime import datetime
 from log import log
 from launcher_common.runner_base import StrategyRunnerBase, log_full_command
 from launcher_common.args_filters import apply_all_filters
+from utils.circular_strategy_numbering import (
+    renumber_circular_strategies,
+    strip_strategy_tags,
+)
 from launcher_common.constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
 from dpi.process_health_check import (
     check_process_health,
@@ -93,8 +97,12 @@ class ConfigFileWatcher:
             return
 
         self._running = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+        watcher_thread = self._thread
+        if watcher_thread and watcher_thread.is_alive():
+            if watcher_thread is threading.current_thread():
+                log("ConfigFileWatcher.stop called from watcher thread; skip self-join", "DEBUG")
+            else:
+                watcher_thread.join(timeout=2.0)
         self._thread = None
         log("ConfigFileWatcher stopped", "DEBUG")
 
@@ -147,6 +155,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
         super().__init__(winws_exe_path)
         self._config_watcher: Optional[ConfigFileWatcher] = None
         self._preset_file_path: Optional[str] = None
+        self._runtime_preset_file_path: Optional[str] = None
         # Human-readable last start error (for UI/status).
         self.last_error: Optional[str] = None
 
@@ -169,6 +178,39 @@ class StrategyRunnerV2(StrategyRunnerBase):
         except Exception:
             text = ""
         self.last_error = text or None
+        if text:
+            self._notify_ui_launch_error(text)
+
+    @staticmethod
+    def _notify_ui_launch_error(message: str) -> None:
+        """Best-effort UI notification from any thread (queued to main Qt thread)."""
+        text = str(message or "").strip()
+        if not text:
+            return
+        try:
+            from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+            from PyQt6.QtWidgets import QApplication
+
+            app = QApplication.instance()
+            if app is None:
+                return
+
+            target = app.activeWindow()
+            if target is None or not hasattr(target, "show_dpi_launch_error"):
+                for widget in app.topLevelWidgets():
+                    if hasattr(widget, "show_dpi_launch_error"):
+                        target = widget
+                        break
+
+            if target is not None and hasattr(target, "show_dpi_launch_error"):
+                QMetaObject.invokeMethod(
+                    target,
+                    "show_dpi_launch_error",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(str, text),
+                )
+        except Exception:
+            pass
 
     def validate_preset_file(self, preset_path: str) -> tuple[bool, str]:
         """Validates that preset references point to existing files.
@@ -325,8 +367,15 @@ class StrategyRunnerV2(StrategyRunnerBase):
                         "--dpi-desync-fake-dht",
                         "--dpi-desync-fake-wireguard",
                     ):
-                        special = value_s.strip().lower()
+                        special = _strip_outer_quotes(value_s.strip())
+                        if special.startswith("@"):
+                            special = special[1:].strip()
+                        special = special.lower()
                         if special.startswith("0x") or special.startswith("!") or special.startswith("^"):
+                            continue
+
+                        # Only *.bin values are treated as file references here.
+                        if not special.endswith(".bin"):
                             continue
 
                         candidates = _resolve_candidates(value_s, default_dir=bin_dir)
@@ -379,6 +428,54 @@ class StrategyRunnerV2(StrategyRunnerBase):
             return []
 
         return missing
+
+    @staticmethod
+    def _runtime_preset_path(source_preset_path: str) -> str:
+        base, ext = os.path.splitext(source_preset_path)
+        return f"{base}.runtime{ext or '.txt'}"
+
+    @staticmethod
+    def _write_text_file(path: str, content: str) -> None:
+        data = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+        if data and not data.endswith("\n"):
+            data += "\n"
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(data)
+
+    def _prepare_launch_preset_file(self, source_preset_path: str) -> str:
+        """Builds runtime preset with circular :strategy=N tags when needed.
+
+        Source preset stays human-editable without explicit strategy tags.
+        """
+        self._runtime_preset_file_path = None
+
+        try:
+            with open(source_preset_path, "r", encoding="utf-8", errors="replace") as f:
+                source_content = f.read()
+        except Exception:
+            return source_preset_path
+
+        cleaned_source = strip_strategy_tags(source_content)
+        if cleaned_source != source_content:
+            try:
+                self._write_text_file(source_preset_path, cleaned_source)
+                log(f"Removed legacy :strategy=N tags from {source_preset_path}", "DEBUG")
+            except Exception as e:
+                log(f"Failed to clean preset file {source_preset_path}: {e}", "DEBUG")
+
+        runtime_content = renumber_circular_strategies(cleaned_source)
+        if runtime_content == cleaned_source:
+            return source_preset_path
+
+        runtime_path = self._runtime_preset_path(source_preset_path)
+        try:
+            self._write_text_file(runtime_path, runtime_content)
+            self._runtime_preset_file_path = runtime_path
+            return runtime_path
+        except Exception as e:
+            log(f"Failed to prepare runtime preset {runtime_path}: {e}", "WARNING")
+            self._runtime_preset_file_path = None
+            return source_preset_path
 
     def _on_config_changed(self):
         """
@@ -438,13 +535,18 @@ class StrategyRunnerV2(StrategyRunnerBase):
         """
         if not self._preset_file_path or not os.path.exists(self._preset_file_path):
             log("Cannot start from preset: file not found", "ERROR")
+            self._runtime_preset_file_path = None
             return False
 
         try:
+            launch_preset_path = self._prepare_launch_preset_file(self._preset_file_path)
+
             # Build command with @file
-            cmd = [self.winws_exe, f"@{self._preset_file_path}"]
+            cmd = [self.winws_exe, f"@{launch_preset_path}"]
 
             log(f"Hot-reload: starting from preset {self._preset_file_path}", "INFO")
+            if launch_preset_path != self._preset_file_path:
+                log(f"Hot-reload runtime preset: {launch_preset_path}", "DEBUG")
 
             # Start process
             self.running_process = subprocess.Popen(
@@ -462,7 +564,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
             if self.running_process.poll() is None:
                 log(f"Hot-reload successful (PID: {self.running_process.pid})", "SUCCESS")
-                self.current_strategy_args = [f"@{self._preset_file_path}"]
+                self.current_strategy_args = [f"@{launch_preset_path}"]
                 return True
             else:
                 exit_code = self.running_process.returncode
@@ -477,12 +579,14 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
                 self.running_process = None
                 self.current_strategy_args = None
+                self._runtime_preset_file_path = None
                 return False
 
         except Exception as e:
             log(f"Error starting from preset: {e}", "ERROR")
             self.running_process = None
             self.current_strategy_args = None
+            self._runtime_preset_file_path = None
             return False
 
     def start_from_preset_file(
@@ -519,13 +623,18 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
         try:
             self._set_last_error(None)
+            launch_preset_path = self._prepare_launch_preset_file(preset_path)
+
             # If the exact preset is already running, do NOT restart it.
             # Just attach watcher + update runner state.
-            pid = self.find_running_preset_pid(preset_path)
+            pid = self.find_running_preset_pid(launch_preset_path)
             if pid:
                 self._preset_file_path = preset_path
+                self._runtime_preset_file_path = (
+                    launch_preset_path if launch_preset_path != preset_path else None
+                )
                 self.current_strategy_name = strategy_name
-                self.current_strategy_args = [f"@{preset_path}"]
+                self.current_strategy_args = [f"@{launch_preset_path}"]
                 log(f"Preset already running (PID: {pid}), attaching without restart", "INFO")
                 self._start_config_watcher()
                 return True
@@ -582,11 +691,16 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
             # Store preset file path for hot-reload
             self._preset_file_path = preset_path
+            self._runtime_preset_file_path = (
+                launch_preset_path if launch_preset_path != preset_path else None
+            )
 
             # Build command with @file
-            cmd = [self.winws_exe, f"@{preset_path}"]
+            cmd = [self.winws_exe, f"@{launch_preset_path}"]
 
             log(f"Starting from preset file: {preset_path}", "INFO")
+            if launch_preset_path != preset_path:
+                log(f"Using runtime preset file: {launch_preset_path}", "DEBUG")
             log(f"Strategy: {strategy_name}", "INFO")
 
             # Start process
@@ -602,7 +716,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
             # Save info
             self.current_strategy_name = strategy_name
-            self.current_strategy_args = [f"@{preset_path}"]
+            self.current_strategy_args = [f"@{launch_preset_path}"]
 
             # Quick startup check
             time.sleep(0.2)
@@ -641,6 +755,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 self.current_strategy_name = None
                 self.current_strategy_args = None
                 self._preset_file_path = None
+                self._runtime_preset_file_path = None
 
                 # Если быстрый старт упал из-за конфликта WinDivert,
                 # делаем один повтор с полной очисткой.
@@ -675,6 +790,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
             self.current_strategy_name = None
             self.current_strategy_args = None
             self._preset_file_path = None
+            self._runtime_preset_file_path = None
             return False
 
     def find_running_preset_pid(self, preset_path: str) -> Optional[int]:
@@ -901,6 +1017,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
         # Clear preset file path
         self._preset_file_path = None
+        self._runtime_preset_file_path = None
 
         # Call base class stop
         return super().stop()

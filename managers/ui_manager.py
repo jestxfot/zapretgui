@@ -108,6 +108,15 @@ class UIManager:
                         self.app.zapret1_direct_control_page.update_strategy(strategy_name)
                 except Exception:
                     pass
+
+            # direct_zapret2_orchestra: обновляем страницу управления Orchestra Z2
+            if hasattr(self.app, 'orchestra_zapret2_control_page'):
+                try:
+                    self.app.orchestra_zapret2_control_page.update_status(is_running)
+                    if strategy_name:
+                        self.app.orchestra_zapret2_control_page.update_strategy(strategy_name)
+                except Exception:
+                    pass
             
             # Обновляем страницу автозапуска
             if hasattr(self.app, 'autostart_page'):

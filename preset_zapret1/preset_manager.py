@@ -619,8 +619,8 @@ class PresetManagerV1:
         )
 
     def reset_all_presets_to_default_templates(self) -> tuple[int, int, list[str]]:
-        """Resets all V1 presets to templates and reapplies the active one."""
-        from .preset_defaults import invalidate_templates_cache_v1, ensure_v1_templates_copied_to_presets
+        """Overwrites V1 presets from templates and reapplies the active one."""
+        from .preset_defaults import invalidate_templates_cache_v1, overwrite_v1_templates_to_presets
 
         success_count = 0
         total_count = 0
@@ -629,9 +629,9 @@ class PresetManagerV1:
         try:
             try:
                 invalidate_templates_cache_v1()
-                ensure_v1_templates_copied_to_presets()
+                success_count, total_count, failed = overwrite_v1_templates_to_presets()
             except Exception as e:
-                log(f"V1 bulk reset: template refresh error: {e}", "DEBUG")
+                log(f"V1 bulk reset: template overwrite error: {e}", "DEBUG")
 
             try:
                 self.invalidate_preset_cache(None)
@@ -639,31 +639,17 @@ class PresetManagerV1:
                 pass
 
             names = sorted(self.list_presets(), key=lambda s: s.lower())
-            total_count = len(names)
             if not names:
-                return (0, 0, [])
+                return (success_count, total_count, failed)
 
+            name_by_key = {name.lower(): name for name in names}
             original_active = (self.get_active_preset_name() or "").strip()
-            if original_active and original_active in names:
-                names = [n for n in names if n != original_active] + [original_active]
+            active_name = name_by_key.get(original_active.lower(), "") if original_active else ""
+            if not active_name:
+                active_name = name_by_key.get("default", "") or names[0]
 
-            for name in names:
-                ok = self.reset_preset_to_default_template(
-                    name,
-                    make_active=False,
-                    sync_active_file=False,
-                    emit_switched=False,
-                    invalidate_templates=False,
-                )
-                if ok:
-                    success_count += 1
-                else:
-                    failed.append(name)
-
-            active_name = (original_active or (self.get_active_preset_name() or "")).strip()
-            if active_name:
-                if not self.switch_preset(active_name, reload_dpi=False):
-                    log(f"V1 bulk reset: failed to re-apply active preset '{active_name}'", "WARNING")
+            if active_name and not self.switch_preset(active_name, reload_dpi=False):
+                log(f"V1 bulk reset: failed to re-apply active preset '{active_name}'", "WARNING")
 
             return (success_count, total_count, failed)
         except Exception as e:
@@ -685,7 +671,50 @@ class PresetManagerV1:
         preset.touch()
 
         if save_and_sync:
-            return self._save_and_sync_preset(preset)
+            return self._save_and_sync_category(preset, category_key)
+        return True
+
+    def get_category_filter_mode(self, category_key: str) -> str:
+        category_key = str(category_key or "").strip().lower()
+        preset = self.get_active_preset()
+        if not preset:
+            return "hostlist"
+
+        category = preset.categories.get(category_key)
+        if not category:
+            return "hostlist"
+
+        mode = str(getattr(category, "filter_mode", "") or "").strip().lower()
+        if mode in ("hostlist", "ipset"):
+            return mode
+        return "hostlist"
+
+    def update_category_filter_mode(
+        self,
+        category_key: str,
+        filter_mode: str,
+        save_and_sync: bool = True,
+    ) -> bool:
+        category_key = str(category_key or "").strip().lower()
+        filter_mode = str(filter_mode or "").strip().lower()
+
+        if filter_mode not in ("hostlist", "ipset"):
+            log(f"Invalid V1 filter_mode: {filter_mode}", "WARNING")
+            return False
+
+        preset = self.get_active_preset()
+        if not preset:
+            log("Cannot update V1 filter_mode: no active preset", "WARNING")
+            return False
+
+        if category_key not in preset.categories:
+            preset.categories[category_key] = CategoryConfigV1(name=category_key)
+
+        preset.categories[category_key].filter_mode = filter_mode
+        preset.touch()
+
+        if save_and_sync:
+            return self._save_and_sync_category(preset, category_key)
         return True
 
     @staticmethod
@@ -710,6 +739,17 @@ class PresetManagerV1:
             if not norm_key:
                 continue
             raw[norm_key] = self._selection_id_from_category(cat)
+
+        # If active preset has shared blocks with multiple hostlists in one instance,
+        # parser may map only one category from that block. Keep categories visible by
+        # marking additionally detected hostlist/ipset categories as custom.
+        try:
+            present_from_lists = self._infer_active_categories_from_lists()
+            for key in present_from_lists:
+                if raw.get(key, "none") == "none":
+                    raw[key] = "custom"
+        except Exception:
+            pass
 
         return raw
 
@@ -740,6 +780,339 @@ class PresetManagerV1:
             else:
                 cat.tcp_args = args
                 cat.udp_args = ""
+
+    @staticmethod
+    def _split_preset_text_sections(content: str) -> tuple[list[str], list[str], list[list[str]]]:
+        text = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+        lines = text.split("\n")
+
+        header_lines: list[str] = []
+        content_start_idx = 0
+        for i, raw in enumerate(lines):
+            stripped = raw.strip()
+            if stripped.startswith("#") or not stripped:
+                header_lines.append(raw)
+                content_start_idx = i + 1
+                continue
+            content_start_idx = i
+            break
+        else:
+            return header_lines, [], []
+
+        remaining = lines[content_start_idx:]
+        first_filter_idx = None
+        for i, raw in enumerate(remaining):
+            stripped = raw.strip().lower()
+            if stripped.startswith("--filter-tcp") or stripped.startswith("--filter-udp") or stripped.startswith("--filter-l7"):
+                first_filter_idx = i
+                break
+
+        if first_filter_idx is None:
+            base_lines = [ln.strip() for ln in remaining if ln.strip() and not ln.strip().startswith("#")]
+            return header_lines, base_lines, []
+
+        base_lines = [
+            ln.strip()
+            for ln in remaining[:first_filter_idx]
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        for raw in remaining[first_filter_idx:]:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped == "--new":
+                if current:
+                    blocks.append(current)
+                    current = []
+                continue
+            current.append(stripped)
+
+        if current:
+            blocks.append(current)
+
+        return header_lines, base_lines, blocks
+
+    @staticmethod
+    def _render_preset_text_sections(
+        header_lines: list[str],
+        base_lines: list[str],
+        blocks: list[list[str]],
+    ) -> str:
+        lines: list[str] = []
+
+        normalized_header = [str(ln or "").rstrip("\n") for ln in (header_lines or [])]
+        if normalized_header:
+            lines.extend(normalized_header)
+            if normalized_header[-1].strip():
+                lines.append("")
+
+        normalized_base = [str(ln or "").strip() for ln in (base_lines or []) if str(ln or "").strip()]
+        if normalized_base:
+            lines.extend(normalized_base)
+            lines.append("")
+
+        clean_blocks = [
+            [str(ln or "").strip() for ln in block if str(ln or "").strip()]
+            for block in (blocks or [])
+        ]
+        clean_blocks = [block for block in clean_blocks if block]
+
+        for i, block in enumerate(clean_blocks):
+            lines.extend(block)
+            if i < len(clean_blocks) - 1:
+                lines.append("")
+                lines.append("--new")
+                lines.append("")
+
+        text = "\n".join(lines).rstrip("\n")
+        return text + "\n"
+
+    @staticmethod
+    def _line_list_filename(line: str) -> tuple[str, str]:
+        raw = str(line or "").strip()
+        if not raw.startswith("--") or "=" not in raw:
+            return "", ""
+
+        key, _sep, value = raw.partition("=")
+        key_l = key.strip().lower()
+        if key_l not in ("--hostlist", "--ipset"):
+            return "", ""
+
+        value = value.strip().strip('"').strip("'")
+        if value.startswith("@"):
+            value = value[1:]
+
+        return key_l, PureWindowsPath(value).name.lower()
+
+    @classmethod
+    def _block_has_target_filters(cls, block_lines: list[str]) -> bool:
+        for raw in (block_lines or []):
+            line = str(raw or "").strip().lower()
+            if line.startswith("--hostlist=") or line.startswith("--ipset="):
+                return True
+            if line.startswith("--hostlist-domains=") or line.startswith("--ipset-ip="):
+                return True
+        return False
+
+    @classmethod
+    def _block_has_filter_start(cls, block_lines: list[str]) -> bool:
+        for raw in (block_lines or []):
+            line = str(raw or "").strip().lower()
+            if line.startswith("--filter-tcp") or line.startswith("--filter-udp") or line.startswith("--filter-l7"):
+                return True
+        return False
+
+    @classmethod
+    def _remove_category_from_block(
+        cls,
+        block_lines: list[str],
+        category_filenames: set[str],
+    ) -> tuple[list[str], bool]:
+        if not category_filenames:
+            return list(block_lines or []), False
+
+        out: list[str] = []
+        removed = False
+
+        for raw in (block_lines or []):
+            key_l, filename = cls._line_list_filename(raw)
+            if key_l and filename and filename in category_filenames:
+                removed = True
+                continue
+            out.append(str(raw or "").strip())
+
+        out = [ln for ln in out if ln]
+
+        if removed:
+            # If category lines were removed and block no longer has valid filter target,
+            # drop the block entirely to avoid invalid winws launch arguments.
+            if not cls._block_has_filter_start(out):
+                return [], True
+            if not cls._block_has_target_filters(out):
+                return [], True
+
+        return out, removed
+
+    def _category_filter_filenames(self, category_key: str) -> set[str]:
+        from preset_zapret2.base_filter import build_category_base_filter_lines
+
+        names: set[str] = set()
+        for mode in ("hostlist", "ipset"):
+            try:
+                for raw in build_category_base_filter_lines(category_key, mode):
+                    _k, filename = self._line_list_filename(raw)
+                    if filename:
+                        names.add(filename)
+            except Exception:
+                continue
+        return names
+
+    def _active_list_filenames(self) -> set[str]:
+        path = get_active_preset_path_v1()
+        if not path.exists():
+            return set()
+
+        names: set[str] = set()
+        try:
+            for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                _k, filename = self._line_list_filename(raw)
+                if filename:
+                    names.add(filename)
+        except Exception:
+            return set()
+        return names
+
+    def _infer_active_categories_from_lists(self) -> set[str]:
+        present_files = self._active_list_filenames()
+        if not present_files:
+            return set()
+
+        try:
+            from preset_zapret2.catalog import load_categories
+
+            categories = load_categories()
+        except Exception:
+            categories = {}
+
+        present: set[str] = set()
+        for key in categories.keys():
+            cat_key = str(key or "").strip().lower()
+            if not cat_key:
+                continue
+            cat_files = self._category_filter_filenames(cat_key)
+            if cat_files and (cat_files & present_files):
+                present.add(cat_key)
+        return present
+
+    @staticmethod
+    def _category_is_udp_like(category_key: str) -> bool:
+        try:
+            from preset_zapret2.catalog import load_categories
+
+            info = load_categories().get(category_key) or {}
+            protocol = str(info.get("protocol") or "").upper()
+            return any(token in protocol for token in ("UDP", "QUIC", "L7", "RAW"))
+        except Exception:
+            return False
+
+    def _build_single_category_block(self, category_key: str, cat: CategoryConfigV1) -> list[str]:
+        from preset_zapret2.base_filter import build_category_base_filter_lines
+
+        tcp_args = str(getattr(cat, "tcp_args", "") or "").strip()
+        udp_args = str(getattr(cat, "udp_args", "") or "").strip()
+
+        if not tcp_args and not udp_args:
+            return []
+
+        if udp_args and not tcp_args:
+            use_udp = True
+            strategy_text = udp_args
+            custom_port = str(getattr(cat, "udp_port", "") or "").strip()
+        elif tcp_args and not udp_args:
+            use_udp = False
+            strategy_text = tcp_args
+            custom_port = str(getattr(cat, "tcp_port", "") or "").strip()
+        else:
+            use_udp = self._category_is_udp_like(category_key)
+            strategy_text = udp_args if use_udp else tcp_args
+            custom_port = str((getattr(cat, "udp_port", "") if use_udp else getattr(cat, "tcp_port", "")) or "").strip()
+
+        lines = build_category_base_filter_lines(category_key, getattr(cat, "filter_mode", "hostlist") or "hostlist")
+        if not lines:
+            log(f"V1: base_filter lines not found for category '{category_key}'", "WARNING")
+            return []
+
+        if custom_port:
+            for i, line in enumerate(lines):
+                low = line.lower()
+                if use_udp and low.startswith("--filter-udp="):
+                    lines[i] = f"--filter-udp={custom_port}"
+                elif use_udp and low.startswith("--filter-l7="):
+                    lines[i] = f"--filter-l7={custom_port}"
+                elif (not use_udp) and low.startswith("--filter-tcp="):
+                    lines[i] = f"--filter-tcp={custom_port}"
+
+        for raw in strategy_text.splitlines():
+            line = raw.strip()
+            if line:
+                lines.append(line)
+
+        return lines
+
+    def _save_and_sync_category(self, preset: PresetV1, category_key: str) -> bool:
+        category_key = str(category_key or "").strip().lower()
+        if not category_key:
+            return False
+
+        cat = (preset.categories or {}).get(category_key)
+        active_path = get_active_preset_path_v1()
+
+        try:
+            if active_path.exists():
+                content = active_path.read_text(encoding="utf-8", errors="ignore")
+            else:
+                content = ""
+
+            if not content.strip():
+                return self._save_and_sync_preset(preset)
+
+            header_lines, base_lines, blocks = self._split_preset_text_sections(content)
+
+            if not base_lines and str(getattr(preset, "base_args", "") or "").strip():
+                base_lines = [ln.strip() for ln in str(preset.base_args).splitlines() if ln.strip()]
+
+            if not header_lines:
+                active_name = str(self.get_active_preset_name() or preset.name or "Current").strip() or "Current"
+                header_lines = [
+                    f"# Preset: {active_name}",
+                    f"# ActivePreset: {active_name}",
+                    f"# Modified: {datetime.now().isoformat()}",
+                ]
+
+            category_filenames = self._category_filter_filenames(category_key)
+            if not category_filenames:
+                log(f"V1: cannot resolve list filenames for category '{category_key}', fallback to full sync", "WARNING")
+                return self._save_and_sync_preset(preset)
+
+            new_blocks: list[list[str]] = []
+            for block in blocks:
+                updated_block, _removed = self._remove_category_from_block(block, category_filenames)
+                if updated_block:
+                    new_blocks.append(updated_block)
+
+            if cat is not None:
+                category_block = self._build_single_category_block(category_key, cat)
+                if category_block:
+                    new_blocks.append(category_block)
+
+            rendered = self._render_preset_text_sections(header_lines, base_lines, new_blocks)
+
+            active_path.parent.mkdir(parents=True, exist_ok=True)
+            active_path.write_text(rendered, encoding="utf-8")
+
+            # Persist exact active content to selected preset file to keep shared blocks intact.
+            active_name = str(self.get_active_preset_name() or "").strip()
+            if active_name and active_name.lower() != "current":
+                preset_path = get_preset_path_v1(active_name)
+                try:
+                    if preset_path.resolve() != active_path.resolve():
+                        shutil.copy2(active_path, preset_path)
+                except Exception:
+                    shutil.copy2(active_path, preset_path)
+                self.invalidate_preset_cache(active_name)
+
+            self._invalidate_active_preset_cache()
+            return True
+
+        except PermissionError as e:
+            log(f"Cannot write V1 active preset file (locked?): {e}", "ERROR")
+            raise
+        except Exception as e:
+            log(f"Error syncing single V1 category '{category_key}': {e}", "ERROR")
+            return self._save_and_sync_preset(preset)
 
     def _save_and_sync_preset(self, preset: PresetV1) -> bool:
         if preset.name and preset.name != "Current":

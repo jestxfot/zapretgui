@@ -13,56 +13,6 @@ from config import MAIN_DIRECTORY
 from log import log
 
 
-def write_preset_zapret1_from_args(args: list[str], strategy_name: str = "Прямой запуск (Zapret 1)") -> Path:
-    """
-    Writes a winws.exe preset file (preset-zapret1.txt) using one-arg-per-line format.
-    """
-    from datetime import datetime
-
-    preset_path = get_preset_zapret1_path()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    lines: list[str] = [
-        f"# Strategy: {strategy_name}",
-        f"# Generated: {timestamp}",
-    ]
-
-    first_filter_found = False
-    for arg in args:
-        if not first_filter_found and (arg.startswith("--filter-tcp") or arg.startswith("--filter-udp")):
-            lines.append("")
-            first_filter_found = True
-
-        lines.append(arg)
-
-        if arg == "--new":
-            lines.append("")
-
-    preset_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    return preset_path
-
-
-def write_preset_zapret1_from_args_string(args_str: str, strategy_name: str = "Прямой запуск (Zapret 1)") -> Path:
-    """
-    Writes preset-zapret1.txt from a single args string (space-separated).
-    """
-    import shlex
-
-    args = shlex.split(args_str or "", posix=False)
-    return write_preset_zapret1_from_args(args, strategy_name=strategy_name)
-
-
-def write_preset_zapret1_from_selections(selections: dict[str, str], strategy_name: str = "Прямой запуск (Zapret 1)") -> Path:
-    """
-    Rebuilds preset-zapret1.txt from {category_key: strategy_id} selections.
-    """
-    from zapret1_launcher.strategy_builder import combine_strategies_v1
-
-    combined = combine_strategies_v1(**(selections or {}))
-    args_str = (combined or {}).get("args", "") or ""
-    return write_preset_zapret1_from_args_string(args_str, strategy_name=strategy_name)
-
-
 def get_preset_zapret1_path() -> Path:
     return Path(MAIN_DIRECTORY) / "preset-zapret1.txt"
 

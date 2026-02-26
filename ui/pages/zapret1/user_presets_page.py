@@ -783,22 +783,24 @@ class _RenamePresetDialog(MessageBoxBase):
 
 
 class _ResetAllPresetsDialog(MessageBoxBase):
-    """Диалог подтверждения сброса всех пресетов (stock qfluentwidgets, без custom CSS)."""
+    """Диалог подтверждения перезаписи пресетов из шаблонов."""
 
     def __init__(self, parent=None):
         if parent and not parent.isWindow():
             parent = parent.window()
         super().__init__(parent)
-        self.titleLabel = SubtitleLabel("Сбросить все пресеты", self.widget)
+        self.titleLabel = SubtitleLabel("Вернуть заводские пресеты", self.widget)
         self.bodyLabel = BodyLabel(
-            "Все пресеты будут сброшены до заводских шаблонов.\n"
-            "Пользовательские изменения в пресетах будут потеряны.",
+            "Стандартные пресеты будут восстановлены как после установки.\n"
+            "Ваши изменения в стандартных пресетах будут потеряны.\n"
+            "Пользовательские пресеты с другими именами останутся.\n"
+            "Текущий активный пресет будет применен заново автоматически.",
             self.widget,
         )
         self.bodyLabel.setWordWrap(True)
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.bodyLabel)
-        self.yesButton.setText("Сбросить всё")
+        self.yesButton.setText("Вернуть заводские")
         self.cancelButton.setText("Отмена")
         self.widget.setMinimumWidth(380)
 
@@ -946,6 +948,36 @@ class Zapret1UserPresetsPage(BasePage):
         self._update_toolbar_buttons_layout()
         self._update_presets_view_height()
 
+    def set_smooth_scroll_enabled(self, enabled: bool) -> None:
+        delegate = getattr(self, "_presets_scroll_delegate", None)
+        if delegate is None:
+            return
+        try:
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+            mode = SmoothMode.COSINE if enabled else SmoothMode.NO_SMOOTH
+
+            if hasattr(delegate, "useAni"):
+                if not hasattr(delegate, "_zapret_base_use_ani"):
+                    delegate._zapret_base_use_ani = bool(delegate.useAni)
+                delegate.useAni = bool(delegate._zapret_base_use_ani) if enabled else False
+
+            for smooth_attr in ("verticalSmoothScroll", "horizonSmoothScroll"):
+                smooth = getattr(delegate, smooth_attr, None)
+                smooth_setter = getattr(smooth, "setSmoothMode", None)
+                if callable(smooth_setter):
+                    smooth_setter(mode)
+
+            setter = getattr(delegate, "setSmoothMode", None)
+            if callable(setter):
+                try:
+                    setter(mode)
+                except TypeError:
+                    setter(mode, Qt.Orientation.Vertical)
+            elif hasattr(delegate, "smoothMode"):
+                delegate.smoothMode = mode
+        except Exception:
+            pass
+
     def _start_watching_presets(self):
         try:
             if self._watcher_active:
@@ -1092,15 +1124,19 @@ class Zapret1UserPresetsPage(BasePage):
 
         self.create_btn = PrimaryToolButton(FluentIcon.ADD if FluentIcon else None)
         self.create_btn.setFixedSize(36, 36)
-        self.create_btn.setToolTip("Создать новый пресет")
+        set_tooltip(self.create_btn, "Создать новый пресет")
         self.create_btn.clicked.connect(self._on_create_clicked)
 
         self.import_btn = self._create_secondary_row_button("Импорт", "fa5s.file-import")
-        self.import_btn.setToolTip("Импорт пресета из файла")
+        set_tooltip(self.import_btn, "Импорт пресета из файла")
         self.import_btn.clicked.connect(self._on_import_clicked)
 
-        self.reset_all_btn = self._create_secondary_row_button("Сбросить", "fa5s.undo")
-        self.reset_all_btn.setToolTip("Сбросить все настройки пресетов до заводских")
+        self.reset_all_btn = self._create_secondary_row_button("Вернуть заводские", "fa5s.undo")
+        set_tooltip(
+            self.reset_all_btn,
+            "Восстанавливает стандартные пресеты. "
+            "Ваши изменения в стандартных пресетах будут потеряны."
+        )
         self.reset_all_btn.clicked.connect(self._on_reset_all_presets_clicked)
 
         self.presets_info_btn = self._create_secondary_row_button("Вики по пресетам", "fa5s.info-circle")
@@ -1154,9 +1190,15 @@ class Zapret1UserPresetsPage(BasePage):
         self.presets_list.verticalScrollBar().setSingleStep(28)
         try:
             from qfluentwidgets import SmoothScrollDelegate
-            self._presets_scroll_delegate = SmoothScrollDelegate(self.presets_list, useAni=True)
+            from config.reg import get_smooth_scroll_enabled
+            smooth_enabled = get_smooth_scroll_enabled()
+            self._presets_scroll_delegate = SmoothScrollDelegate(
+                self.presets_list,
+                useAni=smooth_enabled,
+            )
+            self.set_smooth_scroll_enabled(smooth_enabled)
         except Exception:
-            pass
+            self._presets_scroll_delegate = None
         self.add_widget(self.presets_list)
 
         # Make outer page scrolling feel less sluggish on long lists.
@@ -1423,69 +1465,23 @@ class Zapret1UserPresetsPage(BasePage):
         try:
             manager = self._get_manager()
 
-            # 1) Refresh templates and create any missing presets from templates.
-            try:
-                from preset_zapret1.preset_defaults import invalidate_templates_cache_v1, ensure_v1_templates_copied_to_presets
-                invalidate_templates_cache_v1()
-                ensure_v1_templates_copied_to_presets()
-            except Exception as e:
-                log(f"Ошибка обновления шаблонов пресетов: {e}", "DEBUG")
-
-            # 2) Reload store so newly created presets appear in manager.list_presets().
-            try:
-                manager.invalidate_preset_cache(None)
-            except Exception:
-                pass
-
-            preset_names = manager.list_presets()
-            ordered_names = sorted(preset_names, key=lambda s: s.lower())
-            if not ordered_names:
-                self._show_reset_all_result(0, 0)
-                return
-
-            original_active = (manager.get_active_preset_name() or "").strip()
-
-            # Reset the active preset last, then sync it once.
-            if original_active and original_active in ordered_names:
-                ordered_names = [n for n in ordered_names if n != original_active] + [original_active]
-
-            success_count = 0
-            failed: list[str] = []
-
-            for name in ordered_names:
-                ok = manager.reset_preset_to_default_template(
-                    name,
-                    make_active=False,
-                    sync_active_file=False,
-                    emit_switched=False,
-                    invalidate_templates=False,
-                )
-                if ok:
-                    success_count += 1
-                else:
-                    failed.append(name)
-
-            # 3) Re-apply active preset once from presets/ file.
-            # Use switch_preset() to copy the just-reset file as-is into
-            # preset-zapret1.txt (avoid model re-generation drift).
-            active_name = (original_active or (manager.get_active_preset_name() or "")).strip()
-            if active_name:
-                if not manager.switch_preset(active_name, reload_dpi=False):
-                    log(f"Не удалось применить активный пресет после сброса: {active_name}", "WARNING")
+            success_count, total, failed = manager.reset_all_presets_to_default_templates()
 
             self._load_presets()
-
-            total = len(ordered_names)
             if failed:
-                log(f"Сброс пресетов завершён частично: успешно={success_count}, ошибки={len(failed)}", "WARNING")
+                log(
+                    f"Восстановление заводских пресетов завершено частично: "
+                    f"успешно={success_count}/{total}, ошибки={len(failed)}",
+                    "WARNING",
+                )
             else:
-                log(f"Сброшены все пресеты к шаблонам: {success_count}", "INFO")
+                log(f"Восстановлены заводские пресеты: {success_count}/{total}", "INFO")
 
             self._show_reset_all_result(success_count, total)
 
         except Exception as e:
-            log(f"Ошибка массового сброса пресетов: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка сброса пресетов: {e}", parent=self.window())
+            log(f"Ошибка массового восстановления пресетов: {e}", "ERROR")
+            InfoBar.error(title="Ошибка", content=f"Ошибка восстановления пресетов: {e}", parent=self.window())
         finally:
             self._bulk_reset_running = False
 
@@ -1502,7 +1498,7 @@ class Zapret1UserPresetsPage(BasePage):
 
     def _restore_reset_all_button_label(self) -> None:
         try:
-            self.reset_all_btn.setText("Сбросить все пресеты")
+            self.reset_all_btn.setText("Вернуть заводские")
             self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color=get_theme_tokens().fg))
         except Exception:
             pass
@@ -1572,7 +1568,7 @@ class Zapret1UserPresetsPage(BasePage):
                     add_preset_row(name)
 
             if all_tcp_names:
-                rows.append({"kind": "section", "text": "Все сайты (ALL TCP/UDP)"})
+                rows.append({"kind": "section", "text": "Все сайты и игры (ALL TCP/UDP)"})
                 for name in all_tcp_names:
                     add_preset_row(name)
 

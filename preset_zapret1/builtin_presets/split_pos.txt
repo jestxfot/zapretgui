@@ -13,7 +13,7 @@
 --hostlist=lists/youtube.txt
 --hostlist=lists/discord.txt
 --dpi-desync=fake,multidisorder
---dpi-desync-fake-tls-mod=bin/rnd,dupsid
+--dpi-desync-fake-tls-mod=rnd,dupsid
 --dpi-desync-repeats=3
 --dpi-desync-split-pos=100,midsld,sniext+1,endhost-2,-10
 --dpi-desync-ttl=4

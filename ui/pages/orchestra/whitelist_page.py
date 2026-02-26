@@ -6,23 +6,38 @@
 from PyQt6.QtCore import Qt, QSize, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
-    QWidget, QLineEdit, QFrame
+    QWidget, QLineEdit, QFrame, QPushButton
 )
 import qtawesome as qta
 
 try:
-    from qfluentwidgets import LineEdit, MessageBox, InfoBar, CaptionLabel
+    from qfluentwidgets import (
+        LineEdit,
+        PushButton,
+        TransparentToolButton,
+        CardWidget,
+        StrongBodyLabel,
+        BodyLabel,
+        MessageBox,
+        InfoBar,
+        CaptionLabel,
+    )
     _HAS_FLUENT = True
 except ImportError:
     LineEdit = QLineEdit
+    PushButton = QPushButton
+    TransparentToolButton = QPushButton
+    CardWidget = QFrame
+    StrongBodyLabel = QLabel
+    BodyLabel = QLabel
     MessageBox = None
     InfoBar = None
     CaptionLabel = QLabel
     _HAS_FLUENT = False
 
 from ..base_page import BasePage
-from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
-from ui.theme import get_theme_tokens, get_card_gradient_qss, get_card_disabled_gradient_qss
+from ui.compat_widgets import set_tooltip
+from ui.theme import get_theme_tokens
 from log import log
 
 
@@ -55,17 +70,18 @@ class WhitelistDomainRow(QFrame):
             lock_icon = QLabel()
             self._lock_icon_label = lock_icon
             set_tooltip(lock_icon, "Системный домен (нельзя удалить)")
-            lock_icon.setStyleSheet("background: transparent; border: none;")
             layout.addWidget(lock_icon)
 
         # Домен
-        domain_label = QLabel(domain)
+        domain_label = BodyLabel(domain)
+        if is_default:
+            domain_label.setEnabled(False)
         self._domain_label = domain_label
         layout.addWidget(domain_label, 1)
 
         # Кнопка удаления (только для пользовательских)
         if not is_default:
-            delete_btn = ActionButton("")
+            delete_btn = TransparentToolButton(self)
             self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
@@ -88,25 +104,22 @@ class WhitelistDomainRow(QFrame):
         tokens = self._tokens or get_theme_tokens("Темная синяя")
 
         if self.is_default:
-            disabled_bg = get_card_disabled_gradient_qss(tokens.theme_name)
             qss = f"""
                 WhitelistDomainRow {{
-                    background: {disabled_bg};
+                    background: transparent;
                     border: 1px solid {tokens.surface_border_disabled};
                     border-radius: 6px;
                 }}
             """
         else:
-            row_bg = get_card_gradient_qss(tokens.theme_name)
-            row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
             qss = f"""
                 WhitelistDomainRow {{
-                    background: {row_bg};
+                    background: transparent;
                     border: 1px solid {tokens.surface_border};
                     border-radius: 6px;
                 }}
                 WhitelistDomainRow:hover {{
-                    background: {row_bg_hover};
+                    background: {tokens.surface_bg};
                     border: 1px solid {tokens.surface_border_hover};
                 }}
             """
@@ -118,12 +131,6 @@ class WhitelistDomainRow(QFrame):
         if self._lock_icon_label is not None:
             self._lock_icon_label.setPixmap(
                 qta.icon("mdi.lock", color=tokens.fg_faint).pixmap(14, 14)
-            )
-
-        if self._domain_label is not None:
-            domain_color = tokens.fg_muted if self.is_default else tokens.fg
-            self._domain_label.setStyleSheet(
-                f"color: {domain_color}; font-size: 13px; border: none; background: transparent;"
             )
 
         if self._delete_btn is not None:
@@ -159,26 +166,29 @@ class OrchestraWhitelistPage(BasePage):
 
         self._apply_theme()
 
+    def _create_card(self, title: str):
+        card = CardWidget(self)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(12)
+
+        title_label = StrongBodyLabel(title, card) if _HAS_FLUENT else QLabel(title)
+        if not _HAS_FLUENT:
+            title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        card_layout.addWidget(title_label)
+
+        return card, card_layout
+
     def _setup_ui(self):
         # === Предупреждение о рестарте ===
         self.restart_warning = CaptionLabel(
             "⚠️ Изменения применятся после перезапуска оркестратора"
         )
-        self.restart_warning.setStyleSheet("""
-            QLabel {
-                background-color: rgba(255, 193, 7, 0.15);
-                border: 1px solid rgba(255, 193, 7, 0.3);
-                border-radius: 6px;
-                padding: 10px 14px;
-                color: #ffc107;
-                font-size: 12px;
-            }
-        """)
         self.restart_warning.hide()
         self.layout.addWidget(self.restart_warning)
 
         # === Карточка добавления ===
-        add_card = SettingsCard("Добавить домен")
+        add_card, add_card_layout = self._create_card("Добавить домен")
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
@@ -189,7 +199,7 @@ class OrchestraWhitelistPage(BasePage):
         add_layout.addWidget(self.domain_input, 1)
 
         # Кнопка добавления
-        self.add_btn = ActionButton("")
+        self.add_btn = TransparentToolButton(self)
         # Icon styled in _apply_theme()
         self.add_btn.setIconSize(QSize(18, 18))
         self.add_btn.setFixedSize(36, 36)
@@ -197,12 +207,11 @@ class OrchestraWhitelistPage(BasePage):
         self.add_btn.clicked.connect(self._add_domain)
         add_layout.addWidget(self.add_btn)
 
-        add_card.add_layout(add_layout)
+        add_card_layout.addLayout(add_layout)
         self.layout.addWidget(add_card)
 
         # === Карточка списка доменов ===
-        domains_card = SettingsCard("Белый список доменов")
-        domains_layout = QVBoxLayout()
+        domains_card, domains_layout = self._create_card("Белый список доменов")
         domains_layout.setSpacing(8)
 
         # Строка с поиском и кнопками
@@ -217,7 +226,8 @@ class OrchestraWhitelistPage(BasePage):
         top_row.addWidget(self.search_input)
 
         # Кнопка очистки пользовательских
-        self.clear_user_btn = ActionButton("Очистить пользовательские", "mdi.delete-sweep")
+        self.clear_user_btn = PushButton("Очистить пользовательские")
+        self.clear_user_btn.setFixedHeight(32)
         set_tooltip(self.clear_user_btn, "Удалить все пользовательские домены (системные останутся)")
         self.clear_user_btn.clicked.connect(self._clear_user_domains)
         top_row.addWidget(self.clear_user_btn)
@@ -231,7 +241,6 @@ class OrchestraWhitelistPage(BasePage):
 
         # Контейнер для рядов (без скролла - страница сама прокручивается)
         self.rows_container = QWidget()
-        self.rows_container.setStyleSheet("background: transparent;")
         self.rows_layout = QVBoxLayout(self.rows_container)
         self.rows_layout.setContentsMargins(0, 8, 0, 0)
         self.rows_layout.setSpacing(4)
@@ -240,7 +249,6 @@ class OrchestraWhitelistPage(BasePage):
         # Храним ссылки на ряды для быстрого доступа
         self._domain_rows: list[WhitelistDomainRow] = []
 
-        domains_card.add_layout(domains_layout)
         self.layout.addWidget(domains_card, 1)
 
     def _apply_theme(self) -> None:
@@ -251,6 +259,20 @@ class OrchestraWhitelistPage(BasePage):
 
         if hasattr(self, "clear_user_btn") and self.clear_user_btn is not None:
             self.clear_user_btn.setIcon(qta.icon("mdi.delete-sweep", color=tokens.fg))
+
+        if hasattr(self, "restart_warning") and self.restart_warning is not None:
+            self.restart_warning.setStyleSheet(
+                f"""
+                QLabel {{
+                    background: transparent;
+                    border: 1px solid {tokens.surface_border};
+                    border-radius: 6px;
+                    padding: 8px 12px;
+                    color: {tokens.fg_muted};
+                    font-size: 12px;
+                }}
+                """
+            )
 
         if hasattr(self, "count_label") and self.count_label is not None:
             self.count_label.setStyleSheet(
@@ -371,7 +393,6 @@ class OrchestraWhitelistPage(BasePage):
         if user_domains and system_domains:
             spacer = QWidget()
             spacer.setFixedHeight(12)
-            spacer.setStyleSheet("background: transparent;")
             self.rows_layout.addWidget(spacer)
 
         # Добавляем заголовок и ряды для системных (если есть)

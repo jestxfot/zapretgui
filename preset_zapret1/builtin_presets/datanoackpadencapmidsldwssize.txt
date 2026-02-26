@@ -35,7 +35,7 @@
 # === HTTPS YouTube ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/youtube.com
+--hostlist-domains=youtube.com
 --dpi-desync=fake,multidisorder
 --dpi-desync-split-pos=1,midsld
 --dpi-desync-repeats=6

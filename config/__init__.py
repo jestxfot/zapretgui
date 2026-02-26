@@ -18,6 +18,7 @@ from .config import (
     ZAPRET2_MODES, get_winws_exe_for_method, is_zapret2_mode,
     # Paths for per-user presets/lists templates
     get_zapret_presets_v2_dir, get_zapret_userdata_dir, get_zapret_presets_v2_template_dir,
+    get_zapret_orchestra_zapret2_dir, get_zapret_orchestra_presets_dir, get_zapret_orchestra_presets_template_dir,
     get_zapret_presets_v1_template_dir,
     get_zapret_lists_template_dir, get_other_template_path,
     get_zapret_lists_backup_dir, get_other_backup_path, get_other_user_backup_path
@@ -46,6 +47,9 @@ __all__ = [
     'get_zapret_userdata_dir',
     'get_zapret_presets_v2_dir',
     'get_zapret_presets_v2_template_dir',
+    'get_zapret_orchestra_zapret2_dir',
+    'get_zapret_orchestra_presets_dir',
+    'get_zapret_orchestra_presets_template_dir',
     'get_zapret_presets_v1_template_dir',
     'get_zapret_lists_template_dir',
     'get_other_template_path',

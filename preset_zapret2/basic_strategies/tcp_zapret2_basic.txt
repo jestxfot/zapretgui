@@ -7,6 +7,12 @@ author = loop-uh
 name = hostfakesplit_multi
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
+[hostfakesplit_multi_syndata]
+name = hostfakesplit_multi + syndata
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+
 [censorliber_tls_google_syndata_tcpack_fake]
 name = Censorliber tls google + Syndata + fake + TCP ACK
 author = loop-uh

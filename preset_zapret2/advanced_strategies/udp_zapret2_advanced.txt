@@ -12,7 +12,7 @@ author = Flowseal
 label = stable
 description = fake quic_google с 10 повторами и авто TTL
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 [fake_2_n2]
 name = fake_2_n2

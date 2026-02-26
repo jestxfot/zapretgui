@@ -1,6 +1,6 @@
 # Preset: ALL TCP & UDP v3.1
 # ActivePreset: ALL TCP & UDP v3.1
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # Created: 2026-01-30T14:17:56.182141
 # Modified: 2026-01-30T14:47:35.144031
 # Description: 
@@ -61,6 +61,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin

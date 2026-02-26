@@ -39,5 +39,5 @@
 --dpi-desync-fooling=md5sig
 --wssize
 1:6
---dpi-desync-fake-tls-mod=bin/rnd,rndsni,padencap
+--dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --new

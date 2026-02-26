@@ -327,6 +327,28 @@ def _normalize_path_value_for_preset(
     return f"{at_prefix}{default_subdir}/{raw}"
 
 
+def _should_normalize_bin_value(value: str) -> bool:
+    """Returns True only for values that are actual *.bin file references."""
+    raw = (value or "").strip()
+    if not raw:
+        return False
+
+    if raw.startswith("@"):
+        raw = raw[1:]
+
+    raw = raw.strip().strip('"').strip("'")
+    if not raw:
+        return False
+
+    lowered = raw.lower()
+    # Inline payload/modifier values are NOT paths.
+    if lowered.startswith("0x") or lowered.startswith("!") or lowered.startswith("^"):
+        return False
+
+    # Only *.bin should be normalized into bin/... paths.
+    return lowered.endswith(".bin")
+
+
 def _normalize_known_path_line(line: str) -> str:
     """
     Normalizes specific known args that contain file paths.
@@ -364,6 +386,8 @@ def _normalize_known_path_line(line: str) -> str:
         "--dpi-desync-fake-quic",
         "--dpi-desync-split-seqovl-pattern",
     ):
+        if not _should_normalize_bin_value(value):
+            return line
         norm_value = _normalize_path_value_for_preset(
             value,
             main_directory=main_directory,
@@ -658,6 +682,63 @@ def extract_strategy_args(
            line == '--lua-desync=syndata' or \
            line.startswith('--lua-desync=send:') or \
            line == '--lua-desync=send':
+            continue
+        strategy_lines.append(line)
+
+    return '\n'.join(strategy_lines)
+
+
+def extract_strategy_args_incl_syndata(
+    args: str,
+    *,
+    category_key: Optional[str] = None,
+    filter_mode: Optional[str] = None,
+) -> str:
+    """
+    Like extract_strategy_args() but keeps --lua-desync=syndata: and --lua-desync=send: lines.
+
+    Used for strategy ID inference when loading presets, so that basic-mode strategies
+    that embed syndata/send in their args can be correctly identified.
+    """
+    base_filter_tokens: Set[str] = set()
+    try:
+        category_key_n = (category_key or "").strip().lower()
+        if category_key_n and category_key_n != "unknown":
+            filters = _load_category_filters()
+            variants = filters.get(category_key_n) if filters else None
+            if variants:
+                want = (filter_mode or "").strip().lower()
+                for mode, token_set in variants:
+                    if want and mode == want:
+                        base_filter_tokens = set(token_set)
+                        break
+                if not base_filter_tokens:
+                    base_filter_tokens = set(variants[0][1])
+    except Exception:
+        base_filter_tokens = set()
+
+    lines = args.strip().split('\n')
+    strategy_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            token = _normalize_filter_token(line)
+        except Exception:
+            token = ""
+        if base_filter_tokens and token and token in base_filter_tokens:
+            continue
+        # Skip filter, hostlist/ipset lines — but KEEP syndata/send and out-range
+        if line.startswith('--filter-') or \
+           line.startswith('--hostlist=') or \
+           line.startswith('--hostlist-domains=') or \
+           line.startswith('--hostlist-exclude=') or \
+           line.startswith('--ipset=') or \
+           line.startswith('--ipset-exclude=') or \
+           line.startswith('--ipset-ip=') or \
+           line.startswith('--out-range'):
             continue
         strategy_lines.append(line)
 

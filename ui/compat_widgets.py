@@ -117,19 +117,16 @@ class ActionButton(PushButton if HAS_FLUENT else QPushButton):
         self.setText(text)
         self.accent = accent
         self._icon_name = icon_name
+        self._theme_refresh_scheduled = False
+        self._last_icon_color = None
         self.setFixedHeight(32)
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         if icon_name:
             self.setIconSize(QSize(16, 16))
-            try:
-                import qtawesome as qta
-                from qfluentwidgets import isDarkTheme as _idt
-                _icon_color = "#cccccc" if _idt() else "#555555"
-                self.setIcon(qta.icon(icon_name, color=_icon_color))
-            except Exception:
-                pass
+            # Avoid virtual dispatch to subclass _update_style() while base __init__ runs.
+            ActionButton._update_style(self)
 
     def _update_style(self):
         """Update icon tint when theme changes."""
@@ -138,9 +135,30 @@ class ActionButton(PushButton if HAS_FLUENT else QPushButton):
                 import qtawesome as qta
                 from qfluentwidgets import isDarkTheme as _idt
                 _color = "#cccccc" if _idt() else "#555555"
+                if _color == self._last_icon_color:
+                    return
                 self.setIcon(qta.icon(self._icon_name, color=_color))
+                self._last_icon_color = _color
             except Exception:
                 pass
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if not self._icon_name:
+                    return super().changeEvent(event)
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(16, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        try:
+            self._update_style()
+        finally:
+            self._theme_refresh_scheduled = False
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +176,10 @@ class RefreshButton(ActionButton):
     """
 
     def __init__(self, text: str = "Обновить", icon_name: str = "fa5s.sync-alt", parent=None):
-        super().__init__(text, icon_name, parent=parent)
         self._loading = False
         self._spin_angle = 0.0
+        self._spin_timer = None
+        super().__init__(text, icon_name, parent=parent)
         self._spin_timer = QTimer(self)
         self._spin_timer.setInterval(40)  # ~25 fps
         self._spin_timer.timeout.connect(self._spin_tick)
@@ -171,11 +190,14 @@ class RefreshButton(ActionButton):
             return
         self._loading = loading
         self.setEnabled(not loading)
+        timer = self._spin_timer
         if loading:
             self._spin_angle = 0.0
-            self._spin_timer.start()
+            if timer is not None:
+                timer.start()
         else:
-            self._spin_timer.stop()
+            if timer is not None:
+                timer.stop()
             self._set_icon_at(0.0)
 
     def _spin_tick(self) -> None:
@@ -191,11 +213,13 @@ class RefreshButton(ActionButton):
             color = "#cccccc" if _idt() else "#555555"
             self.setIcon(qta.icon(self._icon_name, color=color, rotated=angle))
         except Exception:
-            self._spin_timer.stop()
+            timer = getattr(self, "_spin_timer", None)
+            if timer is not None:
+                timer.stop()
 
     def _update_style(self) -> None:
         """Update icon tint when theme changes (only when not spinning)."""
-        if not self._loading:
+        if not getattr(self, "_loading", False):
             self._set_icon_at(0.0)
 
 
@@ -215,7 +239,7 @@ class PrimaryActionButton(PrimaryPushButton if HAS_FLUENT else QPushButton):
         self.setText(text)
         self._icon_name = icon_name
         self.setFixedHeight(32)
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         if icon_name:

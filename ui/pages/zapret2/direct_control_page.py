@@ -164,9 +164,10 @@ class Zapret2DirectControlPage(BasePage):
 
     def _build_ui(self):
         # Статус работы
-        self.add_section_title("Статус работы")
+        self.status_section_label = self.add_section_title("Статус работы", return_widget=True)
 
         status_card = SettingsCard()
+        self.status_card = status_card
         status_layout = QHBoxLayout()
         status_layout.setSpacing(16)
 
@@ -195,9 +196,10 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # Управление
-        self.add_section_title("Управление Zapret 2")
+        self.control_section_label = self.add_section_title("Управление Zapret 2", return_widget=True)
 
         control_card = SettingsCard()
+        self.control_card_card = control_card
 
         # Индикатор загрузки (бегающая полоска) - показываем рядом с кнопками управления
         self.progress_bar = IndeterminateProgressBar(self)
@@ -233,10 +235,11 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
-        self.add_section_title("Сменить пресет обхода блокировок")
+        self.preset_section_label = self.add_section_title("Сменить пресет обхода блокировок", return_widget=True)
 
         # Card A — Активный пресет (single-row: icon | text | button)
         preset_card = CardWidget()
+        self.preset_card = preset_card
         preset_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         preset_row = QHBoxLayout(preset_card)
         preset_row.setContentsMargins(16, 14, 16, 14)
@@ -267,15 +270,17 @@ class Zapret2DirectControlPage(BasePage):
         presets_btn.setIcon(FluentIcon.FOLDER)
         presets_btn.clicked.connect(self.navigate_to_presets.emit)
         preset_row.addWidget(presets_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.presets_btn = presets_btn
         self.add_widget(preset_card)
 
         self.add_spacing(8)
 
         # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
-        self.add_section_title("Настройте пресет более тонко через прямой запуск")
+        self.direct_section_label = self.add_section_title("Настройте пресет более тонко через прямой запуск", return_widget=True)
 
         # Card B — Прямой запуск (single-row: icon | text | buttons)
         direct_card = CardWidget()
+        self.direct_card = direct_card
         direct_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         direct_row = QHBoxLayout(direct_card)
         direct_row.setContentsMargins(16, 14, 16, 14)
@@ -290,7 +295,8 @@ class Zapret2DirectControlPage(BasePage):
         direct_col.setSpacing(2)
         self.direct_mode_label = StrongBodyLabel("Basic")
         direct_col.addWidget(self.direct_mode_label)
-        direct_col.addWidget(CaptionLabel("Режим прямого запуска"))
+        self.direct_mode_caption = CaptionLabel("Режим прямого запуска")
+        direct_col.addWidget(self.direct_mode_caption)
         direct_row.addLayout(direct_col, 1)
 
         direct_btns = QHBoxLayout()
@@ -304,6 +310,8 @@ class Zapret2DirectControlPage(BasePage):
         mode_btn.clicked.connect(self._open_direct_mode_dialog)
         direct_btns.addWidget(open_btn)
         direct_btns.addWidget(mode_btn)
+        self.direct_open_btn = open_btn
+        self.direct_mode_btn = mode_btn
         direct_row.addLayout(direct_btns)
         self.add_widget(direct_card)
 
@@ -318,8 +326,9 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # Настройки программы
-        self.add_section_title("Настройки программы")
+        self.program_settings_section_label = self.add_section_title("Настройки программы", return_widget=True)
         program_settings_card = SettingsCard()
+        self.program_settings_card = program_settings_card
 
         try:
             from ui.pages.dpi_settings_page import Win11ToggleSwitch
@@ -389,7 +398,7 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ (direct_zapret2)
-        self.add_section_title("Дополнительные настройки")
+        self.advanced_settings_section_label = self.add_section_title("Дополнительные настройки", return_widget=True)
 
         self.advanced_card = SettingsCard("ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
         advanced_layout = QVBoxLayout()
@@ -451,6 +460,7 @@ class Zapret2DirectControlPage(BasePage):
 
         # Card C — Блобы (ссылка на страницу)
         blobs_card = CardWidget()
+        self.blobs_card = blobs_card
         blobs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         blobs_row = QHBoxLayout(blobs_card)
         blobs_row.setContentsMargins(16, 14, 16, 14)
@@ -471,12 +481,14 @@ class Zapret2DirectControlPage(BasePage):
         blobs_open_btn.setText("Открыть")
         blobs_open_btn.setIcon(FluentIcon.FOLDER)
         blobs_open_btn.clicked.connect(self.navigate_to_blobs.emit)
+        self.blobs_open_btn = blobs_open_btn
         blobs_row.addWidget(blobs_open_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.add_widget(blobs_card)
         
         # Дополнительные действия
-        self.add_section_title("Дополнительно")
+        self.extra_section_label = self.add_section_title("Дополнительно", return_widget=True)
         extra_card = SettingsCard()
+        self.extra_card = extra_card
         extra_layout = QHBoxLayout()
         extra_layout.setSpacing(8)
         self.test_btn = ActionButton("Тест соединения", "fa5s.wifi")

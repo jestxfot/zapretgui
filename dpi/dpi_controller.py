@@ -262,6 +262,12 @@ class DPIStartWorker(QObject):
 
             # Обработка комбинированных стратегий
             elif isinstance(mode_param, dict) and mode_param.get('is_combined'):
+                if self.launch_method == "direct_zapret2_orchestra":
+                    log("Комбинированный запуск для direct_zapret2_orchestra отключён: используйте preset файл", "❌ ERROR")
+                    self._last_error_message = "Режим orchestra запускается только через preset файл"
+                    self.progress.emit("❌ Режим orchestra запускается только через preset файл")
+                    return False
+
                 strategy_name = mode_param.get('name', 'Комбинированная стратегия')
                 args_str = mode_param.get('args', '')
                 
@@ -348,28 +354,73 @@ class DPIStartWorker(QObject):
             # emit_log() эмитит сигнал с QueuedConnection - безопасно из любого потока
             has_attr = hasattr(self.app_instance, 'orchestra_page')
             page_exists = self.app_instance.orchestra_page if has_attr else None
-            print(f"[DEBUG _start_orchestra] has_attr={has_attr}, page_exists={page_exists}")  # DEBUG
             if has_attr and page_exists:
                 runner.set_output_callback(self.app_instance.orchestra_page.emit_log)
             else:
                 log("orchestra_page не существует при старте, callback будет установлен позже", "WARNING")
 
             # Запускаем (prepare + start)
-            if runner.start():
-                log("Оркестратор успешно запущен", "✅ SUCCESS")
+            attempts = 2
+            for attempt in range(1, attempts + 1):
+                if runner.start():
+                    log("Оркестратор успешно запущен", "✅ SUCCESS")
 
-                # Запускаем мониторинг на странице оркестра (через main thread!)
-                # ВАЖНО: start_monitoring() запускает QTimer, который нельзя создавать из другого потока
-                if hasattr(self.app_instance, 'orchestra_page') and self.app_instance.orchestra_page:
-                    QMetaObject.invokeMethod(
-                        self.app_instance.orchestra_page,
-                        "start_monitoring",
-                        Qt.ConnectionType.QueuedConnection
-                    )
+                    # Запускаем мониторинг на странице оркестра (через main thread!)
+                    # ВАЖНО: start_monitoring() запускает QTimer, который нельзя создавать из другого потока
+                    if hasattr(self.app_instance, 'orchestra_page') and self.app_instance.orchestra_page:
+                        QMetaObject.invokeMethod(
+                            self.app_instance.orchestra_page,
+                            "start_monitoring",
+                            Qt.ConnectionType.QueuedConnection
+                        )
 
-                return True
-            else:
-                log("Не удалось запустить оркестратор", "❌ ERROR")
+                    return True
+
+                start_reason = str(getattr(runner, 'last_start_error', '') or '').strip()
+                if attempt < attempts:
+                    if start_reason:
+                        log(
+                            f"Оркестратор не стартовал (попытка {attempt}/{attempts}): {start_reason}. Повторяем...",
+                            "WARNING",
+                        )
+                    else:
+                        log(
+                            f"Оркестратор не стартовал (попытка {attempt}/{attempts}). Повторяем...",
+                            "WARNING",
+                        )
+                    time.sleep(0.7)
+                    continue
+
+                if start_reason:
+                    log(f"Не удалось запустить оркестратор: {start_reason}", "❌ ERROR")
+                else:
+                    log("Не удалось запустить оркестратор", "❌ ERROR")
+
+                try:
+                    exit_info = getattr(runner, 'last_exit_info', None) or {}
+                    config_path = str(exit_info.get('config_path') or '').strip()
+                    command = exit_info.get('command') or []
+                    recent_output = exit_info.get('recent_output') or []
+
+                    if config_path:
+                        log(f"Диагностика старта: конфиг={config_path}", "INFO")
+                    if command:
+                        cmd_preview = " ".join(str(x) for x in command)
+                        if len(cmd_preview) > 500:
+                            cmd_preview = cmd_preview[:500] + " ..."
+                        log(f"Диагностика старта: команда={cmd_preview}", "INFO")
+
+                    if recent_output:
+                        log("Диагностика старта: последние строки winws2:", "INFO")
+                        for line in recent_output[-6:]:
+                            clean = str(line or '').strip()
+                            if clean:
+                                if len(clean) > 300:
+                                    clean = clean[:300] + " ..."
+                                log(f"  {clean}", "INFO")
+                except Exception:
+                    pass
+
                 return False
 
         except Exception as e:
@@ -532,6 +583,28 @@ class DPIController:
         self._dpi_start_thread = None
         self._dpi_stop_thread = None
         self._stop_exit_thread = None
+        # Generation token for async start verification.
+        # Prevents stale QTimer checks from previous start attempts.
+        self._dpi_start_verify_generation = 0
+
+    def _show_launch_error_top(self, message: str) -> None:
+        """Показывает человеко-понятную ошибку запуска через верхний InfoBar."""
+        text = str(message or "").strip()
+        if not text:
+            return
+        try:
+            while text.startswith(("❌", "⚠️", "⚠")):
+                text = text[1:].strip()
+        except Exception:
+            pass
+        if not text:
+            text = "Не удалось запустить DPI"
+
+        try:
+            if hasattr(self.app, "show_dpi_launch_error"):
+                self.app.show_dpi_launch_error(text)
+        except Exception as e:
+            log(f"Не удалось показать InfoBar ошибки запуска: {e}", "DEBUG")
 
     def start_dpi_async(self, selected_mode=None, launch_method=None):
         """Асинхронно запускает DPI без блокировки UI
@@ -547,6 +620,9 @@ class DPIController:
                 return
         except RuntimeError:
             self._dpi_start_thread = None
+
+        # Invalidate any pending verification loop from older starts.
+        self._dpi_start_verify_generation += 1
 
         # Проверяем выбранный метод запуска (явно переданный или из реестра)
         if launch_method is None:
@@ -572,8 +648,15 @@ class DPIController:
                     preset_path = get_active_preset_path()
                     preset_name = get_active_preset_name() or "Default"
                 elif launch_method == "direct_zapret2_orchestra":
-                    preset_path = Path(MAIN_DIRECTORY) / "preset-zapret2-orchestra.txt"
-                    preset_name = "Orchestra"
+                    from preset_orchestra_zapret2 import (
+                        ensure_default_preset_exists,
+                        get_active_preset_path,
+                        get_active_preset_name,
+                    )
+
+                    ensure_default_preset_exists()
+                    preset_path = get_active_preset_path()
+                    preset_name = get_active_preset_name() or "Default"
                 else:  # direct_zapret1
                     preset_path = Path(MAIN_DIRECTORY) / "preset-zapret1.txt"
                     preset_name = "Zapret 1"
@@ -594,6 +677,7 @@ class DPIController:
                 if not preset_path.exists():
                     log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
                     self.app.set_status("❌ Preset файл не найден. Создайте пресет в настройках")
+                    self._show_launch_error_top("Preset файл не найден. Создайте пресет в настройках")
                     if hasattr(self.app, 'ui_manager'):
                         self.app.ui_manager.update_ui_state(running=False)
                     return
@@ -609,10 +693,16 @@ class DPIController:
                         content_l = content.lower()
                         if ("unknown.txt" in content_l) or ("ipset-unknown.txt" in content_l):
                             try:
-                                from preset_zapret2.txt_preset_parser import (
-                                    parse_preset_file,
-                                    generate_preset_file,
-                                )
+                                if launch_method == "direct_zapret2_orchestra":
+                                    from preset_orchestra_zapret2.txt_preset_parser import (
+                                        parse_preset_file,
+                                        generate_preset_file,
+                                    )
+                                else:
+                                    from preset_zapret2.txt_preset_parser import (
+                                        parse_preset_file,
+                                        generate_preset_file,
+                                    )
 
                                 data = parse_preset_file(preset_path)
                                 if generate_preset_file(data, preset_path, atomic=True):
@@ -629,12 +719,14 @@ class DPIController:
                     if not has_filters:
                         log("Preset файл не содержит активных фильтров", "WARNING")
                         self.app.set_status("⚠️ Выберите хотя бы одну категорию для запуска")
+                        self._show_launch_error_top("Выберите хотя бы одну категорию для запуска")
                         if hasattr(self.app, 'ui_manager'):
                             self.app.ui_manager.update_ui_state(running=False)
                         return
                 except Exception as e:
                     log(f"Ошибка чтения preset файла: {e}", "❌ ERROR")
                     self.app.set_status(f"❌ Ошибка чтения preset: {e}")
+                    self._show_launch_error_top(f"Ошибка чтения preset: {e}")
                     if hasattr(self.app, 'ui_manager'):
                         self.app.ui_manager.update_ui_state(running=False)
                     return
@@ -649,6 +741,7 @@ class DPIController:
             else:
                 log(f"Неизвестный метод запуска '{launch_method}': стратегия не выбрана", "❌ ERROR")
                 self.app.set_status("❌ Неизвестный метод запуска")
+                self._show_launch_error_top("Неизвестный метод запуска")
                 return
         
         # ✅ ОБРАБОТКА всех типов стратегий (остальной код без изменений)
@@ -658,9 +751,9 @@ class DPIController:
             # Комбинированная стратегия
             mode_name = selected_mode.get('name', 'Комбинированная стратегия')
             log(f"Обработка комбинированной стратегии: {mode_name}", "DEBUG")
-            
+
             # Сохраняем выборы в реестр для будущего использования
-            if 'selections' in selected_mode:
+            if 'selections' in selected_mode and launch_method != "direct_zapret2_orchestra":
                 from strategy_menu import set_direct_strategy_selections
                 selections = selected_mode['selections']
                 set_direct_strategy_selections(selections)
@@ -704,6 +797,11 @@ class DPIController:
         if hasattr(self.app, 'zapret2_direct_control_page'):
             try:
                 self.app.zapret2_direct_control_page.set_loading(True, "Запуск Zapret...")
+            except Exception:
+                pass
+        if hasattr(self.app, 'orchestra_zapret2_control_page'):
+            try:
+                self.app.orchestra_zapret2_control_page.set_loading(True, "Запуск Zapret...")
             except Exception:
                 pass
         if hasattr(self.app, 'home_page'):
@@ -781,6 +879,11 @@ class DPIController:
         if hasattr(self.app, 'zapret2_direct_control_page'):
             try:
                 self.app.zapret2_direct_control_page.set_loading(True, "Остановка Zapret...")
+            except Exception:
+                pass
+        if hasattr(self.app, 'orchestra_zapret2_control_page'):
+            try:
+                self.app.orchestra_zapret2_control_page.set_loading(True, "Остановка Zapret...")
             except Exception:
                 pass
         if hasattr(self.app, 'home_page'):
@@ -863,9 +966,14 @@ class DPIController:
                     self.app.zapret2_direct_control_page.set_loading(False)
                 except Exception:
                     pass
+            if hasattr(self.app, 'orchestra_zapret2_control_page'):
+                try:
+                    self.app.orchestra_zapret2_control_page.set_loading(False)
+                except Exception:
+                    pass
             if hasattr(self.app, 'home_page'):
                 self.app.home_page.set_loading(False)
-            
+
             # ✅ Показываем галочку успеха (скрываем спиннер)
             if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
                 self.app.main_window.strategies_page.show_success()
@@ -874,11 +982,13 @@ class DPIController:
                 # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно запущен?
                 # Используем QTimer вместо time.sleep чтобы не блокировать main thread.
                 self._dpi_start_verify_retry = 0
-                self._verify_dpi_process_running()
+                verify_gen = self._dpi_start_verify_generation
+                self._verify_dpi_process_running(verify_gen)
                     
             else:
                 log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
                 self.app.set_status(f"❌ Ошибка запуска: {error_message}")
+                self._show_launch_error_top(error_message)
                 
                 # ✅ ИСПОЛЬЗУЕМ UI MANAGER вместо app.update_ui
                 if hasattr(self.app, 'ui_manager'):
@@ -892,9 +1002,16 @@ class DPIController:
             log(f"Ошибка при обработке результата запуска DPI: {e}", "❌ ERROR")
             self.app.set_status(f"Ошибка: {e}")
     
-    def _verify_dpi_process_running(self):
+    def _verify_dpi_process_running(self, verify_gen=None):
         """Неблокирующая проверка запуска процесса DPI через QTimer (вместо time.sleep в main thread)."""
         from PyQt6.QtCore import QTimer
+
+        if verify_gen is None:
+            verify_gen = self._dpi_start_verify_generation
+
+        # Ignore stale verification callbacks from older start attempts.
+        if verify_gen != self._dpi_start_verify_generation:
+            return
 
         # Startup of winws/winws2 can take noticeable time (driver init, UAC, first launch,
         # competing stop/start when user rapidly switches presets, etc.).
@@ -908,15 +1025,18 @@ class DPIController:
         is_actually_running = self.app.dpi_starter.check_process_running_wmi(silent=True)
 
         if is_actually_running:
-            self._on_dpi_process_confirmed(running=True)
+            self._on_dpi_process_confirmed(running=True, verify_gen=verify_gen)
         elif self._dpi_start_verify_retry < MAX_RETRIES:
             self._dpi_start_verify_retry += 1
-            QTimer.singleShot(RETRY_DELAY_MS, self._verify_dpi_process_running)
+            QTimer.singleShot(RETRY_DELAY_MS, lambda g=verify_gen: self._verify_dpi_process_running(g))
         else:
-            self._on_dpi_process_confirmed(running=False)
+            self._on_dpi_process_confirmed(running=False, verify_gen=verify_gen)
 
-    def _on_dpi_process_confirmed(self, running: bool):
+    def _on_dpi_process_confirmed(self, running: bool, verify_gen=None):
         """Вызывается после подтверждения (или отказа) запуска DPI процесса."""
+        if verify_gen is not None and verify_gen != self._dpi_start_verify_generation:
+            return
+
         if running:
             log("DPI запущен асинхронно", "INFO")
             self.app.set_status("✅ DPI успешно запущен")
@@ -943,6 +1063,7 @@ class DPIController:
             # Процесс не запустился или сразу упал
             log("DPI не запустился - процесс не найден после старта", "❌ ERROR")
             self.app.set_status("❌ Процесс не запустился. Проверьте логи")
+            self._show_launch_error_top("Процесс не запустился. Проверьте логи")
 
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_ui_state(running=False)
@@ -964,9 +1085,14 @@ class DPIController:
                     self.app.zapret2_direct_control_page.set_loading(False)
                 except Exception:
                     pass
+            if hasattr(self.app, 'orchestra_zapret2_control_page'):
+                try:
+                    self.app.orchestra_zapret2_control_page.set_loading(False)
+                except Exception:
+                    pass
             if hasattr(self.app, 'home_page'):
                 self.app.home_page.set_loading(False)
-            
+
             # ✅ Показываем галочку (скрываем спиннер)
             if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
                 self.app.main_window.strategies_page.show_success()

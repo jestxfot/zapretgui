@@ -393,6 +393,7 @@ class MaxBlockerManager:
             "update.max.ru",
             "api.max.ru",
             "cdn.max.ru",
+            "web.max.ru",
             "oneme.com",
             "download.oneme.com",
         ]

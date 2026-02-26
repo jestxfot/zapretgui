@@ -19,7 +19,7 @@
 # === HTTP (порт 80) ===
 --new
 --filter-tcp=80
---hostlist-domains=lists/rutracker.cc
+--hostlist-domains=rutracker.cc
 --ipset=lists/ipset-all.txt
 --dpi-desync=fake,fakedsplit
 --dpi-desync-autottl=2
@@ -28,7 +28,7 @@
 # === HTTPS YouTube ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/rutracker.cc,hmvmania.com,roskomsvoboda.org,rublacklist.net,onlinesim.io,android.com,proton.me,moscowtimes.ru,dw.com,z-library.sk
+--hostlist-domains=rutracker.cc,hmvmania.com,roskomsvoboda.org,rublacklist.net,onlinesim.io,android.com,proton.me,moscowtimes.ru,dw.com,z-library.sk
 --hostlist=lists/youtube.txt
 --hostlist=lists/faceinsta.txt
 --dpi-desync=fake,multidisorder
@@ -45,7 +45,7 @@
 --dpi-desync-split-pos=sld+1
 --dpi-desync-fake-tls=0x0F0F0E0F
 --dpi-desync-fake-tls=bin/tls_clienthello_14.bin
---dpi-desync-fake-tls-mod=bin/rnd,dupsid
+--dpi-desync-fake-tls-mod=rnd,dupsid
 --dpi-desync-fooling=badseq
 --dpi-desync-autottl
 --dup=2

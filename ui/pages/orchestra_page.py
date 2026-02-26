@@ -18,7 +18,7 @@ from ui.theme import get_theme_tokens
 try:
     from qfluentwidgets import (
         BodyLabel, CaptionLabel, StrongBodyLabel, PushButton as FluentPushButton,
-        LineEdit, ComboBox, ListWidget, RoundMenu,
+        LineEdit, ComboBox, ListWidget, RoundMenu, CardWidget, TransparentToolButton,
     )
     _HAS_FLUENT = True
 except ImportError:
@@ -26,149 +26,18 @@ except ImportError:
     CaptionLabel = QLabel
     StrongBodyLabel = QLabel
     FluentPushButton = QPushButton
-    LineEdit = None
-    ComboBox = None
-    ListWidget = None
+    LineEdit = QLineEdit
+    ComboBox = QComboBox
+    ListWidget = QListWidget
     RoundMenu = None
+    CardWidget = QFrame
+    TransparentToolButton = QPushButton
     _HAS_FLUENT = False
 
 
-from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
+from ui.compat_widgets import set_tooltip
 from log import log
 from orchestra import MAX_ORCHESTRA_LOGS
-
-
-class DangerResetButton(FluentPushButton):
-    """Кнопка сброса с двойным подтверждением, красным стилем и анимацией корзинки"""
-
-    reset_confirmed = pyqtSignal()
-
-    def __init__(self, text: str = "Сбросить", confirm_text: str = "Это всё сотрёт!", parent=None):
-        super().__init__(parent)
-        self.setText(text)
-        self._default_text = text
-        self._confirm_text = confirm_text
-        self._pending = False
-        self._hovered = False
-        self._theme_refresh_scheduled = False
-
-        # Иконка
-        self._update_icon()
-        self.setIconSize(QSize(16, 16))
-        self.setFixedHeight(32)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Таймер сброса состояния
-        self._reset_timer = QTimer(self)
-        self._reset_timer.setSingleShot(True)
-        self._reset_timer.timeout.connect(self._reset_state)
-
-        # Анимация иконки (качание)
-        self._shake_timer = QTimer(self)
-        self._shake_timer.timeout.connect(self._animate_shake)
-        self._shake_step = 0
-
-        self._update_style()
-
-    def _update_icon(self, rotation: int = 0):
-        """Обновляет иконку с опциональным углом поворота"""
-        tokens = get_theme_tokens()
-        color = '#ff6b6b' if self._pending else tokens.fg
-        icon_name = 'fa5s.trash-alt' if self._pending else 'fa5s.redo-alt'
-        if rotation != 0:
-            self.setIcon(qta.icon(icon_name, color=color, rotated=rotation))
-        else:
-            self.setIcon(qta.icon(icon_name, color=color))
-
-    def _update_style(self):
-        """Обновляет стили кнопки"""
-        if self._pending:
-            bg = "rgba(255, 107, 107, 0.35)" if self._hovered else "rgba(255, 107, 107, 0.20)"
-            self.setStyleSheet(f"PushButton {{ background-color: {bg}; color: #ff6b6b; border: 1px solid rgba(255,107,107,0.5); }}")
-        else:
-            self.setStyleSheet("")  # Let PushButton use its default styling
-
-    def _animate_shake(self):
-        """Анимация качания иконки корзинки"""
-        self._shake_step += 1
-        if self._shake_step > 8:
-            self._shake_timer.stop()
-            self._shake_step = 0
-            self._update_icon(0)
-            return
-
-        # Качаем иконку влево-вправо
-        rotations = [0, -15, 15, -12, 12, -8, 8, -4, 0]
-        rotation = rotations[min(self._shake_step, len(rotations) - 1)]
-        self._update_icon(rotation)
-
-    def _start_shake_animation(self):
-        """Запускает анимацию качания"""
-        self._shake_step = 0
-        self._shake_timer.start(50)
-
-    def _reset_state(self):
-        """Сбрасывает состояние кнопки"""
-        self._pending = False
-        self.setText(self._default_text)
-        self._update_icon()
-        self._update_style()
-        self._shake_timer.stop()
-
-    def mousePressEvent(self, event):
-        """Обработка клика"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self._pending:
-                # Второй клик - подтверждение
-                self._reset_timer.stop()
-                self._pending = False
-                self.setText("✓ Сброшено")
-                self._update_icon()
-                self._update_style()
-                self.reset_confirmed.emit()
-                # Вернуть исходное состояние через 1.5 сек
-                QTimer.singleShot(1500, self._reset_state)
-            else:
-                # Первый клик - переход в режим подтверждения
-                self._pending = True
-                self.setText(self._confirm_text)
-                self._update_icon()
-                self._update_style()
-                self._start_shake_animation()
-                # Сбросить через 3 секунды если не подтверждено
-                self._reset_timer.start(3000)
-        super().mousePressEvent(event)
-
-    def enterEvent(self, event):
-        self._hovered = True
-        self._update_style()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hovered = False
-        self._update_style()
-        super().leaveEvent(event)
-
-    def changeEvent(self, event):  # noqa: N802 (Qt override)
-        try:
-            from PyQt6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-                self._schedule_theme_refresh()
-        except Exception:
-            pass
-        return super().changeEvent(event)
-
-    def _schedule_theme_refresh(self) -> None:
-        if self._theme_refresh_scheduled:
-            return
-        self._theme_refresh_scheduled = True
-        QTimer.singleShot(0, self._on_debounced_theme_change)
-
-    def _on_debounced_theme_change(self) -> None:
-        self._update_icon()
-        self._update_style()
-        self._theme_refresh_scheduled = False
 
 
 class OrchestraPage(BasePage):
@@ -195,6 +64,12 @@ class OrchestraPage(BasePage):
         self._clear_filter_btn = None
         self._log_history_desc = None
         self._clear_all_logs_btn = None
+        self._view_log_btn = None
+        self._delete_log_btn = None
+        self._clear_learned_pending = False
+        self._clear_learned_reset_timer = QTimer(self)
+        self._clear_learned_reset_timer.setSingleShot(True)
+        self._clear_learned_reset_timer.timeout.connect(self._reset_clear_learned_button)
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -229,12 +104,24 @@ class OrchestraPage(BasePage):
         # Apply token styles after UI construction.
         self._apply_theme()
 
+    def _create_card(self, title: str):
+        card = CardWidget(self)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(12)
+
+        title_label = StrongBodyLabel(title, card) if _HAS_FLUENT else QLabel(title)
+        if not _HAS_FLUENT:
+            title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        card_layout.addWidget(title_label)
+
+        return card, card_layout
+
     def _build_ui(self):
         """Строит UI страницы"""
 
         # === Статус карточка ===
-        status_card = SettingsCard("Статус обучения")
-        status_layout = QVBoxLayout()
+        status_card, status_layout = self._create_card("Статус обучения")
 
         # Статус
         status_row = QHBoxLayout()
@@ -256,12 +143,10 @@ class OrchestraPage(BasePage):
         self._info_label = info_label
         status_layout.addWidget(info_label)
 
-        status_card.add_layout(status_layout)
         self.layout.addWidget(status_card)
 
         # === Лог карточка ===
-        log_card = SettingsCard("Лог обучения")
-        log_layout = QVBoxLayout()
+        log_card, log_layout = self._create_card("Лог обучения")
 
         # Текстовое поле для логов
         self.log_text = QTextEdit()
@@ -293,7 +178,7 @@ class OrchestraPage(BasePage):
         filter_row.addWidget(self.log_protocol_filter)
 
         # Кнопка сброса фильтра
-        clear_filter_btn = FluentPushButton()
+        clear_filter_btn = TransparentToolButton(self)
         self._clear_filter_btn = clear_filter_btn
         set_tooltip(clear_filter_btn, "Сбросить фильтр")
         clear_filter_btn.setFixedSize(28, 28)
@@ -314,8 +199,12 @@ class OrchestraPage(BasePage):
         self.clear_log_btn.clicked.connect(self._clear_log)
         btn_row1.addWidget(self.clear_log_btn)
 
-        self.clear_learned_btn = DangerResetButton("Сбросить обучение", "Это всё сотрёт!")
-        self.clear_learned_btn.reset_confirmed.connect(self._clear_learned)
+        self.clear_learned_btn = FluentPushButton()
+        self.clear_learned_btn.setText("Сбросить обучение")
+        self.clear_learned_btn.setIconSize(QSize(16, 16))
+        self.clear_learned_btn.setFixedHeight(32)
+        self.clear_learned_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_learned_btn.clicked.connect(self._on_clear_learned_clicked)
         btn_row1.addWidget(self.clear_learned_btn)
 
         btn_row1.addStretch()
@@ -325,12 +214,10 @@ class OrchestraPage(BasePage):
         # - OrchestraLockedPage (Залоченные)
         # - OrchestraBlockedPage (Заблокированные)
 
-        log_card.add_layout(log_layout)
         self.layout.addWidget(log_card)
 
         # === История логов ===
-        log_history_card = SettingsCard(f"История логов (макс. {MAX_ORCHESTRA_LOGS})")
-        log_history_layout = QVBoxLayout()
+        log_history_card, log_history_layout = self._create_card(f"История логов (макс. {MAX_ORCHESTRA_LOGS})")
 
         # Описание
         log_history_desc = CaptionLabel("Каждый запуск оркестратора создаёт новый лог с уникальным ID. Старые логи автоматически удаляются.")
@@ -347,11 +234,19 @@ class OrchestraPage(BasePage):
         # Кнопки управления историей логов
         log_history_buttons = QHBoxLayout()
 
-        view_log_btn = ActionButton("Просмотреть", "fa5s.eye")
+        view_log_btn = FluentPushButton()
+        self._view_log_btn = view_log_btn
+        view_log_btn.setText("Просмотреть")
+        view_log_btn.setIconSize(QSize(16, 16))
+        view_log_btn.setFixedHeight(32)
         view_log_btn.clicked.connect(self._view_log_history)
         log_history_buttons.addWidget(view_log_btn)
 
-        delete_log_btn = ActionButton("Удалить", "fa5s.trash-alt")
+        delete_log_btn = FluentPushButton()
+        self._delete_log_btn = delete_log_btn
+        delete_log_btn.setText("Удалить")
+        delete_log_btn.setIconSize(QSize(16, 16))
+        delete_log_btn.setFixedHeight(32)
         delete_log_btn.clicked.connect(self._delete_log_history)
         log_history_buttons.addWidget(delete_log_btn)
 
@@ -367,7 +262,6 @@ class OrchestraPage(BasePage):
         log_history_buttons.addWidget(clear_all_logs_btn)
 
         log_history_layout.addLayout(log_history_buttons)
-        log_history_card.add_layout(log_history_layout)
         self.layout.addWidget(log_history_card)
 
         # Обновляем статус
@@ -416,11 +310,13 @@ class OrchestraPage(BasePage):
             self._clear_all_logs_btn.setIcon(qta.icon("fa5s.trash-alt", color=tokens.fg))
 
         if self.clear_learned_btn is not None:
-            try:
-                self.clear_learned_btn._update_icon()  # noqa: SLF001
-                self.clear_learned_btn._update_style()  # noqa: SLF001
-            except Exception:
-                pass
+            self._update_clear_learned_button_icon()
+
+        if self._view_log_btn is not None:
+            self._view_log_btn.setIcon(qta.icon("fa5s.eye", color=tokens.fg))
+
+        if self._delete_log_btn is not None:
+            self._delete_log_btn.setIcon(qta.icon("fa5s.trash-alt", color=tokens.fg))
 
         self._update_status(getattr(self, "_current_state", self.STATE_IDLE))
 
@@ -460,6 +356,37 @@ class OrchestraPage(BasePage):
         self._full_log_lines = []  # Очищаем хранилище
         # Сбрасываем позицию чтобы перечитать файл с начала
         self._last_log_position = 0
+
+    def _update_clear_learned_button_icon(self) -> None:
+        if self.clear_learned_btn is None:
+            return
+        tokens = get_theme_tokens()
+        color = "#ff6b6b" if self._clear_learned_pending else tokens.fg
+        icon_name = "fa5s.trash-alt" if self._clear_learned_pending else "fa5s.redo-alt"
+        self.clear_learned_btn.setIcon(qta.icon(icon_name, color=color))
+
+    def _reset_clear_learned_button(self) -> None:
+        self._clear_learned_pending = False
+        if self.clear_learned_btn is not None:
+            self.clear_learned_btn.setText("Сбросить обучение")
+            self._update_clear_learned_button_icon()
+
+    def _on_clear_learned_clicked(self) -> None:
+        if self._clear_learned_pending:
+            self._clear_learned_reset_timer.stop()
+            self._clear_learned_pending = False
+            if self.clear_learned_btn is not None:
+                self.clear_learned_btn.setText("✓ Сброшено")
+                self._update_clear_learned_button_icon()
+            self._clear_learned()
+            QTimer.singleShot(1500, self._reset_clear_learned_button)
+            return
+
+        self._clear_learned_pending = True
+        if self.clear_learned_btn is not None:
+            self.clear_learned_btn.setText("Это всё сотрёт!")
+            self._update_clear_learned_button_icon()
+        self._clear_learned_reset_timer.start(3000)
 
     def _clear_learned(self):
         """Сбрасывает данные обучения"""
@@ -509,7 +436,7 @@ class OrchestraPage(BasePage):
             except Empty:
                 break
 
-    def _get_current_log_path(self) -> str:
+    def _get_current_log_path(self) -> str | None:
         """Получает путь к текущему лог-файлу из runner'а"""
         try:
             app = self.window()
@@ -863,7 +790,7 @@ class OrchestraPage(BasePage):
 
         menu.exec(self.log_text.mapToGlobal(pos))
 
-    def _parse_log_line_for_strategy(self, line: str) -> tuple:
+    def _parse_log_line_for_strategy(self, line: str) -> tuple | None:
         """Парсит строку лога и извлекает домен, стратегию и протокол
 
         Форматы строк:
@@ -918,8 +845,9 @@ class OrchestraPage(BasePage):
         """Копирует текст в буфер обмена"""
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
-        clipboard.setText(text)
-        self.append_log("[INFO] Строка скопирована в буфер обмена")
+        if clipboard is not None:
+            clipboard.setText(text)
+            self.append_log("[INFO] Строка скопирована в буфер обмена")
 
     def _lock_strategy_from_log(self, domain: str, strategy: int, protocol: str):
         """Залочивает стратегию из контекстного меню лога"""

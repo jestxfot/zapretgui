@@ -17,7 +17,7 @@
 --filter-tcp=100-25565
 --dpi-desync=fake
 --dpi-desync-repeats=6
---dpi-desync-fake-tls-mod=bin/none
+--dpi-desync-fake-tls-mod=none
 --dpi-desync-fooling=badseq
 
 # === UDP порт 100 ===

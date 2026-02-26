@@ -34,7 +34,7 @@ from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from ui.theme import get_theme_tokens
 from log import log, global_logger, LOG_FILE, cleanup_old_logs
 from log_tail import LogTailWorker
-from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
+from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES, get_winws_exe_for_method
 from launcher_common import get_current_runner
 
 # Паттерны для определения РЕАЛЬНЫХ ошибок (строгие)
@@ -105,8 +105,11 @@ class WinwsOutputWorker(QObject):
                             text = str(line).rstrip()
                         if text:
                             self.new_output.emit(text, stream_type)
-                    elif not self._running:
-                        break
+                    else:
+                        if not self._running:
+                            break
+                        # Protect from busy-loop when pipe returns empty chunk.
+                        QThread.msleep(25)
 
                 # Читаем оставшееся после завершения
                 remaining = stream.read()
@@ -145,7 +148,7 @@ class WinwsOutputWorker(QObject):
         # Ждём завершения процесса
         try:
             while self._running and self._process.poll() is None:
-                QThread.msleep(100)
+                QThread.msleep(200)
 
             # Ждём завершения потоков чтения
             if stdout_thread and stdout_thread.is_alive():
@@ -632,7 +635,7 @@ class LogsPage(BasePage):
         parent_layout.addWidget(errors_card)
 
         # ═══════════════════════════════════════════════════════════
-        # Панель вывода winws.exe
+        # Панель вывода winws
         # ═══════════════════════════════════════════════════════════
         winws_card = SettingsCard()
         winws_layout = QVBoxLayout()
@@ -646,8 +649,8 @@ class LogsPage(BasePage):
         winws_header.addWidget(terminal_icon)
 
         # Заголовок
-        winws_title = (StrongBodyLabel if _FLUENT_OK else QLabel)("Вывод winws.exe")
-        winws_header.addWidget(winws_title)
+        self.winws_title_label = (StrongBodyLabel if _FLUENT_OK else QLabel)("Вывод winws.exe")
+        winws_header.addWidget(self.winws_title_label)
         winws_header.addSpacing(16)
 
         # Статус процесса
@@ -680,6 +683,8 @@ class LogsPage(BasePage):
             self.stats_label.setText("📊 Загрузка...")
         except Exception:
             pass
+
+        self._refresh_winws_title()
 
     def _build_send_tab(self, parent_layout):
         """Строит вкладку отправки лога"""
@@ -737,6 +742,36 @@ class LogsPage(BasePage):
         send_layout.addWidget(problem_header)
 
         self.problem_text = TextEdit() if _FLUENT_OK else QTextEdit()
+        try:
+            from config.reg import get_smooth_scroll_enabled
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+
+            smooth_enabled = get_smooth_scroll_enabled()
+            mode = SmoothMode.COSINE if smooth_enabled else SmoothMode.NO_SMOOTH
+            delegate = (
+                getattr(self.problem_text, "scrollDelegate", None)
+                or getattr(self.problem_text, "scrollDelagate", None)
+                or getattr(self.problem_text, "delegate", None)
+            )
+            if delegate is not None:
+                if hasattr(delegate, "useAni"):
+                    if not hasattr(delegate, "_zapret_base_use_ani"):
+                        delegate._zapret_base_use_ani = bool(delegate.useAni)
+                    delegate.useAni = bool(delegate._zapret_base_use_ani) if smooth_enabled else False
+                for smooth_attr in ("verticalSmoothScroll", "horizonSmoothScroll"):
+                    smooth = getattr(delegate, smooth_attr, None)
+                    smooth_setter = getattr(smooth, "setSmoothMode", None)
+                    if callable(smooth_setter):
+                        smooth_setter(mode)
+
+            setter = getattr(self.problem_text, "setSmoothMode", None)
+            if callable(setter):
+                try:
+                    setter(mode, Qt.Orientation.Vertical)
+                except TypeError:
+                    setter(mode)
+        except Exception:
+            pass
         self.problem_text.setPlaceholderText(
             "Опишите, что не работает или какая ошибка возникает."
         )
@@ -795,11 +830,123 @@ class LogsPage(BasePage):
 
     def _is_orchestra_mode(self) -> bool:
         """Проверяет, активен ли режим оркестратора"""
+        return self._get_launch_method() == "orchestra"
+
+    def _get_launch_method(self) -> str:
+        """Возвращает текущий метод запуска"""
         try:
             from strategy_menu import get_strategy_launch_method
-            return get_strategy_launch_method() == "orchestra"
+            return (get_strategy_launch_method() or "").strip().lower()
         except Exception:
-            return False
+            return ""
+
+    def _get_orchestra_runner(self):
+        """Возвращает orchestra_runner из главного окна"""
+        try:
+            app = self.window()
+            runner = getattr(app, 'orchestra_runner', None) if app else None
+            if runner:
+                return runner
+        except Exception:
+            pass
+
+        try:
+            qapp = QApplication.instance()
+            if qapp:
+                active_window_getter = getattr(qapp, 'activeWindow', None)
+                main_window = active_window_getter() if callable(active_window_getter) else None
+                runner = getattr(main_window, 'orchestra_runner', None) if main_window else None
+                if runner:
+                    return runner
+
+                for widget in qapp.topLevelWidgets():
+                    runner = getattr(widget, 'orchestra_runner', None)
+                    if runner:
+                        return runner
+        except Exception:
+            pass
+
+        return None
+
+    def _refresh_winws_title(self):
+        """Обновляет заголовок панели вывода по текущему методу запуска"""
+        if not hasattr(self, "winws_title_label"):
+            return
+
+        try:
+            exe_name = os.path.basename(get_winws_exe_for_method(self._get_launch_method())) or "winws.exe"
+        except Exception:
+            exe_name = "winws.exe"
+
+        self.winws_title_label.setText(f"Вывод {exe_name}")
+
+    def _get_running_runner_source(self):
+        """
+        Возвращает источник активного процесса.
+
+        Returns:
+            Tuple[str|None, runner|None] где source:
+            - "orchestra" для OrchestraRunner
+            - "direct" для StrategyRunner
+            - None если процесс не запущен
+        """
+        launch_method = self._get_launch_method()
+
+        orchestra_runner = self._get_orchestra_runner()
+        direct_runner = get_current_runner()
+
+        orchestra_running = bool(orchestra_runner and orchestra_runner.is_running())
+        direct_running = bool(direct_runner and direct_runner.is_running())
+
+        # В режиме оркестратора отдаём приоритет orchestra_runner
+        if launch_method == "orchestra":
+            if orchestra_running:
+                return "orchestra", orchestra_runner
+            if direct_running:
+                return "direct", direct_runner
+            return None, None
+
+        # В остальных режимах приоритет у direct runner,
+        # но оставляем fallback на orchestra_runner для редких переходных состояний.
+        if direct_running:
+            return "direct", direct_runner
+        if orchestra_running:
+            return "orchestra", orchestra_runner
+        return None, None
+
+    def _get_runner_pid(self, runner):
+        """Возвращает PID для любого типа runner'а"""
+        if not runner:
+            return '?'
+
+        try:
+            get_pid = getattr(runner, 'get_pid', None)
+            if callable(get_pid):
+                pid = get_pid()
+                if pid:
+                    return pid
+        except Exception:
+            pass
+
+        try:
+            get_info = getattr(runner, 'get_current_strategy_info', None)
+            if callable(get_info):
+                info = get_info()
+                pid = info.get('pid') if isinstance(info, dict) else None
+                if pid:
+                    return pid
+        except Exception:
+            pass
+
+        try:
+            process = getattr(runner, 'running_process', None)
+            pid = getattr(process, 'pid', None)
+            if pid:
+                return pid
+        except Exception:
+            pass
+
+        return '?'
 
     def _get_orchestra_log_path(self) -> str:
         """
@@ -810,25 +957,21 @@ class LogsPage(BasePage):
         2. Последний сохранённый лог из истории
         """
         try:
-            app = QApplication.instance()
-            if app and hasattr(app, 'activeWindow'):
-                main_window = app.activeWindow()
-                if main_window and hasattr(main_window, 'orchestra_runner') and main_window.orchestra_runner:
-                    runner = main_window.orchestra_runner
+            runner = self._get_orchestra_runner()
+            if runner:
+                # 1. Пробуем текущий активный лог
+                if runner.current_log_id and runner.debug_log_path:
+                    if os.path.exists(runner.debug_log_path):
+                        return runner.debug_log_path
 
-                    # 1. Пробуем текущий активный лог
-                    if runner.current_log_id and runner.debug_log_path:
-                        if os.path.exists(runner.debug_log_path):
-                            return runner.debug_log_path
-
-                    # 2. Если текущего нет - берём последний из истории
-                    logs = runner.get_log_history()
-                    if logs:
-                        # Логи отсортированы по дате (новые первые)
-                        latest_log = logs[0]
-                        log_path = os.path.join(LOGS_FOLDER, latest_log['filename'])
-                        if os.path.exists(log_path):
-                            return log_path
+                # 2. Если текущего нет - берём последний из истории
+                logs = runner.get_log_history()
+                if logs:
+                    # Логи отсортированы по дате (новые первые)
+                    latest_log = logs[0]
+                    log_path = os.path.join(LOGS_FOLDER, latest_log['filename'])
+                    if os.path.exists(log_path):
+                        return log_path
 
         except Exception as e:
             log(f"Ошибка получения пути лога оркестратора: {e}", "DEBUG")
@@ -1167,8 +1310,8 @@ class LogsPage(BasePage):
             QTimer.singleShot(0, self._update_stats)
         self._start_tail_worker()
         self._start_winws_output_worker()
-        # Таймер для проверки статуса каждые 2 секунды
-        self._winws_status_timer.start(2000)
+        # Таймер для проверки статуса каждые 3 секунды
+        self._winws_status_timer.start(3000)
 
     def hideEvent(self, event):
         """При скрытии страницы останавливаем мониторинг"""
@@ -1274,7 +1417,12 @@ class LogsPage(BasePage):
         try:
             self._thread = QThread(self)
             # Initial history: limit to recent tail to keep the page snappy on huge logs.
-            self._worker = LogTailWorker(self.current_log_file, initial_chunk_chars=65536, initial_max_bytes=1024 * 1024)
+            self._worker = LogTailWorker(
+                self.current_log_file,
+                poll_interval=0.6,
+                initial_chunk_chars=65536,
+                initial_max_bytes=1024 * 1024,
+            )
             self._worker.moveToThread(self._thread)
 
             self._thread.started.connect(self._worker.run)
@@ -1335,10 +1483,17 @@ class LogsPage(BasePage):
     def _start_winws_output_worker(self):
         """Запускает worker для чтения вывода winws"""
         self._stop_winws_output_worker()
+        self._refresh_winws_title()
 
-        # Получаем текущий runner и процесс
-        runner = get_current_runner()
-        if not runner:
+        source, runner = self._get_running_runner_source()
+        if source == "orchestra" and runner:
+            # В оркестраторе stdout уже читает OrchestraRunner._read_output,
+            # поэтому тут только обновляем статус, без второго reader'а.
+            pid = self._get_runner_pid(runner)
+            self._set_winws_status("running", f"PID: {pid} | Оркестратор")
+            return
+
+        if source != "direct" or not runner:
             self._set_winws_status("neutral", "Процесс не запущен")
             return
 
@@ -1348,12 +1503,21 @@ class LogsPage(BasePage):
             return
 
         # Обновляем статус
-        strategy_info = runner.get_current_strategy_info()
+        strategy_info = {}
+        try:
+            get_info = getattr(runner, 'get_current_strategy_info', None)
+            if callable(get_info):
+                info_value = get_info()
+                if isinstance(info_value, dict):
+                    strategy_info = info_value
+        except Exception:
+            pass
+
         strategy_name = strategy_info.get('name', 'winws')
         # Обрезаем длинные названия стратегий
         if len(strategy_name) > 35:
             strategy_name = strategy_name[:32] + "..."
-        pid = strategy_info.get('pid', '?')
+        pid = strategy_info.get('pid') or self._get_runner_pid(runner)
         self._set_winws_status("running", f"PID: {pid} | {strategy_name}")
 
         try:
@@ -1421,17 +1585,28 @@ class LogsPage(BasePage):
 
     def _update_winws_status(self):
         """Периодически проверяет статус процесса winws"""
-        runner = get_current_runner()
+        self._refresh_winws_title()
+        source, runner = self._get_running_runner_source()
 
-        # Проверяем есть ли запущенный процесс
-        if runner and runner.is_running():
+        if source == "orchestra" and runner:
+            # Для оркестратора всегда останавливаем worker чтения stdout,
+            # чтобы не конкурировать с внутренним reader'ом orchestra_runner.
+            if self._winws_thread and self._winws_thread.isRunning():
+                self._stop_winws_output_worker()
+
+            pid = self._get_runner_pid(runner)
+            self._set_winws_status("running", f"PID: {pid} | Оркестратор")
+            return
+
+        if source == "direct" and runner:
             # Если worker не работает, запускаем его
             if not self._winws_thread or not self._winws_thread.isRunning():
                 self._start_winws_output_worker()
-        else:
-            # Процесс не запущен - обновляем статус если worker не работает
-            if not self._winws_thread or not self._winws_thread.isRunning():
-                self._set_winws_status("neutral", "Процесс не запущен")
+            return
+
+        # Процесс не запущен - обновляем статус если worker не работает
+        if not self._winws_thread or not self._winws_thread.isRunning():
+            self._set_winws_status("neutral", "Процесс не запущен")
 
     def _clear_winws_output(self):
         """Очищает поле вывода winws"""

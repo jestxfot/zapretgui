@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import re
 import configparser
 import threading
 from dataclasses import dataclass
@@ -39,6 +40,9 @@ _SPECIAL_SECTIONS = {
     "profiles",
     "selectedprofiles",
     "selectedstatic",
+    # managed IPv6 metadata sections
+    "__ipv6_status__",
+    "__ipv6_dns_providers__",
 }
 
 _MISSING_IP_MARKERS = {
@@ -58,6 +62,15 @@ _CACHE_TEXT: str | None = None
 _CACHE_SIG: tuple[int, int] | None = None  # (mtime_ns, size)
 _CACHE_PATH: Path | None = None
 _MISSING_CATALOG_LOGGED: bool = False
+
+_IPV6_MANAGED_BEGIN = "# >>> zapretgui:ipv6 managed begin >>>"
+_IPV6_MANAGED_END = "# <<< zapretgui:ipv6 managed end <<<"
+_IPV6_STATUS_SECTION = "__ipv6_status__"
+_IPV6_PROVIDERS_SECTION = "__ipv6_dns_providers__"
+_IPV6_MANAGED_RE = re.compile(
+    re.escape(_IPV6_MANAGED_BEGIN) + r".*?" + re.escape(_IPV6_MANAGED_END),
+    flags=re.DOTALL,
+)
 
 
 def _get_app_root() -> Path:
@@ -114,6 +127,130 @@ def get_hosts_catalog_ini_path() -> Path:
 
 def get_user_hosts_ini_path() -> Path:
     return _get_user_hosts_ini_path()
+
+
+def _check_ipv6_connectivity() -> bool:
+    """Проверяет доступность IPv6 через DNSForceManager (ленивый импорт)."""
+    try:
+        from dns.dns_force import DNSForceManager  # type: ignore
+    except Exception:
+        return False
+
+    try:
+        return bool(DNSForceManager.check_ipv6_connectivity())
+    except Exception:
+        return False
+
+
+def _collect_provider_ipv6_entries() -> list[tuple[str, str]]:
+    """Возвращает список (ключ, IPv6-адреса) из DNS_PROVIDERS."""
+    try:
+        from dns.dns_providers import DNS_PROVIDERS  # type: ignore
+    except Exception as e:
+        _log(f"Не удалось импортировать DNS_PROVIDERS для IPv6 секций: {e}", "DEBUG")
+        return []
+
+    entries: list[tuple[str, str]] = []
+    for category, providers in (DNS_PROVIDERS or {}).items():
+        if not isinstance(providers, dict):
+            continue
+
+        for provider_name, data in providers.items():
+            if not isinstance(data, dict):
+                continue
+
+            raw_ipv6 = data.get("ipv6", [])
+            if isinstance(raw_ipv6, str):
+                ipv6_values = [x.strip() for x in raw_ipv6.replace(",", " ").split() if x.strip()]
+            elif isinstance(raw_ipv6, list):
+                ipv6_values = [str(x).strip() for x in raw_ipv6 if str(x).strip()]
+            else:
+                ipv6_values = []
+
+            if not ipv6_values:
+                continue
+
+            key = f"{(category or '').strip()} / {(provider_name or '').strip()}"
+            entries.append((key, ", ".join(ipv6_values)))
+
+    return entries
+
+
+def _build_ipv6_managed_block() -> str:
+    entries = _collect_provider_ipv6_entries()
+    lines: list[str] = [
+        _IPV6_MANAGED_BEGIN,
+        f"[{_IPV6_STATUS_SECTION}]",
+        "enabled = 1",
+        "source = provider_ipv6_probe",
+        "",
+        f"[{_IPV6_PROVIDERS_SECTION}]",
+    ]
+
+    if entries:
+        for key, value in entries:
+            lines.append(f"{key} = {value}")
+    else:
+        lines.append("providers = none")
+
+    lines.append(_IPV6_MANAGED_END)
+    return "\n".join(lines)
+
+
+def _upsert_ipv6_managed_block(text: str) -> tuple[str, bool]:
+    source = text or ""
+    block = _build_ipv6_managed_block()
+
+    if _IPV6_MANAGED_BEGIN in source and _IPV6_MANAGED_END in source:
+        updated = _IPV6_MANAGED_RE.sub(block, source, count=1)
+        return updated, updated != source
+
+    stripped = source.rstrip()
+    if stripped:
+        updated = f"{stripped}\n\n{block}\n"
+    else:
+        updated = f"{block}\n"
+
+    return updated, updated != source
+
+
+def ensure_ipv6_catalog_sections_if_available() -> tuple[bool, bool]:
+    """
+    Если у провайдера доступен IPv6, гарантирует наличие managed IPv6 секций
+    в каталоге `./json/hosts.ini`.
+
+    Returns:
+        (changed, ipv6_available)
+    """
+    ipv6_available = _check_ipv6_connectivity()
+    if not ipv6_available:
+        return (False, False)
+
+    path = _get_catalog_hosts_ini_path()
+    if not path.exists():
+        _log(f"IPv6 секции hosts.ini не добавлены: файл не найден ({path})", "DEBUG")
+        return (False, True)
+
+    try:
+        current = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        _log(f"Не удалось прочитать hosts.ini для обновления IPv6 секций: {e}", "WARNING")
+        return (False, True)
+
+    updated, changed = _upsert_ipv6_managed_block(current)
+    if not changed:
+        return (False, True)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(updated, encoding="utf-8")
+    except Exception as e:
+        _log(f"Не удалось обновить IPv6 секции в hosts.ini: {e}", "WARNING")
+        return (False, True)
+
+    invalidate_hosts_catalog_cache()
+    _log(f"hosts.ini обновлен: добавлены managed IPv6 секции ({path})", "INFO")
+    return (True, True)
 
 
 def _parse_hosts_ini(text: str) -> HostsCatalog:

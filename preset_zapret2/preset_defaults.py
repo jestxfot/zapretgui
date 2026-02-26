@@ -11,6 +11,7 @@ when template `# BuiltinVersion` is newer.
 """
 
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -500,6 +501,74 @@ def ensure_templates_copied_to_presets() -> bool:
         except Exception:
             pass
         return False
+
+
+def overwrite_templates_to_presets() -> tuple[int, int, list[str]]:
+    """Copy all templates from presets_v2_template/ -> presets_v2/ with overwrite.
+
+    Every template file is copied even if destination already exists.
+    Returns (copied_count, total_templates, failed_template_names).
+    """
+    try:
+        from config import get_zapret_presets_v2_template_dir, get_zapret_presets_v2_dir
+    except Exception:
+        return (0, 0, [])
+
+    templates_dir = Path(get_zapret_presets_v2_template_dir())
+    presets_dir = Path(get_zapret_presets_v2_dir())
+
+    try:
+        presets_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return (0, 0, [])
+
+    try:
+        sources = [
+            src
+            for src in sorted(templates_dir.glob("*.txt"), key=lambda p: p.name.lower())
+            if src.is_file() and not src.name.startswith("_")
+        ]
+    except Exception:
+        return (0, 0, [])
+
+    if not sources:
+        return (0, 0, [])
+
+    copied = 0
+    failed: list[str] = []
+
+    for src in sources:
+        name = src.stem
+        dest = presets_dir / src.name
+        try:
+            shutil.copy2(str(src), str(dest))
+            copied += 1
+            try:
+                unmark_preset_deleted(name)
+            except Exception:
+                pass
+        except Exception as e:
+            failed.append(name)
+            try:
+                from log import log
+
+                log(f"Failed to overwrite preset '{name}' from template: {e}", "DEBUG")
+            except Exception:
+                pass
+
+    try:
+        from log import log
+
+        if copied or failed:
+            log(
+                "Template overwrite complete: "
+                f"copied={copied}, total={len(sources)}, failed={len(failed)}",
+                "INFO",
+            )
+    except Exception:
+        pass
+
+    return (copied, len(sources), failed)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

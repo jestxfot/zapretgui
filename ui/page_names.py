@@ -29,6 +29,9 @@ class PageName(Enum):
     ZAPRET2_DIRECT_CONTROL = auto()  # Zapret 2 Direct: управление (главная вкладка в "Стратегии")
     ZAPRET2_DIRECT = auto()          # Zapret 2 Direct стратегии
     ZAPRET2_ORCHESTRA = auto()       # Zapret 2 Orchestra (direct_zapret2_orchestra режим)
+    ZAPRET2_ORCHESTRA_CONTROL = auto()  # Zapret 2 Orchestra: управление
+    ZAPRET2_ORCHESTRA_USER_PRESETS = auto()  # Zapret 2 Orchestra: пользовательские пресеты
+    ZAPRET2_ORCHESTRA_STRATEGY_DETAIL = auto()  # Zapret 2 Orchestra: детали стратегии
     ZAPRET1_DIRECT_CONTROL = auto()  # Zapret 1 Direct: управление (главная вкладка)
     ZAPRET1_DIRECT = auto()          # Zapret 1 Direct стратегии
     ZAPRET1_USER_PRESETS = auto()    # Zapret 1 Direct: пользовательские пресеты
@@ -44,7 +47,7 @@ class PageName(Enum):
     # === Мои списки ===
     NETROGAT = auto()                # Исключения (netrogat.txt)
     CUSTOM_DOMAINS = auto()          # Мои hostlist (other.txt)
-    CUSTOM_IPSET = auto()            # Мои ipset (my-ipset.txt)
+    CUSTOM_IPSET = auto()            # Мои ipset (ipset-all.user.txt)
 
     # === Настройки системы ===
     AUTOSTART = auto()               # Автозапуск
@@ -60,7 +63,6 @@ class PageName(Enum):
     SERVERS = auto()                 # Серверы обновлений
     ABOUT = auto()                   # О программе
     SUPPORT = auto()                 # Поддержка (ZapretHub и каналы связи)
-    HELP = auto()                    # Справка (вкладка внутри "О программе")
 
     # === Оркестратор (автообучение) ===
     ORCHESTRA = auto()               # Оркестр - главная
@@ -113,7 +115,6 @@ class SectionName(Enum):
     SERVERS = auto()                 # Обновления
     ABOUT = auto()                   # О программе
     SUPPORT = auto()                 # Поддержка (подпункт "О программе")
-    HELP = auto()                    # Справка (подпункт "О программе")
 
 
 # Маппинг Section -> Page (какую страницу открывать при клике на секцию)
@@ -145,7 +146,6 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.SERVERS: PageName.SERVERS,
     SectionName.ABOUT: PageName.ABOUT,
     SectionName.SUPPORT: PageName.SUPPORT,
-    SectionName.HELP: PageName.HELP,
 }
 
 
@@ -177,7 +177,6 @@ SECTION_CHILDREN: dict[SectionName, list[SectionName]] = {
     SectionName.ABOUT: [
         SectionName.SERVERS,
         SectionName.SUPPORT,
-        SectionName.HELP,
     ],
 }
 
@@ -194,12 +193,14 @@ STRATEGY_PAGES: set[PageName] = {
     PageName.ZAPRET2_DIRECT,
     PageName.ZAPRET2_USER_PRESETS,
     PageName.ZAPRET2_STRATEGY_DETAIL,
+    PageName.ZAPRET2_ORCHESTRA_CONTROL,
+    PageName.ZAPRET2_ORCHESTRA,
+    PageName.ZAPRET2_ORCHESTRA_USER_PRESETS,
+    PageName.ZAPRET2_ORCHESTRA_STRATEGY_DETAIL,
 
     PageName.ZAPRET1_DIRECT_CONTROL,
     PageName.ZAPRET1_DIRECT,
     PageName.ZAPRET1_USER_PRESETS,
     PageName.ZAPRET1_STRATEGY_DETAIL,
-
-    PageName.ZAPRET2_ORCHESTRA,
     PageName.ORCHESTRA,
 }

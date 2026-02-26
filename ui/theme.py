@@ -1,6 +1,7 @@
 # ui/theme.py
 import os
 import re
+import sys
 from collections import OrderedDict
 from dataclasses import dataclass
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty, QThread, QObject, pyqtSignal
@@ -248,6 +249,118 @@ def connect_qfluent_accent_signal() -> None:
         pass
 
 
+def _compute_tint_color(opacity_pct: int) -> tuple:
+    """Compute tint overlay color for given opacity percentage.
+
+    Returns (r, g, b, overlay_alpha) where overlay_alpha ∈ [0, 200].
+    0% → overlay_alpha=0 (no tint, pure blur/Mica), 100% → 200 (heavy tint).
+    """
+    try:
+        from qfluentwidgets import isDarkTheme
+        if isDarkTheme():
+            r, g, b = 32, 32, 32
+        else:
+            r, g, b = 242, 242, 242
+    except Exception:
+        r, g, b = 32, 32, 32
+
+    try:
+        from config.reg import get_tinted_background, get_tinted_background_intensity
+        if get_tinted_background():
+            intensity = get_tinted_background_intensity()
+            accent_rgb = _get_qfluent_themecolor()
+            if accent_rgb is not None and intensity > 0:
+                r, g, b = _mix_rgb((r, g, b), accent_rgb, intensity / 100.0)
+    except Exception:
+        pass
+
+    overlay_alpha = int(max(0, min(100, opacity_pct)) / 100.0 * 200)
+    return r, g, b, overlay_alpha
+
+
+def apply_aero_effect(window, opacity_pct: int) -> None:
+    """Apply ACCENT_ENABLE_BLURBEHIND (Aero blur) via SetWindowCompositionAttribute.
+
+    Lighter than Acrylic — no noise/layering overhead. Desktop shows through
+    blurred, with a colour tint controlled by opacity_pct.
+
+    opacity_pct (0–100):
+        100 → fully opaque tint (solid dark/light background, blur barely visible)
+          0 → no tint (pure blur of desktop content)
+
+    Uses the library's windowEffect infrastructure:
+        enableBlurBehindWindow  — primes DWM per-pixel alpha (required prerequisite)
+        SetWindowCompositionAttribute(ACCENT_ENABLE_BLURBEHIND=3) — enables blur
+        accentPolicy / winCompAttrData — pre-allocated in WindowsWindowEffect.__init__
+    """
+    if window is None:
+        return
+    if not hasattr(window, 'windowEffect') or not hasattr(window, 'setCustomBackgroundColor'):
+        return
+
+    import sys
+    if sys.platform != 'win32':
+        return
+    if sys.getwindowsversion().build < 15063:  # Win10 Creators Update
+        return
+
+    try:
+        is_win11_plus = sys.getwindowsversion().build >= 22000
+
+        # Compute tint color (shared helper handles theme + accent blending)
+        r, g, b, overlay_alpha = _compute_tint_color(opacity_pct)
+
+        # Fast path for Win11 + Mica active: WCA would be a no-op since
+        # DWMWA_SYSTEMBACKDROP_TYPE (Mica) takes priority over WCA on Win11 22H2+.
+        # Just update the Qt tint overlay without touching DWM.
+        if is_win11_plus and hasattr(window, 'isMicaEffectEnabled') and window.isMicaEffectEnabled():
+            if hasattr(window, 'set_tint_overlay'):
+                window.set_tint_overlay(r, g, b, overlay_alpha)
+            log(f"Mica tint overlay: overlay_alpha={overlay_alpha}, rgb=({r},{g},{b})", "DEBUG")
+            return
+
+        # Map slider (0–100%) to WCA gradient alpha (0–255) for non-Mica path
+        alpha = max(0, min(255, int(opacity_pct / 100.0 * 255)))
+
+        # Pack colour as ABGR DWORD — same byte order as setAcrylicEffect:
+        # input RRGGBBAA → reversed bytes → (AA<<24)|(BB<<16)|(GG<<8)|RR
+        gradient_color = (alpha << 24) | (b << 16) | (g << 8) | r
+
+        we = window.windowEffect
+
+        # Prime DWM per-pixel alpha — required before any WCA accent call.
+        we.enableBlurBehindWindow(window.winId())
+
+        # Win11: state=4 (ACCENT_ENABLE_ACRYLICBLURBEHIND) — DirectComposition acrylic.
+        # Win10: state=3 is attempted but not visible (no DirectComposition).
+        #        setWindowOpacity provides the visible transparency effect instead.
+        we.accentPolicy.AccentState   = 4 if is_win11_plus else 3
+        we.accentPolicy.AccentFlags   = 0
+        we.accentPolicy.GradientColor = gradient_color
+        we.accentPolicy.AnimationId   = 0
+
+        from ctypes import pointer as cptr
+        we.SetWindowCompositionAttribute(int(window.winId()), cptr(we.winCompAttrData))
+
+        if is_win11_plus:
+            # State=4: transparent Qt paint lets DWM acrylic show through.
+            # DWM 22H2+ ignores GradientColor, so tint is done via Qt overlay.
+            window.setCustomBackgroundColor(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0))
+            if hasattr(window, 'set_tint_overlay'):
+                window.set_tint_overlay(r, g, b, overlay_alpha)
+            log(f"Acrylic (Win11): state=4, overlay_alpha={overlay_alpha}, rgb=({r},{g},{b})", "DEBUG")
+        else:
+            # Win10: solid background + window-level opacity via setWindowOpacity.
+            # Map: 100% → 1.0 (opaque), 0% → 0.3 (mostly transparent, still usable).
+            solid = QColor(r, g, b)
+            window.setCustomBackgroundColor(solid, solid)
+            win_opacity = 0.3 + (opacity_pct / 100.0) * 0.7
+            window.setWindowOpacity(win_opacity)
+            log(f"Win10 fallback: solid rgb=({r},{g},{b}), win_opacity={win_opacity:.2f}", "DEBUG")
+    except Exception as e:
+        log(f"❌ apply_aero_effect error: {e}", "DEBUG")
+
+
 def apply_window_background(window, theme_name: str | None = None, preset: str | None = None) -> None:
     """Apply background color/image to FluentWindow based on preset."""
     if window is None:
@@ -261,13 +374,20 @@ def apply_window_background(window, theme_name: str | None = None, preset: str |
         except Exception:
             preset = "standard"
 
-    # Управление Mica: для standard — по настройке, для amoled/rkn_chan — всегда OFF
+    # Mica is always ON on Win11 for standard preset — Mica OFF produces a black
+    # window on modern Win11 (22H2+) so the user toggle is removed; we force Mica.
+    # On Win10, setMicaEffectEnabled is a no-op (build < 22000) so should_mica=False.
+    _is_win11_plus = sys.platform == 'win32' and sys.getwindowsversion().build >= 22000
+    should_mica = _is_win11_plus and (preset == "standard")
     if hasattr(window, 'setMicaEffectEnabled'):
-        try:
-            from config.reg import get_mica_enabled
-            should_mica = (preset == "standard") and get_mica_enabled()
-        except Exception:
-            should_mica = (preset == "standard")
+        # Pre-zero stored background colors before disabling Mica (Win11 only).
+        # setMicaEffectEnabled(False) immediately calls setBackgroundColor(solid)
+        # which causes a flash frame before apply_aero_effect makes it transparent.
+        if not should_mica and _is_win11_plus:
+            if hasattr(window, '_darkBackgroundColor') and hasattr(window, '_lightBackgroundColor'):
+                window._darkBackgroundColor = QColor(0, 0, 0, 0)
+                window._lightBackgroundColor = QColor(0, 0, 0, 0)
+
         window.setMicaEffectEnabled(should_mica)
 
     # Handle background image (set_background_image if available)
@@ -286,27 +406,56 @@ def apply_window_background(window, theme_name: str | None = None, preset: str |
         from PyQt6.QtGui import QColor as _QColor
 
         if preset == "amoled" or preset == "rkn_chan":
+            # Solid black, remove any DWM effects
+            if hasattr(window, 'windowEffect'):
+                try:
+                    window.windowEffect.removeBackgroundEffect(window.winId())
+                except Exception:
+                    pass
             bg = _QColor(0, 0, 0)
             window.setCustomBackgroundColor(bg, bg)
+            # Clear tint overlay (may be set by apply_aero_effect on Win11)
+            if hasattr(window, 'clear_tint_overlay'):
+                window.clear_tint_overlay()
+            # Reset Win10 window opacity (may have been set by apply_aero_effect)
+            try:
+                window.setWindowOpacity(1.0)
+            except Exception:
+                pass
             return
 
-        # Standard preset: compute light AND dark backgrounds separately.
-        # setCustomBackgroundColor(light, dark) — first arg is light-mode color!
-        light_bg_rgb = (243, 243, 243)
-        dark_bg_rgb = (26, 26, 26)
+        # Standard preset, Mica ON:
+        # setCustomBackgroundColor must use QColor(0,0,0,0) so Qt paints a fully
+        # transparent surface, letting the DWM Mica layer show through.
+        # Any opaque color here would paint over Mica and hide it completely.
+        # The slider tint is applied as a Qt overlay on top of Mica.
+        if should_mica:
+            transparent = _QColor(0, 0, 0, 0)
+            window.setCustomBackgroundColor(transparent, transparent)
+            # Apply tint overlay based on current slider value (0%=pure Mica, 100%=heavy tint)
+            if hasattr(window, 'set_tint_overlay'):
+                try:
+                    from config.reg import get_window_opacity
+                    opacity_pct = get_window_opacity()
+                except Exception:
+                    opacity_pct = 0
+                r, g, b, overlay_alpha = _compute_tint_color(opacity_pct)
+                window.set_tint_overlay(r, g, b, overlay_alpha)
+            # Reset Win10 window opacity (may have been set by apply_aero_effect)
+            try:
+                window.setWindowOpacity(1.0)
+            except Exception:
+                pass
+            return
 
+        # Standard preset, Mica OFF: transparent gradient (no blur) via DWM
         try:
-            from config.reg import get_tinted_background, get_tinted_background_intensity
-            if get_tinted_background():
-                intensity = get_tinted_background_intensity()
-                accent_rgb = _get_qfluent_themecolor()
-                if accent_rgb is not None and intensity > 0:
-                    light_bg_rgb = _mix_rgb(light_bg_rgb, accent_rgb, intensity / 100.0)
-                    dark_bg_rgb = _mix_rgb(dark_bg_rgb, accent_rgb, intensity / 100.0)
+            from config.reg import get_window_opacity
+            opacity_pct = get_window_opacity()
         except Exception:
-            pass
+            opacity_pct = 100
 
-        window.setCustomBackgroundColor(_QColor(*light_bg_rgb), _QColor(*dark_bg_rgb))
+        apply_aero_effect(window, opacity_pct)
     except Exception:
         pass
 

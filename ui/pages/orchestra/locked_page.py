@@ -8,19 +8,36 @@ from PyQt6.QtCore import Qt, QSize, QTimer, QEvent
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QWidget,
-    QSpinBox, QFrame
+    QSpinBox, QFrame, QLineEdit, QPushButton
 )
 import qtawesome as qta
 
 from ..base_page import BasePage
-from ui.compat_widgets import SettingsCard, LineEdit, ActionButton, RefreshButton, set_tooltip
+from ui.compat_widgets import set_tooltip
 
 try:
-    from qfluentwidgets import ComboBox, SpinBox, MessageBox, InfoBar, CaptionLabel, BodyLabel
+    from qfluentwidgets import (
+        ComboBox,
+        SpinBox,
+        LineEdit,
+        PushButton,
+        TransparentToolButton,
+        CardWidget,
+        StrongBodyLabel,
+        MessageBox,
+        InfoBar,
+        CaptionLabel,
+        BodyLabel,
+    )
     _HAS_FLUENT = True
 except ImportError:
     ComboBox = QComboBox
     SpinBox = QSpinBox
+    LineEdit = QLineEdit
+    PushButton = QPushButton
+    TransparentToolButton = QPushButton
+    CardWidget = QFrame
+    StrongBodyLabel = QLabel
     MessageBox = None
     InfoBar = None
     CaptionLabel = QLabel
@@ -28,7 +45,7 @@ except ImportError:
     _HAS_FLUENT = False
 
 from ui.widgets import NotificationBanner
-from ui.theme import get_theme_tokens, get_card_gradient_qss
+from ui.theme import get_theme_tokens
 from log import log
 from orchestra.locked_strategies_manager import ASKEY_ALL
 
@@ -70,12 +87,12 @@ class LockedDomainRow(QFrame):
         self.strat_spin = SpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(strategy)
-        self.strat_spin.setFixedWidth(70)
+        self.strat_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.strat_spin.valueChanged.connect(self._on_strategy_changed)
         layout.addWidget(self.strat_spin)
 
         # Кнопка удаления (разлочить)
-        delete_btn = ActionButton("")
+        delete_btn = TransparentToolButton(self)
         self._delete_btn = delete_btn
         delete_btn.setIconSize(QSize(16, 16))
         delete_btn.setFixedSize(28, 28)
@@ -96,32 +113,21 @@ class LockedDomainRow(QFrame):
 
     def _apply_theme(self) -> None:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
-        row_bg = get_card_gradient_qss(tokens.theme_name)
-        row_bg_hover = get_card_gradient_qss(tokens.theme_name, hover=True)
 
         qss = f"""
             LockedDomainRow {{
-                background: {row_bg};
+                background: transparent;
                 border: 1px solid {tokens.surface_border};
                 border-radius: 6px;
             }}
             LockedDomainRow:hover {{
-                background: {row_bg_hover};
+                background: {tokens.surface_bg};
                 border: 1px solid {tokens.surface_border_hover};
             }}
         """
         if qss != self._current_qss:
             self._current_qss = qss
             self.setStyleSheet(qss)
-
-        if self._domain_label is not None:
-            self._domain_label.setStyleSheet(
-                f"color: {tokens.fg}; font-size: 13px;"
-            )
-        if self._proto_label is not None:
-            self._proto_label.setStyleSheet(
-                f"color: {tokens.fg_muted}; font-size: 11px;"
-            )
 
         if self._delete_btn is not None:
             self._delete_btn.setIcon(
@@ -160,6 +166,7 @@ class OrchestraLockedPage(BasePage):
         # Инициализируем пустые данные (будут загружены при первом showEvent)
         self._direct_locked_by_askey = {askey: {} for askey in ASKEY_ALL}
         self._initial_load_done = False
+        self._refresh_loading = False
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -169,13 +176,32 @@ class OrchestraLockedPage(BasePage):
 
         self._apply_theme()
 
+    def _create_card(self, title: str):
+        card = CardWidget(self)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(12)
+
+        title_label = StrongBodyLabel(title, card) if _HAS_FLUENT else QLabel(title)
+        if not _HAS_FLUENT:
+            title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        card_layout.addWidget(title_label)
+
+        return card, card_layout
+
+    def _set_refresh_loading(self, loading: bool) -> None:
+        self._refresh_loading = loading
+        if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
+            self.refresh_btn.setEnabled(not loading)
+        self._apply_theme()
+
     def _setup_ui(self):
         # === Уведомление (баннер) ===
         self.notification_banner = NotificationBanner(self)
         self.layout.addWidget(self.notification_banner)
 
         # === Карточка добавления ===
-        add_card = SettingsCard("Залочить стратегию вручную")
+        add_card, add_card_layout = self._create_card("Залочить стратегию вручную")
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
@@ -194,11 +220,11 @@ class OrchestraLockedPage(BasePage):
         self.strat_spin = SpinBox()
         self.strat_spin.setRange(1, 999)
         self.strat_spin.setValue(1)
-        self.strat_spin.setFixedWidth(70)
+        self.strat_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
         add_layout.addWidget(self.strat_spin)
 
         # Кнопка добавления
-        self.lock_btn = ActionButton("")
+        self.lock_btn = TransparentToolButton(self)
         # Icon styled in _apply_theme()
         self.lock_btn.setIconSize(QSize(18, 18))
         self.lock_btn.setFixedSize(36, 36)
@@ -206,12 +232,11 @@ class OrchestraLockedPage(BasePage):
         self.lock_btn.clicked.connect(self._lock_strategy)
         add_layout.addWidget(self.lock_btn)
 
-        add_card.add_layout(add_layout)
+        add_card_layout.addLayout(add_layout)
         self.layout.addWidget(add_card)
 
         # === Карточка списка ===
-        list_card = SettingsCard("Список залоченных")
-        list_layout = QVBoxLayout()
+        list_card, list_layout = self._create_card("Список залоченных")
         list_layout.setSpacing(8)
 
         # Кнопка и счётчик сверху
@@ -226,11 +251,14 @@ class OrchestraLockedPage(BasePage):
         top_row.addWidget(self.search_input)
 
         # Кнопка обновления списка из реестра
-        self.refresh_btn = RefreshButton()
+        self.refresh_btn = TransparentToolButton(self)
+        self.refresh_btn.setFixedSize(32, 32)
+        set_tooltip(self.refresh_btn, "Обновить")
         self.refresh_btn.clicked.connect(self._reload_from_registry)
         top_row.addWidget(self.refresh_btn)
 
-        self.unlock_all_btn = ActionButton("Разлочить все", "mdi.lock-open-variant-outline")
+        self.unlock_all_btn = PushButton("Разлочить все")
+        self.unlock_all_btn.setFixedHeight(32)
         self.unlock_all_btn.clicked.connect(self._unlock_all)
         top_row.addWidget(self.unlock_all_btn)
         top_row.addStretch()
@@ -248,7 +276,6 @@ class OrchestraLockedPage(BasePage):
 
         # Контейнер для рядов (без скролла - страница сама прокручивается)
         self.rows_container = QWidget()
-        self.rows_container.setStyleSheet("background: transparent;")
         self.rows_layout = QVBoxLayout(self.rows_container)
         self.rows_layout.setContentsMargins(0, 8, 0, 0)
         self.rows_layout.setSpacing(4)
@@ -257,7 +284,6 @@ class OrchestraLockedPage(BasePage):
         # Храним ссылки на ряды для быстрого доступа
         self._domain_rows = {}
 
-        list_card.add_layout(list_layout)
         self.layout.addWidget(list_card)
 
     def _apply_theme(self) -> None:
@@ -266,14 +292,13 @@ class OrchestraLockedPage(BasePage):
         if hasattr(self, "lock_btn") and self.lock_btn is not None:
             self.lock_btn.setIcon(qta.icon("mdi.plus", color=tokens.fg))
 
-        for btn_attr, icon_name in (("refresh_btn", "mdi.refresh"), ("unlock_all_btn", "mdi.lock-open-variant-outline")):
-            btn = getattr(self, btn_attr, None)
-            if btn is None:
-                continue
-            try:
-                btn.setIcon(qta.icon(icon_name, color=tokens.fg))
-            except Exception:
-                pass
+        if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
+            refresh_icon = "mdi.loading" if self._refresh_loading else "mdi.refresh"
+            refresh_color = tokens.fg_faint if self._refresh_loading else tokens.fg
+            self.refresh_btn.setIcon(qta.icon(refresh_icon, color=refresh_color))
+
+        if hasattr(self, "unlock_all_btn") and self.unlock_all_btn is not None:
+            self.unlock_all_btn.setIcon(qta.icon("mdi.lock-open-variant-outline", color=tokens.fg))
 
         # Refresh row widgets.
         try:
@@ -329,7 +354,7 @@ class OrchestraLockedPage(BasePage):
 
     def _reload_from_registry(self):
         """Перезагружает данные из реестра и обновляет список"""
-        self.refresh_btn.set_loading(True)
+        self._set_refresh_loading(True)
 
         def _do_reload():
             try:
@@ -342,7 +367,7 @@ class OrchestraLockedPage(BasePage):
                     log("Список залоченных перезагружен из реестра (direct)", "INFO")
                 self._refresh_data()
             finally:
-                self.refresh_btn.set_loading(False)
+                self._set_refresh_loading(False)
 
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, _do_reload)

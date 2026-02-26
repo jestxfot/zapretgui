@@ -143,9 +143,46 @@ class DirectZapret2StrategiesTree(QTreeWidget):
         # WinUI smooth scrollbar (replaces native Qt scrollbar)
         try:
             from qfluentwidgets import SmoothScrollDelegate
-            self._smooth_scroll_delegate = SmoothScrollDelegate(self)
+            from config.reg import get_smooth_scroll_enabled
+            smooth_enabled = get_smooth_scroll_enabled()
+            try:
+                self._smooth_scroll_delegate = SmoothScrollDelegate(self, useAni=smooth_enabled)
+                self.set_smooth_scroll_enabled(smooth_enabled)
+            except TypeError:
+                self._smooth_scroll_delegate = SmoothScrollDelegate(self)
+                self.set_smooth_scroll_enabled(smooth_enabled)
         except Exception:
             self._smooth_scroll_delegate = None
+
+    def set_smooth_scroll_enabled(self, enabled: bool) -> None:
+        delegate = getattr(self, "_smooth_scroll_delegate", None)
+        if delegate is None:
+            return
+        try:
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+            mode = SmoothMode.COSINE if enabled else SmoothMode.NO_SMOOTH
+
+            if hasattr(delegate, "useAni"):
+                if not hasattr(delegate, "_zapret_base_use_ani"):
+                    delegate._zapret_base_use_ani = bool(delegate.useAni)
+                delegate.useAni = bool(delegate._zapret_base_use_ani) if enabled else False
+
+            for smooth_attr in ("verticalSmoothScroll", "horizonSmoothScroll"):
+                smooth = getattr(delegate, smooth_attr, None)
+                smooth_setter = getattr(smooth, "setSmoothMode", None)
+                if callable(smooth_setter):
+                    smooth_setter(mode)
+
+            setter = getattr(delegate, "setSmoothMode", None)
+            if callable(setter):
+                try:
+                    setter(mode)
+                except TypeError:
+                    setter(mode, Qt.Orientation.Vertical)
+            elif hasattr(delegate, "smoothMode"):
+                delegate.smoothMode = mode
+        except Exception:
+            pass
 
     def _apply_theme_styles(self) -> None:
         if self._applying_theme_styles:

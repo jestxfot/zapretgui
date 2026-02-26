@@ -56,6 +56,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin
@@ -149,7 +150,7 @@
 --new
 
 --filter-tcp=80,443
---ipset=lists/ipset-tankix.txt
+--hostlist-domains=resources.txrevive.com,main.txrevive.com
 --out-range=-n8
 --lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
 --lua-desync=multidisorder:pos=host+1

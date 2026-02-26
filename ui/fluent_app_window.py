@@ -21,6 +21,10 @@ class ZapretFluentWindow(FluentWindow):
     """Main app window using qfluentwidgets FluentWindow (WinUI 3 style)."""
 
     def __init__(self, parent=None):
+        # Tint color painted as window background (below all content, above Mica).
+        # QColor(0,0,0,0) = pure Mica (no tint), alpha 1-200 = visible tint.
+        self._mica_tint_color = QColor(0, 0, 0, 0)
+
         super().__init__(parent)
         self.setWindowTitle(f"Zapret2 v{APP_VERSION}")
         self.setMinimumSize(900, 500)
@@ -37,6 +41,46 @@ class ZapretFluentWindow(FluentWindow):
 
         # Theme mode (DARK/LIGHT) is set in main.py via _sync_theme_mode_to_qfluent()
         # before the window is created, so no hardcoded setTheme(DARK) here.
+
+    # ------------------------------------------------------------------
+    # Background tint (Mica + semi-transparent Qt background layer)
+    # ------------------------------------------------------------------
+
+    def _normalBackgroundColor(self) -> QColor:  # noqa: N802
+        """Override: inject semi-transparent tint when Mica is active.
+
+        FluentWidget._normalBackgroundColor() returns QColor(0,0,0,0) when
+        Mica is enabled, making the Qt surface fully transparent. By returning
+        our _mica_tint_color instead, the background is painted as a
+        semi-transparent fill BELOW all content widgets, so the tint blends
+        with the DWM Mica backdrop without covering text or controls.
+        """
+        try:
+            if self.isMicaEffectEnabled():
+                return self._mica_tint_color
+        except Exception:
+            pass
+        return super()._normalBackgroundColor()
+
+    def set_tint_overlay(self, r: int, g: int, b: int, alpha: int) -> None:
+        """Update the Mica tint color (painted below content, above Mica backdrop).
+
+        alpha=0  → pure Mica (no tint)
+        alpha=200 → strong tint but content still readable (drawn on top)
+        """
+        self._mica_tint_color = QColor(r, g, b, max(0, min(255, alpha)))
+        try:
+            self._updateBackgroundColor()
+        except Exception:
+            pass
+
+    def clear_tint_overlay(self) -> None:
+        """Reset tint to fully transparent (pure Mica or default background)."""
+        self._mica_tint_color = QColor(0, 0, 0, 0)
+        try:
+            self._updateBackgroundColor()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Navigation helpers

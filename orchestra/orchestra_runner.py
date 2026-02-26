@@ -21,10 +21,16 @@ import threading
 import json
 import glob
 import ipaddress
+import time
+from collections import deque
 from typing import Optional, Callable, Dict, List
 from datetime import datetime
 
 from log import log
+from utils.circular_strategy_numbering import (
+    renumber_circular_strategies,
+    strip_strategy_tags,
+)
 from config import MAIN_DIRECTORY, EXE_FOLDER, LUA_FOLDER, LOGS_FOLDER, BIN_FOLDER, REGISTRY_PATH, LISTS_FOLDER
 from config.reg import reg
 from orchestra.log_parser import LogParser, EventType, ParsedEvent, nld_cut, ip_to_subnet16, is_local_ip
@@ -169,6 +175,8 @@ class OrchestraRunner:
         # ВАЖНО: circular-config.txt теперь СТАТИЧЕСКИЙ файл в /home/privacy/zapret/lua/
         # Стратегии встроены напрямую в circular-config.txt, отдельные strategies-*.txt не нужны
         self.config_path = os.path.join(self.lua_path, "circular-config.txt")
+        self.runtime_config_path = os.path.join(self.lua_path, "circular-config.runtime.txt")
+        self.launch_config_path = self.config_path
         self.blobs_path = os.path.join(self.lua_path, "blobs.txt")
 
         # Белый список (exclude hostlist)
@@ -218,6 +226,185 @@ class OrchestraRunner:
         # Мониторинг активности (для подсказок пользователю)
         self.last_activity_time: Optional[float] = None
         self.inactivity_warning_shown: bool = False
+
+        # Диагностика старта/быстрого падения процесса
+        self.last_start_error: str = ""
+        self.last_exit_info: Optional[dict] = None
+        self.last_start_attempt_ts: float = 0.0
+        self._recent_output_lines = deque(maxlen=60)
+        self.last_launch_config_path: str = ""
+        self.last_launch_command: List[str] = []
+        self._startup_forwarded_signatures = deque(maxlen=80)
+
+    def _remember_output_line(self, line: str):
+        """Запоминает последние строки stdout для диагностики падений."""
+        text = (line or "").strip()
+        if not text:
+            return
+        self._recent_output_lines.append(text)
+
+    def _get_recent_output_tail(self, max_lines: int = 8) -> list:
+        """Возвращает последние строки вывода winws2 для диагностики."""
+        if max_lines <= 0:
+            return []
+        lines = list(self._recent_output_lines)
+        if not lines:
+            return []
+        return lines[-max_lines:]
+
+    def _looks_like_error_output_line(self, line: str) -> bool:
+        """Определяет, похожа ли сырая строка winws2 на ошибку запуска."""
+        text = str(line or "").strip().lower()
+        if not text:
+            return False
+
+        markers = (
+            "error",
+            "fatal",
+            "failed",
+            "invalid",
+            "cannot",
+            "can't",
+            "access denied",
+            "permission",
+            "not found",
+            "unknown option",
+            "winerror",
+            "exception",
+            "ошиб",
+            "не удалось",
+            "не найден",
+            "некоррект",
+        )
+        return any(marker in text for marker in markers)
+
+    def _is_startup_phase(self, window_sec: float = 12.0) -> bool:
+        """Возвращает True в течение первых window_sec секунд после запуска."""
+        if self.last_start_attempt_ts <= 0:
+            return False
+        return (time.monotonic() - self.last_start_attempt_ts) <= window_sec
+
+    def _get_config_preview_lines(self, config_path: str, max_lines: int = 6) -> list:
+        """Возвращает короткий preview активного конфига запуска."""
+        path = str(config_path or "").strip()
+        if not path or max_lines <= 0:
+            return []
+
+        if not os.path.exists(path):
+            return [f"Конфиг не найден: {path}"]
+
+        preview = []
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                for index, raw in enumerate(fh, start=1):
+                    line = str(raw or "").strip()
+                    if not line or line.startswith("#") or line.startswith(";"):
+                        continue
+
+                    if len(line) > 220:
+                        line = line[:220] + " ..."
+
+                    preview.append(f"  L{index}: {line}")
+                    if len(preview) >= max_lines:
+                        break
+        except Exception as e:
+            return [f"Не удалось прочитать конфиг: {e}"]
+
+        return preview
+
+    def _build_startup_diagnostics(self, exit_code: Optional[int], uptime_sec: float) -> list:
+        """Собирает подробные диагностические строки по падению старта."""
+        lines = []
+
+        if exit_code is not None:
+            lines.append(f"winws2 завершился с кодом {exit_code} через {uptime_sec:.1f}с")
+
+        if exit_code == 87:
+            lines.append("Код 87 (ERROR_INVALID_PARAMETER): вероятна ошибка параметра в конфиге или командной строке")
+
+        if self.last_launch_config_path:
+            lines.append(f"Конфиг запуска: {self.last_launch_config_path}")
+            preview = self._get_config_preview_lines(self.last_launch_config_path, 6)
+            if preview:
+                lines.append("Фрагмент конфига:")
+                lines.extend(preview)
+
+        if self.last_launch_command:
+            cmd_preview = " ".join(self.last_launch_command)
+            if len(cmd_preview) > 500:
+                cmd_preview = cmd_preview[:500] + " ..."
+            lines.append(f"Команда: {cmd_preview}")
+
+        lines.append(f"Рабочая папка: {self.zapret_path}")
+
+        tail = self._get_recent_output_tail(8)
+        if tail:
+            lines.append("Последние строки winws2:")
+            for line in tail:
+                clean = str(line).strip()
+                if len(clean) > 300:
+                    clean = clean[:300] + " ..."
+                lines.append(f"  • {clean}")
+        else:
+            lines.append("winws2 не успел вывести диагностические строки в stdout")
+
+        if self.current_log_id:
+            lines.append(f"Лог сессии: orchestra_{self.current_log_id}.log")
+
+        return lines
+
+    def _emit_startup_diagnostics(self, lines: list):
+        """Пишет расширенную диагностику старта в лог и в callback UI."""
+        if not lines:
+            return
+
+        for line in lines:
+            if not line:
+                continue
+            log(f"[startup-diagnostics] {line}", "INFO")
+            if self.output_callback:
+                self.output_callback(f"[INFO] {line}")
+
+    def _forward_startup_raw_output(self, timestamp: str, line: str):
+        """Прокидывает важные сырые строки winws2 в UI во время старта."""
+        text = str(line or "").strip()
+        if not text:
+            return
+
+        signature = " ".join(text.lower().split())
+        if signature in self._startup_forwarded_signatures:
+            return
+
+        self._startup_forwarded_signatures.append(signature)
+        msg = f"[{timestamp}] [WINWS2] {text}"
+        log(f"[winws2 startup] {text}", "INFO")
+        if self.output_callback:
+            self.output_callback(msg)
+
+    def _guess_start_failure_reason(self, exit_code: Optional[int] = None) -> str:
+        """Пытается определить вероятную причину быстрого завершения процесса."""
+        tail = "\n".join(self._recent_output_lines).lower()
+
+        if exit_code == 87:
+            return "некорректный параметр запуска (проверьте конфиг и параметры winws2)"
+
+        checks = (
+            (("windivert", "filter driver", "wd_filter"), "ошибка WinDivert (драйвер/доступ/занято)"),
+            (("access is denied", "permission denied", "denied"), "недостаточно прав (запуск без администратора)"),
+            (("no such file", "not found", "cannot open", "failed to open"), "не найден файл из конфигурации (lua/bin/lists)"),
+            (("unknown option", "invalid option", "bad option", "invalid argument", "error_invalid_parameter"), "некорректный параметр в конфиге/команде"),
+            (("lua", "syntax error", "runtime error", "stack traceback"), "ошибка Lua-скрипта"),
+        )
+
+        for tokens, reason in checks:
+            if any(token in tail for token in tokens):
+                return reason
+
+        if exit_code == 0:
+            return "процесс завершился сразу после старта"
+        if exit_code is not None:
+            return f"процесс завершился с кодом {exit_code}"
+        return "процесс завершился сразу после запуска"
 
     def set_keep_debug_file(self, keep: bool):
         """Сохранять ли debug файл после остановки (для отладки)"""
@@ -637,6 +824,10 @@ class OrchestraRunner:
                     if not line:
                         continue
 
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+
+                    self._remember_output_line(line)
+
                     # Записываем в debug лог
                     if log_file:
                         try:
@@ -663,9 +854,10 @@ class OrchestraRunner:
                     # Парсим строку
                     event = parser.parse_line(line)
                     if not event:
+                        if self._is_startup_phase() and self._looks_like_error_output_line(line):
+                            self._forward_startup_raw_output(timestamp, line)
                         continue
 
-                    timestamp = datetime.now().strftime("%H:%M:%S")
                     is_udp = event.l7proto in ("udp", "quic", "stun", "discord", "wireguard", "dht", "unknown")
 
                     # === LOCK ===
@@ -993,6 +1185,44 @@ class OrchestraRunner:
                 if self.locked_manager.strategy_history:
                     self.locked_manager.save_history()
 
+                # Диагностика неожиданного завершения процесса
+                process = self.running_process
+                if process and not self.stop_event.is_set():
+                    try:
+                        exit_code = process.poll()
+                    except Exception:
+                        exit_code = None
+
+                    if exit_code is not None:
+                        uptime_sec = 0.0
+                        if self.last_start_attempt_ts > 0:
+                            uptime_sec = max(0.0, time.monotonic() - self.last_start_attempt_ts)
+
+                        reason = self._guess_start_failure_reason(exit_code)
+                        diagnostics = self._build_startup_diagnostics(exit_code, uptime_sec)
+                        self.last_exit_info = {
+                            "exit_code": int(exit_code),
+                            "uptime_sec": round(uptime_sec, 2),
+                            "reason": reason,
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "config_path": self.last_launch_config_path,
+                            "command": list(self.last_launch_command),
+                            "recent_output": self._get_recent_output_tail(8),
+                        }
+
+                        message = (
+                            f"Оркестратор завершился (код: {exit_code}, аптайм: {uptime_sec:.1f}с). "
+                            f"Причина: {reason}"
+                        )
+                        log(message, "❌ ERROR")
+                        if self.output_callback:
+                            self.output_callback(f"[❌ ERROR] {message}")
+
+                        self._emit_startup_diagnostics(diagnostics)
+
+                        if uptime_sec < 3.0:
+                            self.last_start_error = message
+
     def prepare(self) -> bool:
         """
         Проверяет наличие всех необходимых файлов.
@@ -1029,6 +1259,8 @@ class OrchestraRunner:
             log(f"Конфиг не найден: {self.config_path}", "ERROR")
             return False
 
+        self._prepare_launch_config_path()
+
         # Генерируем whitelist.txt (динамический - пользователь добавляет домены)
         self._generate_whitelist_file()
 
@@ -1038,6 +1270,39 @@ class OrchestraRunner:
         log("   • Очистите кэш (Ctrl+Shift+Del)", "INFO")
         log("   • Принудительная перезагрузка (Ctrl+F5)", "INFO")
         return True
+
+    def _prepare_launch_config_path(self) -> str:
+        """Prepares runtime config with strategy tags while keeping source clean."""
+        self.launch_config_path = self.config_path
+
+        try:
+            with open(self.config_path, "r", encoding="utf-8", errors="replace") as f:
+                source_content = f.read()
+        except Exception:
+            return self.launch_config_path
+
+        cleaned_source = strip_strategy_tags(source_content)
+        if cleaned_source != source_content:
+            try:
+                with open(self.config_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(cleaned_source)
+                log("circular-config.txt очищен от legacy :strategy=N тегов", "DEBUG")
+            except Exception as e:
+                log(f"Не удалось очистить {self.config_path}: {e}", "DEBUG")
+
+        runtime_content = renumber_circular_strategies(cleaned_source)
+        if runtime_content == cleaned_source:
+            return self.launch_config_path
+
+        try:
+            with open(self.runtime_config_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(runtime_content)
+            self.launch_config_path = self.runtime_config_path
+        except Exception as e:
+            log(f"Не удалось создать runtime-конфиг {self.runtime_config_path}: {e}", "WARNING")
+            self.launch_config_path = self.config_path
+
+        return self.launch_config_path
 
     def start(self) -> bool:
         """
@@ -1051,7 +1316,16 @@ class OrchestraRunner:
             return False
 
         if not self.prepare():
+            self.last_start_error = "Оркестратор не готов к запуску (проверьте lua/exe/config файлы)"
             return False
+
+        self.last_start_error = ""
+        self.last_exit_info = None
+        self._recent_output_lines.clear()
+        self.last_start_attempt_ts = 0.0
+        self.last_launch_config_path = ""
+        self.last_launch_command = []
+        self._startup_forwarded_signatures.clear()
 
         # Загружаем предыдущие стратегии и историю из реестра
         self.load_existing_strategies()
@@ -1090,8 +1364,10 @@ class OrchestraRunner:
         learned_lua = self._generate_learned_lua()
 
         try:
+            launch_config_path = self.launch_config_path or self.config_path
+
             # Запускаем winws2 с @config_file
-            cmd = [self.winws_exe, f"@{self.config_path}"]
+            cmd = [self.winws_exe, f"@{launch_config_path}"]
 
             # Добавляем предзагрузку стратегий из реестра
             if learned_lua:
@@ -1100,11 +1376,16 @@ class OrchestraRunner:
             # Debug: выводим в stdout для парсинга, записываем в файл вручную в _read_output
             cmd.append("--debug=1")
 
-            log_msg = f"Запуск: winws2.exe @{os.path.basename(self.config_path)}"
+            log_msg = f"Запуск: winws2.exe @{os.path.basename(launch_config_path)}"
             if total_locked:
                 log_msg += f" ({total_locked} стратегий из реестра)"
             log(log_msg, "INFO")
             log(f"Командная строка: {' '.join(cmd)}", "DEBUG")
+
+            self.last_launch_config_path = launch_config_path
+            self.last_launch_command = list(cmd)
+
+            self.last_start_attempt_ts = time.monotonic()
 
             self.running_process = subprocess.Popen(
                 cmd,
@@ -1121,11 +1402,50 @@ class OrchestraRunner:
             self.output_thread = threading.Thread(target=self._read_output, daemon=True)
             self.output_thread.start()
 
+            # Подтверждаем, что процесс пережил стартовое окно.
+            startup_alive_sec = 1.2
+            startup_timeout_sec = 3.0
+            deadline = self.last_start_attempt_ts + startup_timeout_sec
+
+            while time.monotonic() < deadline:
+                if not self.running_process:
+                    self.last_start_error = "Оркестратор не создал процесс"
+                    log(self.last_start_error, "ERROR")
+                    return False
+
+                exit_code = self.running_process.poll()
+                if exit_code is not None:
+                    uptime_sec = max(0.0, time.monotonic() - self.last_start_attempt_ts)
+                    reason = self._guess_start_failure_reason(exit_code)
+                    diagnostics = self._build_startup_diagnostics(exit_code, uptime_sec)
+                    self.last_start_error = (
+                        f"Оркестратор завершился сразу после запуска (код: {exit_code}, "
+                        f"аптайм: {uptime_sec:.1f}с). Причина: {reason}"
+                    )
+                    self.last_exit_info = {
+                        "exit_code": int(exit_code),
+                        "uptime_sec": round(uptime_sec, 2),
+                        "reason": reason,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "config_path": self.last_launch_config_path,
+                        "command": list(self.last_launch_command),
+                        "recent_output": self._get_recent_output_tail(8),
+                    }
+                    log(self.last_start_error, "ERROR")
+                    if self.output_callback:
+                        self.output_callback(f"[❌ ERROR] {self.last_start_error}")
+                    self._emit_startup_diagnostics(diagnostics)
+                    self.running_process = None
+                    return False
+
+                if time.monotonic() - self.last_start_attempt_ts >= startup_alive_sec:
+                    break
+
+                time.sleep(0.1)
+
             log(f"Оркестратор запущен (PID: {self.running_process.pid})", "INFO")
 
-            print(f"[DEBUG start] output_callback={self.output_callback}")  # DEBUG
             if self.output_callback:
-                print("[DEBUG start] calling output_callback...")  # DEBUG
                 self.output_callback(f"[INFO] Оркестратор запущен (PID: {self.running_process.pid})")
                 self.output_callback(f"[INFO] Лог сессии: {self.current_log_id}")
                 tls_count = len(self.locked_manager.locked_by_askey["tls"])
@@ -1135,7 +1455,8 @@ class OrchestraRunner:
             return True
 
         except Exception as e:
-            log(f"Ошибка запуска оркестратора: {e}", "ERROR")
+            self.last_start_error = f"Ошибка запуска оркестратора: {e}"
+            log(self.last_start_error, "ERROR")
             return False
 
     def stop(self) -> bool:
@@ -1381,14 +1702,21 @@ class OrchestraRunner:
     def _load_ipset_networks(self):
         """
         Загружает ipset подсети для определения игр/сервисов по IP (UDP/QUIC).
-        Читает все ipset-*.txt и my-ipset.txt из папки lists.
+        Читает ipset-*.txt из папки lists (кроме *.base/*.user).
         """
         if self.ipset_networks:
             return
         try:
             ipset_files = glob.glob(os.path.join(LISTS_FOLDER, "ipset-*.txt"))
-            # Добавляем пользовательский ipset
-            ipset_files.append(os.path.join(LISTS_FOLDER, "my-ipset.txt"))
+
+            filtered_files: list[str] = []
+            for path in ipset_files:
+                base_name = os.path.basename(path).lower()
+                if base_name.endswith(".base.txt") or base_name.endswith(".user.txt"):
+                    continue
+                filtered_files.append(path)
+
+            ipset_files = filtered_files
 
             networks: list[tuple[ipaddress._BaseNetwork, str]] = []
             for path in ipset_files:
@@ -1398,8 +1726,6 @@ class OrchestraRunner:
                 label = os.path.splitext(base)[0]
                 if label.startswith("ipset-"):
                     label = label[len("ipset-"):]
-                elif label == "my-ipset":
-                    label = "my-ipset"
                 try:
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         for line in f:

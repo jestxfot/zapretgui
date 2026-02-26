@@ -114,7 +114,7 @@ class SystemTrayManager:
             (75, "75%"),
             (50, "50%"),
             (25, "25%"),
-            (0, "0% (полностью прозрачное)"),
+            (0, "0% (прозрачный фон)"),
         ]
         for value, title in presets:
             act = QAction(title, self.parent)

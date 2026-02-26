@@ -31,6 +31,17 @@
 --new
 --filter-tcp=443
 --hostlist=lists/list-general.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
 --hostlist=lists/other.txt
 --dpi-desync=fake,multisplit
 --dpi-desync-repeats=6

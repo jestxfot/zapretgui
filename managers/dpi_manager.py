@@ -48,45 +48,41 @@ class DPIManager(QObject):
             self.app.ui_manager.update_ui_state(running=running)
 
     def _start_direct_mode(self):
-        """⚡ Запускает Direct режим (комбинированные стратегии)"""
-        from strategy_menu import (
-            get_direct_strategy_selections, get_strategy_launch_method,
-            is_direct_zapret2_orchestra_initialized, set_direct_zapret2_orchestra_initialized, clear_direct_zapret2_orchestra_strategies
+        """⚡ Запускает direct_zapret2_orchestra через preset файл"""
+        from strategy_menu import get_strategy_launch_method
+        from preset_orchestra_zapret2 import (
+            ensure_default_preset_exists,
+            get_active_preset_path,
+            get_active_preset_name,
         )
-        from launcher_common import combine_strategies
 
-        # ✅ При ПЕРВОМ запуске в режиме direct_zapret2_orchestra - сбрасываем все стратегии в "none"
         launch_method = get_strategy_launch_method()
-        if launch_method == "direct_zapret2_orchestra" and not is_direct_zapret2_orchestra_initialized():
-            log("🆕 Первая инициализация DirectOrchestra при автозапуске - сброс всех стратегий в 'none'", "INFO")
-            clear_direct_zapret2_orchestra_strategies()
-            set_direct_zapret2_orchestra_initialized(True)
-
-        # Получаем выборы пользователя и комбинируем стратегии
-        selections = get_direct_strategy_selections()
-        combined = combine_strategies(**selections)
-        
-        # Проверка: есть ли активные категории?
-        if combined.get('_active_categories', 0) == 0:
-            log("Автозапуск пропущен: нет активных категорий", "INFO")
-            self.app.set_status("⚠️ Выберите хотя бы одну категорию")
+        if launch_method != "direct_zapret2_orchestra":
+            log(f"_start_direct_mode вызван для неподдерживаемого режима: {launch_method}", "WARNING")
             self._update_ui(running=False)
             return
-        
-        # Подготавливаем данные для запуска
-        strategy_data = {
-            'id': 'DIRECT_MODE',
-            'name': 'Прямой запуск',
-            'is_combined': True,
-            'args': combined['args'],
-            'selections': selections
-        }
-        
-        log(f"Автозапуск Direct: {selections}", "INFO")
 
-        # Обновляем UI и запускаем
-        self.app.current_strategy_name = "Прямой запуск"
-        # ✅ Передаём актуальный launch_method (direct, direct_zapret2_orchestra, direct_zapret1)
+        if not ensure_default_preset_exists():
+            log("Автозапуск direct_zapret2_orchestra пропущен: не удалось создать preset-zapret2-orchestra.txt", "WARNING")
+            self._update_ui(running=False)
+            return
+
+        preset_path = get_active_preset_path()
+        if not preset_path.exists():
+            log("Автозапуск direct_zapret2_orchestra пропущен: preset-zapret2-orchestra.txt не найден", "INFO")
+            self.app.set_status("⚠️ Выберите стратегию в разделе Оркестратор Z2")
+            self._update_ui(running=False)
+            return
+
+        preset_name = get_active_preset_name() or "Default"
+        strategy_data = {
+            'is_preset_file': True,
+            'name': f"Пресет оркестра: {preset_name}",
+            'preset_path': str(preset_path),
+        }
+
+        log(f"Автозапуск direct_zapret2_orchestra из preset файла: {preset_path}", "INFO")
+        self.app.current_strategy_name = f"Пресет оркестра: {preset_name}"
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
         self._update_ui(running=True)
 

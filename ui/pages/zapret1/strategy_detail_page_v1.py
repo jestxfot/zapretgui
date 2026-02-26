@@ -30,6 +30,7 @@ try:
         PixmapLabel,
         InfoBar,
         TransparentPushButton,
+        SwitchButton,
     )
 
     _HAS_FLUENT = True
@@ -44,6 +45,7 @@ except ImportError:
         QComboBox as ComboBox,
         QTextEdit as TextEdit,
         QDialog as MessageBoxBase,
+        QCheckBox as SwitchButton,
     )
 
     BreadcrumbBar = None  # type: ignore
@@ -88,6 +90,36 @@ class _ArgsEditorDialog(MessageBoxBase):  # type: ignore[misc, valid-type]
         self.viewLayout.addWidget(hint)
 
         self._text_edit = TextEdit()
+        try:
+            from config.reg import get_smooth_scroll_enabled
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+
+            smooth_enabled = get_smooth_scroll_enabled()
+            mode = SmoothMode.COSINE if smooth_enabled else SmoothMode.NO_SMOOTH
+            delegate = (
+                getattr(self._text_edit, "scrollDelegate", None)
+                or getattr(self._text_edit, "scrollDelagate", None)
+                or getattr(self._text_edit, "delegate", None)
+            )
+            if delegate is not None:
+                if hasattr(delegate, "useAni"):
+                    if not hasattr(delegate, "_zapret_base_use_ani"):
+                        delegate._zapret_base_use_ani = bool(delegate.useAni)
+                    delegate.useAni = bool(delegate._zapret_base_use_ani) if smooth_enabled else False
+                for smooth_attr in ("verticalSmoothScroll", "horizonSmoothScroll"):
+                    smooth = getattr(delegate, smooth_attr, None)
+                    smooth_setter = getattr(smooth, "setSmoothMode", None)
+                    if callable(smooth_setter):
+                        smooth_setter(mode)
+
+            setter = getattr(self._text_edit, "setSmoothMode", None)
+            if callable(setter):
+                try:
+                    setter(mode, Qt.Orientation.Vertical)
+                except TypeError:
+                    setter(mode)
+        except Exception:
+            pass
         self._text_edit.setPlaceholderText(
             "Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1"
         )
@@ -143,6 +175,12 @@ class Zapret1StrategyDetailPage(BasePage):
         self._desc_label: Any = None
         self._args_preview_label: Any = None
         self._empty_label: Any = None
+        self._edit_args_btn: Any = None
+        self._enable_toggle: Any = None
+        self._filter_mode_frame: Any = None
+        self._filter_mode_selector: Any = None
+
+        self._last_enabled_strategy_id: str = ""
 
         self._success_timer = QTimer(self)
         self._success_timer.setSingleShot(True)
@@ -224,6 +262,49 @@ class Zapret1StrategyDetailPage(BasePage):
         toolbar_layout = QVBoxLayout()
         toolbar_layout.setSpacing(8)
 
+        state_row = QHBoxLayout()
+        state_row.setSpacing(8)
+
+        state_label = BodyLabel("Обход для категории")
+        state_row.addWidget(state_label)
+
+        self._enable_toggle = SwitchButton(parent=self)
+        if hasattr(self._enable_toggle, "setOnText"):
+            self._enable_toggle.setOnText("Включено")
+        if hasattr(self._enable_toggle, "setOffText"):
+            self._enable_toggle.setOffText("Выключено")
+        if hasattr(self._enable_toggle, "checkedChanged"):
+            self._enable_toggle.checkedChanged.connect(self._on_enable_toggled)
+        else:
+            self._enable_toggle.toggled.connect(self._on_enable_toggled)
+        state_row.addWidget(self._enable_toggle)
+
+        self._filter_mode_frame = QWidget()
+        filter_row = QHBoxLayout(self._filter_mode_frame)
+        filter_row.setContentsMargins(0, 0, 0, 0)
+        filter_row.setSpacing(6)
+        filter_row.addWidget(CaptionLabel("Фильтр:"))
+
+        self._filter_mode_selector = SwitchButton(parent=self)
+        if hasattr(self._filter_mode_selector, "setOnText"):
+            self._filter_mode_selector.setOnText("IPset")
+        if hasattr(self._filter_mode_selector, "setOffText"):
+            self._filter_mode_selector.setOffText("Hostlist")
+        if hasattr(self._filter_mode_selector, "checkedChanged"):
+            self._filter_mode_selector.checkedChanged.connect(
+                lambda checked: self._on_filter_mode_changed("ipset" if checked else "hostlist")
+            )
+        else:
+            self._filter_mode_selector.toggled.connect(
+                lambda checked: self._on_filter_mode_changed("ipset" if checked else "hostlist")
+            )
+        filter_row.addWidget(self._filter_mode_selector)
+        self._filter_mode_frame.hide()
+        state_row.addWidget(self._filter_mode_frame)
+        state_row.addStretch(1)
+
+        toolbar_layout.addLayout(state_row)
+
         controls_row = QHBoxLayout()
         controls_row.setSpacing(8)
 
@@ -243,9 +324,9 @@ class Zapret1StrategyDetailPage(BasePage):
         self._sort_combo.currentIndexChanged.connect(self._on_sort_combo_changed)
         controls_row.addWidget(self._sort_combo)
 
-        edit_args_btn = ActionButton("Редактировать аргументы", "fa5s.edit", accent=False)
-        edit_args_btn.clicked.connect(self._open_args_editor)
-        controls_row.addWidget(edit_args_btn)
+        self._edit_args_btn = ActionButton("Редактировать аргументы", "fa5s.edit", accent=False)
+        self._edit_args_btn.clicked.connect(self._open_args_editor)
+        controls_row.addWidget(self._edit_args_btn)
 
         toolbar_layout.addLayout(controls_row)
 
@@ -324,6 +405,8 @@ class Zapret1StrategyDetailPage(BasePage):
         self._category_info = self._normalize_category_info(category_key, category_info)
         self._preset_manager = preset_manager
         self._current_strategy_id = self._load_current_strategy_id()
+        if self._current_strategy_id and self._current_strategy_id != "none":
+            self._last_enabled_strategy_id = self._current_strategy_id
 
         self._update_header_labels()
         self._rebuild_breadcrumb()
@@ -346,6 +429,9 @@ class Zapret1StrategyDetailPage(BasePage):
             info.setdefault("key", category_key)
             info.setdefault("full_name", category_key)
             info.setdefault("description", "")
+            info.setdefault("base_filter", "")
+            info.setdefault("base_filter_hostlist", "")
+            info.setdefault("base_filter_ipset", "")
             return info
 
         return {
@@ -356,6 +442,9 @@ class Zapret1StrategyDetailPage(BasePage):
             "ports": getattr(category_info, "ports", ""),
             "icon_name": getattr(category_info, "icon_name", ""),
             "icon_color": getattr(category_info, "icon_color", "#909090"),
+            "base_filter": getattr(category_info, "base_filter", ""),
+            "base_filter_hostlist": getattr(category_info, "base_filter_hostlist", ""),
+            "base_filter_ipset": getattr(category_info, "base_filter_ipset", ""),
         }
 
     def _load_current_strategy_id(self) -> str:
@@ -379,9 +468,12 @@ class Zapret1StrategyDetailPage(BasePage):
 
             self._strategies = load_v1_strategies(self._category_key) or {}
             self._current_strategy_id = self._load_current_strategy_id()
+            if self._current_strategy_id and self._current_strategy_id != "none":
+                self._last_enabled_strategy_id = self._current_strategy_id
             self._rebuild_tree_rows()
             self._refresh_args_preview()
             self._update_selected_label()
+            self._sync_category_controls()
             self.show_success()
         except Exception as e:
             log(f"Zapret1StrategyDetailPage: cannot load strategies: {e}", "ERROR")
@@ -389,6 +481,7 @@ class Zapret1StrategyDetailPage(BasePage):
             self._rebuild_tree_rows()
             self._refresh_args_preview()
             self._update_selected_label()
+            self._sync_category_controls()
             self._hide_success()
         finally:
             if self._refresh_btn:
@@ -419,7 +512,7 @@ class Zapret1StrategyDetailPage(BasePage):
         self._tree.add_strategy(
             StrategyTreeRow(
                 strategy_id="none",
-                name="Не задано",
+                name="Выключено",
                 args=["Отключить обход DPI для этой категории"],
             )
         )
@@ -521,6 +614,94 @@ class Zapret1StrategyDetailPage(BasePage):
         if self._tree:
             self._tree.apply_filter(self._search_text, set())
 
+    def _category_supports_filter_switch(self) -> bool:
+        host = str(self._category_info.get("base_filter_hostlist") or "").strip()
+        ipset = str(self._category_info.get("base_filter_ipset") or "").strip()
+        return bool(host and ipset)
+
+    def _sync_category_controls(self) -> None:
+        enabled = (self._current_strategy_id or "none") != "none"
+
+        if self._enable_toggle is not None:
+            self._enable_toggle.blockSignals(True)
+            if hasattr(self._enable_toggle, "setChecked"):
+                self._enable_toggle.setChecked(enabled)
+            self._enable_toggle.blockSignals(False)
+
+        if self._edit_args_btn is not None:
+            self._edit_args_btn.setEnabled(enabled)
+
+        if self._filter_mode_frame is not None:
+            can_switch = self._category_supports_filter_switch()
+            self._filter_mode_frame.setVisible(can_switch)
+            if can_switch and self._filter_mode_selector is not None:
+                saved_mode = self._load_category_filter_mode(self._category_key)
+                self._filter_mode_selector.blockSignals(True)
+                self._filter_mode_selector.setChecked(saved_mode == "ipset")
+                self._filter_mode_selector.blockSignals(False)
+
+    def _load_category_filter_mode(self, category_key: str) -> str:
+        if not self._preset_manager:
+            return "hostlist"
+        try:
+            return self._preset_manager.get_category_filter_mode(category_key)
+        except Exception:
+            return "hostlist"
+
+    def _on_filter_mode_changed(self, new_mode: str) -> None:
+        if not self._preset_manager or not self._category_key:
+            return
+        try:
+            ok = self._preset_manager.update_category_filter_mode(
+                self._category_key,
+                new_mode,
+                save_and_sync=True,
+            )
+            if ok is False:
+                raise RuntimeError("Не удалось сохранить режим фильтрации")
+            log(f"V1 filter mode set: {self._category_key} = {new_mode}", "INFO")
+            if _HAS_FLUENT and InfoBar is not None:
+                InfoBar.success(
+                    title="Режим фильтрации",
+                    content="IPset" if new_mode == "ipset" else "Hostlist",
+                    parent=self.window(),
+                    duration=1500,
+                )
+        except Exception as e:
+            log(f"V1 filter mode error: {e}", "ERROR")
+            if _HAS_FLUENT and InfoBar is not None:
+                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+            self._sync_category_controls()
+
+    def _default_strategy_id(self) -> str:
+        for item in self._sorted_strategy_items():
+            sid = str(item.get("id") or "").strip()
+            if sid and sid != "none":
+                return sid
+        return "none"
+
+    def _on_enable_toggled(self, enabled: bool) -> None:
+        if not self._preset_manager or not self._category_key:
+            return
+
+        if enabled:
+            strategy_id = (self._last_enabled_strategy_id or "").strip()
+            if not strategy_id or strategy_id == "none":
+                strategy_id = self._default_strategy_id()
+            if strategy_id == "none":
+                if self._enable_toggle is not None:
+                    self._enable_toggle.blockSignals(True)
+                    self._enable_toggle.setChecked(False)
+                    self._enable_toggle.blockSignals(False)
+                self._sync_category_controls()
+                return
+            self._on_strategy_selected(strategy_id)
+            return
+
+        if self._current_strategy_id and self._current_strategy_id != "none":
+            self._last_enabled_strategy_id = self._current_strategy_id
+        self._on_strategy_selected("none")
+
     # ------------------------------------------------------------------
     # Strategy selection
     # ------------------------------------------------------------------
@@ -541,8 +722,11 @@ class Zapret1StrategyDetailPage(BasePage):
                 raise RuntimeError("Не удалось сохранить выбор стратегии")
 
             self._current_strategy_id = sid
+            if sid != "none":
+                self._last_enabled_strategy_id = sid
             self._update_selected_label()
             self._refresh_args_preview()
+            self._sync_category_controls()
 
             if self._tree and self._tree.has_strategy(sid):
                 self._tree.set_selected_strategy(sid)
@@ -569,7 +753,7 @@ class Zapret1StrategyDetailPage(BasePage):
     def _strategy_display_name(self, strategy_id: str) -> str:
         sid = (strategy_id or "").strip()
         if not sid or sid == "none":
-            return "Не задано"
+            return "Выключено"
         if sid == "custom":
             return "Свой набор"
         info = (self._strategies or {}).get(sid)
@@ -611,7 +795,7 @@ class Zapret1StrategyDetailPage(BasePage):
             return ""
 
     def _open_args_editor(self, *_args) -> None:
-        if not _HAS_FLUENT:
+        if not _HAS_FLUENT or (self._current_strategy_id or "none") == "none":
             return
         try:
             dlg = _ArgsEditorDialog(self._get_current_args(), self.window())
@@ -649,10 +833,16 @@ class Zapret1StrategyDetailPage(BasePage):
             cat.strategy_id = "custom" if args_text else "none"
             preset.touch()
 
-            self._preset_manager._save_and_sync_preset(preset)
+            if hasattr(self._preset_manager, "_save_and_sync_category"):
+                self._preset_manager._save_and_sync_category(preset, self._category_key)
+            else:
+                self._preset_manager._save_and_sync_preset(preset)
 
             self._current_strategy_id = cat.strategy_id
+            if self._current_strategy_id != "none":
+                self._last_enabled_strategy_id = self._current_strategy_id
             self.strategy_selected.emit(self._category_key, self._current_strategy_id)
+            self._sync_category_controls()
 
             if _HAS_FLUENT and InfoBar is not None:
                 if args_text:
@@ -665,7 +855,7 @@ class Zapret1StrategyDetailPage(BasePage):
                 else:
                     InfoBar.success(
                         title="Аргументы очищены",
-                        content="Категория возвращена в режим 'Не задано'",
+                        content="Категория возвращена в режим 'Выключено'",
                         parent=self.window(),
                         duration=1800,
                     )

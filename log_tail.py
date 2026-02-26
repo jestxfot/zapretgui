@@ -78,11 +78,16 @@ class LogTailWorker(QObject):
                         self.new_lines.emit("".join(buf))
 
                     # «хвостим» файл
+                    base_sleep = max(0.1, float(self.poll_interval or 0.4))
+                    max_sleep = 1.2
+                    idle_sleep = base_sleep
                     while not self._stop_requested:
                         line = f.readline()
                         if line:
                             self.new_lines.emit(line)
+                            idle_sleep = base_sleep
                         else:
-                            time.sleep(self.poll_interval)
+                            time.sleep(idle_sleep)
+                            idle_sleep = min(max_sleep, idle_sleep + base_sleep)
         finally:
             self.finished.emit()

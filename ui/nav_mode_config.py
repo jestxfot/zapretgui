@@ -28,9 +28,6 @@ def get_nav_visibility(method: str) -> dict[PageName, bool]:
     is_direct_zapret1          = m == "direct_zapret1"
     is_pure_orchestra          = m == "orchestra"
 
-    # "orchestra" in a broad sense: any mode that uses the orchestra runner
-    is_any_orchestra = is_direct_zapret2_orchestra or is_pure_orchestra
-
     # zapret2 family (direct or orchestra variant)
     is_zapret2_family = is_direct_zapret2 or is_direct_zapret2_orchestra
 
@@ -38,25 +35,18 @@ def get_nav_visibility(method: str) -> dict[PageName, bool]:
         # ── Верх: "Управление" vs "Стратегии" (direct_zapret2 entry point) ───
         # CONTROL скрыта для direct_zapret2 (заменена на ZAPRET2_DIRECT_CONTROL)
         # и для direct_zapret1 (заменена на ZAPRET1_DIRECT_CONTROL)
-        PageName.CONTROL:                  not is_direct_zapret2 and not is_direct_zapret1,
+        # и для direct_zapret2_orchestra (заменена на ZAPRET2_ORCHESTRA_CONTROL)
+        PageName.CONTROL:                  not is_direct_zapret2 and not is_direct_zapret1 and not is_direct_zapret2_orchestra,
         PageName.ZAPRET2_DIRECT_CONTROL:   is_direct_zapret2,
+        PageName.ZAPRET2_ORCHESTRA_CONTROL: is_direct_zapret2_orchestra,
 
         # ── Strategy entry-point pages (one visible at a time) ───────────────
         PageName.ORCHESTRA:                is_pure_orchestra,
-        PageName.ZAPRET2_ORCHESTRA:        is_direct_zapret2_orchestra,
         PageName.ZAPRET1_DIRECT_CONTROL:   is_direct_zapret1,
-
-        # Subpages for zapret1 — navigated to via buttons, never in sidebar
-        PageName.ZAPRET1_DIRECT:           False,
-        PageName.ZAPRET1_USER_PRESETS:     False,
 
         # ── Zapret2 sub-section ──────────────────────────────────────────────
         PageName.PRESET_CONFIG:            is_zapret2_family or is_direct_zapret1,
 
-        # Subpages navigated to via buttons — never in sidebar
-        PageName.ZAPRET2_USER_PRESETS:     False,
-        PageName.ZAPRET2_DIRECT:           False,
-
         # ── Orchestra settings (tabbed page) ─────────────────────────────────
-        PageName.ORCHESTRA_SETTINGS:       is_any_orchestra,
+        PageName.ORCHESTRA_SETTINGS:       is_pure_orchestra,
     }

@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import os
-import sys
 
 from log import log
 from config import (
@@ -97,14 +96,6 @@ def _dedup_preserve_order(items: list[str]) -> list[str]:
 def _candidate_source_paths() -> list[str]:
     """Кандидаты для source other.txt (без hardcode абсолютных путей)."""
     candidates: list[str] = []
-
-    # dev-сценарий: соседний проект zapret (например H:\Privacy\zapret\lists\other.txt)
-    sibling_source = os.path.join(os.path.dirname(MAIN_DIRECTORY), "zapret", "lists", "other.txt")
-    candidates.append(sibling_source)
-
-    # локальный dev-сценарий: <repo>/lists/other.txt
-    if not bool(getattr(sys, "frozen", False)):
-        candidates.append(os.path.join(MAIN_DIRECTORY, "lists", "other.txt"))
 
     unique: list[str] = []
     for path in candidates:

@@ -208,7 +208,21 @@ def set_dns_via_registry(guid: str, dns_servers: List[str], is_ipv6: bool = Fals
             
             if dns_servers:
                 # Устанавливаем DNS
-                dns_string = ",".join(dns_servers)
+                normalized_servers: list[str] = []
+                for raw_dns in dns_servers:
+                    dns = (raw_dns or "").strip()
+                    if not dns:
+                        continue
+                    if dns in normalized_servers:
+                        continue
+                    normalized_servers.append(dns)
+
+                if is_ipv6:
+                    # Для IPv6 в реестре надёжнее использовать разделение пробелом.
+                    dns_string = " ".join(normalized_servers)
+                else:
+                    dns_string = ",".join(normalized_servers)
+
                 winreg.SetValueEx(key, "NameServer", 0, winreg.REG_SZ, dns_string)
                 
                 # Отключаем DHCP для DNS
@@ -571,8 +585,12 @@ class DNSManager:
                     dns_string, _ = winreg.QueryValueEx(key, "NameServer")
                     
                     if dns_string:
-                        # DNS разделены запятыми или пробелами
-                        dns_list = [ip.strip() for ip in dns_string.replace(' ', ',').split(',') if ip.strip()]
+                        # DNS могут быть разделены запятыми/пробелами/точкой с запятой.
+                        dns_list = [
+                            ip.strip()
+                            for ip in dns_string.replace(';', ',').replace(' ', ',').split(',')
+                            if ip.strip()
+                        ]
                         return dns_list
                     
                 except FileNotFoundError:

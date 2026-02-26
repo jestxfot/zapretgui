@@ -32,7 +32,7 @@ from ui.compat_widgets import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.theme import get_theme_tokens
 from log import log
-from dns import DNS_PROVIDERS
+from dns import DNS_PROVIDERS, DNSForceManager
 
 if TYPE_CHECKING:
     from main import LupiDPIApp
@@ -60,16 +60,55 @@ class DNSProviderCard(SettingsCard):
             border-radius: 8px;
         """
     
-    def __init__(self, name: str, data: dict, is_current: bool = False, parent=None):
+    def __init__(
+        self,
+        name: str,
+        data: dict,
+        is_current: bool = False,
+        show_ipv6: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.name = name
         self.data = data
         self.is_current = is_current
+        self.show_ipv6 = bool(show_ipv6)
         self._is_selected = False
         self.setObjectName("dnsCard")
         self.setProperty("selected", False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._setup_ui()
+
+    @staticmethod
+    def _normalize_ip_list(value) -> list[str]:
+        if isinstance(value, str):
+            return [x.strip() for x in value.replace(',', ' ').split() if x.strip()]
+        if isinstance(value, list):
+            out: list[str] = []
+            for item in value:
+                item_s = str(item).strip()
+                if item_s:
+                    out.append(item_s)
+            return out
+        return []
+
+    def _provider_ip_text(self) -> str:
+        ipv4 = self._normalize_ip_list(self.data.get('ipv4', []))
+        primary_v4 = ipv4[0] if ipv4 else ""
+
+        if not self.show_ipv6:
+            return primary_v4 or "-"
+
+        ipv6 = self._normalize_ip_list(self.data.get('ipv6', []))
+        primary_v6 = ipv6[0] if ipv6 else ""
+
+        if primary_v4 and primary_v6:
+            return f"v4 {primary_v4} | v6 {primary_v6}"
+        if primary_v4:
+            return primary_v4
+        if primary_v6:
+            return primary_v6
+        return "-"
         
     def _setup_ui(self):
         tokens = get_theme_tokens()
@@ -112,10 +151,11 @@ class DNSProviderCard(SettingsCard):
         layout.addStretch()
 
         # IP адрес
+        ip_text = self._provider_ip_text()
         if _HAS_FLUENT_LABELS:
-            ip_label = CaptionLabel(self.data['ipv4'][0])
+            ip_label = CaptionLabel(ip_text)
         else:
-            ip_label = QLabel(self.data['ipv4'][0])
+            ip_label = QLabel(ip_text)
             ip_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px; font-family: monospace;")
         layout.addWidget(ip_label)
         
@@ -193,17 +233,10 @@ class AdapterCard(SettingsCard):
         
         layout.addStretch()
         
-        # Текущий DNS (первичный + вторичный)
-        current_dns = self._normalize_dns_list(self.dns_info.get("ipv4", []))
-        if current_dns:
-            primary = current_dns[0]
-            secondary = current_dns[1] if len(current_dns) > 1 else None
-            if secondary:
-                dns_text = f"{primary}, {secondary}"
-            else:
-                dns_text = primary
-        else:
-            dns_text = "DHCP"
+        # Текущий DNS
+        current_dns_v4 = self._normalize_dns_list(self.dns_info.get("ipv4", []))
+        current_dns_v6 = self._normalize_dns_list(self.dns_info.get("ipv6", []))
+        dns_text = self._format_dns_text(current_dns_v4, current_dns_v6)
         
         if _HAS_FLUENT_LABELS:
             self.dns_label = CaptionLabel(dns_text)
@@ -228,25 +261,36 @@ class AdapterCard(SettingsCard):
                     result.append(str(item))
             return result
         return []
+
+    @staticmethod
+    def _format_dns_pair(dns_list: list[str]) -> str:
+        if not dns_list:
+            return ""
+        primary = dns_list[0]
+        secondary = dns_list[1] if len(dns_list) > 1 else None
+        if secondary:
+            return f"{primary}, {secondary}"
+        return primary
+
+    @classmethod
+    def _format_dns_text(cls, ipv4_list: list[str], ipv6_list: list[str]) -> str:
+        v4 = cls._format_dns_pair(ipv4_list)
+        v6 = cls._format_dns_pair(ipv6_list)
+
+        if v4 and v6:
+            return f"v4 {v4} | v6 {v6}"
+        if v4:
+            return f"v4 {v4}"
+        if v6:
+            return f"v6 {v6}"
+        return "DHCP"
     
-    def update_dns_display(self, dns_list):
+    def update_dns_display(self, dns_v4, dns_v6=None):
         """Обновляет отображение текущего DNS"""
         if self.dns_label:
-            if isinstance(dns_list, str):
-                dns_list = self._normalize_dns_list(dns_list)
-            elif isinstance(dns_list, list):
-                dns_list = self._normalize_dns_list(dns_list)
-            
-            if dns_list:
-                primary = dns_list[0]
-                secondary = dns_list[1] if len(dns_list) > 1 else None
-                if secondary:
-                    dns_text = f"{primary}, {secondary}"
-                else:
-                    dns_text = primary
-            else:
-                dns_text = "DHCP"
-            
+            ipv4 = self._normalize_dns_list(dns_v4)
+            ipv6 = self._normalize_dns_list(dns_v6 or [])
+            dns_text = self._format_dns_text(ipv4, ipv6)
             self.dns_label.setText(dns_text)
     
     def _toggle_checkbox(self):
@@ -289,6 +333,7 @@ class NetworkPage(BasePage):
         self._selected_provider = None
         self._ui_built = False  # Флаг чтобы UI строился только один раз
         self._force_dns_active = False
+        self._ipv6_available = False
         
         self.dns_cards = {}
         self.adapter_cards = []
@@ -449,11 +494,21 @@ class NetworkPage(BasePage):
         """Запускает асинхронную загрузку данных"""
         thread = threading.Thread(target=self._load_data, daemon=True)
         thread.start()
+
+    @staticmethod
+    def _detect_ipv6_availability() -> bool:
+        try:
+            return bool(DNSForceManager.check_ipv6_connectivity())
+        except Exception as e:
+            log(f"Ошибка проверки IPv6 у провайдера: {e}", "DEBUG")
+            return False
     
     def _load_data(self):
         """Загружает данные в фоне"""
         try:
             from dns.dns_core import DNSManager, _normalize_alias, refresh_exclusion_cache
+
+            self._ipv6_available = self._detect_ipv6_availability()
             
             refresh_exclusion_cache()
             self._dns_manager = DNSManager()
@@ -506,12 +561,14 @@ class NetworkPage(BasePage):
         self.adapters_container.show()
         
         # Получаем текущий DNS
-        current_dns = []
+        current_dns_v4 = []
+        current_dns_v6 = []
         if self._adapters:
             first_adapter = self._adapters[0][0]
             clean = _normalize_alias(first_adapter)
-            dns_data = self._dns_info.get(clean, {"ipv4": []})
-            current_dns = dns_data.get("ipv4", [])
+            dns_data = self._dns_info.get(clean, {"ipv4": [], "ipv6": []})
+            current_dns_v4 = AdapterCard._normalize_dns_list(dns_data.get("ipv4", []))
+            current_dns_v6 = AdapterCard._normalize_dns_list(dns_data.get("ipv6", []))
         
         # Добавляем "Автоматически (DHCP)"
         auto_card = SettingsCard()
@@ -562,8 +619,8 @@ class NetworkPage(BasePage):
             self.dns_cards_layout.addWidget(cat_label)
             
             for name, data in providers.items():
-                is_current = self._is_current_dns(data['ipv4'], current_dns)
-                card = DNSProviderCard(name, data, is_current)
+                is_current = self._is_current_dns(data['ipv4'], current_dns_v4)
+                card = DNSProviderCard(name, data, is_current, show_ipv6=self._ipv6_available)
                 card.selected.connect(self._on_dns_selected)
                 self.dns_cards[name] = card
                 
@@ -572,20 +629,77 @@ class NetworkPage(BasePage):
                     self._selected_provider = name
                 
                 self.dns_cards_layout.addWidget(card)
+
+        if self._selected_provider is None and not current_dns_v4 and not current_dns_v6:
+            self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_on())
+            self._set_dns_card_selected(self.auto_card, True)
+            self._selected_provider = None
         
         # Адаптеры
         for name, desc in self._adapters:
             clean = _normalize_alias(name)
-            dns_data = self._dns_info.get(clean, {"ipv4": []})
+            dns_data = self._dns_info.get(clean, {"ipv4": [], "ipv6": []})
             
             card = AdapterCard(name, dns_data)
+            card.checkbox.stateChanged.connect(self._sync_selected_dns_card)
             self.adapter_cards.append(card)
             self.adapters_layout.addWidget(card)
+
+        self._sync_selected_dns_card()
     
     def _is_current_dns(self, provider_ips: list, current_ips: list) -> bool:
         return (len(provider_ips) > 0 and 
                 len(current_ips) > 0 and 
                 provider_ips[0] == current_ips[0])
+
+    def _get_selected_adapter_dns(self) -> tuple[list[str], list[str]] | None:
+        from dns.dns_core import _normalize_alias
+
+        selected = self._get_selected_adapters()
+        if not selected:
+            return None
+
+        clean = _normalize_alias(selected[0])
+        dns_data = self._dns_info.get(clean, {"ipv4": [], "ipv6": []})
+        current_dns_v4 = AdapterCard._normalize_dns_list(dns_data.get("ipv4", []))
+        current_dns_v6 = AdapterCard._normalize_dns_list(dns_data.get("ipv6", []))
+        return current_dns_v4, current_dns_v6
+
+    def _sync_selected_dns_card(self, *_):
+        if not self.adapter_cards:
+            return
+
+        selected_dns = self._get_selected_adapter_dns()
+        if selected_dns is None:
+            return
+
+        current_dns_v4, current_dns_v6 = selected_dns
+        if not current_dns_v4 and not current_dns_v6:
+            self._clear_selection()
+            if hasattr(self, 'auto_indicator'):
+                self.auto_indicator.setStyleSheet(DNSProviderCard._indicator_on())
+            if hasattr(self, 'auto_card'):
+                self._set_dns_card_selected(self.auto_card, True)
+            self._selected_provider = None
+            return
+
+        self._clear_selection()
+        for name, card in self.dns_cards.items():
+            if self._is_current_dns(card.data.get('ipv4', []), current_dns_v4):
+                card.set_selected(True)
+                self._selected_provider = name
+                return
+
+        if hasattr(self, 'custom_indicator'):
+            self.custom_indicator.setStyleSheet(DNSProviderCard._indicator_on())
+        if hasattr(self, 'custom_card'):
+            self._set_dns_card_selected(self.custom_card, True)
+        if hasattr(self, 'custom_primary'):
+            self.custom_primary.setText(current_dns_v4[0] if current_dns_v4 else "")
+        if hasattr(self, 'custom_secondary'):
+            self.custom_secondary.setText(current_dns_v4[1] if len(current_dns_v4) > 1 else "")
+
+        self._selected_provider = None
     
     def _clear_selection(self):
         """Сбрасывает все выделения"""
@@ -680,23 +794,41 @@ class NetworkPage(BasePage):
         if not adapters:
             return
         
-        ipv4 = data['ipv4']
+        ipv4 = AdapterCard._normalize_dns_list(data.get('ipv4', []))
+        if not ipv4:
+            log(f"DNS: у провайдера {name} нет IPv4 адресов", "WARNING")
+            return
+
+        ipv6 = AdapterCard._normalize_dns_list(data.get('ipv6', []))
         success = 0
         
         for adapter in adapters:
-            ok, _ = self._dns_manager.set_custom_dns(
+            ok_v4, _ = self._dns_manager.set_custom_dns(
                 adapter, 
                 ipv4[0], 
                 ipv4[1] if len(ipv4) > 1 else None,
                 "IPv4"
             )
-            if ok:
+
+            ok_v6 = True
+            if self._ipv6_available and ipv6:
+                ok_v6, _ = self._dns_manager.set_custom_dns(
+                    adapter,
+                    ipv6[0],
+                    ipv6[1] if len(ipv6) > 1 else None,
+                    "IPv6"
+                )
+
+            if ok_v4 and ok_v6:
                 success += 1
         
         self._dns_manager.flush_dns_cache()
         
         if success == len(adapters):
-            log(f"DNS: {name} применён к {success} адаптерам", "INFO")
+            if self._ipv6_available and ipv6:
+                log(f"DNS: {name} (IPv4+IPv6) применён к {success} адаптерам", "INFO")
+            else:
+                log(f"DNS: {name} применён к {success} адаптерам", "INFO")
         
         # Обновляем отображение DNS у адаптеров
         self._refresh_adapters_dns()
@@ -757,12 +889,18 @@ class NetworkPage(BasePage):
             
             # Получаем свежую информацию о DNS
             dns_info = self._dns_manager.get_all_dns_info_fast(adapter_names)
+            self._dns_info = dns_info
             
             # Обновляем каждый адаптер
             for card in self.adapter_cards:
                 clean_name = _normalize_alias(card.adapter_name)
-                adapter_dns = dns_info.get(clean_name, {}).get("ipv4", [])
-                card.update_dns_display(adapter_dns)
+                adapter_data = dns_info.get(clean_name, {})
+                adapter_dns_v4 = adapter_data.get("ipv4", [])
+                adapter_dns_v6 = adapter_data.get("ipv6", [])
+                card.dns_info = adapter_data
+                card.update_dns_display(adapter_dns_v4, adapter_dns_v6)
+
+            self._sync_selected_dns_card()
                 
             log("DNS информация адаптеров обновлена", "DEBUG")
             

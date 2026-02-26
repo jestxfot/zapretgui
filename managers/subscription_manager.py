@@ -125,6 +125,11 @@ class SubscriptionManager:
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_title_with_subscription_status(False, None, 0)
             self.app.set_status("Ошибка инициализации подписок")
+            try:
+                if hasattr(self.app, '_mark_startup_subscription_ready'):
+                    self.app._mark_startup_subscription_ready("subscription_init_failed")
+            except Exception:
+                pass
             return
 
         # Сохраняем checker
@@ -164,6 +169,11 @@ class SubscriptionManager:
         self.app.set_status("Подписка инициализирована")
         log(f"Подписка готова: {'Premium' if sub_info['is_premium'] else 'Free'} "
             f"(уровень: {sub_info['subscription_level']})", "INFO")
+        try:
+            if hasattr(self.app, '_mark_startup_subscription_ready'):
+                self.app._mark_startup_subscription_ready("subscription_ready")
+        except Exception:
+            pass
 
     def handle_subscription_status_change(self, was_premium, is_premium):
         """Обрабатывает изменение статуса подписки"""

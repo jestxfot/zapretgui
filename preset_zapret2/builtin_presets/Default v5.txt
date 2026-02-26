@@ -1,6 +1,6 @@
 # Preset: CrazyMaxs
 # Preset: CrazyMaxs
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # Created: 2026-02-07T07:20:56.595477
 # Modified: 2026-02-07T07:20:56.597914
 # Description: 
@@ -61,6 +61,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin

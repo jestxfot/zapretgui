@@ -145,6 +145,13 @@ class InitializationManager:
                             "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
                             "ERROR",
                         )
+                elif method == "direct_zapret2_orchestra":
+                    from preset_orchestra_zapret2 import ensure_default_preset_exists
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2_orchestra: не удалось подготовить preset-zapret2-orchestra.txt (нет шаблона Default)",
+                            "ERROR",
+                        )
                 elif method == "direct_zapret1":
                     from preset_zapret1 import ensure_default_preset_exists_v1
                     if not ensure_default_preset_exists_v1():
@@ -185,6 +192,17 @@ class InitializationManager:
                         )
                         try:
                             self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
+                        except Exception:
+                            pass
+                elif launch_method == "direct_zapret2_orchestra":
+                    from preset_orchestra_zapret2 import ensure_default_preset_exists
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2_orchestra: не удалось подготовить preset-zapret2-orchestra.txt (нет шаблона Default)",
+                            "ERROR",
+                        )
+                        try:
+                            self.app.set_status("Ошибка: отсутствует Default шаблон оркестра")
                         except Exception:
                             pass
             else:

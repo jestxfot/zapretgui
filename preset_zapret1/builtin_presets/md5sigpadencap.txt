@@ -9,7 +9,17 @@
 # === HTTPS ===
 --filter-tcp=443
 --hostlist=lists/other.txt
---hostlist=lists/faceinsta.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
 --dpi-desync=fake,multisplit
 --dpi-desync-split-seqovl=1
 --dpi-desync-split-pos=1
@@ -71,5 +81,5 @@
 --ipset=lists/ipset-cloudflare.txt
 --dpi-desync=fake
 --dpi-desync-fooling=md5sig
---dpi-desync-fake-tls-mod=bin/rnd,rndsni,padencap
+--dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --new

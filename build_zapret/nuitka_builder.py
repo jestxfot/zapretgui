@@ -315,6 +315,7 @@ def run_nuitka(
             "log",
             "managers",
             "orchestra",
+            "preset_orchestra_zapret2",
             "preset_zapret2",
             "startup",
             "strategy_menu",

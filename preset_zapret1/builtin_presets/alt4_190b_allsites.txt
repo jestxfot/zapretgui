@@ -8,20 +8,30 @@
 
 --filter-udp=443
 --hostlist=lists/list-general.txt
---hostlist-exclude=lists/list-exclude.txt
---ipset-exclude=lists/ipset-exclude.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
 --dpi-desync=fake
 --dpi-desync-repeats=6
 --dpi-desync-fake-quic=bin/quic_initial_www_google_com.bin
 
 --new
+
 --filter-udp=19294-19344,50000-50100
 --dpi-desync=fake
 --dpi-desync-repeats=6
 
 --new
 --filter-tcp=2053,2083,2087,2096,8443
---hostlist-domains=lists/discord.media
+--hostlist-domains=discord.media
 --dpi-desync=fake,multisplit
 --dpi-desync-repeats=6
 --dpi-desync-fooling=badseq
@@ -29,6 +39,7 @@
 --dpi-desync-fake-tls=bin/tls_clienthello_www_google_com.bin
 
 --new
+
 --filter-tcp=443
 --hostlist=lists/list-google.txt
 --ip-id=zero
@@ -39,10 +50,20 @@
 --dpi-desync-fake-tls=bin/tls_clienthello_www_google_com.bin
 
 --new
+
 --filter-tcp=80,443
 --hostlist=lists/list-general.txt
---hostlist-exclude=lists/list-exclude.txt
---ipset-exclude=lists/ipset-exclude.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
 --dpi-desync=fake,multisplit
 --dpi-desync-repeats=6
 --dpi-desync-fooling=badseq
@@ -50,16 +71,16 @@
 --dpi-desync-fake-tls=bin/tls_clienthello_www_google_com.bin
 
 --new
+
 --filter-udp=443
---hostlist-exclude=lists/list-exclude.txt
 --ipset-exclude=lists/ipset-exclude.txt
 --dpi-desync=fake
 --dpi-desync-repeats=6
 --dpi-desync-fake-quic=bin/quic_initial_www_google_com.bin
 
 --new
+
 --filter-tcp=80,443,444-65535
---hostlist-exclude=lists/list-exclude.txt
 --ipset-exclude=lists/ipset-exclude.txt
 --dpi-desync=fake,multisplit
 --dpi-desync-repeats=6
@@ -68,6 +89,7 @@
 --dpi-desync-fake-tls=bin/tls_clienthello_www_google_com.bin
 
 --new
+
 --filter-udp=444-65535
 --ipset-exclude=lists/ipset-exclude.txt
 --dpi-desync=fake
@@ -76,4 +98,3 @@
 --dpi-desync-any-protocol=1
 --dpi-desync-fake-unknown-udp=bin/quic_initial_www_google_com.bin
 --dpi-desync-cutoff=n2
---new

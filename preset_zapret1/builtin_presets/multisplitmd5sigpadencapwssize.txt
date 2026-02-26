@@ -38,7 +38,7 @@
 --dpi-desync=fake,multisplit
 --dpi-desync-ttl=1
 --dpi-desync-split-pos=1,midsld
---dpi-desync-fake-tls-mod=bin/rnd,rndsni,padencap
+--dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --wssize
 1:6
 --new

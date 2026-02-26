@@ -37,5 +37,5 @@
 --filter-tcp=443
 --dpi-desync=fake
 --dpi-desync-fooling=md5sig
---dpi-desync-fake-tls-mod=bin/rnd,rndsni,padencap
+--dpi-desync-fake-tls-mod=rnd,rndsni,padencap
 --new

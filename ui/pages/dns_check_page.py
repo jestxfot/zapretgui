@@ -117,22 +117,17 @@ class DNSCheckPage(BasePage):
         buttons_layout.setSpacing(12)
         
         self.check_button = ActionButton("Начать проверку", "fa5s.play")
-        self.check_button.setMinimumHeight(40)
         self.check_button.clicked.connect(self.start_check)
-        buttons_layout.addWidget(self.check_button)
-        
+        buttons_layout.addWidget(self.check_button, 1)
+
         self.quick_check_button = ActionButton("Быстрая проверка", "fa5s.bolt")
-        self.quick_check_button.setMinimumHeight(40)
         self.quick_check_button.clicked.connect(self.quick_dns_check)
-        buttons_layout.addWidget(self.quick_check_button)
-        
+        buttons_layout.addWidget(self.quick_check_button, 1)
+
         self.save_button = ActionButton("Сохранить результаты", "fa5s.save")
-        self.save_button.setMinimumHeight(40)
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self.save_results)
-        buttons_layout.addWidget(self.save_button)
-        
-        buttons_layout.addStretch()
+        buttons_layout.addWidget(self.save_button, 1)
         control_card.add_layout(buttons_layout)
         
         # Прогресс бар

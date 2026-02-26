@@ -9,12 +9,13 @@ from PyQt6.QtCore import (
     pyqtSignal,
     QEasingCurve,
     QPropertyAnimation,
+    QUrl,
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QGraphicsOpacityEffect
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QDesktopServices
 import qtawesome as qta
 
 from .base_page import BasePage
@@ -377,6 +378,13 @@ class HomePage(BasePage):
         # Кнопка папки
         self.folder_btn = ActionButton("Открыть папку", "fa5s.folder-open")
         actions_layout.addWidget(self.folder_btn)
+
+        # Кнопка "Как использовать"
+        self.guide_btn = ActionButton("Как использовать", "fa5s.question-circle")
+        self.guide_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://publish.obsidian.md/zapret/Zapret/guide"))
+        )
+        actions_layout.addWidget(self.guide_btn)
         
         actions_layout.addStretch()
         self.actions_card.add_layout(actions_layout)

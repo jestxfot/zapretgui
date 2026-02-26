@@ -12,9 +12,9 @@ color: cyan
 ## СТРОГИЕ ПРАВИЛА
 
 ### МОЖНО читать ТОЛЬКО:
-- `F:\doc\zapret2\lua\*.lua` - Lua библиотеки zapret2
-- `F:\doc\zapret2\nfq2\*` - NFQ2 код
-- `F:\doc\zapret2\*` - Любые другие файлы документации zapret2
+- `H:\Privacy\zapret2_orig_bolvan\lua\*.lua` - Lua библиотеки zapret2
+- `H:\Privacy\zapret2_orig_bolvan\nfq2\*` - NFQ2 код
+- `H:\Privacy\zapret2_orig_bolvan\*` - Любые другие файлы документации zapret2
 
 ### НЕЛЬЗЯ:
 - Читать `/home/privacy/zapretgui/*` - это код проекта, НЕ исходный код
@@ -23,7 +23,7 @@ color: cyan
 - Писать код
 
 ### ИСКЛЮЧЕНИЯ - НЕ ЧИТАТЬ:
-- `/home/privacy/zapret/lua/zapret-auto.lua` - автообновляемая копия, читай оригинал из F:\doc\zapret2
+- `/home/privacy/zapret/lua/zapret-auto.lua` - автообновляемая копия, читай оригинал из H:\Privacy\zapret2_orig_bolvan
 
 ## ТВОЯ ЗАДАЧА
 
@@ -35,7 +35,7 @@ color: cyan
 
 ## СТРУКТУРА ИСХОДНОГО КОДА
 
-### F:\doc\zapret2\lua\
+### H:\Privacy\zapret2_orig_bolvan\lua\
 
 Основные файлы:
 - `zapret-lib.lua` - базовые функции (standard_hostkey, nld_cut, DLOG и др.)
@@ -76,7 +76,7 @@ color: cyan
 Вопрос: "Как circular_quality выводит SUCCESS события?"
 
 Ответ должен включать:
-1. Путь: F:\doc\zapret2\lua\zapret-auto.lua (или где находится)
+1. Путь: H:\Privacy\zapret2_orig_bolvan\lua\zapret-auto.lua (или где находится)
 2. Функция record_strategy_result()
 3. Формат DLOG: "strategy_quality: hostname strat=N SUCCESS X/Y"
 4. Когда вызывается (при is_success = true)

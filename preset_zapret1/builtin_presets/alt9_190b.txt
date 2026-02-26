@@ -8,8 +8,17 @@
 
 --filter-udp=443
 --hostlist=lists/list-general.txt
---hostlist-exclude=lists/list-exclude.txt
---ipset-exclude=lists/ipset-exclude.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
 --dpi-desync=fake
 --dpi-desync-repeats=6
 --dpi-desync-fake-quic=bin/quic_initial_www_google_com.bin
@@ -21,7 +30,7 @@
 
 --new
 --filter-tcp=2053,2083,2087,2096,8443
---hostlist-domains=lists/discord.media
+--hostlist-domains=discord.media
 --dpi-desync=hostfakesplit
 --dpi-desync-repeats=4
 --dpi-desync-fooling=ts
@@ -39,8 +48,17 @@
 --new
 --filter-tcp=80,443
 --hostlist=lists/list-general.txt
---hostlist-exclude=lists/list-exclude.txt
---ipset-exclude=lists/ipset-exclude.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/other.txt
+--hostlist=lists/soundcloud.txt
+--hostlist=lists/rutracker.txt
+--hostlist=lists/rutor.txt
+--hostlist=lists/roblox.txt
+--hostlist=lists/itch.txt
+--hostlist=lists/facebook.txt
+--hostlist=lists/instagram.txt
+--hostlist=lists/twitter.txt
+--hostlist=lists/whatsapp.txt
 --dpi-desync=hostfakesplit
 --dpi-desync-repeats=4
 --dpi-desync-fooling=ts,md5sig

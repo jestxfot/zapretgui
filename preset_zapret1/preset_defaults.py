@@ -10,7 +10,7 @@ Template sync flow:
 import os
 import re
 import shutil
-import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -205,46 +205,6 @@ def get_builtin_base_from_copy_name_v1(name: str) -> Optional[str]:
     return get_template_canonical_name_v1(base)
 
 
-def _seed_v1_templates_from_repo() -> int:
-    """Dev-mode: copy missing builtin_presets/*.txt → presets_v1_template/.
-
-    Only runs when NOT frozen (i.e. running from source).
-    Returns number of files copied.
-    """
-    if getattr(sys, "frozen", False):
-        return 0
-
-    if not _BUILTIN_DIR.is_dir():
-        return 0
-
-    tpl_dir = _get_v1_templates_dir()
-    try:
-        tpl_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        log(f"Cannot create V1 templates dir: {e}", "ERROR")
-        return 0
-
-    copied = 0
-    try:
-        for src in _BUILTIN_DIR.glob("*.txt"):
-            if not src.is_file() or src.name.startswith("_"):
-                continue
-            dest = tpl_dir / src.name
-            if not dest.exists():
-                try:
-                    shutil.copy2(str(src), str(dest))
-                    copied += 1
-                except Exception as e:
-                    log(f"Failed to seed V1 template {src.name}: {e}", "DEBUG")
-    except Exception as e:
-        log(f"Error seeding V1 templates from repo: {e}", "ERROR")
-
-    if copied:
-        invalidate_templates_cache_v1()
-        log(f"Seeded {copied} V1 templates from builtin_presets/ to {tpl_dir}", "DEBUG")
-    return copied
-
-
 def ensure_v1_templates_copied_to_presets() -> int:
     """Copy missing templates from presets_v1_template/ → presets_v1/.
 
@@ -271,6 +231,125 @@ def ensure_v1_templates_copied_to_presets() -> int:
     if copied:
         log(f"Copied {copied} V1 templates to {presets_dir}", "DEBUG")
     return copied
+
+
+def update_changed_v1_templates_in_presets() -> int:
+    """Update existing presets in presets_v1/ when template BuiltinVersion is strictly newer.
+
+    Only updates presets whose template carries a `# BuiltinVersion:` header
+    with a version strictly greater than the one in the user's file
+    (missing version = 0, so any versioned template triggers the first update).
+
+    User-created presets (names not matching any builtin template) are never
+    touched.  Before overwriting, the old file is backed up to
+    presets_v1/_builtin_version_backups/.
+
+    If the updated preset is the currently active one, preset-zapret1.txt is
+    also refreshed immediately.
+
+    Returns number of files updated.
+    """
+    from .preset_storage import (
+        get_presets_dir_v1,
+        get_active_preset_name_v1,
+        get_active_preset_path_v1,
+    )
+    from preset_zapret2.preset_defaults import (
+        _extract_builtin_version,
+        _is_newer_builtin_version,
+        _sanitize_version_for_filename,
+    )
+
+    invalidate_templates_cache_v1()
+
+    templates = _load_v1_templates_from_disk()
+    if not templates:
+        return 0
+
+    presets_dir = get_presets_dir_v1()
+    backups_dir = presets_dir / "_builtin_version_backups"
+    active_name = (get_active_preset_name_v1() or "").strip().lower()
+    updated = 0
+
+    for name, src_path in templates.items():
+        dest = presets_dir / f"{name}.txt"
+        if not dest.exists():
+            continue  # New file — handled by ensure_v1_templates_copied_to_presets
+
+        try:
+            template_content = src_path.read_text(encoding="utf-8", errors="replace")
+            template_version = _extract_builtin_version(template_content)
+
+            if not template_version:
+                continue  # No BuiltinVersion in template → never auto-update
+
+            existing_content = dest.read_text(encoding="utf-8", errors="replace")
+            existing_version = _extract_builtin_version(existing_content)
+
+            if not _is_newer_builtin_version(template_version, existing_version):
+                continue  # Template not strictly newer → skip
+
+            # Backup old file before overwriting.
+            try:
+                backups_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                from_v = _sanitize_version_for_filename(existing_version)
+                to_v = _sanitize_version_for_filename(template_version)
+                backup_name = f"{dest.stem}__{timestamp}__{from_v}_to_{to_v}.txt"
+                (backups_dir / backup_name).write_text(existing_content, encoding="utf-8")
+            except Exception:
+                pass
+
+            shutil.copy2(str(src_path), str(dest))
+            updated += 1
+            log(f"V1 preset '{name}' updated to BuiltinVersion {template_version}", "INFO")
+
+            # If this preset is currently active, sync preset-zapret1.txt too.
+            if active_name and active_name == name.lower():
+                try:
+                    active_path = get_active_preset_path_v1()
+                    shutil.copy2(str(src_path), str(active_path))
+                    log(f"V1 active file synced for updated preset '{name}'", "DEBUG")
+                except Exception:
+                    pass
+
+        except Exception as e:
+            log(f"Failed to update V1 preset '{name}' from template: {e}", "DEBUG")
+
+    if updated:
+        log(f"Updated {updated} V1 preset(s) from builtin templates", "INFO")
+    return updated
+
+
+def overwrite_v1_templates_to_presets() -> tuple[int, int, list[str]]:
+    """Copy all templates from presets_v1_template/ -> presets_v1/ with overwrite.
+
+    Every template file is copied even if destination already exists.
+    Returns (copied_count, total_templates, failed_template_names).
+    """
+    from .preset_storage import get_presets_dir_v1
+
+    templates = _load_v1_templates_from_disk()
+    if not templates:
+        return (0, 0, [])
+
+    presets_dir = get_presets_dir_v1()
+    copied = 0
+    failed: list[str] = []
+
+    for name in sorted(templates.keys(), key=lambda s: s.lower()):
+        src_path = templates[name]
+        dest = presets_dir / f"{name}.txt"
+        try:
+            shutil.copy2(str(src_path), str(dest))
+            copied += 1
+        except Exception as e:
+            failed.append(name)
+            log(f"Failed to overwrite V1 preset '{name}' from template: {e}", "DEBUG")
+
+    if copied:
+        log(f"Overwrote {copied}/{len(templates)} V1 presets from templates in {presets_dir}", "DEBUG")
+    return (copied, len(templates), failed)
 
 
 def get_builtin_preset_content_v1(name: str) -> Optional[str]:
@@ -321,7 +400,10 @@ def ensure_default_preset_exists_v1() -> bool:
     except Exception as e:
         log(f"Error ensuring V1 strategies catalog: {e}", "DEBUG")
 
-    # Step 1: copy templates to user presets
+    # Step 1a: update existing presets where builtin template changed
+    update_changed_v1_templates_in_presets()
+
+    # Step 1b: copy any missing templates to user presets
     ensure_v1_templates_copied_to_presets()
 
     # Step 2: check Default exists

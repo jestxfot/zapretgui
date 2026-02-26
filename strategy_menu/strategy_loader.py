@@ -69,6 +69,10 @@ _EXTERNAL_STRATEGY_BASENAME_MAP: Dict[str, Dict[str, str]] = {
         "http80": "http80_zapret2_advanced",
         "discord_voice": "discord_voice_zapret2_advanced",
     },
+    "orchestra": {
+        "tcp": "tcp_orchestra",
+        "http80": "http80_orchestra",
+    },
 }
 
 
@@ -367,50 +371,17 @@ def _process_args(args: Union[str, List[str]], auto_number: bool = False) -> str
     """
     Обрабатывает args:
     1. Если это список - склеивает в строку через пробел
-    2. Если auto_number=True - добавляет :strategy=N ко ВСЕМ --lua-desync= на каждой строке
-       (для combo стратегий все --lua-desync на одной строке получают одинаковый N)
+    2. Удаляет legacy-теги :strategy=N (runtime-нумерация выполняется перед запуском)
     """
     if not args:
         return ''
 
-    # Авто-нумерация стратегий (только для orchestra)
-    if auto_number and isinstance(args, list):
-        strategy_counter = 0
-        processed_lines = []
-
-        for line in args:
-            # Пропускаем строки без lua-desync
-            if '--lua-desync=' not in line:
-                processed_lines.append(line)
-                continue
-
-            # Проверяем первый lua-desync на строке
-            match = re.search(r'--lua-desync=([^\s]+)', line)
-            if match:
-                content = match.group(1)
-                # circular/pass - это управление, не нумеруем
-                if content.startswith('circular') or content == 'pass':
-                    processed_lines.append(line)
-                    continue
-                # Если уже есть :strategy= - не добавляем
-                if ':strategy=' in line:
-                    processed_lines.append(line)
-                    continue
-
-                # Добавляем ОДИНАКОВЫЙ :strategy=N ко ВСЕМ lua-desync на строке (combo)
-                strategy_counter += 1
-                new_line = re.sub(
-                    r'(--lua-desync=[^\s]+)',
-                    rf'\1:strategy={strategy_counter}',
-                    line
-                )
-                processed_lines.append(new_line)
-            else:
-                processed_lines.append(line)
-
-        args = ' '.join(processed_lines)
-    elif isinstance(args, list):
+    if isinstance(args, list):
         args = ' '.join(args)
+    else:
+        args = str(args)
+
+    args = re.sub(r':strategy=\d+', '', args)
 
     return args
 
@@ -480,9 +451,10 @@ def load_category_strategies(category: str, strategy_set: Optional[str] = None) 
     """
     strategy_set_key = (strategy_set or "").strip().lower()
 
-    # direct_zapret2 Basic/Advanced: load from a stable per-user directory to avoid
+    # direct_zapret2 Basic/Advanced and direct_zapret2_orchestra: load from a
+    # stable per-user directory to avoid
     # depending on the install location / INDEXJSON_FOLDER.
-    if strategy_set_key in ("basic", "advanced"):
+    if strategy_set_key in ("basic", "advanced", "orchestra"):
         strategies: Dict[str, Dict] = {}
 
         try:
@@ -491,7 +463,10 @@ def load_category_strategies(category: str, strategy_set: Optional[str] = None) 
         except Exception:
             base = ""
 
-        mode_dir = Path(base) / "direct_zapret2" / f"{strategy_set_key}_strategies" if base else None
+        if strategy_set_key == "orchestra":
+            mode_dir = Path(base) / "orchestra_zapret2" if base else None
+        else:
+            mode_dir = Path(base) / "direct_zapret2" / f"{strategy_set_key}_strategies" if base else None
         try:
             if mode_dir is not None:
                 mode_dir.mkdir(parents=True, exist_ok=True)
@@ -547,8 +522,7 @@ def load_category_strategies(category: str, strategy_set: Optional[str] = None) 
         log(f"Файл {basename}.txt/.json не найден, используем стандартный {category}", "DEBUG")
         builtin_data = _load_strategy_file(builtin_dir, category)
 
-    # Авто-нумерация :strategy=N только для orchestra
-    auto_number = (strategy_set_key == "orchestra")
+    auto_number = False
 
     if builtin_data and 'strategies' in builtin_data:
         for strategy in builtin_data['strategies']:

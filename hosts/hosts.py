@@ -26,6 +26,28 @@ def _get_hosts_path_from_env() -> Path:
 
 HOSTS_PATH = _get_hosts_path_from_env() if os.name == "nt" else Path(r"C:\Windows\System32\drivers\etc\hosts")
 
+_GITHUB_API_DOMAIN = "api.github.com"
+_ZAPRET_TRACKER_DOMAIN = "zapret-tracker.duckdns.org"
+_ZAPRET_TRACKER_IP = "88.210.52.47"
+_HOSTS_BOOTSTRAP_SIGNATURE_VERSION = "v2"
+
+
+def _get_hosts_bootstrap_signature() -> str:
+    return f"{_HOSTS_BOOTSTRAP_SIGNATURE_VERSION}|{_ZAPRET_TRACKER_DOMAIN}|{_ZAPRET_TRACKER_IP}"
+
+
+def _extract_tracker_from_bootstrap_signature(signature: str | None) -> tuple[str | None, str | None]:
+    if not isinstance(signature, str):
+        return None, None
+    parts = [part.strip() for part in signature.split("|")]
+    if len(parts) < 3:
+        return None, None
+    domain = parts[1].lower()
+    ip = parts[2]
+    if not domain or not ip:
+        return None, None
+    return domain, ip
+
 
 # ───────────────────────── hosts file read cache ─────────────────────────
 #
@@ -495,7 +517,7 @@ class HostsManager:
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
         self._last_status: str | None = None
-        # 🆕 При инициализации проверяем и удаляем api.github.com
+        # При инициализации выполняем единоразовый bootstrap hosts.
         self.check_and_remove_github_api()
 
     def restore_permissions(self):
@@ -594,26 +616,152 @@ class HostsManager:
             return False
 
     def check_and_remove_github_api(self):
-        """Проверяет и при необходимости удаляет api.github.com из hosts"""
+        """Единоразово применяет bootstrap hosts для текущей сигнатуры."""
         try:
-            # Импортируем функцию для проверки настройки реестра
             from config import get_remove_github_api
-            
-            # Проверяем, разрешено ли удаление GitHub API
-            if not get_remove_github_api():
-                log("⚙️ Удаление api.github.com отключено в настройках")
+            from config.reg import (
+                get_hosts_bootstrap_signature,
+                set_hosts_bootstrap_signature,
+                set_hosts_bootstrap_v1_done,
+            )
+
+            expected_signature = _get_hosts_bootstrap_signature()
+            applied_signature = get_hosts_bootstrap_signature()
+
+            if applied_signature == expected_signature:
+                log("Bootstrap hosts уже применён для текущей сигнатуры", "DEBUG")
                 return
-                
-            if self.check_github_api_in_hosts():
-                log("🔍 Обнаружена запись api.github.com в hosts файле - принудительно удаляем...")
-                if self.remove_github_api_from_hosts():
-                    log("✅ Запись api.github.com успешно удалена из hosts")
-                else:
-                    log("❌ Не удалось удалить api.github.com из hosts")
+
+            previous_tracker_domain, _ = _extract_tracker_from_bootstrap_signature(applied_signature)
+            if previous_tracker_domain == _ZAPRET_TRACKER_DOMAIN:
+                previous_tracker_domain = None
+
+            if applied_signature:
+                log(
+                    f"Обновляем bootstrap hosts: сигнатура изменена ({applied_signature} -> {expected_signature})",
+                    "DEBUG",
+                )
             else:
-                log("✅ Запись api.github.com не найдена в hosts файле")
+                log("Выполняем bootstrap hosts для текущей сигнатуры", "DEBUG")
+
+            content = safe_read_hosts_file()
+            if content is None:
+                log("Не удалось прочитать hosts для bootstrap", "❌ ERROR")
+                return
+
+            remove_github = bool(get_remove_github_api())
+
+            lines = content.splitlines(keepends=True)
+            new_lines: list[str] = []
+
+            removed_github = False
+            tracker_has_correct_ip = False
+            tracker_ip_corrected = False
+            previous_tracker_removed = False
+
+            for line in lines:
+                line_stripped = line.strip()
+                if not line_stripped:
+                    new_lines.append(line)
+                    continue
+
+                mapping_part, sep, comment_part = line.partition('#')
+                mapping_stripped = mapping_part.strip()
+                if not mapping_stripped:
+                    new_lines.append(line)
+                    continue
+
+                parts = mapping_stripped.split()
+                if len(parts) < 2:
+                    new_lines.append(line)
+                    continue
+
+                ip = parts[0]
+                domains = parts[1:]
+                domains_lower = [domain.lower() for domain in domains]
+                updated_domains = domains
+                line_changed = False
+
+                if remove_github and _GITHUB_API_DOMAIN in domains_lower:
+                    removed_github = True
+                    updated_domains = [domain for domain in updated_domains if domain.lower() != _GITHUB_API_DOMAIN]
+                    line_changed = True
+
+                if previous_tracker_domain and previous_tracker_domain in domains_lower:
+                    updated_domains = [domain for domain in updated_domains if domain.lower() != previous_tracker_domain]
+                    previous_tracker_removed = True
+                    line_changed = True
+                    log(f"Удаляем устаревший трекер-домен: {mapping_stripped}")
+
+                if _ZAPRET_TRACKER_DOMAIN in domains_lower:
+                    if ip == _ZAPRET_TRACKER_IP:
+                        tracker_has_correct_ip = True
+                    else:
+                        tracker_ip_corrected = True
+                        updated_domains = [domain for domain in updated_domains if domain.lower() != _ZAPRET_TRACKER_DOMAIN]
+                        line_changed = True
+                        log(f"Удаляем запись {_ZAPRET_TRACKER_DOMAIN} с некорректным IP: {mapping_stripped}")
+
+                if line_changed:
+                    if not updated_domains:
+                        log(f"Удаляем из hosts: {mapping_stripped}")
+                        continue
+
+                    rebuilt_line = f"{ip} {' '.join(updated_domains)}"
+                    comment = comment_part.strip() if sep else ""
+                    if comment:
+                        rebuilt_line += f" # {comment}"
+                    new_lines.append(rebuilt_line + "\n")
+                    if remove_github and _GITHUB_API_DOMAIN in domains_lower:
+                        log(f"Обновляем строку hosts без api.github.com: {mapping_stripped}")
+                    continue
+
+                new_lines.append(line)
+
+            tracker_added = False
+            if not tracker_has_correct_ip:
+                while new_lines and new_lines[-1].strip() == "":
+                    new_lines.pop()
+
+                if new_lines and not new_lines[-1].endswith('\n'):
+                    new_lines[-1] += '\n'
+                if new_lines:
+                    new_lines.append('\n')
+
+                new_lines.append(f"{_ZAPRET_TRACKER_IP} {_ZAPRET_TRACKER_DOMAIN}\n")
+                tracker_added = True
+                log(f"Добавляем в hosts: {_ZAPRET_TRACKER_IP} {_ZAPRET_TRACKER_DOMAIN}")
+
+            changed = removed_github or tracker_ip_corrected or previous_tracker_removed or tracker_added
+            if changed and not safe_write_hosts_file("".join(new_lines)):
+                log("Не удалось записать hosts после bootstrap", "❌ ERROR")
+                return
+
+            if not set_hosts_bootstrap_signature(expected_signature):
+                log("Не удалось сохранить сигнатуру bootstrap hosts", "⚠ WARNING")
+                return
+
+            if not set_hosts_bootstrap_v1_done(True):
+                log("Не удалось сохранить legacy-флаг bootstrap hosts", "DEBUG")
+
+            if remove_github:
+                if removed_github:
+                    log("✅ Запись api.github.com удалена из hosts (первый запуск)")
+                else:
+                    log("✅ Запись api.github.com не найдена в hosts (первый запуск)")
+            else:
+                log("⚙️ Удаление api.github.com отключено в настройках")
+
+            if tracker_added and (tracker_ip_corrected or previous_tracker_removed):
+                log("✅ Запись zapret-tracker.duckdns.org обновлена на корректный IP (первый запуск)")
+            elif tracker_added:
+                log("✅ Запись zapret-tracker.duckdns.org добавлена в hosts (первый запуск)")
+            elif tracker_ip_corrected or previous_tracker_removed:
+                log("✅ Удалены некорректные записи zapret-tracker.duckdns.org (первый запуск)")
+            else:
+                log("✅ Запись zapret-tracker.duckdns.org уже есть в hosts")
         except Exception as e:
-            log(f"Ошибка при проверке/удалении api.github.com: {e}")
+            log(f"Ошибка при bootstrap hosts: {e}")
 
     # ------------------------- сервис -------------------------
     def get_active_domains_map(self) -> dict[str, str]:
@@ -783,9 +931,6 @@ class HostsManager:
     def add_proxy_domains(self) -> bool:
         """LEGACY: включает все домены (профиль 0) + статические."""
         log("🟡 add_proxy_domains начат (legacy)", "DEBUG")
-
-        # ✅ Вызываем check_and_remove_github_api только один раз в начале
-        self.check_and_remove_github_api()
 
         all_domains: dict[str, str] = {}
         default_profile = (get_dns_profiles() or [None])[0]

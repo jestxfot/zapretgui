@@ -1,5 +1,5 @@
 # ui/pages/custom_ipset_page.py
-"""Страница управления пользовательскими IP (my-ipset.txt)"""
+"""Страница управления пользовательскими IP (ipset-all.user.txt)."""
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -40,17 +40,23 @@ def split_ip_entries(text: str) -> list[str]:
 
 
 class CustomIpSetPage(BasePage):
-    """Страница управления пользовательскими IP (my-ipset.txt)"""
+    """Страница управления пользовательскими IP (ipset-all.user.txt)."""
 
     ipset_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(
-            "Кастомные (мои) IP и подсети для работы с Zapret",
-            "Здесь Вы можете редактировать пользовательский список IP/подсетей (my-ipset.txt). Пишите сюда только айпи в формате 0.0.0.0 или в формате CIDR подсетей 0.0.0.0/0\nИзменения сохраняются автоматически.",
+            "Кастомные (мои) IP и подсети для ipset-all",
+            "Здесь Вы можете редактировать пользовательский список IP/подсетей (ipset-all.user.txt). Пишите только IP/CIDR, изменения сохраняются автоматически.",
             parent,
         )
+        self._base_ipset_set_cache: set[str] | None = None
         self._build_ui()
+
+        self._status_timer = QTimer()
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(self._update_status)
+
         QTimer.singleShot(100, self._load_entries)
 
     @staticmethod
@@ -98,10 +104,11 @@ class CustomIpSetPage(BasePage):
         tokens = get_theme_tokens()
         desc_card = SettingsCard()
         desc = CaptionLabel(
-            "Добавляйте свои IP/подсети. Поддерживаются форматы:\n"
+            "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
             "• Одиночный IP: 1.2.3.4\n"
             "• Подсеть: 10.0.0.0/8\n"
-            "Диапазоны (a-b) не поддерживаются. Поддерживается Ctrl+Z."
+            "Диапазоны (a-b) не поддерживаются.\n"
+            "Системная база хранится в ipset-all.base.txt и объединяется автоматически в ipset-all.txt."
         )
         desc.setStyleSheet(f"color: {tokens.fg_muted};")
         desc.setWordWrap(True)
@@ -144,7 +151,7 @@ class CustomIpSetPage(BasePage):
         self.layout.addWidget(actions_card)
 
         # Текстовый редактор (вместо списка)
-        editor_card = SettingsCard("Мой IP-список (редактор)")
+        editor_card = SettingsCard("ipset-all.user.txt (редактор)")
         editor_layout = QVBoxLayout()
         editor_layout.setSpacing(8)
 
@@ -216,15 +223,23 @@ class CustomIpSetPage(BasePage):
                 font-size: 13px;
             }}
         """
+        self._has_validation_error = False
 
     def _load_entries(self):
-        """Загружает список из my-ipset.txt"""
+        """Загружает пользовательский список из ipset-all.user.txt."""
         try:
-            from utils.ipsets_manager import MY_IPSET_PATH
+            from utils.ipsets_manager import (
+                IPSET_ALL_USER_PATH,
+                ensure_ipset_all_user_file,
+                get_ipset_all_base_set,
+            )
+
+            ensure_ipset_all_user_file()
+            self._base_ipset_set_cache = get_ipset_all_base_set()
 
             entries = []
-            if os.path.exists(MY_IPSET_PATH):
-                with open(MY_IPSET_PATH, "r", encoding="utf-8") as f:
+            if os.path.exists(IPSET_ALL_USER_PATH):
+                with open(IPSET_ALL_USER_PATH, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line:
@@ -236,25 +251,25 @@ class CustomIpSetPage(BasePage):
             self.text_edit.blockSignals(False)
             
             self._update_status()
-            log(f"Загружено {len(entries)} строк из my-ipset.txt", "INFO")
+            log(f"Загружено {len(entries)} строк из ipset-all.user.txt", "INFO")
         except Exception as e:
-            log(f"Ошибка загрузки my-ipset.txt: {e}", "ERROR")
+            log(f"Ошибка загрузки ipset-all.user.txt: {e}", "ERROR")
             self.status_label.setText(f"❌ Ошибка: {e}")
 
     def _on_text_changed(self):
         self._save_timer.start(500)
-        self._update_status()
+        self._status_timer.start(120)
 
     def _auto_save(self):
         self._save_entries()
         self.status_label.setText(self.status_label.text() + " • ✅ Сохранено")
 
     def _save_entries(self):
-        """Сохраняет список в my-ipset.txt"""
+        """Сохраняет пользовательский список в ipset-all.user.txt."""
         try:
-            from utils.ipsets_manager import MY_IPSET_PATH
+            from utils.ipsets_manager import IPSET_ALL_USER_PATH, sync_ipset_all_after_user_change
 
-            os.makedirs(os.path.dirname(MY_IPSET_PATH), exist_ok=True)
+            os.makedirs(os.path.dirname(IPSET_ALL_USER_PATH), exist_ok=True)
             
             text = self.text_edit.toPlainText()
             entries = []
@@ -284,9 +299,12 @@ class CustomIpSetPage(BasePage):
                         # Невалидная строка - оставляем как есть
                         normalized_lines.append(item)
 
-            with open(MY_IPSET_PATH, "w", encoding="utf-8") as f:
+            with open(IPSET_ALL_USER_PATH, "w", encoding="utf-8") as f:
                 for entry in entries:
                     f.write(f"{entry}\n")
+
+            if not sync_ipset_all_after_user_change():
+                log("Не удалось быстро синхронизировать ipset-all после сохранения", "WARNING")
 
             # Обновляем UI - заменяем URL на IP
             new_text = '\n'.join(normalized_lines)
@@ -303,14 +321,26 @@ class CustomIpSetPage(BasePage):
                 self.text_edit.setTextCursor(cursor)
                 self.text_edit.blockSignals(False)
 
-            log(f"Сохранено {len(entries)} строк в my-ipset.txt", "SUCCESS")
+            log(f"Сохранено {len(entries)} строк в ipset-all.user.txt", "SUCCESS")
             self.ipset_changed.emit()
         except Exception as e:
-            log(f"Ошибка сохранения my-ipset.txt: {e}", "ERROR")
+            log(f"Ошибка сохранения ipset-all.user.txt: {e}", "ERROR")
 
     def _update_status(self):
         text = self.text_edit.toPlainText()
         lines = [l.strip() for l in text.split('\n') if l.strip() and not l.strip().startswith('#')]
+        base_set = self._get_base_ips_set()
+        valid_entries: set[str] = set()
+
+        for line in lines:
+            for item in split_ip_entries(line):
+                norm = self.normalize_ip_entry(item)
+                if norm:
+                    valid_entries.add(norm)
+
+        user_count = len({ip for ip in valid_entries if ip not in base_set})
+        base_count = len(base_set)
+        total_count = len(base_set.union(valid_entries))
         
         # Валидируем строки
         invalid_lines = []
@@ -326,16 +356,34 @@ class CustomIpSetPage(BasePage):
         
         # Обновляем UI
         if invalid_lines:
-            self.text_edit.setStyleSheet(self._error_style)
+            if not self._has_validation_error:
+                self.text_edit.setStyleSheet(self._error_style)
+                self._has_validation_error = True
             self.error_label.setText("❌ Неверный формат:\n" + "\n".join(invalid_lines[:5]))
             if len(invalid_lines) > 5:
                 self.error_label.setText(self.error_label.text() + f"\n... и ещё {len(invalid_lines) - 5}")
             self.error_label.show()
         else:
-            self.text_edit.setStyleSheet(self._normal_style)
+            if self._has_validation_error:
+                self.text_edit.setStyleSheet(self._normal_style)
+                self._has_validation_error = False
             self.error_label.hide()
         
-        self.status_label.setText(f"📊 Записей: {len(lines)}")
+        self.status_label.setText(
+            f"📊 Записей: {total_count} (база: {base_count}, пользовательские: {user_count})"
+        )
+
+    def _get_base_ips_set(self) -> set[str]:
+        if self._base_ipset_set_cache is not None:
+            return self._base_ipset_set_cache
+
+        try:
+            from utils.ipsets_manager import get_ipset_all_base_set
+
+            self._base_ipset_set_cache = get_ipset_all_base_set()
+        except Exception:
+            self._base_ipset_set_cache = set()
+        return self._base_ipset_set_cache
 
     def _add_entry(self):
         text = self.input.text().strip()
@@ -377,27 +425,28 @@ class CustomIpSetPage(BasePage):
             box = MessageBox("Очистить всё", "Удалить все записи?", self.window())
             if box.exec():
                 self.text_edit.clear()
-                log("Все записи my-ipset.txt удалены", "INFO")
+                log("Пользовательские записи ipset-all.user.txt удалены", "INFO")
         else:
             self.text_edit.clear()
-            log("Все записи my-ipset.txt удалены", "INFO")
+            log("Пользовательские записи ipset-all.user.txt удалены", "INFO")
 
     def _open_file(self):
         try:
-            from utils.ipsets_manager import MY_IPSET_PATH
+            from utils.ipsets_manager import IPSET_ALL_USER_PATH, ensure_ipset_all_user_file
             import subprocess
 
             # Сохраняем перед открытием
             self._save_entries()
+            ensure_ipset_all_user_file()
 
-            if os.path.exists(MY_IPSET_PATH):
-                subprocess.run(["explorer", "/select,", MY_IPSET_PATH])
+            if os.path.exists(IPSET_ALL_USER_PATH):
+                subprocess.run(["explorer", "/select,", IPSET_ALL_USER_PATH])
             else:
-                os.makedirs(os.path.dirname(MY_IPSET_PATH), exist_ok=True)
-                with open(MY_IPSET_PATH, "w", encoding="utf-8") as f:
-                    f.write("# Пользовательские IP-адреса и подсети\n")
-                subprocess.run(["explorer", os.path.dirname(MY_IPSET_PATH)])
+                os.makedirs(os.path.dirname(IPSET_ALL_USER_PATH), exist_ok=True)
+                with open(IPSET_ALL_USER_PATH, "w", encoding="utf-8") as f:
+                    f.write("")
+                subprocess.run(["explorer", os.path.dirname(IPSET_ALL_USER_PATH)])
         except Exception as e:
-            log(f"Ошибка открытия my-ipset.txt: {e}", "ERROR")
+            log(f"Ошибка открытия ipset-all.user.txt: {e}", "ERROR")
             if InfoBar:
                 InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())

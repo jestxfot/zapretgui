@@ -53,8 +53,8 @@ except ImportError:
     _HAS_FLUENT = False
 
 from ui.pages.base_page import BasePage
-from ui.compat_widgets import ActionButton, PrimaryActionButton, SettingsRow, set_tooltip
-from ui.pages.dpi_settings_page import Win11ToggleRow
+from ui.compat_widgets import ActionButton, PrimaryActionButton, SettingsRow, set_tooltip, SettingsCard
+from ui.pages.dpi_settings_page import Win11ToggleRow, Win11ComboRow, Win11NumberRow
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
 from strategy_menu.args_preview_dialog import ArgsPreviewDialog
@@ -89,6 +89,36 @@ class _ArgsEditorDialog(MessageBoxBase):
         self.viewLayout.addWidget(hint)
 
         self._text_edit = TextEdit()
+        try:
+            from config.reg import get_smooth_scroll_enabled
+            from qfluentwidgets.common.smooth_scroll import SmoothMode
+
+            smooth_enabled = get_smooth_scroll_enabled()
+            mode = SmoothMode.COSINE if smooth_enabled else SmoothMode.NO_SMOOTH
+            delegate = (
+                getattr(self._text_edit, "scrollDelegate", None)
+                or getattr(self._text_edit, "scrollDelagate", None)
+                or getattr(self._text_edit, "delegate", None)
+            )
+            if delegate is not None:
+                if hasattr(delegate, "useAni"):
+                    if not hasattr(delegate, "_zapret_base_use_ani"):
+                        delegate._zapret_base_use_ani = bool(delegate.useAni)
+                    delegate.useAni = bool(delegate._zapret_base_use_ani) if smooth_enabled else False
+                for smooth_attr in ("verticalSmoothScroll", "horizonSmoothScroll"):
+                    smooth = getattr(delegate, smooth_attr, None)
+                    smooth_setter = getattr(smooth, "setSmoothMode", None)
+                    if callable(smooth_setter):
+                        smooth_setter(mode)
+
+            setter = getattr(self._text_edit, "setSmoothMode", None)
+            if callable(setter):
+                try:
+                    setter(mode, Qt.Orientation.Vertical)
+                except TypeError:
+                    setter(mode)
+        except Exception:
+            pass
         self._text_edit.setPlaceholderText(
             "Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1"
         )
@@ -500,6 +530,12 @@ class StrategyDetailPage(BasePage):
         self._main_window = None
         self._strategies_data_by_id = {}
         self._content_built = False
+        self._theme_refresh_scheduled = False
+        self._theme_refresh_in_progress = False
+        self._last_theme_overrides_key = None
+        self._last_parent_link_icon_color = None
+        self._last_edit_args_icon_color = None
+        self._last_sort_icon_color = None
 
     def _ensure_content_built(self) -> None:
         if self._content_built:
@@ -557,6 +593,77 @@ class StrategyDetailPage(BasePage):
             combo = getattr(self, "_filter_combo", None)
             if combo is not None and hasattr(combo, "_closeComboMenu"):
                 combo._closeComboMenu()
+        except Exception:
+            pass
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        try:
+            if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+                if self._theme_refresh_in_progress:
+                    return super().changeEvent(event)
+                if not self._theme_refresh_scheduled:
+                    self._theme_refresh_scheduled = True
+                    QTimer.singleShot(0, self._on_debounced_theme_change)
+        except Exception:
+            pass
+        return super().changeEvent(event)
+
+    def _on_debounced_theme_change(self) -> None:
+        if self._theme_refresh_in_progress:
+            return
+        self._theme_refresh_in_progress = True
+        try:
+            self._apply_theme_overrides()
+        finally:
+            self._theme_refresh_in_progress = False
+            self._theme_refresh_scheduled = False
+
+    def _apply_theme_overrides(self) -> None:
+        try:
+            tokens = get_theme_tokens()
+        except Exception:
+            return
+
+        key = (
+            str(tokens.theme_name),
+            str(tokens.fg),
+            str(tokens.fg_muted),
+            str(tokens.fg_faint),
+            str(tokens.accent_hex),
+        )
+        if key == self._last_theme_overrides_key:
+            return
+        self._last_theme_overrides_key = key
+
+        try:
+            detail_text_color = tokens.fg_muted if tokens.is_light else tokens.fg
+            if getattr(self, "_subtitle_strategy", None) is not None:
+                subtitle_style = f"background: transparent; padding-left: 10px; color: {detail_text_color};"
+                if self._subtitle_strategy.styleSheet() != subtitle_style:
+                    self._subtitle_strategy.setStyleSheet(subtitle_style)
+        except Exception:
+            pass
+
+        try:
+            if getattr(self, "_parent_link", None) is not None:
+                parent_color = str(tokens.fg_muted)
+                if parent_color != self._last_parent_link_icon_color:
+                    self._parent_link.setIcon(qta.icon('fa5s.chevron-left', color=parent_color))
+                    self._last_parent_link_icon_color = parent_color
+        except Exception:
+            pass
+
+        try:
+            if not _HAS_FLUENT and getattr(self, "_edit_args_btn", None) is not None:
+                edit_color = str(tokens.fg_faint)
+                if edit_color != self._last_edit_args_icon_color:
+                    self._edit_args_btn.setIcon(qta.icon('fa5s.edit', color=edit_color))
+                    self._last_edit_args_icon_color = edit_color
+        except Exception:
+            pass
+
+        try:
+            self._update_sort_button_ui()
         except Exception:
             pass
 
@@ -808,24 +915,16 @@ class StrategyDetailPage(BasePage):
         # ТУЛБАР НАСТРОЕК КАТЕГОРИИ (фоновой блок)
         # ═══════════════════════════════════════════════════════════════
         self._toolbar_frame = QFrame()
-        self._toolbar_frame.setObjectName("categoryToolbarFrame")
-        self._toolbar_frame.setProperty("categoryDisabled", False)
-        self._toolbar_frame.setFrameShape(QFrame.Shape.NoFrame)
-        self._toolbar_frame.setStyleSheet(
-            """
-            QFrame#categoryToolbarFrame {
-                border: none;
-            }
-            QFrame#categoryToolbarFrame:hover {
-                border: none;
-            }
-            """
-        )
-        self._toolbar_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self._toolbar_frame.setVisible(False)
+        # Убираем background: transparent; border: none; чтобы фон был как у карточек,
+        # или оставляем его контейнером, а внутри будут SettingsCard
         toolbar_layout = QVBoxLayout(self._toolbar_frame)
         toolbar_layout.setContentsMargins(0, 4, 0, 4)
-        toolbar_layout.setSpacing(6)
+        toolbar_layout.setSpacing(12)
+
+        # ═══════════════════════════════════════════════════════════════
+        # REGULAR SETTINGS
+        # ═══════════════════════════════════════════════════════════════
+        self._general_card = SettingsCard()
 
         # Режим фильтрации row
         self._filter_mode_frame = SettingsRow(
@@ -840,25 +939,21 @@ class StrategyDetailPage(BasePage):
             lambda checked: self._on_filter_mode_changed("ipset" if checked else "hostlist")
         )
         self._filter_mode_frame.set_control(self._filter_mode_selector)
+        self._general_card.add_widget(self._filter_mode_frame)
 
-        toolbar_layout.addWidget(self._filter_mode_frame)
-
-        # ═══════════════════════════════════════════════════════════════
-        # OUT RANGE SETTINGS
-        # ═══════════════════════════════════════════════════════════════
+        # OUT RANGE
         self._out_range_frame = SettingsRow(
             "fa5s.sliders-h",
             "Out Range",
-            "Ограничение исходящих пакетов для обработки",
+            "Ограничение исходящих пакетов",
         )
-
         mode_label = BodyLabel("Режим:")
         self._out_range_frame.control_container.addWidget(mode_label)
 
         self._out_range_seg = SegmentedWidget()
         self._out_range_seg.addItem("n", "n", lambda: self._select_out_range_mode("n"))
         self._out_range_seg.addItem("d", "d", lambda: self._select_out_range_mode("d"))
-        set_tooltip(self._out_range_seg, "n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными (исключая SYN-ACK-SYN рукопожатие)")
+        set_tooltip(self._out_range_seg, "n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными")
         self._out_range_mode = "n"
         self._out_range_seg.setCurrentItem("n")
         self._out_range_frame.control_container.addWidget(self._out_range_seg)
@@ -869,245 +964,167 @@ class StrategyDetailPage(BasePage):
         self._out_range_spin = SpinBox()
         self._out_range_spin.setRange(1, 999)
         self._out_range_spin.setValue(8)
+        self._out_range_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
         set_tooltip(self._out_range_spin, "--out-range: ограничение количества исходящих пакетов (n) или задержки (d)")
         self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
         self._out_range_frame.control_container.addWidget(self._out_range_spin)
 
-        toolbar_layout.addWidget(self._out_range_frame)
+        self._general_card.add_widget(self._out_range_frame)
+        toolbar_layout.addWidget(self._general_card)
 
         # ═══════════════════════════════════════════════════════════════
         # SEND SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
-        self._send_frame = QFrame()
-        self._send_frame.setFrameShape(QFrame.Shape.NoFrame)
-        send_layout = QVBoxLayout(self._send_frame)
-        send_layout.setContentsMargins(0, 6, 0, 6)
-        send_layout.setSpacing(8)
+        self._send_frame = SettingsCard()
 
         self._send_toggle_row = Win11ToggleRow(
             "fa5s.paper-plane", "Send параметры", "Отправка копий пакетов"
         )
         self._send_toggle = self._send_toggle_row.toggle
         self._send_toggle_row.toggled.connect(self._on_send_toggled)
-        send_layout.addWidget(self._send_toggle_row)
+        self._send_frame.add_widget(self._send_toggle_row)
 
         # Settings panel (shown when enabled)
-        self._send_settings = QFrame()
-        self._send_settings.setFrameShape(QFrame.Shape.NoFrame)
+        self._send_settings = QWidget()
         self._send_settings.setVisible(False)
         send_settings_layout = QVBoxLayout(self._send_settings)
-        send_settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
-        send_settings_layout.setSpacing(8)
+        send_settings_layout.setContentsMargins(12, 0, 0, 0)
+        send_settings_layout.setSpacing(0)
 
         # send_repeats row
-        repeats_row = QHBoxLayout()
-        repeats_row.setSpacing(8)
-        repeats_label = BodyLabel("repeats:")
-        repeats_label.setFixedWidth(60)
-        self._send_repeats_spin = SpinBox()
-        self._send_repeats_spin.setRange(0, 10)
-        self._send_repeats_spin.setValue(2)
-        set_tooltip(self._send_repeats_spin, "Количество повторных отправок пакета (дефолт: 2)")
-        self._send_repeats_spin.valueChanged.connect(self._save_syndata_settings)
-        repeats_row.addWidget(repeats_label)
-        repeats_row.addWidget(self._send_repeats_spin)
-        repeats_row.addStretch()
-        send_settings_layout.addLayout(repeats_row)
+        self._send_repeats_row = Win11NumberRow(
+            "fa5s.redo", "repeats", "Количество повторных отправок", min_val=0, max_val=10, default_val=2
+        )
+        self._send_repeats_spin = self._send_repeats_row.spinbox
+        self._send_repeats_row.valueChanged.connect(self._save_syndata_settings)
+        send_settings_layout.addWidget(self._send_repeats_row)
 
         # send_ip_ttl row
-        send_ip_ttl_row = QHBoxLayout()
-        send_ip_ttl_row.setSpacing(8)
-        send_ip_ttl_label = BodyLabel("ip_ttl:")
-        send_ip_ttl_label.setFixedWidth(60)
+        self._send_ip_ttl_frame = SettingsRow("fa5s.stopwatch", "ip_ttl", "TTL для IPv4 отправляемых пакетов")
         self._send_ip_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
         )
-        set_tooltip(self._send_ip_ttl_selector, "TTL для IPv4 отправляемых пакетов (off = auto)")
         self._send_ip_ttl_selector.value_changed.connect(self._save_syndata_settings)
-        send_ip_ttl_row.addWidget(send_ip_ttl_label)
-        send_ip_ttl_row.addWidget(self._send_ip_ttl_selector)
-        send_ip_ttl_row.addStretch()
-        send_settings_layout.addLayout(send_ip_ttl_row)
+        self._send_ip_ttl_frame.set_control(self._send_ip_ttl_selector)
+        send_settings_layout.addWidget(self._send_ip_ttl_frame)
 
         # send_ip6_ttl row
-        send_ip6_ttl_row = QHBoxLayout()
-        send_ip6_ttl_row.setSpacing(8)
-        send_ip6_ttl_label = BodyLabel("ip6_ttl:")
-        send_ip6_ttl_label.setFixedWidth(60)
+        self._send_ip6_ttl_frame = SettingsRow("fa5s.stopwatch", "ip6_ttl", "TTL для IPv6 отправляемых пакетов")
         self._send_ip6_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
         )
-        set_tooltip(self._send_ip6_ttl_selector, "TTL для IPv6 отправляемых пакетов (off = auto)")
         self._send_ip6_ttl_selector.value_changed.connect(self._save_syndata_settings)
-        send_ip6_ttl_row.addWidget(send_ip6_ttl_label)
-        send_ip6_ttl_row.addWidget(self._send_ip6_ttl_selector)
-        send_ip6_ttl_row.addStretch()
-        send_settings_layout.addLayout(send_ip6_ttl_row)
+        self._send_ip6_ttl_frame.set_control(self._send_ip6_ttl_selector)
+        send_settings_layout.addWidget(self._send_ip6_ttl_frame)
 
         # send_ip_id row
-        send_ip_id_row = QHBoxLayout()
-        send_ip_id_row.setSpacing(8)
-        send_ip_id_label = BodyLabel("ip_id:")
-        send_ip_id_label.setFixedWidth(60)
-        self._send_ip_id_combo = ComboBox()
-        self._send_ip_id_combo.addItems(["none", "seq", "rnd", "zero"])
-        set_tooltip(self._send_ip_id_combo, "Режим IP ID для отправляемых пакетов")
-        self._send_ip_id_combo.currentTextChanged.connect(self._save_syndata_settings)
-        send_ip_id_row.addWidget(send_ip_id_label)
-        send_ip_id_row.addWidget(self._send_ip_id_combo)
-        send_ip_id_row.addStretch()
-        send_settings_layout.addLayout(send_ip_id_row)
+        self._send_ip_id_row = Win11ComboRow(
+            "fa5s.fingerprint", "ip_id", "Режим IP ID для отправляемых пакетов",
+            items=[("none", None), ("seq", None), ("rnd", None), ("zero", None)]
+        )
+        self._send_ip_id_combo = self._send_ip_id_row.combo
+        self._send_ip_id_row.currentTextChanged.connect(self._save_syndata_settings)
+        send_settings_layout.addWidget(self._send_ip_id_row)
 
         # send_badsum row
-        send_badsum_row = QHBoxLayout()
-        send_badsum_row.setSpacing(8)
-        send_badsum_label = BodyLabel("badsum:")
-        send_badsum_label.setFixedWidth(60)
-        self._send_badsum_check = CheckBox()
-        set_tooltip(self._send_badsum_check, "Отправлять пакеты с неправильной контрольной суммой")
-        self._send_badsum_check.stateChanged.connect(self._save_syndata_settings)
-        send_badsum_row.addWidget(send_badsum_label)
-        send_badsum_row.addWidget(self._send_badsum_check)
-        send_badsum_row.addStretch()
-        send_settings_layout.addLayout(send_badsum_row)
+        self._send_badsum_frame = SettingsRow("fa5s.exclamation-triangle", "badsum", "Отправлять пакеты с неправильной контрольной суммой")
+        self._send_badsum_check = SwitchButton()
+        self._send_badsum_check.checkedChanged.connect(self._save_syndata_settings)
+        self._send_badsum_frame.set_control(self._send_badsum_check)
+        send_settings_layout.addWidget(self._send_badsum_frame)
 
-        send_layout.addWidget(self._send_settings)
+        self._send_frame.add_widget(self._send_settings)
         toolbar_layout.addWidget(self._send_frame)
 
         # ═══════════════════════════════════════════════════════════════
         # SYNDATA SETTINGS (collapsible)
         # ═══════════════════════════════════════════════════════════════
-        self._syndata_frame = QFrame()
-        self._syndata_frame.setFrameShape(QFrame.Shape.NoFrame)
-        syndata_layout = QVBoxLayout(self._syndata_frame)
-        syndata_layout.setContentsMargins(0, 6, 0, 6)
-        syndata_layout.setSpacing(8)
+        self._syndata_frame = SettingsCard()
 
         self._syndata_toggle_row = Win11ToggleRow(
             "fa5s.cog", "Syndata параметры", "Дополнительные параметры обхода DPI"
         )
         self._syndata_toggle = self._syndata_toggle_row.toggle
         self._syndata_toggle_row.toggled.connect(self._on_syndata_toggled)
-        syndata_layout.addWidget(self._syndata_toggle_row)
+        self._syndata_frame.add_widget(self._syndata_toggle_row)
 
         # Settings panel (shown when enabled)
-        self._syndata_settings = QFrame()
-        self._syndata_settings.setFrameShape(QFrame.Shape.NoFrame)
+        self._syndata_settings = QWidget()
         self._syndata_settings.setVisible(False)
         settings_layout = QVBoxLayout(self._syndata_settings)
-        settings_layout.setContentsMargins(34, 8, 0, 0)  # Indent to align with text
-        settings_layout.setSpacing(8)
+        settings_layout.setContentsMargins(12, 0, 0, 0)
+        settings_layout.setSpacing(0)
 
         # Blob selector row
-        blob_row = QHBoxLayout()
-        blob_row.setSpacing(8)
-        blob_label = BodyLabel("blob:")
-        blob_label.setFixedWidth(60)
-        self._blob_combo = ComboBox()
-        # Get all available blobs (system + user)
+        blob_names = ["none"]
         try:
             all_blobs = get_blobs_info()
             blob_names = ["none"] + sorted(all_blobs.keys())
         except Exception:
-            # Fallback to basic list if blobs module fails
             blob_names = ["none", "tls_google", "tls7"]
-        self._blob_combo.addItems(blob_names)
-        self._blob_combo.currentTextChanged.connect(self._save_syndata_settings)
-        blob_row.addWidget(blob_label)
-        blob_row.addWidget(self._blob_combo)
-        blob_row.addStretch()
-        settings_layout.addLayout(blob_row)
+        blob_items = [(n, None) for n in blob_names]
+
+        self._blob_row = Win11ComboRow(
+            "fa5s.file-code", "blob", "Полезная нагрузка пакета", items=blob_items
+        )
+        self._blob_combo = self._blob_row.combo
+        self._blob_row.currentTextChanged.connect(self._save_syndata_settings)
+        settings_layout.addWidget(self._blob_row)
 
         # tls_mod selector row
-        tls_mod_row = QHBoxLayout()
-        tls_mod_row.setSpacing(8)
-        tls_mod_label = BodyLabel("tls_mod:")
-        tls_mod_label.setFixedWidth(60)
-        self._tls_mod_combo = ComboBox()
-        self._tls_mod_combo.addItems(["none", "rnd", "rndsni", "sni=google.com"])
-        self._tls_mod_combo.currentTextChanged.connect(self._save_syndata_settings)
-        tls_mod_row.addWidget(tls_mod_label)
-        tls_mod_row.addWidget(self._tls_mod_combo)
-        tls_mod_row.addStretch()
-        settings_layout.addLayout(tls_mod_row)
+        self._tls_mod_row = Win11ComboRow(
+            "fa5s.shield-alt", "tls_mod", "Модификация полезной нагрузки TLS",
+            items=[("none", None), ("rnd", None), ("rndsni", None), ("sni=google.com", None)]
+        )
+        self._tls_mod_combo = self._tls_mod_row.combo
+        self._tls_mod_row.currentTextChanged.connect(self._save_syndata_settings)
+        settings_layout.addWidget(self._tls_mod_row)
 
         # ═══════════════════════════════════════════════════════════════
         # AUTOTTL SETTINGS (три строки с кнопками)
         # ═══════════════════════════════════════════════════════════════
-        autottl_header = CaptionLabel("AutoTTL")
-        settings_layout.addWidget(autottl_header)
-
-        # Контейнер для трёх строк autottl
-        autottl_container = QVBoxLayout()
-        autottl_container.setSpacing(6)
-        autottl_container.setContentsMargins(0, 0, 0, 0)
-
         # --- Delta row ---
-        delta_row = QHBoxLayout()
-        delta_row.setSpacing(8)
-        delta_label = BodyLabel("d:")
-        delta_label.setFixedWidth(30)
+        self._autottl_delta_frame = SettingsRow("fa5s.clock", "AutoTTL Delta", "Смещение от измеренного TTL (OFF = убрать ip_autottl)")
         self._autottl_delta_selector = TTLButtonSelector(
             values=[0, -1, -2, -3, -4, -5, -6, -7, -8, -9],
             labels=["OFF", "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"]
         )
-        set_tooltip(self._autottl_delta_selector, "Delta: смещение от измеренного TTL (OFF = убрать ip_autottl)")
         self._autottl_delta_selector.value_changed.connect(self._save_syndata_settings)
-        delta_row.addWidget(delta_label)
-        delta_row.addWidget(self._autottl_delta_selector)
-        delta_row.addStretch()
-        autottl_container.addLayout(delta_row)
+        self._autottl_delta_frame.set_control(self._autottl_delta_selector)
+        settings_layout.addWidget(self._autottl_delta_frame)
 
         # --- Min row ---
-        min_row = QHBoxLayout()
-        min_row.setSpacing(8)
-        min_label = BodyLabel("min:")
-        min_label.setFixedWidth(30)
+        self._autottl_min_frame = SettingsRow("fa5s.angle-down", "AutoTTL Min", "Минимальный TTL")
         self._autottl_min_selector = TTLButtonSelector(
             values=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             labels=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         )
-        set_tooltip(self._autottl_min_selector, "Минимальный TTL")
         self._autottl_min_selector.value_changed.connect(self._save_syndata_settings)
-        min_row.addWidget(min_label)
-        min_row.addWidget(self._autottl_min_selector)
-        min_row.addStretch()
-        autottl_container.addLayout(min_row)
+        self._autottl_min_frame.set_control(self._autottl_min_selector)
+        settings_layout.addWidget(self._autottl_min_frame)
 
         # --- Max row ---
-        max_row = QHBoxLayout()
-        max_row.setSpacing(8)
-        max_label = BodyLabel("max:")
-        max_label.setFixedWidth(30)
+        self._autottl_max_frame = SettingsRow("fa5s.angle-up", "AutoTTL Max", "Максимальный TTL")
         self._autottl_max_selector = TTLButtonSelector(
             values=[15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
             labels=["15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25"]
         )
-        set_tooltip(self._autottl_max_selector, "Максимальный TTL")
         self._autottl_max_selector.value_changed.connect(self._save_syndata_settings)
-        max_row.addWidget(max_label)
-        max_row.addWidget(self._autottl_max_selector)
-        max_row.addStretch()
-        autottl_container.addLayout(max_row)
-
-        settings_layout.addLayout(autottl_container)
+        self._autottl_max_frame.set_control(self._autottl_max_selector)
+        settings_layout.addWidget(self._autottl_max_frame)
 
         # TCP flags row
-        flags_row = QHBoxLayout()
-        flags_row.setSpacing(8)
-        flags_label = BodyLabel("tcp_flags_unset:")
-        flags_label.setFixedWidth(100)
-        self._tcp_flags_combo = ComboBox()
-        self._tcp_flags_combo.addItems(["none", "ack", "psh", "ack,psh"])
-        self._tcp_flags_combo.currentTextChanged.connect(self._save_syndata_settings)
-        flags_row.addWidget(flags_label)
-        flags_row.addWidget(self._tcp_flags_combo)
-        flags_row.addStretch()
-        settings_layout.addLayout(flags_row)
+        self._tcp_flags_row = Win11ComboRow(
+            "fa5s.flag", "tcp_flags_unset", "Сбросить TCP флаги",
+            items=[("none", None), ("ack", None), ("psh", None), ("ack,psh", None)]
+        )
+        self._tcp_flags_combo = self._tcp_flags_row.combo
+        self._tcp_flags_row.currentTextChanged.connect(self._save_syndata_settings)
+        settings_layout.addWidget(self._tcp_flags_row)
 
-        syndata_layout.addWidget(self._syndata_settings)
+        self._syndata_frame.add_widget(self._syndata_settings)
         toolbar_layout.addWidget(self._syndata_frame)
 
         # ═══════════════════════════════════════════════════════════════
@@ -1201,7 +1218,7 @@ class StrategyDetailPage(BasePage):
         search_layout.addWidget(self._edit_args_btn)
 
         # Initialize dynamic visuals/tooltips (sort/filter buttons).
-        self._update_sort_button_ui()
+        self._apply_theme_overrides()
         self._update_technique_filter_ui()
 
         strategies_layout.addWidget(self._search_bar_widget)
@@ -1514,13 +1531,11 @@ class StrategyDetailPage(BasePage):
             self._send_toggle.blockSignals(True)
             self._send_toggle.setChecked(False)
             self._send_toggle.blockSignals(False)
-            self._send_settings.setVisible(False)
             self._send_frame.setVisible(False)
 
             self._syndata_toggle.blockSignals(True)
             self._syndata_toggle.setChecked(False)
             self._syndata_toggle.blockSignals(False)
-            self._syndata_settings.setVisible(False)
             self._syndata_frame.setVisible(False)
 
             try:
@@ -1541,7 +1556,7 @@ class StrategyDetailPage(BasePage):
         self._refresh_args_editor_state()
         self._set_category_enabled_ui(is_enabled)
 
-        log(f"StrategyDetailPage: показана категория {category_key}, sort_mode={self._sort_mode}", "DEBUG")
+        log(f"StrategyDetailPage: показана категория {self._category_key}, sort_mode={self._sort_mode}", "DEBUG")
 
     def refresh_from_preset_switch(self):
         """
@@ -1629,6 +1644,24 @@ class StrategyDetailPage(BasePage):
         self._default_strategy_order = []
         self._strategies_loaded_fully = False
 
+    def _is_dpi_running_now(self) -> bool:
+        """Best-effort check: is any winws process currently running."""
+        try:
+            controller = getattr(self.parent_app, "dpi_controller", None)
+            if controller is not None and hasattr(controller, "is_running"):
+                return bool(controller.is_running())
+        except Exception:
+            pass
+
+        try:
+            starter = getattr(self.parent_app, "dpi_starter", None)
+            if starter is not None and hasattr(starter, "check_process_running_wmi"):
+                return bool(starter.check_process_running_wmi(silent=True))
+        except Exception:
+            pass
+
+        return False
+
     def _load_strategies(self):
         """Загружает стратегии для текущей категории"""
         try:
@@ -1664,116 +1697,220 @@ class StrategyDetailPage(BasePage):
                 strategies = combined
 
             self._strategies_data_by_id = dict(strategies or {})
-            self._update_selected_strategy_header(self._selected_strategy_id)
-
-            self._loaded_strategy_type = str(getattr(category_info, "strategy_type", "") or "tcp").strip().lower()
+            self._default_strategy_order = list(self._strategies_data_by_id.keys())
+            self._loaded_strategy_type = category_info.strategy_type
+            
             try:
                 from strategy_menu.strategies_registry import get_current_strategy_set
                 self._loaded_strategy_set = get_current_strategy_set()
             except Exception:
                 self._loaded_strategy_set = None
-            self._loaded_tcp_phase_mode = bool(self._tcp_phase_mode)
-            self._default_strategy_order = list(strategies.keys())
-            self._strategies_loaded_fully = False
+                
+            self._loaded_tcp_phase_mode = self._tcp_phase_mode
 
             if not strategies:
-                # Пробуем перезагрузить реестр
-                log(f"Стратегии пусты, пробуем перезагрузить реестр...", "WARNING")
-                registry.reload_strategies()
-                strategies = registry.get_category_strategies(self._category_key)
-                log(f"После перезагрузки: {len(strategies)} стратегий", "DEBUG")
-
-                # Если все еще пусто, показываем диагностику
-                if not strategies:
-                    from strategy_menu.strategy_loader import _get_builtin_dir
-                    builtin_dir = _get_builtin_dir()
-                    log(f"Builtin директория: {builtin_dir}", "WARNING")
-                    log(f"strategy_type для загрузки: {category_info.strategy_type}", "WARNING")
-
-            # Лениво добавляем строки порциями, чтобы не фризить UI
-            items = list(strategies.items())
-
-            # "default" порядок UI должен совпадать с порядком в источнике (tcp.txt и т.п.).
-            # Текущую/дефолтную стратегию НЕ поднимаем.
-            self._pending_strategies_items = items
-            self._pending_strategies_index = 0
-            self._strategies_load_generation += 1
-            gen = self._strategies_load_generation
-            total = len(self._pending_strategies_items)
-            # "default" порядок UI должен совпадать с фактическим порядком загрузки
-            self._default_strategy_order = [sid for sid, _ in self._pending_strategies_items]
-
-            if self._strategies_load_timer:
                 try:
-                    self._strategies_load_timer.stop()
-                    self._strategies_load_timer.deleteLater()
+                    self._strategies_tree.clear_strategies()
                 except Exception:
                     pass
-                self._strategies_load_timer = None
+                log(f"StrategyDetailPage: список стратегий пуст для {self._category_key}", "INFO")
+                # Fallback display: usually handled by empty list state, but we can stop loading.
+                self._stop_loading()
+                
+                # Попробуем ещё раз через секунду, вдруг стратегии ещё грузятся
+                if not hasattr(self, "_retry_count"):
+                    self._retry_count = 0
+                if self._retry_count < 3:
+                    self._retry_count += 1
+                    QTimer.singleShot(1000, self._load_strategies)
+                else:
+                    self._retry_count = 0
+                    # Если DPI остановлен, не показываем шумное предупреждение "Нет стратегий".
+                    # В этот момент чаще всего идёт смена режима/перезапуск.
+                    if (not self._is_dpi_running_now()) or (not self.isVisible()):
+                        log(
+                            f"StrategyDetailPage: suppress 'no strategies' warning while DPI is stopped ({self._category_key})",
+                            "DEBUG",
+                        )
+                        return
 
-            # Для небольших списков создаём всё за один проход: меньше "пересборок" и быстрее.
-            if total <= 80:
-                self._strategies_load_chunk_size = max(1, total)
-                self._load_strategies_batch(gen)
+                    if InfoBar:
+                        InfoBar.warning(
+                            title="Нет стратегий",
+                            content=f"Для категории '{self._category_key}' не найдено стратегий.",
+                            parent=self.window()
+                        )
                 return
 
-            # Для больших списков добавляем порциями, чтобы UI не фризило.
-            self._strategies_load_chunk_size = 25
-            self._strategies_load_timer = QTimer(self)
-            self._strategies_load_timer.timeout.connect(lambda: self._load_strategies_batch(gen))
-            self._strategies_load_timer.start(0)
+            self._retry_count = 0
 
+            # Подготавливаем элементы для ленивой загрузки
+            self._pending_strategies_items = []
+            
+            # --- TCP phase mode ---
+            if self._tcp_phase_mode:
+                # В этом режиме всегда есть пункт "(без изменений)"
+                self._pending_strategies_items.append({
+                    'id': "none",
+                    'name': "(без изменений)",
+                    'desc': "Снять отметку со стратегии (фаза будет пропущена)",
+                    'arg_str': "--new",
+                    'is_custom': False
+                })
+                # И пункт "(custom_args...)"
+                self._pending_strategies_items.append({
+                    'id': CUSTOM_STRATEGY_ID,
+                    'name': "Пользовательские аргументы (custom)",
+                    'desc': "Неизвестные аргументы, загруженные из профиля",
+                    'arg_str': "...",
+                    'is_custom': True
+                })
+
+                for sid, data in strategies.items():
+                    name = str(data.get("name", sid)).strip() or sid
+                    desc = str(data.get("desc", ""))
+                    arg_str = str(data.get("arg_str", ""))
+                    # TCP auto-assign phase logic could go here; tree applies it
+                    self._pending_strategies_items.append({
+                        'id': sid,
+                        'name': name,
+                        'desc': desc,
+                        'arg_str': arg_str,
+                        'is_custom': False
+                    })
+                    
+            # --- Звичайна загрузка ---
+            else:
+                self._pending_strategies_items.append({
+                    'id': "none",
+                    'name': "Выключено (без DPI-обхода)",
+                    'desc': "Трафик пускается напрямую без модификаций",
+                    'arg_str': ""
+                })
+
+                for sid, data in strategies.items():
+                    name = data.get("name", sid)
+                    desc = data.get("desc", "")
+                    arg_str = data.get("arg_str", "")
+                    self._pending_strategies_items.append({
+                        'id': sid,
+                        'name': name,
+                        'desc': desc,
+                        'arg_str': arg_str
+                    })
+
+            self._pending_strategies_index = 0
+            self._strategies_loaded_fully = False
+
+            # Запускаем пакетную загрузку
+            self._strategies_load_generation += 1
+            if self._strategies_load_timer is None:
+                self._strategies_load_timer = QTimer(self)
+                self._strategies_load_timer.timeout.connect(self._load_next_strategies_batch)
+            self._strategies_load_timer.start(5) # Быстрая подгрузка батчами
+            
         except Exception as e:
-            import traceback
-            log(f"Ошибка загрузки стратегий: {e}", "ERROR")
-            log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            log(f"StrategyDetailPage.error loading strategies: {e}", "ERROR")
+            self._stop_loading()
 
-    def _load_strategies_batch(self, gen: int):
-        """Добавляет строки стратегий порциями, чтобы UI оставался отзывчивым."""
-        if gen != self._strategies_load_generation:
-            return
-
-        if not self._pending_strategies_items:
-            if self._strategies_load_timer:
-                self._strategies_load_timer.stop()
-            return
-
-        chunk_size = int(getattr(self, "_strategies_load_chunk_size", 10) or 10)
-        if chunk_size <= 0:
-            chunk_size = 10
-        start = self._pending_strategies_index
-        end = min(start + chunk_size, len(self._pending_strategies_items))
+    def _extract_args_lines_for_pending_item(self, strategy_id: str, item_data: dict) -> list[str]:
+        """Builds args list for a row from cached strategy data or pending item payload."""
+        source = None
 
         try:
-            if self._strategies_tree:
-                self._strategies_tree.setUpdatesEnabled(False)
-            else:
-                self.setUpdatesEnabled(False)
+            data = dict(self._strategies_data_by_id.get(strategy_id, {}) or {})
+        except Exception:
+            data = {}
 
+        if data:
+            source = data.get("args")
+            if source in (None, "", []):
+                source = data.get("arg_str")
+
+        if source in (None, "", []):
+            try:
+                source = (item_data or {}).get("arg_str")
+            except Exception:
+                source = None
+
+        if isinstance(source, (list, tuple)):
+            return [str(v).strip() for v in source if str(v).strip()]
+
+        text = str(source or "").strip()
+        if not text:
+            return []
+        if "\n" in text:
+            return [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if text.startswith("--"):
+            return [part.strip() for part in text.split() if part.strip()]
+        return [text]
+
+    def _add_strategy_row(self, strategy_id: str, name: str, args: list[str] | None = None) -> None:
+        if not self._strategies_tree:
+            return
+
+        args_list = [str(a).strip() for a in (args or []) if str(a).strip()]
+        is_favorite = (strategy_id != "none") and (strategy_id in self._favorite_strategy_ids)
+        is_working = None
+        if self._category_key and strategy_id not in ("none", CUSTOM_STRATEGY_ID):
+            try:
+                is_working = self._marks_store.get_mark(self._category_key, strategy_id)
+            except Exception:
+                is_working = None
+
+        try:
+            self._strategies_tree.add_strategy(
+                StrategyTreeRow(
+                    strategy_id=strategy_id,
+                    name=name,
+                    args=args_list,
+                    is_favorite=is_favorite,
+                    is_working=is_working,
+                )
+            )
+        except Exception as e:
+            log(f"Strategy row add failed for {strategy_id}: {e}", "DEBUG")
+
+    def _load_next_strategies_batch(self) -> None:
+        """Lazily appends strategies to the tree in small UI-friendly chunks."""
+        if not self._strategies_tree:
+            return
+
+        total = len(self._pending_strategies_items or [])
+        if total <= 0:
+            if self._strategies_load_timer:
+                self._strategies_load_timer.stop()
+            self._strategies_loaded_fully = True
+            return
+
+        start = int(self._pending_strategies_index or 0)
+        if start >= total:
+            if self._strategies_load_timer:
+                self._strategies_load_timer.stop()
+            self._strategies_loaded_fully = True
+            return
+
+        chunk_size = 32
+        end = min(start + chunk_size, total)
+
+        try:
+            self._strategies_tree.setUpdatesEnabled(False)
             for i in range(start, end):
-                sid, data = self._pending_strategies_items[i]
-                name = (data or {}).get("name", sid)
-                args = (data or {}).get("args", [])
-                if isinstance(args, str):
-                    args = args.split()
-                self._add_strategy_row(sid, name, args)
-
-                if not self._tcp_phase_mode:
-                    if sid == self._current_strategy_id and self._strategies_tree:
-                        self._strategies_tree.set_selected_strategy(sid)
-
+                item = self._pending_strategies_items[i]
+                strategy_id = str((item or {}).get("id") or "").strip()
+                if not strategy_id:
+                    continue
+                name = str((item or {}).get("name") or strategy_id).strip() or strategy_id
+                args_list = self._extract_args_lines_for_pending_item(strategy_id, item)
+                self._add_strategy_row(strategy_id, name, args_list)
         finally:
             try:
-                if self._strategies_tree:
-                    self._strategies_tree.setUpdatesEnabled(True)
-                else:
-                    self.setUpdatesEnabled(True)
+                self._strategies_tree.setUpdatesEnabled(True)
             except Exception:
                 pass
 
         self._pending_strategies_index = end
 
-        # Применяем текущие фильтры/поиск к уже добавленным строкам (если они реально активны)
         try:
             search_active = bool(self._search_input and self._search_input.text().strip())
         except Exception:
@@ -1781,65 +1918,43 @@ class StrategyDetailPage(BasePage):
         if search_active or self._active_filters or self._tcp_phase_mode:
             self._apply_filters()
 
-        if end >= len(self._pending_strategies_items):
-            # Done
-            if self._strategies_load_timer:
-                self._strategies_load_timer.stop()
-                self._strategies_load_timer.deleteLater()
-                self._strategies_load_timer = None
-
-            added = len(self._strategies_tree.get_strategy_ids()) if self._strategies_tree else 0
-            log(f"StrategyDetailPage: добавлено {added} строк стратегий", "DEBUG")
-            self._strategies_loaded_fully = True
-            self._refresh_working_marks_for_category()
-
-            # Sort after all rows are present (important for lazy load)
-            self._apply_sort()
-            # Restore active selection highlight after any sorting/filtering
-            if self._strategies_tree:
-                if self._tcp_phase_mode:
-                    self._sync_tree_selection_to_active_phase()
-                else:
-                    if self._strategies_tree.has_strategy(self._current_strategy_id):
-                        self._strategies_tree.set_selected_strategy(self._current_strategy_id)
-                    elif self._strategies_tree.has_strategy("none"):
-                        self._strategies_tree.set_selected_strategy("none")
-            self._refresh_scroll_range()
-            if self._tcp_phase_mode:
-                QTimer.singleShot(0, self._sync_tree_selection_to_active_phase)
-            self._restore_scroll_state(self._category_key, defer=True)
-
-    def _add_strategy_row(self, strategy_id: str, name: str, args: list = None):
-        """Добавляет строку стратегии в список"""
-        if not self._strategies_tree:
+        if end < total:
             return
 
-        args_list = []
-        for a in (args or []):
-            if a is None:
-                continue
-            text = str(a).strip()
-            if not text:
-                continue
-            args_list.append(text)
-
-        is_favorite = (strategy_id != "none") and (strategy_id in self._favorite_strategy_ids)
-        is_working = None
-        if self._category_key and strategy_id != "none":
+        # Finished loading all rows.
+        if self._strategies_load_timer:
             try:
-                is_working = self._marks_store.get_mark(self._category_key, strategy_id)
+                self._strategies_load_timer.stop()
             except Exception:
-                is_working = None
+                pass
 
-        self._strategies_tree.add_strategy(
-            StrategyTreeRow(
-                strategy_id=strategy_id,
-                name=name,
-                args=args_list,
-                is_favorite=is_favorite,
-                is_working=is_working,
-            )
-        )
+        self._strategies_loaded_fully = True
+        self._refresh_working_marks_for_category()
+        self._apply_sort()
+
+        if self._tcp_phase_mode:
+            self._sync_tree_selection_to_active_phase()
+        else:
+            if self._strategies_tree.has_strategy(self._current_strategy_id):
+                self._strategies_tree.set_selected_strategy(self._current_strategy_id)
+            elif self._strategies_tree.has_strategy("none"):
+                self._strategies_tree.set_selected_strategy("none")
+
+        self._refresh_scroll_range()
+        self._restore_scroll_state(self._category_key, defer=True)
+
+    def _refresh_working_marks_for_category(self) -> None:
+        if not (self._category_key and self._strategies_tree):
+            return
+        for strategy_id in self._strategies_tree.get_strategy_ids():
+            if strategy_id in ("none", CUSTOM_STRATEGY_ID):
+                continue
+            try:
+                self._strategies_tree.set_working_state(
+                    strategy_id, self._marks_store.get_mark(self._category_key, strategy_id)
+                )
+            except Exception:
+                pass
 
     def _get_preview_strategy_data(self, strategy_id: str) -> dict:
         data = dict(self._strategies_data_by_id.get(strategy_id, {}) or {})
@@ -1888,7 +2003,7 @@ class StrategyDetailPage(BasePage):
         try:
             self._marks_store.set_mark(category_key, strategy_id, new_state)
         except Exception as e:
-            log(f"Ошибка сохранения пометки стратегии (preview): {e}", "WARNING")
+            log(f"Error saving strategy mark (preview): {e}", "WARNING")
             return self._get_preview_rating(strategy_id, category_key)
 
         if self._strategies_tree:
@@ -1923,7 +2038,6 @@ class StrategyDetailPage(BasePage):
         dlg = self._preview_dialog
         if dlg is not None:
             try:
-                # Runtime check: C++ object can be deleted under us.
                 dlg.isVisible()
                 return dlg
             except RuntimeError:
@@ -1968,57 +2082,19 @@ class StrategyDetailPage(BasePage):
             )
 
             dlg.show_animated(self._to_qpoint(global_pos))
-
         except Exception as e:
             log(f"Preview dialog failed: {e}", "DEBUG")
 
     def _on_tree_preview_requested(self, strategy_id: str, global_pos):
-        pass  # Hover preview disabled; use right-click (ПКМ) to open dialog.
+        pass  # Hover preview is intentionally disabled.
 
     def _on_tree_preview_pinned_requested(self, strategy_id: str, global_pos):
         self._show_preview_dialog(strategy_id, global_pos)
 
     def _on_tree_preview_hide_requested(self) -> None:
-        pass  # No hover preview to hide.
-
-    def _refresh_working_marks_for_category(self):
-        if not (self._category_key and self._strategies_tree):
-            return
-        for strategy_id in self._strategies_tree.get_strategy_ids():
-            if strategy_id == "none":
-                continue
-            try:
-                self._strategies_tree.set_working_state(
-                    strategy_id, self._marks_store.get_mark(self._category_key, strategy_id)
-                )
-            except Exception:
-                pass
-
-    def _on_favorite_toggled(self, strategy_id: str, is_favorite: bool):
-        """Обработчик переключения избранного"""
-        if not (self._category_key and self._strategies_tree):
-            return
-        if not strategy_id or strategy_id == "none":
-            # "Отключено" не делаем избранным
-            self._strategies_tree.set_favorite_state("none", False)
-            return
-
-        try:
-            self._favorites_store.set_favorite(self._category_key, strategy_id, bool(is_favorite))
-            if is_favorite:
-                self._favorite_strategy_ids.add(strategy_id)
-            else:
-                self._favorite_strategy_ids.discard(strategy_id)
-        except Exception as e:
-            log(f"Favorite persist failed: {e}", "WARNING")
-            # Откатываем UI, дерево уже успело оптимистично обновиться
-            self._strategies_tree.set_favorite_state(strategy_id, not bool(is_favorite))
-            return
-
-        log(f"Favorite toggled: {strategy_id} = {is_favorite}", "DEBUG")
+        pass  # No hover preview instance to hide.
 
     def _on_tree_working_mark_requested(self, strategy_id: str, is_working):
-        """Запрос из UI (ПКМ) на пометку стратегии."""
         if not (self._category_key and strategy_id and strategy_id != "none"):
             return
         self._on_strategy_marked(strategy_id, is_working)
@@ -2026,394 +2102,94 @@ class StrategyDetailPage(BasePage):
             self._strategies_tree.set_working_state(strategy_id, is_working)
 
     def _on_strategy_marked(self, strategy_id: str, is_working):
-        """Обработчик пометки стратегии как рабочей/нерабочей"""
-        if self._category_key:
-            # Persist marks for direct_zapret2 mode (two-state)
-            try:
-                if strategy_id and strategy_id != "none":
-                    self._marks_store.set_mark(self._category_key, strategy_id, is_working)
-            except Exception as e:
-                log(f"Ошибка сохранения пометки стратегии: {e}", "WARNING")
-
-            self.strategy_marked.emit(self._category_key, strategy_id, is_working)
-            if is_working is True:
-                status = 'working'
-            elif is_working is False:
-                status = 'not working'
-            else:
-                status = 'unmarked'
-            log(f"Strategy marked: {strategy_id} = {status}", "DEBUG")
-
-    def _on_enable_toggled(self, enabled: bool):
-        """Обработчик включения/выключения категории"""
         if not self._category_key:
             return
 
-        # TCP multi-phase: restore last enabled args when toggling back on.
-        if self._tcp_phase_mode and enabled:
-            try:
-                last_args = (self._tcp_last_enabled_args_by_category.get(self._category_key) or "").strip()
-            except Exception:
-                last_args = ""
-
-            if last_args:
-                try:
-                    preset = self._preset_manager.get_active_preset()
-                    if not preset:
-                        return
-                    if self._category_key not in preset.categories:
-                        preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
-
-                    cat = preset.categories[self._category_key]
-                    cat.tcp_args = last_args
-                    cat.strategy_id = self._infer_strategy_id_from_args_exact(last_args)
-                    preset.touch()
-                    self._preset_manager._save_and_sync_preset(preset)
-
-                    self._selected_strategy_id = cat.strategy_id or "none"
-                    self._current_strategy_id = cat.strategy_id or "none"
-
-                    self._set_category_enabled_ui(True)
-                    self._update_selected_strategy_header(self._selected_strategy_id)
-                    self._refresh_args_editor_state()
-
-                    # Rebuild phase state + tabs selection
-                    self._load_tcp_phase_state_from_preset()
-                    self._apply_tcp_phase_tabs_visibility()
-                    self._select_default_tcp_phase_tab()
-                    self._apply_filters()
-
-                    self.show_loading()
-                    self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
-                    log(f"Категория {self._category_key} включена (restore phase chain)", "INFO")
-                    return
-                except Exception as e:
-                    log(f"TCP phase restore failed: {e}", "WARNING")
-
-        if enabled:
-            # Включаем - восстанавливаем последнюю стратегию (если была), иначе дефолтную
-            strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
-
-            # Rare: strategies catalog may not be available yet (first-run install/extract/update).
-            # Try a one-shot reload before giving up and reverting the toggle.
-            if (not strategy_to_select or strategy_to_select == "none") and not (self._strategies_data_by_id or {}):
-                try:
-                    from strategy_menu.strategies_registry import registry
-                    registry.reload_strategies()
-                    self._clear_strategies()
-                    self._load_strategies()
-                    strategy_to_select = self._get_default_strategy()
-                except Exception:
-                    strategy_to_select = strategy_to_select or "none"
-
-            if strategy_to_select and strategy_to_select != "none":
-                self._selected_strategy_id = strategy_to_select
-                if self._strategies_tree:
-                    self._strategies_tree.set_selected_strategy(strategy_to_select)
-                self._update_selected_strategy_header(self._selected_strategy_id)
-                self._set_category_enabled_ui(True)
-                # Показываем анимацию загрузки
-                self.show_loading()
-                self.strategy_selected.emit(self._category_key, strategy_to_select)
-                log(f"Категория {self._category_key} включена со стратегией {strategy_to_select}", "INFO")
-            else:
-                log(f"Нет доступных стратегий для {self._category_key}", "WARNING")
-                self._enable_toggle.setChecked(False, block_signals=True)
-                self._set_category_enabled_ui(False)
-            self._refresh_args_editor_state()
-        else:
-            # Запоминаем стратегию перед выключением, чтобы восстановить при включении
-            if self._selected_strategy_id and self._selected_strategy_id != "none":
-                self._last_enabled_strategy_id = self._selected_strategy_id
-            # TCP multi-phase: also store full args chain (required for restore)
-            if self._tcp_phase_mode:
-                try:
-                    cur_args = self._get_category_strategy_args_text().strip()
-                    if cur_args:
-                        self._tcp_last_enabled_args_by_category[self._category_key] = cur_args
-                except Exception:
-                    pass
-            # Выключаем - устанавливаем "none"
-            self._selected_strategy_id = "none"
-            if self._strategies_tree:
-                if self._strategies_tree.has_strategy("none"):
-                    self._strategies_tree.set_selected_strategy("none")
-                else:
-                    self._strategies_tree.clearSelection()
-            self._update_selected_strategy_header(self._selected_strategy_id)
-            # Скрываем галочку
-            self._stop_loading()
-            self._success_icon.hide()
-            self.strategy_selected.emit(self._category_key, "none")
-            log(f"Категория {self._category_key} отключена", "INFO")
-            self._refresh_args_editor_state()
-            self._set_category_enabled_ui(False)
-
-    def _get_default_strategy(self) -> str:
-        """Возвращает стратегию по умолчанию для текущей категории"""
         try:
-            from strategy_menu.strategies_registry import registry
-
-            # Пробуем получить дефолтную стратегию из реестра
-            defaults = registry.get_default_selections()
-            if self._category_key in defaults:
-                default_id = defaults[self._category_key]
-                if default_id and default_id != "none" and (default_id in (self._default_strategy_order or [])):
-                    return default_id
-
-            # Иначе берём первую стратегию из списка (не none)
-            for sid in (self._default_strategy_order or []):
-                if sid and sid != "none":
-                    return sid
-
-            return "none"
+            if strategy_id and strategy_id != "none":
+                self._marks_store.set_mark(self._category_key, strategy_id, is_working)
         except Exception as e:
-            log(f"Ошибка получения стратегии по умолчанию: {e}", "DEBUG")
-            # Fallback - первая не-none стратегия
-            for sid in (self._default_strategy_order or []):
-                if sid and sid != "none":
-                    return sid
-            return "none"
+            log(f"Error saving strategy mark: {e}", "WARNING")
 
-    def _on_filter_mode_changed(self, new_mode: str):
-        """Обработчик изменения режима фильтрации для категории"""
-        if not self._category_key:
-            return
-
-        # Save via PresetManager (triggers DPI reload automatically)
-        self._save_category_filter_mode(self._category_key, new_mode)
-        self.filter_mode_changed.emit(self._category_key, new_mode)
-        log(f"Режим фильтрации для {self._category_key}: {new_mode}", "INFO")
-
-    def _save_category_filter_mode(self, category_key: str, mode: str):
-        """Сохраняет режим фильтрации для категории через PresetManager"""
-        self._preset_manager.update_category_filter_mode(
-            category_key, mode, save_and_sync=True
-        )
-
-    def _load_category_filter_mode(self, category_key: str) -> str:
-        """Загружает режим фильтрации для категории из PresetManager"""
-        return self._preset_manager.get_category_filter_mode(category_key)
-
-    def _save_category_sort(self, category_key: str, sort_order: str):
-        """Сохраняет порядок сортировки для категории через PresetManager"""
-        # Sort order is UI-only parameter, doesn't affect DPI
-        # But save_and_sync=True is needed to persist changes to disk
-        # (hot-reload may trigger but sort_order has no effect on winws2)
-        self._preset_manager.update_category_sort_order(
-            category_key, sort_order, save_and_sync=True
-        )
-
-    def _load_category_sort(self, category_key: str) -> str:
-        """Загружает порядок сортировки для категории из PresetManager"""
-        return self._preset_manager.get_category_sort_order(category_key)
-
-    # ======================================================================
-    # TCP PHASE TAB PERSISTENCE (UI-only)
-    # ======================================================================
-
-    _REG_TCP_PHASE_TABS_BY_CATEGORY = "TcpPhaseTabByCategory"
-
-    def _load_category_last_tcp_phase_tab(self, category_key: str) -> str | None:
-        """Loads the last selected TCP phase tab for a category (persisted in registry)."""
-        try:
-            from config.reg import reg
-            from config import REGISTRY_PATH_GUI
-        except Exception:
-            return None
-
-        key = str(category_key or "").strip().lower()
-        if not key:
-            return None
-
-        try:
-            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
-            if not raw:
-                return None
-            data = json.loads(raw) if isinstance(raw, str) else {}
-            phase = str((data or {}).get(key) or "").strip().lower()
-            if phase and phase in (self._phase_tab_index_by_key or {}):
-                return phase
-        except Exception:
-            return None
-
-        return None
-
-    def _save_category_last_tcp_phase_tab(self, category_key: str, phase_key: str) -> None:
-        """Saves the last selected TCP phase tab for a category (best-effort)."""
-        try:
-            from config.reg import reg
-            from config import REGISTRY_PATH_GUI
-        except Exception:
-            return
-
-        cat_key = str(category_key or "").strip().lower()
-        phase = str(phase_key or "").strip().lower()
-        if not cat_key or not phase:
-            return
-
-        # Validate phase key early to avoid persisting garbage.
-        if self._tcp_phase_mode and phase not in (self._phase_tab_index_by_key or {}):
-            return
-
-        try:
-            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
-            data = {}
-            if isinstance(raw, str) and raw.strip():
-                try:
-                    data = json.loads(raw) or {}
-                except Exception:
-                    data = {}
-            if not isinstance(data, dict):
-                data = {}
-            data[cat_key] = phase
-            reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY, json.dumps(data, ensure_ascii=False))
-        except Exception:
-            return
-
-    # ═══════════════════════════════════════════════════════════════
-    # OUT RANGE METHODS
-    # ═══════════════════════════════════════════════════════════════
-
-    def _select_out_range_mode(self, mode: str):
-        """Выбор режима out_range (n или d)"""
-        if mode != self._out_range_mode:
-            self._out_range_mode = mode
-            try:
-                self._out_range_seg.setCurrentItem(mode)
-            except Exception:
-                pass
-            self._save_syndata_settings()
-
-    # ═══════════════════════════════════════════════════════════════
-    # SYNDATA SETTINGS METHODS
-    # ═══════════════════════════════════════════════════════════════
-
-    def _on_send_toggled(self, checked: bool):
-        """Обработчик включения/выключения send параметров"""
-        self._send_settings.setVisible(checked)
-        self._save_syndata_settings()
-
-    def _on_syndata_toggled(self, checked: bool):
-        """Обработчик включения/выключения syndata параметров"""
-        self._syndata_settings.setVisible(checked)
-        self._save_syndata_settings()
-
-    def _save_syndata_settings(self):
-        """Сохраняет syndata настройки для текущей категории через PresetManager"""
-        if not self._category_key:
-            return
-
-        # Build SyndataSettings from UI
-        syndata = SyndataSettings(
-            enabled=self._syndata_toggle.isChecked(),
-            blob=self._blob_combo.currentText(),
-            tls_mod=self._tls_mod_combo.currentText(),
-            autottl_delta=self._autottl_delta_selector.value(),
-            autottl_min=self._autottl_min_selector.value(),
-            autottl_max=self._autottl_max_selector.value(),
-            out_range=self._out_range_spin.value(),
-            out_range_mode=self._out_range_mode,
-            tcp_flags_unset=self._tcp_flags_combo.currentText(),
-            send_enabled=self._send_toggle.isChecked(),
-            send_repeats=self._send_repeats_spin.value(),
-            send_ip_ttl=self._send_ip_ttl_selector.value(),
-            send_ip6_ttl=self._send_ip6_ttl_selector.value(),
-            send_ip_id=self._send_ip_id_combo.currentText(),
-            send_badsum=self._send_badsum_check.isChecked(),
-        )
-
-        log(f"Syndata settings saved for {self._category_key}: {syndata.to_dict()}", "DEBUG")
-
-        # Save with sync=True - ConfigFileWatcher will trigger hot-reload automatically
-        # when it detects the preset file change
-        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
-        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
-        protocol_key = "udp" if is_udp_like else "tcp"
-        self._preset_manager.update_category_syndata(
-            self._category_key, syndata, protocol=protocol_key, save_and_sync=True
-        )
-
-    def _load_syndata_settings(self, category_key: str) -> dict:
-        """Загружает syndata настройки для категории из PresetManager"""
-        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
-        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
-        protocol_key = "udp" if is_udp_like else "tcp"
-        syndata = self._preset_manager.get_category_syndata(category_key, protocol=protocol_key)
-        return syndata.to_dict()
+        self.strategy_marked.emit(self._category_key, strategy_id, is_working)
 
     def _apply_syndata_settings(self, settings: dict):
-        """Применяет syndata настройки к UI без эмиссии сигналов сохранения"""
-        # Блокируем сигналы чтобы не вызывать save при загрузке
-        self._syndata_toggle.blockSignals(True)
-        self._blob_combo.blockSignals(True)
-        self._tls_mod_combo.blockSignals(True)
-        # TTLButtonSelector использует block_signals=True при setValue
-        self._out_range_spin.blockSignals(True)
-        self._tcp_flags_combo.blockSignals(True)
-        # Блокируем сигналы Send виджетов
-        self._send_toggle.blockSignals(True)
-        self._send_repeats_spin.blockSignals(True)
-        self._send_ip_id_combo.blockSignals(True)
-        self._send_badsum_check.blockSignals(True)
-
-        self._syndata_toggle.setChecked(settings.get("enabled", False))
-        self._syndata_settings.setVisible(settings.get("enabled", False))
-
-        blob_value = settings.get("blob", "none")
-        blob_index = self._blob_combo.findText(blob_value)
-        if blob_index >= 0:
-            self._blob_combo.setCurrentIndex(blob_index)
-
-        tls_mod_value = settings.get("tls_mod", "none")
-        tls_mod_index = self._tls_mod_combo.findText(tls_mod_value)
-        if tls_mod_index >= 0:
-            self._tls_mod_combo.setCurrentIndex(tls_mod_index)
-
-        # AutoTTL settings
-        self._autottl_delta_selector.setValue(settings.get("autottl_delta", -2), block_signals=True)
-        self._autottl_min_selector.setValue(settings.get("autottl_min", 3), block_signals=True)
-        self._autottl_max_selector.setValue(settings.get("autottl_max", 20), block_signals=True)
-        self._out_range_spin.setValue(settings.get("out_range", 8))
-
-        # Применяем режим out_range
-        self._out_range_mode = settings.get("out_range_mode", "n")
+        """Applies persisted syndata settings to controls without re-saving."""
+        data = dict(settings or {})
         try:
-            self._out_range_seg.setCurrentItem(self._out_range_mode)
+            self._syndata_toggle.blockSignals(True)
+            self._blob_combo.blockSignals(True)
+            self._tls_mod_combo.blockSignals(True)
+            self._out_range_spin.blockSignals(True)
+            self._tcp_flags_combo.blockSignals(True)
+            self._send_toggle.blockSignals(True)
+            self._send_repeats_spin.blockSignals(True)
+            self._send_ip_id_combo.blockSignals(True)
+            self._send_badsum_check.blockSignals(True)
+
+            self._syndata_toggle.setChecked(bool(data.get("enabled", False)))
+            self._syndata_settings.setVisible(bool(data.get("enabled", False)))
+
+            blob_value = str(data.get("blob", "none") or "none")
+            blob_index = self._blob_combo.findText(blob_value)
+            if blob_index >= 0:
+                self._blob_combo.setCurrentIndex(blob_index)
+
+            tls_mod_value = str(data.get("tls_mod", "none") or "none")
+            tls_mod_index = self._tls_mod_combo.findText(tls_mod_value)
+            if tls_mod_index >= 0:
+                self._tls_mod_combo.setCurrentIndex(tls_mod_index)
+
+            self._autottl_delta_selector.setValue(int(data.get("autottl_delta", -2)), block_signals=True)
+            self._autottl_min_selector.setValue(int(data.get("autottl_min", 3)), block_signals=True)
+            self._autottl_max_selector.setValue(int(data.get("autottl_max", 20)), block_signals=True)
+            self._out_range_spin.setValue(int(data.get("out_range", 8)))
+
+            self._out_range_mode = str(data.get("out_range_mode", "n") or "n")
+            try:
+                self._out_range_seg.setCurrentItem(self._out_range_mode)
+            except Exception:
+                pass
+
+            tcp_flags_value = str(data.get("tcp_flags_unset", "none") or "none")
+            tcp_flags_index = self._tcp_flags_combo.findText(tcp_flags_value)
+            if tcp_flags_index >= 0:
+                self._tcp_flags_combo.setCurrentIndex(tcp_flags_index)
+
+            self._send_toggle.setChecked(bool(data.get("send_enabled", False)))
+            self._send_settings.setVisible(bool(data.get("send_enabled", False)))
+            self._send_repeats_spin.setValue(int(data.get("send_repeats", 2)))
+            self._send_ip_ttl_selector.setValue(int(data.get("send_ip_ttl", 0)), block_signals=True)
+            self._send_ip6_ttl_selector.setValue(int(data.get("send_ip6_ttl", 0)), block_signals=True)
+
+            send_ip_id = str(data.get("send_ip_id", "none") or "none")
+            send_ip_id_index = self._send_ip_id_combo.findText(send_ip_id)
+            if send_ip_id_index >= 0:
+                self._send_ip_id_combo.setCurrentIndex(send_ip_id_index)
+
+            self._send_badsum_check.setChecked(bool(data.get("send_badsum", False)))
+        finally:
+            try:
+                self._syndata_toggle.blockSignals(False)
+                self._blob_combo.blockSignals(False)
+                self._tls_mod_combo.blockSignals(False)
+                self._out_range_spin.blockSignals(False)
+                self._tcp_flags_combo.blockSignals(False)
+                self._send_toggle.blockSignals(False)
+                self._send_repeats_spin.blockSignals(False)
+                self._send_ip_id_combo.blockSignals(False)
+                self._send_badsum_check.blockSignals(False)
+            except Exception:
+                pass
+
+    def _schedule_full_repopulate(self) -> None:
+        """Compatibility helper for old sort modes; keep list state consistent."""
+        try:
+            QTimer.singleShot(0, self._apply_sort)
+            QTimer.singleShot(0, self._apply_filters)
         except Exception:
             pass
 
-        tcp_flags_value = settings.get("tcp_flags_unset", "none")
-        tcp_flags_index = self._tcp_flags_combo.findText(tcp_flags_value)
-        if tcp_flags_index >= 0:
-            self._tcp_flags_combo.setCurrentIndex(tcp_flags_index)
-
-        # Применяем Send настройки
-        self._send_toggle.setChecked(settings.get("send_enabled", False))
-        self._send_settings.setVisible(settings.get("send_enabled", False))
-        self._send_repeats_spin.setValue(settings.get("send_repeats", 2))
-        self._send_ip_ttl_selector.setValue(settings.get("send_ip_ttl", 0), block_signals=True)
-        self._send_ip6_ttl_selector.setValue(settings.get("send_ip6_ttl", 0), block_signals=True)
-
-        send_ip_id = settings.get("send_ip_id", "none")
-        send_ip_id_index = self._send_ip_id_combo.findText(send_ip_id)
-        if send_ip_id_index >= 0:
-            self._send_ip_id_combo.setCurrentIndex(send_ip_id_index)
-
-        self._send_badsum_check.setChecked(settings.get("send_badsum", False))
-
-        # Разблокируем сигналы
-        self._syndata_toggle.blockSignals(False)
-        self._blob_combo.blockSignals(False)
-        self._tls_mod_combo.blockSignals(False)
-        # TTLButtonSelector не требует разблокировки (block_signals=True при setValue)
-        self._out_range_spin.blockSignals(False)
-        self._tcp_flags_combo.blockSignals(False)
-        # Разблокируем сигналы Send виджетов
-        self._send_toggle.blockSignals(False)
-        self._send_repeats_spin.blockSignals(False)
-        self._send_ip_id_combo.blockSignals(False)
-        self._send_badsum_check.blockSignals(False)
 
     def get_syndata_settings(self) -> dict:
         """Возвращает текущие syndata настройки для использования в командной строке"""
@@ -3220,6 +2996,628 @@ class StrategyDetailPage(BasePage):
         except Exception:
             pass
 
+    def _on_favorite_toggled(self, strategy_id: str, is_favorite: bool) -> None:
+        """Called when user clicks the favorite star in the UI."""
+        if not self._category_key:
+            return
+            
+        try:
+            self._favorites_store.set_favorite(self._category_key, strategy_id, is_favorite)
+            
+            # Update the cached set for the current category
+            if is_favorite:
+                self._favorite_strategy_ids.add(strategy_id)
+            else:
+                self._favorite_strategy_ids.discard(strategy_id)
+                
+            # Usually toggling a favorite just changes the icon color in place.
+            # But if we are sorting by favorites, we might need to re-sort:
+            if self._sort_mode == "favorites":
+                self._schedule_full_repopulate()
+        except Exception as e:
+            try:
+                log.error(f"Error saving favorite toggled: {e}")
+            except:
+                pass
+
+    def _on_enable_toggled(self, enabled: bool):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╤П/╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕"""
+        if not self._category_key:
+            return
+
+        # TCP multi-phase: restore last enabled args when toggling back on.
+        if self._tcp_phase_mode and enabled:
+            try:
+                last_args = (self._tcp_last_enabled_args_by_category.get(self._category_key) or "").strip()
+            except Exception:
+                last_args = ""
+
+            if last_args:
+                try:
+                    preset = self._preset_manager.get_active_preset()
+                    if not preset:
+                        return
+                    if self._category_key not in preset.categories:
+                        preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
+
+                    cat = preset.categories[self._category_key]
+                    cat.tcp_args = last_args
+                    cat.strategy_id = self._infer_strategy_id_from_args_exact(last_args)
+                    preset.touch()
+                    self._preset_manager._save_and_sync_preset(preset)
+
+                    self._selected_strategy_id = cat.strategy_id or "none"
+                    self._current_strategy_id = cat.strategy_id or "none"
+
+                    self._set_category_enabled_ui(True)
+                    self._update_selected_strategy_header(self._selected_strategy_id)
+                    self._refresh_args_editor_state()
+
+                    # Rebuild phase state + tabs selection
+                    self._load_tcp_phase_state_from_preset()
+                    self._apply_tcp_phase_tabs_visibility()
+                    self._select_default_tcp_phase_tab()
+                    self._apply_filters()
+
+                    self.show_loading()
+                    self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
+                    log(f"╨Ъ╨░╤В╨╡╨│╨╛╤А╨╕╤П {self._category_key} ╨▓╨║╨╗╤О╤З╨╡╨╜╨░ (restore phase chain)", "INFO")
+                    return
+                except Exception as e:
+                    log(f"TCP phase restore failed: {e}", "WARNING")
+
+        if enabled:
+            # ╨Т╨║╨╗╤О╤З╨░╨╡╨╝ - ╨▓╨╛╤Б╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╨╝ ╨┐╨╛╤Б╨╗╨╡╨┤╨╜╤О╤О ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О (╨╡╤Б╨╗╨╕ ╨▒╤Л╨╗╨░), ╨╕╨╜╨░╤З╨╡ ╨┤╨╡╤Д╨╛╨╗╤В╨╜╤Г╤О
+            strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
+
+            # Rare: strategies catalog may not be available yet (first-run install/extract/update).
+            # Try a one-shot reload before giving up and reverting the toggle.
+            if (not strategy_to_select or strategy_to_select == "none") and not (self._strategies_data_by_id or {}):
+                try:
+                    from strategy_menu.strategies_registry import registry
+                    registry.reload_strategies()
+                    self._clear_strategies()
+                    self._load_strategies()
+                    strategy_to_select = self._get_default_strategy()
+                except Exception:
+                    strategy_to_select = strategy_to_select or "none"
+
+            if strategy_to_select and strategy_to_select != "none":
+                self._selected_strategy_id = strategy_to_select
+                if self._strategies_tree:
+                    self._strategies_tree.set_selected_strategy(strategy_to_select)
+                self._update_selected_strategy_header(self._selected_strategy_id)
+                self._set_category_enabled_ui(True)
+                # ╨Я╨╛╨║╨░╨╖╤Л╨▓╨░╨╡╨╝ ╨░╨╜╨╕╨╝╨░╤Ж╨╕╤О ╨╖╨░╨│╤А╤Г╨╖╨║╨╕
+                self.show_loading()
+                self.strategy_selected.emit(self._category_key, strategy_to_select)
+                log(f"╨Ъ╨░╤В╨╡╨│╨╛╤А╨╕╤П {self._category_key} ╨▓╨║╨╗╤О╤З╨╡╨╜╨░ ╤Б╨╛ ╤Б╤В╤А╨░╤В╨╡╨│╨╕╨╡╨╣ {strategy_to_select}", "INFO")
+            else:
+                log(f"╨Э╨╡╤В ╨┤╨╛╤Б╤В╤Г╨┐╨╜╤Л╤Е ╤Б╤В╤А╨░╤В╨╡╨│╨╕╨╣ ╨┤╨╗╤П {self._category_key}", "WARNING")
+                self._enable_toggle.setChecked(False, block_signals=True)
+                self._set_category_enabled_ui(False)
+            self._refresh_args_editor_state()
+        else:
+            # ╨Ч╨░╨┐╨╛╨╝╨╕╨╜╨░╨╡╨╝ ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨┐╨╡╤А╨╡╨┤ ╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╨╡╨╝, ╤З╤В╨╛╨▒╤Л ╨▓╨╛╤Б╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╤М ╨┐╤А╨╕ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╨╕
+            if self._selected_strategy_id and self._selected_strategy_id != "none":
+                self._last_enabled_strategy_id = self._selected_strategy_id
+            # TCP multi-phase: also store full args chain (required for restore)
+            if self._tcp_phase_mode:
+                try:
+                    cur_args = self._get_category_strategy_args_text().strip()
+                    if cur_args:
+                        self._tcp_last_enabled_args_by_category[self._category_key] = cur_args
+                except Exception:
+                    pass
+            # ╨Т╤Л╨║╨╗╤О╤З╨░╨╡╨╝ - ╤Г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╨╝ "none"
+            self._selected_strategy_id = "none"
+            if self._strategies_tree:
+                if self._strategies_tree.has_strategy("none"):
+                    self._strategies_tree.set_selected_strategy("none")
+                else:
+                    self._strategies_tree.clearSelection()
+            self._update_selected_strategy_header(self._selected_strategy_id)
+            # ╨б╨║╤А╤Л╨▓╨░╨╡╨╝ ╨│╨░╨╗╨╛╤З╨║╤Г
+            self._stop_loading()
+            self._success_icon.hide()
+            self.strategy_selected.emit(self._category_key, "none")
+            log(f"╨Ъ╨░╤В╨╡╨│╨╛╤А╨╕╤П {self._category_key} ╨╛╤В╨║╨╗╤О╤З╨╡╨╜╨░", "INFO")
+            self._refresh_args_editor_state()
+            self._set_category_enabled_ui(False)
+
+    def _get_default_strategy(self) -> str:
+        """╨Т╨╛╨╖╨▓╤А╨░╤Й╨░╨╡╤В ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О ╨┤╨╗╤П ╤В╨╡╨║╤Г╤Й╨╡╨╣ ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕"""
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            # ╨Я╤А╨╛╨▒╤Г╨╡╨╝ ╨┐╨╛╨╗╤Г╤З╨╕╤В╤М ╨┤╨╡╤Д╨╛╨╗╤В╨╜╤Г╤О ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨╕╨╖ ╤А╨╡╨╡╤Б╤В╤А╨░
+            defaults = registry.get_default_selections()
+            if self._category_key in defaults:
+                default_id = defaults[self._category_key]
+                if default_id and default_id != "none" and (default_id in (self._default_strategy_order or [])):
+                    return default_id
+
+            # ╨Ш╨╜╨░╤З╨╡ ╨▒╨╡╤А╤С╨╝ ╨┐╨╡╤А╨▓╤Г╤О ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨╕╨╖ ╤Б╨┐╨╕╤Б╨║╨░ (╨╜╨╡ none)
+            for sid in (self._default_strategy_order or []):
+                if sid and sid != "none":
+                    return sid
+
+            return "none"
+        except Exception as e:
+            log(f"╨Ю╤И╨╕╨▒╨║╨░ ╨┐╨╛╨╗╤Г╤З╨╡╨╜╨╕╤П ╤Б╤В╤А╨░╤В╨╡╨│╨╕╨╕ ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О: {e}", "DEBUG")
+            # Fallback - ╨┐╨╡╤А╨▓╨░╤П ╨╜╨╡-none ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤П
+            for sid in (self._default_strategy_order or []):
+                if sid and sid != "none":
+                    return sid
+            return "none"
+
+    def _on_filter_mode_changed(self, new_mode: str):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨╕╨╖╨╝╨╡╨╜╨╡╨╜╨╕╤П ╤А╨╡╨╢╨╕╨╝╨░ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕"""
+        if not self._category_key:
+            return
+
+        # Save via PresetManager (triggers DPI reload automatically)
+        self._save_category_filter_mode(self._category_key, new_mode)
+        self.filter_mode_changed.emit(self._category_key, new_mode)
+        log(f"╨а╨╡╨╢╨╕╨╝ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П {self._category_key}: {new_mode}", "INFO")
+
+    def _save_category_filter_mode(self, category_key: str, mode: str):
+        """╨б╨╛╤Е╤А╨░╨╜╤П╨╡╤В ╤А╨╡╨╢╨╕╨╝ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╤З╨╡╤А╨╡╨╖ PresetManager"""
+        self._preset_manager.update_category_filter_mode(
+            category_key, mode, save_and_sync=True
+        )
+
+    def _load_category_filter_mode(self, category_key: str) -> str:
+        """╨Ч╨░╨│╤А╤Г╨╢╨░╨╡╤В ╤А╨╡╨╢╨╕╨╝ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╨╕╨╖ PresetManager"""
+        return self._preset_manager.get_category_filter_mode(category_key)
+
+    def _save_category_sort(self, category_key: str, sort_order: str):
+        """╨б╨╛╤Е╤А╨░╨╜╤П╨╡╤В ╨┐╨╛╤А╤П╨┤╨╛╨║ ╤Б╨╛╤А╤В╨╕╤А╨╛╨▓╨║╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╤З╨╡╤А╨╡╨╖ PresetManager"""
+        # Sort order is UI-only parameter, doesn't affect DPI
+        # But save_and_sync=True is needed to persist changes to disk
+        # (hot-reload may trigger but sort_order has no effect on winws2)
+        self._preset_manager.update_category_sort_order(
+            category_key, sort_order, save_and_sync=True
+        )
+
+    def _load_category_sort(self, category_key: str) -> str:
+        """╨Ч╨░╨│╤А╤Г╨╢╨░╨╡╤В ╨┐╨╛╤А╤П╨┤╨╛╨║ ╤Б╨╛╤А╤В╨╕╤А╨╛╨▓╨║╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╨╕╨╖ PresetManager"""
+        return self._preset_manager.get_category_sort_order(category_key)
+
+    # ======================================================================
+    # TCP PHASE TAB PERSISTENCE (UI-only)
+    # ======================================================================
+
+    _REG_TCP_PHASE_TABS_BY_CATEGORY = "TcpPhaseTabByCategory"
+
+    def _load_category_last_tcp_phase_tab(self, category_key: str) -> str | None:
+        """Loads the last selected TCP phase tab for a category (persisted in registry)."""
+        try:
+            from config.reg import reg
+            from config import REGISTRY_PATH_GUI
+        except Exception:
+            return None
+
+        key = str(category_key or "").strip().lower()
+        if not key:
+            return None
+
+        try:
+            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
+            if not raw:
+                return None
+            data = json.loads(raw) if isinstance(raw, str) else {}
+            phase = str((data or {}).get(key) or "").strip().lower()
+            if phase and phase in (self._phase_tab_index_by_key or {}):
+                return phase
+        except Exception:
+            return None
+
+        return None
+
+    def _save_category_last_tcp_phase_tab(self, category_key: str, phase_key: str) -> None:
+        """Saves the last selected TCP phase tab for a category (best-effort)."""
+        try:
+            from config.reg import reg
+            from config import REGISTRY_PATH_GUI
+        except Exception:
+            return
+
+        cat_key = str(category_key or "").strip().lower()
+        phase = str(phase_key or "").strip().lower()
+        if not cat_key or not phase:
+            return
+
+        # Validate phase key early to avoid persisting garbage.
+        if self._tcp_phase_mode and phase not in (self._phase_tab_index_by_key or {}):
+            return
+
+        try:
+            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
+            data = {}
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    data = json.loads(raw) or {}
+                except Exception:
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+            data[cat_key] = phase
+            reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY, json.dumps(data, ensure_ascii=False))
+        except Exception:
+            return
+
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+    # OUT RANGE METHODS
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+
+    def _select_out_range_mode(self, mode: str):
+        """╨Т╤Л╨▒╨╛╤А ╤А╨╡╨╢╨╕╨╝╨░ out_range (n ╨╕╨╗╨╕ d)"""
+        if mode != self._out_range_mode:
+            self._out_range_mode = mode
+            try:
+                self._out_range_seg.setCurrentItem(mode)
+            except Exception:
+                pass
+            self._save_syndata_settings()
+
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+    # SYNDATA SETTINGS METHODS
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+
+    def _on_send_toggled(self, checked: bool):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╤П/╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╤П send ╨┐╨░╤А╨░╨╝╨╡╤В╤А╨╛╨▓"""
+        self._send_settings.setVisible(checked)
+        self._save_syndata_settings()
+
+    def _on_syndata_toggled(self, checked: bool):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╤П/╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╤П syndata ╨┐╨░╤А╨░╨╝╨╡╤В╤А╨╛╨▓"""
+        self._syndata_settings.setVisible(checked)
+        self._save_syndata_settings()
+
+    def _save_syndata_settings(self):
+        """╨б╨╛╤Е╤А╨░╨╜╤П╨╡╤В syndata ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╨┤╨╗╤П ╤В╨╡╨║╤Г╤Й╨╡╨╣ ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╤З╨╡╤А╨╡╨╖ PresetManager"""
+        if not self._category_key:
+            return
+
+        # Build SyndataSettings from UI
+        syndata = SyndataSettings(
+            enabled=self._syndata_toggle.isChecked(),
+            blob=self._blob_combo.currentText(),
+            tls_mod=self._tls_mod_combo.currentText(),
+            autottl_delta=self._autottl_delta_selector.value(),
+            autottl_min=self._autottl_min_selector.value(),
+            autottl_max=self._autottl_max_selector.value(),
+            out_range=self._out_range_spin.value(),
+            out_range_mode=self._out_range_mode,
+            tcp_flags_unset=self._tcp_flags_combo.currentText(),
+            send_enabled=self._send_toggle.isChecked(),
+            send_repeats=self._send_repeats_spin.value(),
+            send_ip_ttl=self._send_ip_ttl_selector.value(),
+            send_ip6_ttl=self._send_ip6_ttl_selector.value(),
+            send_ip_id=self._send_ip_id_combo.currentText(),
+            send_badsum=self._send_badsum_check.isChecked(),
+        )
+
+        log(f"Syndata settings saved for {self._category_key}: {syndata.to_dict()}", "DEBUG")
+
+        # Save with sync=True - ConfigFileWatcher will trigger hot-reload automatically
+        # when it detects the preset file change
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+        protocol_key = "udp" if is_udp_like else "tcp"
+        self._preset_manager.update_category_syndata(
+            self._category_key, syndata, protocol=protocol_key, save_and_sync=True
+        )
+
+    def _load_syndata_settings(self, category_key: str) -> dict:
+        """╨Ч╨░╨│╤А╤Г╨╢╨░╨╡╤В syndata ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╨╕╨╖ PresetManager"""
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+        protocol_key = "udp" if is_udp_like else "tcp"
+        syndata = self._preset_manager.get_category_syndata(category_key, protocol=protocol_key)
+        return syndata.to_dict()
+
+
+    def _on_enable_toggled(self, enabled: bool):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╤П/╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕"""
+        if not self._category_key:
+            return
+
+        # TCP multi-phase: restore last enabled args when toggling back on.
+        if self._tcp_phase_mode and enabled:
+            try:
+                last_args = (self._tcp_last_enabled_args_by_category.get(self._category_key) or "").strip()
+            except Exception:
+                last_args = ""
+
+            if last_args:
+                try:
+                    preset = self._preset_manager.get_active_preset()
+                    if not preset:
+                        return
+                    if self._category_key not in preset.categories:
+                        preset.categories[self._category_key] = self._preset_manager._create_category_with_defaults(self._category_key)
+
+                    cat = preset.categories[self._category_key]
+                    cat.tcp_args = last_args
+                    cat.strategy_id = self._infer_strategy_id_from_args_exact(last_args)
+                    preset.touch()
+                    self._preset_manager._save_and_sync_preset(preset)
+
+                    self._selected_strategy_id = cat.strategy_id or "none"
+                    self._current_strategy_id = cat.strategy_id or "none"
+
+                    self._set_category_enabled_ui(True)
+                    self._update_selected_strategy_header(self._selected_strategy_id)
+                    self._refresh_args_editor_state()
+
+                    # Rebuild phase state + tabs selection
+                    self._load_tcp_phase_state_from_preset()
+                    self._apply_tcp_phase_tabs_visibility()
+                    self._select_default_tcp_phase_tab()
+                    self._apply_filters()
+
+                    self.show_loading()
+                    self.strategy_selected.emit(self._category_key, self._selected_strategy_id)
+                    log(f"╨Ъ╨░╤В╨╡╨│╨╛╤А╨╕╤П {self._category_key} ╨▓╨║╨╗╤О╤З╨╡╨╜╨░ (restore phase chain)", "INFO")
+                    return
+                except Exception as e:
+                    log(f"TCP phase restore failed: {e}", "WARNING")
+
+        if enabled:
+            # ╨Т╨║╨╗╤О╤З╨░╨╡╨╝ - ╨▓╨╛╤Б╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╨╝ ╨┐╨╛╤Б╨╗╨╡╨┤╨╜╤О╤О ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О (╨╡╤Б╨╗╨╕ ╨▒╤Л╨╗╨░), ╨╕╨╜╨░╤З╨╡ ╨┤╨╡╤Д╨╛╨╗╤В╨╜╤Г╤О
+            strategy_to_select = getattr(self, "_last_enabled_strategy_id", None) or self._get_default_strategy()
+
+            # Rare: strategies catalog may not be available yet (first-run install/extract/update).
+            # Try a one-shot reload before giving up and reverting the toggle.
+            if (not strategy_to_select or strategy_to_select == "none") and not (self._strategies_data_by_id or {}):
+                try:
+                    from strategy_menu.strategies_registry import registry
+                    registry.reload_strategies()
+                    self._clear_strategies()
+                    self._load_strategies()
+                    strategy_to_select = self._get_default_strategy()
+                except Exception:
+                    strategy_to_select = strategy_to_select or "none"
+
+            if strategy_to_select and strategy_to_select != "none":
+                self._selected_strategy_id = strategy_to_select
+                if self._strategies_tree:
+                    self._strategies_tree.set_selected_strategy(strategy_to_select)
+                self._update_selected_strategy_header(self._selected_strategy_id)
+                self._set_category_enabled_ui(True)
+                # ╨Я╨╛╨║╨░╨╖╤Л╨▓╨░╨╡╨╝ ╨░╨╜╨╕╨╝╨░╤Ж╨╕╤О ╨╖╨░╨│╤А╤Г╨╖╨║╨╕
+                self.show_loading()
+                self.strategy_selected.emit(self._category_key, strategy_to_select)
+                log(f"╨Ъ╨░╤В╨╡╨│╨╛╤А╨╕╤П {self._category_key} ╨▓╨║╨╗╤О╤З╨╡╨╜╨░ ╤Б╨╛ ╤Б╤В╤А╨░╤В╨╡╨│╨╕╨╡╨╣ {strategy_to_select}", "INFO")
+            else:
+                log(f"╨Э╨╡╤В ╨┤╨╛╤Б╤В╤Г╨┐╨╜╤Л╤Е ╤Б╤В╤А╨░╤В╨╡╨│╨╕╨╣ ╨┤╨╗╤П {self._category_key}", "WARNING")
+                self._enable_toggle.setChecked(False, block_signals=True)
+                self._set_category_enabled_ui(False)
+            self._refresh_args_editor_state()
+        else:
+            # ╨Ч╨░╨┐╨╛╨╝╨╕╨╜╨░╨╡╨╝ ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨┐╨╡╤А╨╡╨┤ ╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╨╡╨╝, ╤З╤В╨╛╨▒╤Л ╨▓╨╛╤Б╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╤М ╨┐╤А╨╕ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╨╕
+            if self._selected_strategy_id and self._selected_strategy_id != "none":
+                self._last_enabled_strategy_id = self._selected_strategy_id
+            # TCP multi-phase: also store full args chain (required for restore)
+            if self._tcp_phase_mode:
+                try:
+                    cur_args = self._get_category_strategy_args_text().strip()
+                    if cur_args:
+                        self._tcp_last_enabled_args_by_category[self._category_key] = cur_args
+                except Exception:
+                    pass
+            # ╨Т╤Л╨║╨╗╤О╤З╨░╨╡╨╝ - ╤Г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╨╝ "none"
+            self._selected_strategy_id = "none"
+            if self._strategies_tree:
+                if self._strategies_tree.has_strategy("none"):
+                    self._strategies_tree.set_selected_strategy("none")
+                else:
+                    self._strategies_tree.clearSelection()
+            self._update_selected_strategy_header(self._selected_strategy_id)
+            # ╨б╨║╤А╤Л╨▓╨░╨╡╨╝ ╨│╨░╨╗╨╛╤З╨║╤Г
+            self._stop_loading()
+            self._success_icon.hide()
+            self.strategy_selected.emit(self._category_key, "none")
+            log(f"╨Ъ╨░╤В╨╡╨│╨╛╤А╨╕╤П {self._category_key} ╨╛╤В╨║╨╗╤О╤З╨╡╨╜╨░", "INFO")
+            self._refresh_args_editor_state()
+            self._set_category_enabled_ui(False)
+
+    def _get_default_strategy(self) -> str:
+        """╨Т╨╛╨╖╨▓╤А╨░╤Й╨░╨╡╤В ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О ╨┤╨╗╤П ╤В╨╡╨║╤Г╤Й╨╡╨╣ ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕"""
+        try:
+            from strategy_menu.strategies_registry import registry
+
+            # ╨Я╤А╨╛╨▒╤Г╨╡╨╝ ╨┐╨╛╨╗╤Г╤З╨╕╤В╤М ╨┤╨╡╤Д╨╛╨╗╤В╨╜╤Г╤О ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨╕╨╖ ╤А╨╡╨╡╤Б╤В╤А╨░
+            defaults = registry.get_default_selections()
+            if self._category_key in defaults:
+                default_id = defaults[self._category_key]
+                if default_id and default_id != "none" and (default_id in (self._default_strategy_order or [])):
+                    return default_id
+
+            # ╨Ш╨╜╨░╤З╨╡ ╨▒╨╡╤А╤С╨╝ ╨┐╨╡╤А╨▓╤Г╤О ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤О ╨╕╨╖ ╤Б╨┐╨╕╤Б╨║╨░ (╨╜╨╡ none)
+            for sid in (self._default_strategy_order or []):
+                if sid and sid != "none":
+                    return sid
+
+            return "none"
+        except Exception as e:
+            log(f"╨Ю╤И╨╕╨▒╨║╨░ ╨┐╨╛╨╗╤Г╤З╨╡╨╜╨╕╤П ╤Б╤В╤А╨░╤В╨╡╨│╨╕╨╕ ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О: {e}", "DEBUG")
+            # Fallback - ╨┐╨╡╤А╨▓╨░╤П ╨╜╨╡-none ╤Б╤В╤А╨░╤В╨╡╨│╨╕╤П
+            for sid in (self._default_strategy_order or []):
+                if sid and sid != "none":
+                    return sid
+            return "none"
+
+    def _on_filter_mode_changed(self, new_mode: str):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨╕╨╖╨╝╨╡╨╜╨╡╨╜╨╕╤П ╤А╨╡╨╢╨╕╨╝╨░ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕"""
+        if not self._category_key:
+            return
+
+        # Save via PresetManager (triggers DPI reload automatically)
+        self._save_category_filter_mode(self._category_key, new_mode)
+        self.filter_mode_changed.emit(self._category_key, new_mode)
+        log(f"╨а╨╡╨╢╨╕╨╝ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П {self._category_key}: {new_mode}", "INFO")
+
+    def _save_category_filter_mode(self, category_key: str, mode: str):
+        """╨б╨╛╤Е╤А╨░╨╜╤П╨╡╤В ╤А╨╡╨╢╨╕╨╝ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╤З╨╡╤А╨╡╨╖ PresetManager"""
+        self._preset_manager.update_category_filter_mode(
+            category_key, mode, save_and_sync=True
+        )
+
+    def _load_category_filter_mode(self, category_key: str) -> str:
+        """╨Ч╨░╨│╤А╤Г╨╢╨░╨╡╤В ╤А╨╡╨╢╨╕╨╝ ╤Д╨╕╨╗╤М╤В╤А╨░╤Ж╨╕╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╨╕╨╖ PresetManager"""
+        return self._preset_manager.get_category_filter_mode(category_key)
+
+    def _save_category_sort(self, category_key: str, sort_order: str):
+        """╨б╨╛╤Е╤А╨░╨╜╤П╨╡╤В ╨┐╨╛╤А╤П╨┤╨╛╨║ ╤Б╨╛╤А╤В╨╕╤А╨╛╨▓╨║╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╤З╨╡╤А╨╡╨╖ PresetManager"""
+        # Sort order is UI-only parameter, doesn't affect DPI
+        # But save_and_sync=True is needed to persist changes to disk
+        # (hot-reload may trigger but sort_order has no effect on winws2)
+        self._preset_manager.update_category_sort_order(
+            category_key, sort_order, save_and_sync=True
+        )
+
+    def _load_category_sort(self, category_key: str) -> str:
+        """╨Ч╨░╨│╤А╤Г╨╢╨░╨╡╤В ╨┐╨╛╤А╤П╨┤╨╛╨║ ╤Б╨╛╤А╤В╨╕╤А╨╛╨▓╨║╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╨╕╨╖ PresetManager"""
+        return self._preset_manager.get_category_sort_order(category_key)
+
+    # ======================================================================
+    # TCP PHASE TAB PERSISTENCE (UI-only)
+    # ======================================================================
+
+    _REG_TCP_PHASE_TABS_BY_CATEGORY = "TcpPhaseTabByCategory"
+
+    def _load_category_last_tcp_phase_tab(self, category_key: str) -> str | None:
+        """Loads the last selected TCP phase tab for a category (persisted in registry)."""
+        try:
+            from config.reg import reg
+            from config import REGISTRY_PATH_GUI
+        except Exception:
+            return None
+
+        key = str(category_key or "").strip().lower()
+        if not key:
+            return None
+
+        try:
+            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
+            if not raw:
+                return None
+            data = json.loads(raw) if isinstance(raw, str) else {}
+            phase = str((data or {}).get(key) or "").strip().lower()
+            if phase and phase in (self._phase_tab_index_by_key or {}):
+                return phase
+        except Exception:
+            return None
+
+        return None
+
+    def _save_category_last_tcp_phase_tab(self, category_key: str, phase_key: str) -> None:
+        """Saves the last selected TCP phase tab for a category (best-effort)."""
+        try:
+            from config.reg import reg
+            from config import REGISTRY_PATH_GUI
+        except Exception:
+            return
+
+        cat_key = str(category_key or "").strip().lower()
+        phase = str(phase_key or "").strip().lower()
+        if not cat_key or not phase:
+            return
+
+        # Validate phase key early to avoid persisting garbage.
+        if self._tcp_phase_mode and phase not in (self._phase_tab_index_by_key or {}):
+            return
+
+        try:
+            raw = reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY)
+            data = {}
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    data = json.loads(raw) or {}
+                except Exception:
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+            data[cat_key] = phase
+            reg(REGISTRY_PATH_GUI, self._REG_TCP_PHASE_TABS_BY_CATEGORY, json.dumps(data, ensure_ascii=False))
+        except Exception:
+            return
+
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+    # OUT RANGE METHODS
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+
+    def _select_out_range_mode(self, mode: str):
+        """╨Т╤Л╨▒╨╛╤А ╤А╨╡╨╢╨╕╨╝╨░ out_range (n ╨╕╨╗╨╕ d)"""
+        if mode != self._out_range_mode:
+            self._out_range_mode = mode
+            try:
+                self._out_range_seg.setCurrentItem(mode)
+            except Exception:
+                pass
+            self._save_syndata_settings()
+
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+    # SYNDATA SETTINGS METHODS
+    # тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР
+
+    def _on_send_toggled(self, checked: bool):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╤П/╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╤П send ╨┐╨░╤А╨░╨╝╨╡╤В╤А╨╛╨▓"""
+        self._send_settings.setVisible(checked)
+        self._save_syndata_settings()
+
+    def _on_syndata_toggled(self, checked: bool):
+        """╨Ю╨▒╤А╨░╨▒╨╛╤В╤З╨╕╨║ ╨▓╨║╨╗╤О╤З╨╡╨╜╨╕╤П/╨▓╤Л╨║╨╗╤О╤З╨╡╨╜╨╕╤П syndata ╨┐╨░╤А╨░╨╝╨╡╤В╤А╨╛╨▓"""
+        self._syndata_settings.setVisible(checked)
+        self._save_syndata_settings()
+
+    def _save_syndata_settings(self):
+        """╨б╨╛╤Е╤А╨░╨╜╤П╨╡╤В syndata ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╨┤╨╗╤П ╤В╨╡╨║╤Г╤Й╨╡╨╣ ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╤З╨╡╤А╨╡╨╖ PresetManager"""
+        if not self._category_key:
+            return
+
+        # Build SyndataSettings from UI
+        syndata = SyndataSettings(
+            enabled=self._syndata_toggle.isChecked(),
+            blob=self._blob_combo.currentText(),
+            tls_mod=self._tls_mod_combo.currentText(),
+            autottl_delta=self._autottl_delta_selector.value(),
+            autottl_min=self._autottl_min_selector.value(),
+            autottl_max=self._autottl_max_selector.value(),
+            out_range=self._out_range_spin.value(),
+            out_range_mode=self._out_range_mode,
+            tcp_flags_unset=self._tcp_flags_combo.currentText(),
+            send_enabled=self._send_toggle.isChecked(),
+            send_repeats=self._send_repeats_spin.value(),
+            send_ip_ttl=self._send_ip_ttl_selector.value(),
+            send_ip6_ttl=self._send_ip6_ttl_selector.value(),
+            send_ip_id=self._send_ip_id_combo.currentText(),
+            send_badsum=self._send_badsum_check.isChecked(),
+        )
+
+        log(f"Syndata settings saved for {self._category_key}: {syndata.to_dict()}", "DEBUG")
+
+        # Save with sync=True - ConfigFileWatcher will trigger hot-reload automatically
+        # when it detects the preset file change
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+        protocol_key = "udp" if is_udp_like else "tcp"
+        self._preset_manager.update_category_syndata(
+            self._category_key, syndata, protocol=protocol_key, save_and_sync=True
+        )
+
+    def _load_syndata_settings(self, category_key: str) -> dict:
+        """╨Ч╨░╨│╤А╤Г╨╢╨░╨╡╤В syndata ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╨┤╨╗╤П ╨║╨░╤В╨╡╨│╨╛╤А╨╕╨╕ ╨╕╨╖ PresetManager"""
+        protocol_raw = str(getattr(self._category_info, "protocol", "") or "").upper()
+        is_udp_like = ("UDP" in protocol_raw) or ("QUIC" in protocol_raw) or ("L7" in protocol_raw)
+        protocol_key = "udp" if is_udp_like else "tcp"
+        syndata = self._preset_manager.get_category_syndata(category_key, protocol=protocol_key)
+        return syndata.to_dict()
+
+
     def _refresh_args_editor_state(self):
         enabled = bool(self._category_key) and (self._selected_strategy_id or "none") != "none"
         try:
@@ -3336,7 +3734,9 @@ class StrategyDetailPage(BasePage):
         try:
             tokens = get_theme_tokens()
             color = tokens.accent_hex if is_active else tokens.fg_faint
-            btn.setIcon(qta.icon('fa5s.sort-alpha-down', color=color))
+            if color != self._last_sort_icon_color:
+                btn.setIcon(qta.icon('fa5s.sort-alpha-down', color=color))
+                self._last_sort_icon_color = color
         except Exception:
             pass
         try:

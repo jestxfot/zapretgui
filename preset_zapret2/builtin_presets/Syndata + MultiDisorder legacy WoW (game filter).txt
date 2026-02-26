@@ -1,6 +1,6 @@
 # Preset: Syndata + MultiDisorder legacy WoW (game filter)
 # ActivePreset: Syndata + MultiDisorder legacy WoW (game filter)
-# BuiltinVersion: 1.0
+# BuiltinVersion: 1.5
 # Modified: 2026-02-14T21:15:21.132234
 # IconColor: #a8c5ff
 
@@ -10,15 +10,18 @@
 --lua-init=@lua/custom_funcs.lua
 --lua-init=@lua/custom_diag.lua
 --lua-init=@lua/zapret-multishake.lua
+
 --ctrack-disable=0
 --ipcache-lifetime=8400
 --ipcache-hostname=1
---wf-tcp-out=80,443-65535
---wf-udp-out=1-65535
+
+--wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
+--wf-udp-out=443-65535
+
 --wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
 --wf-raw-part=@windivert.filter/windivert_part.stun.txt
 --wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
-# AutoWFOutExtra: tcp=444-1079,1081-2052,2054-2082,2084-2086,2088-2095,2097-8442,8444-65535 udp=1-442
+
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
 --blob=tls1:@bin/tls_clienthello_1.bin
 --blob=tls2:@bin/tls_clienthello_2.bin
@@ -57,6 +60,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin
@@ -98,7 +102,7 @@
 --ipset=lists/ipset-youtube.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -129,7 +133,7 @@
 --filter-l7=stun,discord
 --payload=stun,discord_ip_discovery
 --out-range=-n8
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -142,7 +146,7 @@
 --new
 
 --filter-tcp=80,443
---ipset-ip=130.255.77.28
+--hostlist-domains=ntc.party
 --out-range=-d9
 --lua-desync=syndata
 --lua-desync=multidisorder_legacy:pos=1,midsld
@@ -174,7 +178,7 @@
 --ipset=lists/ipset-amazon.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -200,7 +204,7 @@
 --new
 
 --filter-tcp=80,443
---ipset=lists/ipset-tankix.txt
+--hostlist-domains=resources.txrevive.com,main.txrevive.com
 --out-range=-n8
 --lua-desync=syndata
 --lua-desync=multidisorder_legacy:pos=1,midsld
@@ -211,6 +215,7 @@
 --ipset=lists/cloudflare-ipset.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-cloudflare.txt
+--ipset=lists/ipset-all.txt
 --out-range=-d8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=fake_tls_7
@@ -247,7 +252,7 @@
 --ipset=lists/ipset-ovh.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -260,7 +265,7 @@
 --ipset-exclude=lists/ipset-dns.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -268,7 +273,7 @@
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -284,4 +289,4 @@
 --ipset=lists/ipset-all.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

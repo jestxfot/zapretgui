@@ -30,6 +30,7 @@ from .preset_defaults import (
     invalidate_templates_cache_v1,
     ensure_default_preset_exists_v1,
     ensure_v1_templates_copied_to_presets,
+    update_changed_v1_templates_in_presets,
 )
 from .strategies_loader import (
     load_v1_strategies,
@@ -65,6 +66,7 @@ __all__ = [
     "invalidate_templates_cache_v1",
     "ensure_default_preset_exists_v1",
     "ensure_v1_templates_copied_to_presets",
+    "update_changed_v1_templates_in_presets",
     "load_v1_strategies",
     "ensure_v1_strategies_exist",
     "get_v1_strategies_dir",

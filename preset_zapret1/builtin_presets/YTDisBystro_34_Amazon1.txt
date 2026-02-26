@@ -19,7 +19,7 @@
 # === HTTPS YouTube ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/googlevideo.com
+--hostlist-domains=googlevideo.com
 --hostlist=lists/russia-youtube.txt
 --dpi-desync=multisplit
 --dpi-desync-split-seqovl=1
@@ -28,7 +28,7 @@
 # === HTTPS Discord ===
 --new
 --filter-tcp=443
---hostlist-domains=lists/ntc.party
+--hostlist-domains=ntc.party
 --hostlist=lists/russia-discord.txt
 --dpi-desync=multisplit
 --dpi-desync-split-seqovl=286
@@ -39,7 +39,7 @@
 # === HTTP (порт 80) ===
 --new
 --filter-tcp=80
---hostlist-domains=lists/cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com
+--hostlist-domains=cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com
 --dpi-desync=fake,multisplit
 --dpi-desync-split-seqovl=2
 --dpi-desync-split-pos=sld+1
@@ -66,7 +66,7 @@
 # === HTTPS ===
 --new
 --filter-tcp=443,444-65535
---hostlist-domains=lists/awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com
+--hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com
 --dpi-desync=multisplit
 --dpi-desync-split-seqovl=211
 --dpi-desync-split-seqovl-pattern=bin/tls_clienthello_5.bin
@@ -83,7 +83,7 @@
 # === QUIC ===
 --new
 --filter-udp=443,444-65535
---hostlist-domains=lists/awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com
+--hostlist-domains=awsglobalaccelerator.com,cloudfront.net,amazon.com,amazonaws.com,awsstatic.com,epicgames.com
 --dpi-desync=fake
 --dpi-desync-any-protocol
 --dpi-desync-fake-unknown-udp=bin/quic_6.bin

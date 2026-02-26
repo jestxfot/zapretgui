@@ -7,18 +7,8 @@ import os, sys
 # ═══════════════════════════════════════════════════════════════════
 # ОСНОВНАЯ ПАПКА ПРОГРАММЫ
 # ═══════════════════════════════════════════════════════════════════
-# В сборке (exe) путь определяется автоматически по расположению exe файла.
-# В dev-режиме (python main.py) используем корень проекта, иначе sys.executable
-# указывает на python.exe/python и логи/ресурсы пытаются создаться в системной папке.
-try:
-    _is_frozen = bool(getattr(sys, "frozen", False))
-except Exception:
-    _is_frozen = False
-
-if _is_frozen:
-    MAIN_DIRECTORY = os.path.dirname(sys.executable)
-else:
-    MAIN_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+# Путь определяется автоматически по расположению exe файла.
+MAIN_DIRECTORY = os.path.dirname(sys.executable)
 
 # Канал сборки (для информации)
 try:
@@ -59,6 +49,21 @@ def get_zapret_presets_v2_template_dir() -> str:
     User presets in presets_v2/ are editable copies of these templates.
     """
     return os.path.join(get_zapret_userdata_dir(), "presets_v2_template")
+
+
+def get_zapret_orchestra_zapret2_dir() -> str:
+    """Returns orchestra Zapret2 root directory: <userdata>/orchestra_zapret2."""
+    return os.path.join(get_zapret_userdata_dir(), "orchestra_zapret2")
+
+
+def get_zapret_orchestra_presets_dir() -> str:
+    """Returns orchestra presets directory: <userdata>/orchestra_zapret2/presets_orchestra_zapret2."""
+    return os.path.join(get_zapret_orchestra_zapret2_dir(), "presets_orchestra_zapret2")
+
+
+def get_zapret_orchestra_presets_template_dir() -> str:
+    """Returns orchestra preset templates directory: <userdata>/orchestra_zapret2/presets_orchestra_zapret2_template."""
+    return os.path.join(get_zapret_orchestra_zapret2_dir(), "presets_orchestra_zapret2_template")
 
 
 def get_zapret_presets_v1_template_dir() -> str:

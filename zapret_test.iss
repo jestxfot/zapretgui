@@ -93,6 +93,10 @@ Source: "{#SOURCEPATH}\_internal\*"; DestDir: "{app}\_internal"; Flags: recurses
 ; At startup the app copies new templates to presets_v2/ (unless user deleted them).
 Source: "{#PROJECTPATH}\preset_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v2_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
+; ✅ Orchestra Z2 preset templates -> %APPDATA%\zapret\orchestra_zapret2\presets_orchestra_zapret2_template
+; Required to auto-create preset-zapret2-orchestra.txt on first run.
+Source: "{#PROJECTPATH}\preset_orchestra_zapret2\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\orchestra_zapret2\presets_orchestra_zapret2_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
+
 ; V1 Preset templates -> %APPDATA%\zapret\presets_v1_template
 Source: "{#PROJECTPATH}\preset_zapret1\builtin_presets\*.txt"; DestDir: "{userappdata}\zapret\presets_v1_template"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist; BeforeInstall: RemovePresetTemplateIfExists
 
@@ -108,6 +112,10 @@ Source: "{#PROJECTPATH}\preset_zapret2\basic_strategies\*.json"; DestDir: "{user
 ; Always overwritten on update to keep the Advanced catalog current.
 Source: "{#PROJECTPATH}\preset_zapret2\advanced_strategies\*.txt"; DestDir: "{userappdata}\zapret\direct_zapret2\advanced_strategies"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 Source: "{#PROJECTPATH}\preset_zapret2\advanced_strategies\*.json"; DestDir: "{userappdata}\zapret\direct_zapret2\advanced_strategies"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+
+; ✅ direct_zapret2_orchestra strategies -> %APPDATA%\zapret\orchestra_zapret2
+Source: "{#PROJECTPATH}\orchestra_zapret2\*.txt"; DestDir: "{userappdata}\zapret\orchestra_zapret2"; Excludes: "_*.txt"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
+Source: "{#PROJECTPATH}\orchestra_zapret2\*.json"; DestDir: "{userappdata}\zapret\orchestra_zapret2"; Flags: ignoreversion overwritereadonly skipifsourcedoesntexist
 
 ; ✅ Hostlist template other.txt -> %APPDATA%\zapret\lists_template
 ; Source of truth comes from SOURCEPATH\lists\other.txt
@@ -161,12 +169,13 @@ Type: files; Name: "{group}\{#AppName}.lnk"
 Type: files; Name: "{group}\{#AppName} v*.lnk"
 Type: files; Name: "{group}\Удалить {#AppName}.lnk"
 Type: files; Name: "{group}\Удалить {#AppName} v*.lnk"
-; Удаляем старые версионные имена инсталлятора (если были)
-Type: files; Name: "{userappdata}\zaprettracker\ZapretHub-Setup-*.exe"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\{#DataFolder}"
 Type: filesandordirs; Name: "{commonappdata}\{#DataFolder}"
+Type: filesandordirs; Name: "{userappdata}\zapret"
+Type: filesandordirs; Name: "{localappdata}\ZapretUpdate"
+Type: filesandordirs; Name: "{app}\logs"
 
 [Run]
 Filename: "{userappdata}\zaprettracker\ZapretHub-Setup.exe"; \

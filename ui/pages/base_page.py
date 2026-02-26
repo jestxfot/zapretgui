@@ -20,6 +20,64 @@ except ImportError:
     _USE_FLUENT = False
 
 
+def _apply_widget_smooth_mode(widget, enabled: bool) -> None:
+    try:
+        from PyQt6.QtCore import Qt
+        from qfluentwidgets.common.smooth_scroll import SmoothMode
+
+        mode = SmoothMode.COSINE if enabled else SmoothMode.NO_SMOOTH
+
+        def _apply_delegate_mode(delegate) -> None:
+            if delegate is None:
+                return
+            try:
+                if hasattr(delegate, "useAni"):
+                    if not hasattr(delegate, "_zapret_base_use_ani"):
+                        delegate._zapret_base_use_ani = bool(delegate.useAni)
+                    delegate.useAni = bool(delegate._zapret_base_use_ani) if enabled else False
+            except Exception:
+                pass
+
+            for smooth_attr in ("verticalSmoothScroll", "horizonSmoothScroll"):
+                smooth = getattr(delegate, smooth_attr, None)
+                setter = getattr(smooth, "setSmoothMode", None)
+                if callable(setter):
+                    try:
+                        setter(mode)
+                    except Exception:
+                        pass
+
+            setter = getattr(delegate, "setSmoothMode", None)
+            if callable(setter):
+                try:
+                    setter(mode)
+                except TypeError:
+                    try:
+                        setter(mode, Qt.Orientation.Vertical)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+        setter = getattr(widget, "setSmoothMode", None)
+        if not callable(setter):
+            _apply_delegate_mode(getattr(widget, "scrollDelegate", None))
+            _apply_delegate_mode(getattr(widget, "scrollDelagate", None))
+            _apply_delegate_mode(getattr(widget, "delegate", None))
+            return
+
+        try:
+            setter(mode, Qt.Orientation.Vertical)
+        except TypeError:
+            setter(mode)
+
+        _apply_delegate_mode(getattr(widget, "scrollDelegate", None))
+        _apply_delegate_mode(getattr(widget, "scrollDelagate", None))
+        _apply_delegate_mode(getattr(widget, "delegate", None))
+    except Exception:
+        pass
+
+
 class ScrollBlockingPlainTextEdit(_FluentPlainTextEdit):
     """PlainTextEdit с fluent-скроллбарами, не пропускающий прокрутку к родителю.
 
@@ -31,6 +89,14 @@ class ScrollBlockingPlainTextEdit(_FluentPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setProperty("noDrag", True)
+        try:
+            from config.reg import get_smooth_scroll_enabled
+            self.set_smooth_scroll_enabled(get_smooth_scroll_enabled())
+        except Exception:
+            pass
+
+    def set_smooth_scroll_enabled(self, enabled: bool) -> None:
+        _apply_widget_smooth_mode(self, enabled)
 
     def wheelEvent(self, event):
         # SmoothScrollDelegate поглощает событие когда НЕ у границы (возвращает True),
@@ -44,6 +110,14 @@ class ScrollBlockingTextEdit(_FluentTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setProperty("noDrag", True)
+        try:
+            from config.reg import get_smooth_scroll_enabled
+            self.set_smooth_scroll_enabled(get_smooth_scroll_enabled())
+        except Exception:
+            pass
+
+    def set_smooth_scroll_enabled(self, enabled: bool) -> None:
+        _apply_widget_smooth_mode(self, enabled)
 
     def wheelEvent(self, event):
         event.accept()
@@ -102,7 +176,8 @@ class BasePage(_FluentScrollArea):
 
         # --- Title ---
         if _USE_FLUENT:
-            self.title_label = TitleLabel(title, self.content)
+            self.title_label = TitleLabel(self.content)
+            self.title_label.setText(title)
         else:
             self.title_label = QLabel(title)
             self.title_label.setStyleSheet(
@@ -115,7 +190,8 @@ class BasePage(_FluentScrollArea):
         # --- Subtitle ---
         if subtitle:
             if _USE_FLUENT:
-                self.subtitle_label = BodyLabel(subtitle, self.content)
+                self.subtitle_label = BodyLabel(self.content)
+                self.subtitle_label.setText(subtitle)
             else:
                 self.subtitle_label = QLabel(subtitle)
                 self.subtitle_label.setStyleSheet("font-size: 12px; padding-bottom: 16px;")
@@ -141,7 +217,8 @@ class BasePage(_FluentScrollArea):
     def add_section_title(self, text: str, return_widget: bool = False):
         """Добавляет заголовок секции"""
         if _USE_FLUENT:
-            label = StrongBodyLabel(text, self.content)
+            label = StrongBodyLabel(self.content)
+            label.setText(text)
         else:
             label = QLabel(text)
             label.setStyleSheet("font-size: 13px; font-weight: 600; padding-top: 8px; padding-bottom: 4px;")

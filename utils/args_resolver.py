@@ -8,7 +8,7 @@
 """
 
 import os
-from typing import List
+from typing import List, Optional
 from log import log
 
 
@@ -41,7 +41,7 @@ def resolve_args_paths(
     args: List[str],
     lists_dir: str,
     bin_dir: str,
-    filter_dir: str = None
+    filter_dir: Optional[str] = None
 ) -> List[str]:
     """
     Разрешает относительные пути к файлам в аргументах командной строки.
@@ -68,7 +68,7 @@ def _resolve_single_arg(
     arg: str,
     lists_dir: str,
     bin_dir: str,
-    filter_dir: str = None
+    filter_dir: Optional[str] = None
 ) -> str:
     """Разрешает путь в одном аргументе"""
 
@@ -94,7 +94,13 @@ def _resolve_single_arg(
             filename = filename.strip('"')
 
             if not os.path.isabs(filename):
-                full_path = os.path.join(lists_dir, filename)
+                rel = filename.replace("\\", "/").strip()
+                if rel.startswith("./"):
+                    rel = rel[2:]
+                if rel.lower().startswith("lists/"):
+                    rel = rel[6:]
+
+                full_path = os.path.join(lists_dir, rel)
                 return f'{prefix}{full_path}'
             else:
                 return arg
@@ -102,19 +108,37 @@ def _resolve_single_arg(
     # Обработка файлов из bin/
     for prefix in BIN_PREFIXES:
         if arg.startswith(prefix):
-            _, filename = arg.split("=", 1)
+            _, raw_value = arg.split("=", 1)
 
-            # Проверяем специальные значения (hex или модификаторы)
-            if filename.startswith("0x") or filename.startswith("!") or filename.startswith("^"):
+            value = str(raw_value or "").strip().strip('"').strip("'")
+            if not value:
                 return arg
 
-            filename = filename.strip('"')
-
-            if not os.path.isabs(filename):
-                full_path = os.path.join(bin_dir, filename)
-                return f'{prefix}{full_path}'
-            else:
+            at_prefix = "@" if value.startswith("@") else ""
+            filename = value[1:] if at_prefix else value
+            filename = filename.strip().strip('"').strip("'")
+            if not filename:
                 return arg
+
+            lowered = filename.lower()
+
+            # Специальные значения (hex и модификаторы) НЕ являются файлами.
+            if lowered.startswith("0x") or lowered.startswith("!") or lowered.startswith("^"):
+                return arg
+
+            is_abs = os.path.isabs(filename)
+            has_path_sep = ("/" in filename) or ("\\" in filename)
+            is_bin_name = lowered.endswith(".bin")
+
+            # В bin/ автодобавляем только bare *.bin имена (foo.bin).
+            # Любые другие значения оставляем как есть.
+            if is_abs or has_path_sep:
+                return arg
+            if not is_bin_name:
+                return arg
+
+            full_path = os.path.join(bin_dir, filename)
+            return f'{prefix}{at_prefix}{full_path}'
 
     # Остальные аргументы без изменений
     return arg

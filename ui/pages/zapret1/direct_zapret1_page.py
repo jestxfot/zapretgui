@@ -244,6 +244,9 @@ class Zapret1StrategiesPage(BasePage):
             data.setdefault("key", category_key)
             data.setdefault("full_name", data.get("name", category_key))
             data.setdefault("description", "")
+            data.setdefault("base_filter", data.get("base_filter", ""))
+            data.setdefault("base_filter_hostlist", data.get("base_filter_hostlist", ""))
+            data.setdefault("base_filter_ipset", data.get("base_filter_ipset", ""))
             return data
 
         data = {
@@ -255,6 +258,9 @@ class Zapret1StrategiesPage(BasePage):
             "icon_name": getattr(category_info, "icon_name", ""),
             "icon_color": getattr(category_info, "icon_color", "#909090"),
             "command_group": getattr(category_info, "command_group", "default"),
+            "base_filter": getattr(category_info, "base_filter", ""),
+            "base_filter_hostlist": getattr(category_info, "base_filter_hostlist", ""),
+            "base_filter_ipset": getattr(category_info, "base_filter_ipset", ""),
         }
 
         data.setdefault("key", category_key)
@@ -266,7 +272,7 @@ class Zapret1StrategiesPage(BasePage):
     def _strategy_name(strategy_id: str, cat_key: str) -> str:
         sid = (strategy_id or "").strip()
         if not sid or sid == "none":
-            return "Не задано"
+            return "Выключено"
         if sid == "custom":
             return "Свой набор"
         try:

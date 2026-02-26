@@ -1,6 +1,6 @@
 # Preset: Preset X (game filter)
 # ActivePreset: Preset X (game filter)
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # Created: 2026-02-07T10:02:40.762406
 # Modified: 2026-02-07T10:02:40.763682
 # Description: 
@@ -60,6 +60,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin
@@ -142,7 +143,7 @@
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -159,7 +160,7 @@
 --ipset=lists/ipset-roblox.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -211,4 +212,4 @@
 --ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

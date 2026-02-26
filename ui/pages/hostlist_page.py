@@ -64,10 +64,24 @@ class HostlistPage(BasePage):
         self._ips_save_timer.setSingleShot(True)
         self._ips_save_timer.timeout.connect(self._ips_auto_save)
 
+        self._ips_status_timer = QTimer()
+        self._ips_status_timer.setSingleShot(True)
+        self._ips_status_timer.timeout.connect(self._ips_update_status)
+        self._ip_base_set_cache: set[str] | None = None
+
         self._excl_loaded = False
+        self._excl_base_set_cache: set[str] | None = None
         self._excl_save_timer = QTimer()
         self._excl_save_timer.setSingleShot(True)
         self._excl_save_timer.timeout.connect(self._excl_auto_save)
+
+        self._ipru_base_set_cache: set[str] | None = None
+        self._ipru_save_timer = QTimer()
+        self._ipru_save_timer.setSingleShot(True)
+        self._ipru_save_timer.timeout.connect(self._ipru_auto_save)
+        self._ipru_status_timer = QTimer()
+        self._ipru_status_timer.setSingleShot(True)
+        self._ipru_status_timer.timeout.connect(self._ipru_update_status)
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_editor_styles())
@@ -306,10 +320,11 @@ class HostlistPage(BasePage):
 
         desc_card = SettingsCard()
         desc = BodyLabel(
-            "Добавляйте свои IP/подсети.\n"
+            "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
             "• Одиночный IP: 1.2.3.4\n"
             "• Подсеть: 10.0.0.0/8\n"
-            "Диапазоны (a-b) не поддерживаются. Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
+            "Диапазоны (a-b) не поддерживаются. Изменения сохраняются автоматически.\n"
+            "Системная база хранится в ipset-all.base.txt и автоматически объединяется в ipset-all.txt."
         )
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
@@ -346,7 +361,7 @@ class HostlistPage(BasePage):
         actions_card.add_layout(actions_row)
         lay.addWidget(actions_card)
 
-        editor_card = SettingsCard("Мой IP-список (редактор)")
+        editor_card = SettingsCard("ipset-all.user.txt (редактор)")
         editor_lay = QVBoxLayout()
         editor_lay.setSpacing(8)
         self._i_editor = ScrollBlockingPlainTextEdit()
@@ -447,6 +462,8 @@ class HostlistPage(BasePage):
             self._i_editor.setStyleSheet(style)
         if hasattr(self, "_excl_editor") and self._excl_editor is not None:
             self._excl_editor.setStyleSheet(style)
+        if hasattr(self, "_ipru_editor") and self._ipru_editor is not None:
+            self._ipru_editor.setStyleSheet(style)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Hostlist / IPset folder info
@@ -689,24 +706,31 @@ class HostlistPage(BasePage):
 
     def _load_ips(self):
         try:
-            from utils.ipsets_manager import MY_IPSET_PATH
+            from utils.ipsets_manager import (
+                IPSET_ALL_USER_PATH,
+                ensure_ipset_all_user_file,
+                get_ipset_all_base_set,
+            )
+
+            ensure_ipset_all_user_file()
+            self._ip_base_set_cache = get_ipset_all_base_set()
             entries: list[str] = []
-            if os.path.exists(MY_IPSET_PATH):
-                with open(MY_IPSET_PATH, "r", encoding="utf-8") as fh:
+            if os.path.exists(IPSET_ALL_USER_PATH):
+                with open(IPSET_ALL_USER_PATH, "r", encoding="utf-8") as fh:
                     entries = [ln.strip() for ln in fh if ln.strip()]
             self._i_editor.blockSignals(True)
             self._i_editor.setPlainText("\n".join(entries))
             self._i_editor.blockSignals(False)
             self._ips_update_status()
-            log(f"Загружено {len(entries)} строк из my-ipset.txt", "INFO")
+            log(f"Загружено {len(entries)} строк из ipset-all.user.txt", "INFO")
         except Exception as e:
-            log(f"Ошибка загрузки my-ipset.txt: {e}", "ERROR")
+            log(f"Ошибка загрузки ipset-all.user.txt: {e}", "ERROR")
             if hasattr(self, "_i_status"):
                 self._i_status.setText(f"❌ Ошибка: {e}")
 
     def _ips_on_text_changed(self):
         self._ips_save_timer.start(500)
-        self._ips_update_status()
+        self._ips_status_timer.start(120)
 
     def _ips_auto_save(self):
         self._ips_save()
@@ -715,8 +739,9 @@ class HostlistPage(BasePage):
 
     def _ips_save(self):
         try:
-            from utils.ipsets_manager import MY_IPSET_PATH
-            os.makedirs(os.path.dirname(MY_IPSET_PATH), exist_ok=True)
+            from utils.ipsets_manager import IPSET_ALL_USER_PATH, sync_ipset_all_after_user_change
+
+            os.makedirs(os.path.dirname(IPSET_ALL_USER_PATH), exist_ok=True)
             text = self._i_editor.toPlainText()
             entries: list[str] = []
             invalid: list[str] = []
@@ -737,8 +762,12 @@ class HostlistPage(BasePage):
                             entries.append(norm)
                     else:
                         invalid.append(item)
-            with open(MY_IPSET_PATH, "w", encoding="utf-8") as fh:
+            with open(IPSET_ALL_USER_PATH, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(entries) + ("\n" if entries else ""))
+
+            if not sync_ipset_all_after_user_change():
+                log("Не удалось быстро синхронизировать ipset-all после сохранения", "WARNING")
+
             # Show/hide error label
             if hasattr(self, "_i_error_label"):
                 if invalid:
@@ -746,17 +775,48 @@ class HostlistPage(BasePage):
                     self._i_error_label.show()
                 else:
                     self._i_error_label.hide()
-            log(f"Сохранено {len(entries)} строк в my-ipset.txt", "SUCCESS")
+            log(f"Сохранено {len(entries)} строк в ipset-all.user.txt", "SUCCESS")
             self.ipset_changed.emit()
         except Exception as e:
-            log(f"Ошибка сохранения my-ipset.txt: {e}", "ERROR")
+            log(f"Ошибка сохранения ipset-all.user.txt: {e}", "ERROR")
 
     def _ips_update_status(self):
         if not hasattr(self, "_i_status") or not hasattr(self, "_i_editor"):
             return
         text = self._i_editor.toPlainText()
         lines = [ln.strip() for ln in text.split("\n") if ln.strip() and not ln.strip().startswith("#")]
-        self._i_status.setText(f"📊 Записей: {len(lines)}")
+
+        base_set = self._get_base_ips_set()
+        valid_entries: set[str] = set()
+
+        for line in lines:
+            for item in re.split(r"[\s,;]+", line):
+                item = item.strip()
+                if not item:
+                    continue
+                norm = self._normalize_ip(item)
+                if norm:
+                    valid_entries.add(norm)
+
+        user_count = len({ip for ip in valid_entries if ip not in base_set})
+        base_count = len(base_set)
+        total_count = len(base_set.union(valid_entries))
+
+        self._i_status.setText(
+            f"📊 Записей: {total_count} (база: {base_count}, пользовательские: {user_count})"
+        )
+
+    def _get_base_ips_set(self) -> set[str]:
+        if self._ip_base_set_cache is not None:
+            return self._ip_base_set_cache
+
+        try:
+            from utils.ipsets_manager import get_ipset_all_base_set
+
+            self._ip_base_set_cache = get_ipset_all_base_set()
+        except Exception:
+            self._ip_base_set_cache = set()
+        return self._ip_base_set_cache
 
     def _ips_add(self):
         text = self._i_input.text().strip() if hasattr(self._i_input, "text") else ""
@@ -785,16 +845,17 @@ class HostlistPage(BasePage):
 
     def _ips_open_file(self):
         try:
-            from utils.ipsets_manager import MY_IPSET_PATH
+            from utils.ipsets_manager import IPSET_ALL_USER_PATH, ensure_ipset_all_user_file
             import subprocess
             self._ips_save()
-            if os.path.exists(MY_IPSET_PATH):
-                subprocess.run(["explorer", "/select,", MY_IPSET_PATH])
+            ensure_ipset_all_user_file()
+            if os.path.exists(IPSET_ALL_USER_PATH):
+                subprocess.run(["explorer", "/select,", IPSET_ALL_USER_PATH])
             else:
-                os.makedirs(os.path.dirname(MY_IPSET_PATH), exist_ok=True)
-                subprocess.run(["explorer", os.path.dirname(MY_IPSET_PATH)])
+                os.makedirs(os.path.dirname(IPSET_ALL_USER_PATH), exist_ok=True)
+                subprocess.run(["explorer", os.path.dirname(IPSET_ALL_USER_PATH)])
         except Exception as e:
-            log(f"Ошибка открытия my-ipset.txt: {e}", "ERROR")
+            log(f"Ошибка открытия ipset-all.user.txt: {e}", "ERROR")
             if InfoBar:
                 InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())
 
@@ -810,7 +871,7 @@ class HostlistPage(BasePage):
             self._i_editor.clear()
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Exclusions (netrogat.txt) panel + logic
+    # Exclusions (netrogat + ipset-ru) panel + logic
     # ──────────────────────────────────────────────────────────────────────────
 
     def _build_exclusions_panel(self) -> QWidget:
@@ -821,8 +882,9 @@ class HostlistPage(BasePage):
 
         desc_card = SettingsCard()
         desc = BodyLabel(
-            "Список доменов, которые не следует трогать (netrogat.txt). "
-            "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
+            "Здесь два типа исключений:\n"
+            "• Домены: netrogat.user.txt -> netrogat.txt (--hostlist-exclude)\n"
+            "• IP/подсети: ipset-ru.user.txt -> ipset-ru.txt (--ipset-exclude)"
         )
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
@@ -855,6 +917,10 @@ class HostlistPage(BasePage):
         open_btn.setFixedHeight(36)
         open_btn.clicked.connect(self._excl_open_file)
         actions_row.addWidget(open_btn)
+        open_final_btn = ActionButton("Открыть итоговый", "fa5s.file-alt")
+        open_final_btn.setFixedHeight(36)
+        open_final_btn.clicked.connect(self._excl_open_final_file)
+        actions_row.addWidget(open_final_btn)
         clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
         clear_btn.setFixedHeight(36)
         clear_btn.clicked.connect(self._excl_clear_all)
@@ -863,7 +929,7 @@ class HostlistPage(BasePage):
         actions_card.add_layout(actions_row)
         lay.addWidget(actions_card)
 
-        editor_card = SettingsCard("netrogat.txt (редактор)")
+        editor_card = SettingsCard("netrogat.user.txt (редактор)")
         editor_lay = QVBoxLayout()
         editor_lay.setSpacing(8)
         self._excl_editor = ScrollBlockingPlainTextEdit()
@@ -880,6 +946,78 @@ class HostlistPage(BasePage):
 
         self._excl_status = CaptionLabel()
         lay.addWidget(self._excl_status)
+
+        ipru_intro = SettingsCard()
+        ipru_title = StrongBodyLabel("IP-исключения (--ipset-exclude)")
+        ipru_title.setWordWrap(True)
+        ipru_intro.add_widget(ipru_title)
+        ipru_desc = CaptionLabel(
+            "Редактируйте только ipset-ru.user.txt. "
+            "Системная база хранится в ipset-ru.base.txt и автоматически объединяется в ipset-ru.txt."
+        )
+        ipru_desc.setWordWrap(True)
+        ipru_intro.add_widget(ipru_desc)
+        lay.addWidget(ipru_intro)
+
+        ipru_add_card = SettingsCard("Добавить IP/подсеть в исключения")
+        ipru_add_row = QHBoxLayout()
+        ipru_add_row.setSpacing(8)
+        self._ipru_input = LineEdit()
+        if hasattr(self._ipru_input, "setPlaceholderText"):
+            self._ipru_input.setPlaceholderText("Например: 1.2.3.4 или 10.0.0.0/8")
+        if hasattr(self._ipru_input, "returnPressed"):
+            self._ipru_input.returnPressed.connect(self._ipru_add)
+        ipru_add_row.addWidget(self._ipru_input, 1)
+        self._ipru_add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self._ipru_add_btn.setFixedHeight(38)
+        self._ipru_add_btn.clicked.connect(self._ipru_add)
+        ipru_add_row.addWidget(self._ipru_add_btn)
+        ipru_add_card.add_layout(ipru_add_row)
+        lay.addWidget(ipru_add_card)
+
+        ipru_actions_card = SettingsCard("Действия IP-исключений")
+        ipru_actions_row = QHBoxLayout()
+        ipru_actions_row.setSpacing(8)
+        ipru_open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        ipru_open_btn.setFixedHeight(36)
+        ipru_open_btn.clicked.connect(self._ipru_open_file)
+        ipru_actions_row.addWidget(ipru_open_btn)
+        ipru_open_final_btn = ActionButton("Открыть итоговый", "fa5s.file-alt")
+        ipru_open_final_btn.setFixedHeight(36)
+        ipru_open_final_btn.clicked.connect(self._ipru_open_final_file)
+        ipru_actions_row.addWidget(ipru_open_final_btn)
+        ipru_clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
+        ipru_clear_btn.setFixedHeight(36)
+        ipru_clear_btn.clicked.connect(self._ipru_clear_all)
+        ipru_actions_row.addWidget(ipru_clear_btn)
+        ipru_actions_row.addStretch()
+        ipru_actions_card.add_layout(ipru_actions_row)
+        lay.addWidget(ipru_actions_card)
+
+        ipru_editor_card = SettingsCard("ipset-ru.user.txt (редактор)")
+        ipru_editor_lay = QVBoxLayout()
+        ipru_editor_lay.setSpacing(8)
+        self._ipru_editor = ScrollBlockingPlainTextEdit()
+        self._ipru_editor.setPlaceholderText(
+            "IP/подсети по одному на строку:\n"
+            "31.13.64.0/18\n"
+            "77.88.0.0/18\n\n"
+            "Комментарии начинаются с #"
+        )
+        self._ipru_editor.setMinimumHeight(260)
+        self._ipru_editor.textChanged.connect(self._ipru_on_text_changed)
+        ipru_editor_lay.addWidget(self._ipru_editor)
+        ipru_hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        ipru_editor_lay.addWidget(ipru_hint)
+        self._ipru_error_label = CaptionLabel()
+        self._ipru_error_label.setWordWrap(True)
+        self._ipru_error_label.hide()
+        ipru_editor_lay.addWidget(self._ipru_error_label)
+        ipru_editor_card.add_layout(ipru_editor_lay)
+        lay.addWidget(ipru_editor_card)
+
+        self._ipru_status = CaptionLabel()
+        lay.addWidget(self._ipru_status)
         lay.addStretch()
 
         self._apply_editor_styles()
@@ -887,17 +1025,52 @@ class HostlistPage(BasePage):
 
     def _load_exclusions(self):
         try:
-            from utils.netrogat_manager import load_netrogat
+            from utils.netrogat_manager import (
+                ensure_netrogat_user_file,
+                get_netrogat_base_set,
+                load_netrogat,
+            )
+
+            ensure_netrogat_user_file()
+            self._excl_base_set_cache = get_netrogat_base_set()
             domains = load_netrogat()
             self._excl_editor.blockSignals(True)
             self._excl_editor.setPlainText("\n".join(domains))
             self._excl_editor.blockSignals(False)
             self._excl_update_status()
-            log(f"Загружено {len(domains)} доменов netrogat", "INFO")
+            log(f"Загружено {len(domains)} строк из netrogat.user.txt", "INFO")
         except Exception as e:
             log(f"Ошибка загрузки netrogat: {e}", "ERROR")
             if hasattr(self, "_excl_status"):
                 self._excl_status.setText(f"❌ Ошибка: {e}")
+
+        self._load_ipru_exclusions()
+
+    def _load_ipru_exclusions(self):
+        try:
+            from utils.ipsets_manager import (
+                IPSET_RU_USER_PATH,
+                ensure_ipset_ru_user_file,
+                get_ipset_ru_base_set,
+            )
+
+            ensure_ipset_ru_user_file()
+            self._ipru_base_set_cache = get_ipset_ru_base_set()
+
+            entries: list[str] = []
+            if os.path.exists(IPSET_RU_USER_PATH):
+                with open(IPSET_RU_USER_PATH, "r", encoding="utf-8") as fh:
+                    entries = [ln.strip() for ln in fh if ln.strip()]
+
+            self._ipru_editor.blockSignals(True)
+            self._ipru_editor.setPlainText("\n".join(entries))
+            self._ipru_editor.blockSignals(False)
+            self._ipru_update_status()
+            log(f"Загружено {len(entries)} строк из ipset-ru.user.txt", "INFO")
+        except Exception as e:
+            log(f"Ошибка загрузки ipset-ru.user.txt: {e}", "ERROR")
+            if hasattr(self, "_ipru_status"):
+                self._ipru_status.setText(f"❌ Ошибка: {e}")
 
     def _excl_on_text_changed(self):
         self._excl_save_timer.start(500)
@@ -948,9 +1121,43 @@ class HostlistPage(BasePage):
     def _excl_update_status(self):
         if not hasattr(self, "_excl_status") or not hasattr(self, "_excl_editor"):
             return
+
+        try:
+            from ui.pages.netrogat_page import split_domains
+            from utils.netrogat_manager import _normalize_domain
+        except Exception:
+            return
+
         text = self._excl_editor.toPlainText()
         lines = [ln.strip() for ln in text.split("\n") if ln.strip() and not ln.strip().startswith("#")]
-        self._excl_status.setText(f"📊 Доменов: {len(lines)}")
+
+        base_set = self._get_excl_base_set()
+        valid_entries: set[str] = set()
+
+        for line in lines:
+            for item in split_domains(line):
+                norm = _normalize_domain(item)
+                if norm:
+                    valid_entries.add(norm)
+
+        user_count = len({d for d in valid_entries if d not in base_set})
+        base_count = len(base_set)
+        total_count = len(base_set.union(valid_entries))
+        self._excl_status.setText(
+            f"📊 Доменов: {total_count} (база: {base_count}, пользовательские: {user_count})"
+        )
+
+    def _get_excl_base_set(self) -> set[str]:
+        if self._excl_base_set_cache is not None:
+            return self._excl_base_set_cache
+
+        try:
+            from utils.netrogat_manager import get_netrogat_base_set
+
+            self._excl_base_set_cache = get_netrogat_base_set()
+        except Exception:
+            self._excl_base_set_cache = set()
+        return self._excl_base_set_cache
 
     def _excl_add(self):
         try:
@@ -1008,18 +1215,41 @@ class HostlistPage(BasePage):
 
     def _excl_open_file(self):
         try:
-            from config import NETROGAT_PATH
+            from utils.netrogat_manager import NETROGAT_USER_PATH, ensure_netrogat_user_file
             import subprocess
+
             self._excl_save()
-            if NETROGAT_PATH and os.path.exists(NETROGAT_PATH):
-                subprocess.run(["explorer", "/select,", NETROGAT_PATH])
+            ensure_netrogat_user_file()
+            if NETROGAT_USER_PATH and os.path.exists(NETROGAT_USER_PATH):
+                subprocess.run(["explorer", "/select,", NETROGAT_USER_PATH])
             else:
                 from config import LISTS_FOLDER
                 subprocess.run(["explorer", LISTS_FOLDER])
         except Exception as e:
-            log(f"Ошибка открытия netrogat.txt: {e}", "ERROR")
+            log(f"Ошибка открытия netrogat.user.txt: {e}", "ERROR")
             if InfoBar:
                 InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+
+    def _excl_open_final_file(self):
+        try:
+            from config import LISTS_FOLDER, NETROGAT_PATH
+            from utils.netrogat_manager import ensure_netrogat_exists
+            import subprocess
+
+            self._excl_save()
+            ensure_netrogat_exists()
+            if NETROGAT_PATH and os.path.exists(NETROGAT_PATH):
+                subprocess.run(["explorer", "/select,", NETROGAT_PATH])
+            else:
+                subprocess.run(["explorer", LISTS_FOLDER])
+        except Exception as e:
+            log(f"Ошибка открытия итогового netrogat.txt: {e}", "ERROR")
+            if InfoBar:
+                InfoBar.warning(
+                    title="Ошибка",
+                    content=f"Не удалось открыть итоговый файл: {e}",
+                    parent=self.window(),
+                )
 
     def _excl_clear_all(self):
         text = self._excl_editor.toPlainText().strip()
@@ -1034,29 +1264,222 @@ class HostlistPage(BasePage):
 
     def _excl_add_missing_defaults(self):
         try:
-            from utils.netrogat_manager import add_missing_defaults, _normalize_domain
+            from utils.netrogat_manager import ensure_netrogat_base_defaults
         except ImportError:
             return
-        text = self._excl_editor.toPlainText()
-        current_domains: list[str] = []
-        for line in text.split("\n"):
-            line = line.strip()
-            if line and not line.startswith("#"):
-                norm = _normalize_domain(line)
-                if norm:
-                    current_domains.append(norm)
-        new_domains, added = add_missing_defaults(current_domains)
+
+        self._excl_save()
+        added = ensure_netrogat_base_defaults()
+        self._excl_base_set_cache = None
         if added == 0:
             if InfoBar:
-                InfoBar.success(title="Готово", content="Все домены по умолчанию уже есть.", parent=self.window())
+                InfoBar.success(
+                    title="Готово",
+                    content="Системная база уже содержит все домены по умолчанию.",
+                    parent=self.window(),
+                )
             return
-        self._excl_editor.blockSignals(True)
-        self._excl_editor.setPlainText("\n".join(new_domains))
-        self._excl_editor.blockSignals(False)
-        self._excl_save()
+
         self._excl_update_status()
         if InfoBar:
-            InfoBar.success(title="Готово", content=f"Добавлено доменов: {added}", parent=self.window())
+            InfoBar.success(
+                title="Готово",
+                content=f"Восстановлено доменов в системной базе: {added}",
+                parent=self.window(),
+            )
+
+    def _ipru_on_text_changed(self):
+        self._ipru_save_timer.start(500)
+        self._ipru_status_timer.start(120)
+
+    def _ipru_auto_save(self):
+        self._ipru_save()
+        if hasattr(self, "_ipru_status"):
+            self._ipru_status.setText(self._ipru_status.text() + " • ✅ Сохранено")
+
+    def _ipru_save(self):
+        try:
+            from utils.ipsets_manager import IPSET_RU_USER_PATH, sync_ipset_ru_after_user_change
+
+            os.makedirs(os.path.dirname(IPSET_RU_USER_PATH), exist_ok=True)
+            text = self._ipru_editor.toPlainText()
+            entries: list[str] = []
+            invalid: list[str] = []
+
+            for line in text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith("#"):
+                    entries.append(line)
+                    continue
+                for item in re.split(r"[\s,;]+", line):
+                    item = item.strip()
+                    if not item:
+                        continue
+                    norm = self._normalize_ip(item)
+                    if norm:
+                        if norm not in entries:
+                            entries.append(norm)
+                    else:
+                        invalid.append(item)
+
+            with open(IPSET_RU_USER_PATH, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(entries) + ("\n" if entries else ""))
+
+            if not sync_ipset_ru_after_user_change():
+                log("Не удалось быстро синхронизировать ipset-ru после сохранения", "WARNING")
+
+            if hasattr(self, "_ipru_error_label"):
+                if invalid:
+                    self._ipru_error_label.setText("❌ Неверный формат: " + ", ".join(invalid[:5]))
+                    self._ipru_error_label.show()
+                else:
+                    self._ipru_error_label.hide()
+
+            log(f"Сохранено {len(entries)} строк в ipset-ru.user.txt", "SUCCESS")
+        except Exception as e:
+            log(f"Ошибка сохранения ipset-ru.user.txt: {e}", "ERROR")
+
+    def _ipru_update_status(self):
+        if not hasattr(self, "_ipru_status") or not hasattr(self, "_ipru_editor"):
+            return
+
+        text = self._ipru_editor.toPlainText()
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip() and not ln.strip().startswith("#")]
+
+        base_set = self._get_ipru_base_set()
+        valid_entries: set[str] = set()
+
+        for line in lines:
+            for item in re.split(r"[\s,;]+", line):
+                item = item.strip()
+                if not item:
+                    continue
+                norm = self._normalize_ip(item)
+                if norm:
+                    valid_entries.add(norm)
+
+        user_count = len({ip for ip in valid_entries if ip not in base_set})
+        base_count = len(base_set)
+        total_count = len(base_set.union(valid_entries))
+        self._ipru_status.setText(
+            f"📊 IP-исключений: {total_count} (база: {base_count}, пользовательские: {user_count})"
+        )
+
+    def _get_ipru_base_set(self) -> set[str]:
+        if self._ipru_base_set_cache is not None:
+            return self._ipru_base_set_cache
+
+        try:
+            from utils.ipsets_manager import get_ipset_ru_base_set
+
+            self._ipru_base_set_cache = get_ipset_ru_base_set()
+        except Exception:
+            self._ipru_base_set_cache = set()
+        return self._ipru_base_set_cache
+
+    def _ipru_add(self):
+        raw = self._ipru_input.text().strip() if hasattr(self._ipru_input, "text") else ""
+        if not raw:
+            return
+
+        current = self._ipru_editor.toPlainText()
+        existing = [ln.strip().lower() for ln in current.split("\n") if ln.strip() and not ln.strip().startswith("#")]
+
+        added: list[str] = []
+        invalid: list[str] = []
+        skipped: list[str] = []
+        for part in re.split(r"[\s,;]+", raw):
+            part = part.strip()
+            if not part:
+                continue
+            norm = self._normalize_ip(part)
+            if not norm:
+                invalid.append(part)
+                continue
+            if norm.lower() in existing or norm.lower() in [a.lower() for a in added]:
+                skipped.append(norm)
+                continue
+            added.append(norm)
+
+        if not added and invalid and InfoBar:
+            InfoBar.warning(
+                title="Ошибка",
+                content="Не удалось распознать IP или подсеть. Пример: 1.2.3.4 или 10.0.0.0/8",
+                parent=self.window(),
+            )
+            return
+
+        if not added and skipped and InfoBar:
+            if len(skipped) == 1:
+                InfoBar.info(title="Информация", content=f"Запись уже есть: {skipped[0]}", parent=self.window())
+            else:
+                InfoBar.info(title="Информация", content=f"Все записи уже есть ({len(skipped)})", parent=self.window())
+            return
+
+        if current and not current.endswith("\n"):
+            current += "\n"
+        current += "\n".join(added)
+        self._ipru_editor.setPlainText(current)
+        if hasattr(self._ipru_input, "clear"):
+            self._ipru_input.clear()
+
+        if skipped and InfoBar:
+            InfoBar.success(
+                title="Добавлено",
+                content=f"Добавлено IP-исключений. Пропущено уже существующих: {len(skipped)}",
+                parent=self.window(),
+            )
+
+    def _ipru_open_file(self):
+        try:
+            from config import LISTS_FOLDER
+            from utils.ipsets_manager import IPSET_RU_USER_PATH, ensure_ipset_ru_user_file
+            import subprocess
+
+            self._ipru_save()
+            ensure_ipset_ru_user_file()
+            if IPSET_RU_USER_PATH and os.path.exists(IPSET_RU_USER_PATH):
+                subprocess.run(["explorer", "/select,", IPSET_RU_USER_PATH])
+            else:
+                subprocess.run(["explorer", LISTS_FOLDER])
+        except Exception as e:
+            log(f"Ошибка открытия ipset-ru.user.txt: {e}", "ERROR")
+            if InfoBar:
+                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+
+    def _ipru_open_final_file(self):
+        try:
+            from config import LISTS_FOLDER
+            from utils.ipsets_manager import IPSET_RU_PATH, rebuild_ipset_ru_files
+            import subprocess
+
+            self._ipru_save()
+            rebuild_ipset_ru_files()
+            if IPSET_RU_PATH and os.path.exists(IPSET_RU_PATH):
+                subprocess.run(["explorer", "/select,", IPSET_RU_PATH])
+            else:
+                subprocess.run(["explorer", LISTS_FOLDER])
+        except Exception as e:
+            log(f"Ошибка открытия итогового ipset-ru.txt: {e}", "ERROR")
+            if InfoBar:
+                InfoBar.warning(
+                    title="Ошибка",
+                    content=f"Не удалось открыть итоговый файл: {e}",
+                    parent=self.window(),
+                )
+
+    def _ipru_clear_all(self):
+        text = self._ipru_editor.toPlainText().strip()
+        if not text:
+            return
+        if MessageBox:
+            box = MessageBox("Очистить всё", "Удалить все IP-исключения?", self.window())
+            if box.exec():
+                self._ipru_editor.clear()
+        else:
+            self._ipru_editor.clear()
 
     @staticmethod
     def _normalize_ip(text: str) -> Optional[str]:

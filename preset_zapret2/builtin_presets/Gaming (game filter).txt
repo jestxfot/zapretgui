@@ -1,6 +1,6 @@
 # Preset: Gaming
 # ActivePreset: Gaming
-# BuiltinVersion: 1.2
+# BuiltinVersion: 1.5
 # IconColor: #f07575ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -59,6 +59,7 @@
 --blob=quic5:@bin/quic_5.bin
 --blob=quic6:@bin/quic_6.bin
 --blob=quic7:@bin/quic_7.bin
+--blob=stun_pat:@bin/stun.bin
 --blob=quic_test:@bin/quic_test_00.bin
 --blob=fake_tls:@bin/fake_tls_1.bin
 --blob=fake_tls_1:@bin/fake_tls_1.bin
@@ -105,6 +106,15 @@
 --filter-tcp=443
 --hostlist-domains=updates.discord.com
 --out-range=-d10
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+
+--new
+
+--filter-tcp=80,443
+--hostlist-domains=obsidian.md
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
@@ -177,7 +187,7 @@
 --ipset=lists/ipset-roblox.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
@@ -222,4 +232,4 @@
 --ipset-exclude=lists/ipset-dns.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

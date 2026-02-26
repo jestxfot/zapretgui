@@ -166,7 +166,28 @@ class PresetConfigPage(BasePage):
         try:
             if not os.path.exists(self._preset_path):
                 method = get_strategy_launch_method()
-                if method == "direct_zapret2":
+                if method == "direct_zapret2_orchestra":
+                    from preset_orchestra_zapret2 import ensure_default_preset_exists
+                    ok = ensure_default_preset_exists()
+                    if ok:
+                        log("Создан дефолтный orchestra пресет через ensure_default_preset_exists()", "INFO")
+                    else:
+                        log(
+                            "Не удалось создать preset-zapret2-orchestra.txt: отсутствует built-in шаблон Default. "
+                            "Ожидается: %APPDATA%/zapret/orchestra_zapret2/presets_orchestra_zapret2_template/Default.txt",
+                            "ERROR",
+                        )
+                        try:
+                            with open(self._preset_path, 'w', encoding='utf-8') as f:
+                                f.write(
+                                    "# ERROR: missing orchestra preset template: Default\n"
+                                    "# Expected: %APPDATA%/zapret/orchestra_zapret2/presets_orchestra_zapret2_template/Default.txt\n"
+                                    "#\n"
+                                    "# Fix: reinstall/update the app or restore orchestra templates folder.\n\n"
+                                )
+                        except Exception:
+                            pass
+                elif method == "direct_zapret2":
                     from preset_zapret2 import ensure_default_preset_exists
                     ok = ensure_default_preset_exists()
                     if ok:
@@ -256,6 +277,13 @@ class PresetConfigPage(BasePage):
                     log("Sync skip: no active V1 preset name", "DEBUG")
                     return
                 preset_path = get_preset_path_v1(active_name)
+            elif method == "direct_zapret2_orchestra":
+                from preset_orchestra_zapret2 import get_active_preset_name, get_preset_path
+                active_name = get_active_preset_name()
+                if not active_name:
+                    log("Sync skip: no active orchestra preset name", "DEBUG")
+                    return
+                preset_path = get_preset_path(active_name)
             else:
                 from preset_zapret2 import get_active_preset_name, get_preset_path
                 active_name = get_active_preset_name()
