@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import re
+import ipaddress
 import configparser
 import threading
 from dataclasses import dataclass
@@ -30,7 +31,24 @@ def _log(msg: str, level: str = "INFO") -> None:
 class HostsCatalog:
     dns_profiles: list[str]
     services: dict[str, dict[str, list[str]]]
+    service_entries: dict[str, list[tuple[str, list[str]]]]
     service_order: list[str]
+    service_modes: dict[str, str]
+
+
+_SERVICE_MODE_DNS = "dns"
+_SERVICE_MODE_DIRECT = "direct"
+
+_SERVICE_MODE_SECTIONS = {
+    _SERVICE_MODE_DNS: {
+        "services_dns",
+        "dns_services",
+    },
+    _SERVICE_MODE_DIRECT: {
+        "services_direct",
+        "direct_services",
+    },
+}
 
 
 _SPECIAL_SECTIONS = {
@@ -43,6 +61,8 @@ _SPECIAL_SECTIONS = {
     # managed IPv6 metadata sections
     "__ipv6_status__",
     "__ipv6_dns_providers__",
+    *_SERVICE_MODE_SECTIONS[_SERVICE_MODE_DNS],
+    *_SERVICE_MODE_SECTIONS[_SERVICE_MODE_DIRECT],
 }
 
 _MISSING_IP_MARKERS = {
@@ -256,18 +276,38 @@ def ensure_ipv6_catalog_sections_if_available() -> tuple[bool, bool]:
 def _parse_hosts_ini(text: str) -> HostsCatalog:
     dns_profiles: list[str] = []
     services: dict[str, dict[str, list[str]]] = {}
+    service_entries: dict[str, list[tuple[str, list[str]]]] = {}
     service_order: list[str] = []
+    service_modes: dict[str, str] = {}
 
     current_section: str | None = None
+    current_mode_scope: str | None = None
     pending_domain: str | None = None
     pending_ips: list[str] = []
     # Named-profile format: maps profile_index → ip (set when "ProfileName: IP" lines are used).
     pending_named: dict[int, str] = {}
 
+    def normalize_service_key(service_name: str) -> str:
+        return (service_name or "").strip().casefold()
+
+    def set_service_mode(service_name: str, mode: str | None) -> None:
+        if mode not in (_SERVICE_MODE_DNS, _SERVICE_MODE_DIRECT):
+            return
+        key = normalize_service_key(service_name)
+        if not key:
+            return
+        service_modes[key] = mode
+
     def ensure_service(service_name: str) -> None:
         if service_name not in services:
             services[service_name] = {}
+            service_entries[service_name] = []
             service_order.append(service_name)
+
+    def append_service_entry(service_name: str, domain: str, ips: list[str]) -> None:
+        ensure_service(service_name)
+        service_entries[service_name].append((domain, ips))
+        services[service_name][domain] = ips
 
     def _build_ips() -> list[str]:
         """Resolve pending domain's IPs. Named format wins over positional."""
@@ -295,8 +335,10 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
             return
 
         if pending_domain:
-            ensure_service(sec)
-            services[sec][pending_domain] = _build_ips()
+            ips = _build_ips()
+            append_service_entry(sec, pending_domain, ips)
+            if current_mode_scope:
+                set_service_mode(sec, current_mode_scope)
         pending_domain = None
         pending_ips = []
         pending_named = {}
@@ -318,6 +360,13 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
         if line.startswith("[") and line.endswith("]"):
             flush_section()
             current_section = line[1:-1].strip()
+            sec_norm = current_section.lower()
+            if sec_norm in _SERVICE_MODE_SECTIONS[_SERVICE_MODE_DNS]:
+                current_mode_scope = _SERVICE_MODE_DNS
+            elif sec_norm in _SERVICE_MODE_SECTIONS[_SERVICE_MODE_DIRECT]:
+                current_mode_scope = _SERVICE_MODE_DIRECT
+            elif sec_norm == "dns":
+                current_mode_scope = None
             continue
 
         if not current_section:
@@ -326,6 +375,18 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
         sec_norm = current_section.strip().lower()
         if sec_norm == "dns":
             dns_profiles.append(line)
+            continue
+
+        # Optional service-mode sections:
+        # [SERVICES_DNS] / [SERVICES_DIRECT]
+        # - may be used as markers (scope for following service sections)
+        # - may contain explicit service names (one per line)
+        if sec_norm in _SERVICE_MODE_SECTIONS[_SERVICE_MODE_DNS]:
+            set_service_mode(line, _SERVICE_MODE_DNS)
+            continue
+
+        if sec_norm in _SERVICE_MODE_SECTIONS[_SERVICE_MODE_DIRECT]:
+            set_service_mode(line, _SERVICE_MODE_DIRECT)
             continue
 
         # Service section: support three formats:
@@ -364,16 +425,19 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
                 pending_named[named_idx] = named_ip_val
                 continue
 
-        # --- Raw hosts lines: "1.2.3.4 domain.tld" ---
+        # --- Raw hosts lines: "IP domain.tld" (IPv4/IPv6) ---
         parts = line.split()
         if len(parts) >= 2:
             ip_candidate = parts[0].strip()
             host_candidate = parts[1].strip()
-            if (
-                ip_candidate.count(".") == 3
-                and all(p.isdigit() for p in ip_candidate.split("."))
-                and host_candidate
-            ):
+            is_ip = False
+            try:
+                ipaddress.ip_address(ip_candidate)
+                is_ip = True
+            except ValueError:
+                is_ip = False
+
+            if is_ip and host_candidate and not host_candidate.startswith("#"):
                 # We are switching mode: raw hosts lines don't belong to the pending domain block.
                 flush_domain()
 
@@ -391,8 +455,9 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
                 # Store raw-host entries under their section, so UI can toggle a whole group.
                 sec = current_section.strip()
                 if sec and sec.lower() not in _SPECIAL_SECTIONS:
-                    ensure_service(sec)
-                    services[sec][host_candidate] = ips
+                    append_service_entry(sec, host_candidate, ips)
+                    if current_mode_scope:
+                        set_service_mode(sec, current_mode_scope)
                 continue
 
         # --- Positional format: domain line then N IP lines ---
@@ -411,7 +476,9 @@ def _parse_hosts_ini(text: str) -> HostsCatalog:
     return HostsCatalog(
         dns_profiles=dns_profiles,
         services=services,
+        service_entries=service_entries,
         service_order=service_order,
+        service_modes=service_modes,
     )
 
 
@@ -531,6 +598,22 @@ def get_service_domains(service_name: str) -> dict[str, str]:
     return out
 
 
+def get_service_domain_ip_rows(service_name: str, profile_name: str) -> list[tuple[str, str]]:
+    """Возвращает список (domain, ip) для сервиса под выбранный профиль, сохраняя дубликаты домена."""
+    cat = _load_catalog()
+    if profile_name not in cat.dns_profiles:
+        return []
+    profile_index = cat.dns_profiles.index(profile_name)
+
+    entries = cat.service_entries.get(service_name, []) or []
+    out: list[tuple[str, str]] = []
+    for domain, ips in entries:
+        if not ips or profile_index >= len(ips) or not ips[profile_index]:
+            return []
+        out.append((domain, ips[profile_index]))
+    return out
+
+
 def get_service_available_dns_profiles(service_name: str) -> list[str]:
     """
     Возвращает список DNS-профилей, доступных для сервиса.
@@ -599,12 +682,25 @@ def _get_proxy_profile_indices(cat: HostsCatalog) -> list[int]:
     return [i for i in range(len(cat.dns_profiles)) if i != direct_idx]
 
 
+def _get_declared_service_mode(cat: HostsCatalog, service_name: str) -> str | None:
+    key = (service_name or "").strip().casefold()
+    if not key:
+        return None
+    return (cat.service_modes or {}).get(key)
+
+
 def _service_has_proxy_ips(cat: HostsCatalog, service_name: str) -> bool:
     """
     True если у сервиса есть ХОТЯ БЫ ОДИН домен с IP в proxy/hide колонках.
 
     Proxy/hide колонки определяются автоматически (все профили кроме "direct"/"Вкл. (активировать hosts)").
     """
+    declared_mode = _get_declared_service_mode(cat, service_name)
+    if declared_mode == _SERVICE_MODE_DIRECT:
+        return False
+    if declared_mode == _SERVICE_MODE_DNS:
+        return True
+
     domains = cat.services.get(service_name, {}) or {}
     if not domains:
         return False
@@ -636,24 +732,21 @@ def get_service_has_geohide_ips(service_name: str) -> bool:
     Back-compat API for UI: returns True if service has proxy/hide IPs.
 
     Note: historically this was tied to GeoHide DNS naming, but now detection is name-agnostic
-    to support user-renamed DNS profile titles.
+    to support user-renamed DNS profile titles. Explicit mode sections in hosts.ini
+    ([SERVICES_DNS]/[SERVICES_DIRECT]) have priority over inferred detection.
     """
     return _service_has_proxy_ips(_load_catalog(), service_name)
 
 
 def get_service_domain_ip_map(service_name: str, profile_name: str) -> dict[str, str]:
     """Возвращает {domain: ip} для сервиса под выбранный профиль, или {} если профиль неполный."""
-    cat = _load_catalog()
-    if profile_name not in cat.dns_profiles:
+    rows = get_service_domain_ip_rows(service_name, profile_name)
+    if not rows:
         return {}
-    profile_index = cat.dns_profiles.index(profile_name)
 
-    domains = cat.services.get(service_name, {}) or {}
     out: dict[str, str] = {}
-    for domain, ips in domains.items():
-        if not ips or profile_index >= len(ips) or not ips[profile_index]:
-            return {}
-        out[domain] = ips[profile_index]
+    for domain, ip in rows:
+        out[domain] = ip
     return out
 
 

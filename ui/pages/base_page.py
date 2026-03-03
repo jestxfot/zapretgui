@@ -19,6 +19,8 @@ except ImportError:
     _FluentTextEdit = QTextEdit
     _USE_FLUENT = False
 
+from ui.text_catalog import tr as tr_catalog, normalize_language
+
 
 def _apply_widget_smooth_mode(widget, enabled: bool) -> None:
     try:
@@ -132,13 +134,32 @@ class BasePage(_FluentScrollArea):
     backward-compatible so all 40+ pages work without changes.
     """
 
-    def __init__(self, title: str, subtitle: str = "", parent=None):
+    def __init__(
+        self,
+        title: str,
+        subtitle: str = "",
+        parent=None,
+        *,
+        title_key: str | None = None,
+        subtitle_key: str | None = None,
+    ):
         super().__init__(parent)
         self.parent_app = parent
+        self._ui_language = self._resolve_ui_language()
+        self._title_key = title_key
+        self._subtitle_key = subtitle_key
+        self._title_fallback = title
+        self._subtitle_fallback = subtitle
+        self._section_title_bindings: list[tuple[object, str, str]] = []
 
         # Ensure objectName is set (required by FluentWindow.addSubInterface)
         if not self.objectName():
             self.setObjectName(self.__class__.__name__)
+
+        if self._title_key:
+            title = tr_catalog(self._title_key, language=self._ui_language, default=title)
+        if self._subtitle_key:
+            subtitle = tr_catalog(self._subtitle_key, language=self._ui_language, default=subtitle)
 
         # --- ScrollArea config ---
         self.setWidgetResizable(True)
@@ -200,6 +221,14 @@ class BasePage(_FluentScrollArea):
         else:
             self.subtitle_label = None
 
+    def _resolve_ui_language(self) -> str:
+        try:
+            from config.reg import get_ui_language
+
+            return normalize_language(get_ui_language())
+        except Exception:
+            return normalize_language(None)
+
     # ------------------------------------------------------------------
     # Public helpers (backward-compat with all 40+ pages)
     # ------------------------------------------------------------------
@@ -214,8 +243,18 @@ class BasePage(_FluentScrollArea):
         spacer = QSpacerItem(0, height, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.vBoxLayout.addItem(spacer)
 
-    def add_section_title(self, text: str, return_widget: bool = False):
+    def add_section_title(
+        self,
+        text: str = "",
+        return_widget: bool = False,
+        *,
+        text_key: str | None = None,
+    ):
         """Добавляет заголовок секции"""
+        fallback_text = text
+        if text_key:
+            text = tr_catalog(text_key, language=self._ui_language, default=text or text_key)
+
         if _USE_FLUENT:
             label = StrongBodyLabel(self.content)
             label.setText(text)
@@ -223,6 +262,57 @@ class BasePage(_FluentScrollArea):
             label = QLabel(text)
             label.setStyleSheet("font-size: 13px; font-weight: 600; padding-top: 8px; padding-bottom: 4px;")
         label.setProperty("tone", "primary")
+        if text_key:
+            self._section_title_bindings.append((label, text_key, fallback_text or text_key))
         self.vBoxLayout.addWidget(label)
         if return_widget:
             return label
+
+    def set_ui_language(self, language: str) -> None:
+        self._ui_language = normalize_language(language)
+        self._retranslate_base_texts()
+
+    def _retranslate_base_texts(self) -> None:
+        if self._title_key and hasattr(self, "title_label") and self.title_label is not None:
+            try:
+                self.title_label.setText(
+                    tr_catalog(
+                        self._title_key,
+                        language=self._ui_language,
+                        default=self._title_fallback,
+                    )
+                )
+            except Exception:
+                pass
+
+        subtitle_text = ""
+        if self._subtitle_key:
+            subtitle_text = tr_catalog(
+                self._subtitle_key,
+                language=self._ui_language,
+                default=self._subtitle_fallback,
+            )
+
+        if hasattr(self, "subtitle_label") and self.subtitle_label is not None:
+            try:
+                if self._subtitle_key:
+                    self.subtitle_label.setText(subtitle_text)
+                self.subtitle_label.setVisible(bool(self.subtitle_label.text().strip()))
+            except Exception:
+                pass
+
+        for label, text_key, fallback_text in list(self._section_title_bindings):
+            if label is None:
+                continue
+            try:
+                text_setter = getattr(label, "setText", None)
+                if callable(text_setter):
+                    text_setter(
+                        tr_catalog(
+                            text_key,
+                            language=self._ui_language,
+                            default=fallback_text,
+                        )
+                    )
+            except Exception:
+                pass

@@ -35,7 +35,6 @@ from .custom_ipset_page import CustomIpSetPage  # Страница управл�
 from .netrogat_page import NetrogatPage  # Страница управления netrogat.txt
 from .connection_page import ConnectionTestPage
 from .dns_check_page import DNSCheckPage
-from .diagnostics_tab_page import DiagnosticsTabPage
 from .orchestra_page import OrchestraPage
 from .orchestra import (
     OrchestraSettingsPage,
@@ -76,7 +75,6 @@ __all__ = [
     'NetrogatPage',  # Страница управления netrogat.txt
     'ConnectionTestPage',
     'DNSCheckPage',  # Страница проверки DNS подмены
-    'DiagnosticsTabPage',  # Объединённая страница диагностики с вкладками
     'OrchestraPage',  # Страница оркестратора автообучения
     'OrchestraSettingsPage',  # Объединённая страница настроек оркестратора (вкладки)
     'OrchestraLockedPage',  # Страница залоченных стратегий оркестратора

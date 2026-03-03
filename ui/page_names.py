@@ -64,6 +64,9 @@ class PageName(Enum):
     ABOUT = auto()                   # О программе
     SUPPORT = auto()                 # Поддержка (ZapretHub и каналы связи)
 
+    # === Сканер стратегий ===
+    STRATEGY_SCAN = auto()           # Legacy id: standalone route removed, now embedded in BlockCheck tabs
+
     # === Оркестратор (автообучение) ===
     ORCHESTRA = auto()               # Оркестр - главная
     ORCHESTRA_SETTINGS = auto()      # Настройки оркестратора (вкладки: залоченные, заблокированные, белый список, рейтинги)
@@ -136,8 +139,8 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.CUSTOM_IPSET: PageName.CUSTOM_IPSET,
     SectionName.AUTOSTART: PageName.AUTOSTART,
     SectionName.NETWORK: PageName.NETWORK,
-    SectionName.DIAGNOSTICS: PageName.DIAGNOSTICS_TAB,
-    SectionName.DNS_CHECK: PageName.DIAGNOSTICS_TAB,
+    SectionName.DIAGNOSTICS: PageName.BLOCKCHECK,
+    SectionName.DNS_CHECK: PageName.BLOCKCHECK,
     SectionName.HOSTS: PageName.HOSTS,
     SectionName.BLOCKCHECK: PageName.BLOCKCHECK,
     SectionName.APPEARANCE: PageName.APPEARANCE,

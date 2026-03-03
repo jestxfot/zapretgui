@@ -1,6 +1,6 @@
 # Preset: Ростелеком
 # ActivePreset: Ростелеком
-# BuiltinVersion: 1.5
+# BuiltinVersion: 2.10
 # Created: 2026-02-06T14:19:01.572248
 # Modified: 2026-02-06T14:19:01.572930
 # Description: 
@@ -125,6 +125,8 @@
 --ipset=lists/ipset-base.txt
 --ipset=lists/ipset-discord.txt
 --ipset=lists/ipset-cloudflare.txt
+--ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-amazon.txt
 --ipset=lists/ipset-roblox.txt
@@ -133,8 +135,6 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
---ipset-exclude=lists/ipset-dns.txt
---ipset-exclude=lists/ipset-ru.txt
 --out-range=-d10
 --lua-desync=syndata
 --lua-desync=multidisorder_legacy:pos=1,midsld
@@ -146,6 +146,8 @@
 --ipset=lists/ipset-base.txt
 --ipset=lists/ipset-discord.txt
 --ipset=lists/ipset-cloudflare.txt
+--ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-amazon.txt
 --ipset=lists/ipset-roblox.txt
@@ -154,8 +156,6 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
---ipset-exclude=lists/ipset-dns.txt
---ipset-exclude=lists/ipset-ru.txt
 --out-range=-n8
 --payload=all
 --lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

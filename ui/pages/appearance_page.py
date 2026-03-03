@@ -1,6 +1,8 @@
 # ui/pages/appearance_page.py
 """Страница настроек оформления - темы"""
 
+import sys
+
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt6.QtGui import QColor
@@ -8,17 +10,22 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, SettingsRow
-from ui.theme import get_theme_tokens
+from ui.theme import get_theme_tokens, get_rkn_background_options
 
 try:
     from qfluentwidgets import (
         BodyLabel, CaptionLabel, ColorPickerButton, setThemeColor,
-        CheckBox, SegmentedWidget, RadioButton, Slider,
+        CheckBox, SegmentedWidget, RadioButton, Slider, ComboBox,
     )
     _HAS_FLUENT_LABELS = True
     _HAS_COLOR_PICKER = True
 except ImportError:
-    from PyQt6.QtWidgets import QCheckBox as CheckBox, QRadioButton as RadioButton, QSlider as Slider
+    from PyQt6.QtWidgets import (
+        QCheckBox as CheckBox,
+        QRadioButton as RadioButton,
+        QSlider as Slider,
+        QComboBox as ComboBox,
+    )
     SegmentedWidget = None
     _HAS_FLUENT_LABELS = False
     _HAS_COLOR_PICKER = False
@@ -47,14 +54,26 @@ class AppearancePage(BasePage):
     animations_changed = pyqtSignal(bool)
     # Сигнал изменения плавной прокрутки
     smooth_scroll_changed = pyqtSignal(bool)
+    # Сигнал смены языка интерфейса
+    ui_language_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
-        super().__init__("Оформление", "Настройка внешнего вида приложения", parent)
+        super().__init__(
+            "Оформление",
+            "Настройка внешнего вида приложения",
+            parent,
+            title_key="page.appearance.title",
+            subtitle_key="page.appearance.subtitle",
+        )
 
         self._display_mode_seg = None    # SegmentedWidget
+        self._language_combo = None      # ComboBox
+        self._language_desc_label = None
+        self._language_name_label = None
         self._bg_radio_standard = None   # RadioButton
         self._bg_radio_amoled = None     # RadioButton
         self._bg_radio_rkn_chan = None   # RadioButton
+        self._rkn_background_combo = None
         self._is_premium = False
         self._garland_checkbox = None
         self._snowflakes_checkbox = None
@@ -72,14 +91,36 @@ class AppearancePage(BasePage):
         self._mica_switch = None
         self._animations_switch = None
         self._smooth_scroll_switch = None
+        self._ui_built = False
+
+    def _ensure_ui_built(self) -> None:
+        if self._ui_built:
+            return
 
         self._build_ui()
+        self._ui_built = True
+
+        try:
+            self.set_premium_status(self._is_premium)
+        except Exception:
+            pass
+
+        try:
+            self.set_ui_language(self._ui_language)
+        except Exception:
+            pass
+
+    def showEvent(self, a0):  # noqa: N802 (Qt naming)
+        super().showEvent(a0)
+        if a0 is None or a0.spontaneous():
+            return
+        self._ensure_ui_built()
 
     def _build_ui(self):
         # ═══════════════════════════════════════════════════════════
         # РЕЖИМ ОТОБРАЖЕНИЯ
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Режим отображения")
+        self.add_section_title(text_key="page.appearance.section.display_mode")
 
         display_card = SettingsCard()
         display_layout = QVBoxLayout()
@@ -105,9 +146,50 @@ class AppearancePage(BasePage):
         self.add_spacing(16)
 
         # ═══════════════════════════════════════════════════════════
+        # ЯЗЫК ИНТЕРФЕЙСА
+        # ═══════════════════════════════════════════════════════════
+        from ui.text_catalog import LANGUAGE_OPTIONS, normalize_language, tr as tr_catalog
+        try:
+            from config.reg import get_ui_language
+
+            _lang = normalize_language(get_ui_language())
+        except Exception:
+            _lang = "ru"
+
+        self.add_section_title(text_key="appearance.language.section")
+
+        language_card = SettingsCard()
+        language_layout = QVBoxLayout()
+        language_layout.setSpacing(12)
+
+        language_desc = CaptionLabel(tr_catalog("appearance.language.desc", language=_lang))
+        language_desc.setWordWrap(True)
+        self._language_desc_label = language_desc
+        language_layout.addWidget(language_desc)
+
+        language_row = QHBoxLayout()
+        language_row.setSpacing(12)
+        language_label = BodyLabel(tr_catalog("appearance.language.label", language=_lang))
+        self._language_name_label = language_label
+        language_row.addWidget(language_label)
+        language_row.addStretch()
+
+        self._language_combo = ComboBox()
+        for lang_code, lang_title in LANGUAGE_OPTIONS:
+            self._language_combo.addItem(lang_title, userData=lang_code)
+        self._language_combo.currentIndexChanged.connect(self._on_ui_language_changed)
+        language_row.addWidget(self._language_combo)
+
+        language_layout.addLayout(language_row)
+        language_card.add_layout(language_layout)
+        self.add_widget(language_card)
+
+        self.add_spacing(16)
+
+        # ═══════════════════════════════════════════════════════════
         # ФОН ОКНА
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Фон окна")
+        self.add_section_title(text_key="page.appearance.section.background")
 
         bg_card = SettingsCard()
         bg_layout = QVBoxLayout()
@@ -115,7 +197,8 @@ class AppearancePage(BasePage):
 
         bg_desc = CaptionLabel(
             "Стандартный фон соответствует режиму отображения. "
-            "AMOLED и РКН Тян доступны подписчикам Premium."
+            "AMOLED и РКН Тян доступны подписчикам Premium. "
+            "Для РКН Тян можно выбрать готовый фон из списка."
         )
         bg_desc.setWordWrap(True)
         bg_layout.addWidget(bg_desc)
@@ -153,6 +236,19 @@ class AppearancePage(BasePage):
         rkn_row.addStretch()
         bg_layout.addLayout(rkn_row)
 
+        rkn_bg_row = QHBoxLayout()
+        rkn_bg_row.setSpacing(12)
+        rkn_bg_label = BodyLabel("Фон РКН Тян")
+        rkn_bg_row.addWidget(rkn_bg_label)
+        rkn_bg_row.addStretch()
+
+        self._rkn_background_combo = ComboBox()
+        self._rkn_background_combo.currentIndexChanged.connect(self._on_rkn_background_changed)
+        rkn_bg_row.addWidget(self._rkn_background_combo)
+        bg_layout.addLayout(rkn_bg_row)
+
+        self._reload_rkn_background_options()
+
         # Mica is always enabled on Win11 — no user toggle needed.
 
         bg_card.add_layout(bg_layout)
@@ -163,7 +259,7 @@ class AppearancePage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # НОВОГОДНЕЕ ОФОРМЛЕНИЕ (Premium)
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Новогоднее оформление")
+        self.add_section_title(text_key="page.appearance.section.holiday")
 
         garland_card = SettingsCard()
         garland_layout = QVBoxLayout()
@@ -253,10 +349,21 @@ class AppearancePage(BasePage):
         opacity_layout = QVBoxLayout()
         opacity_layout.setSpacing(12)
 
-        opacity_desc = CaptionLabel(
-            "Настройка прозрачности всего окна приложения. "
-            "При 0% окно полностью прозрачное, при 100% — непрозрачное."
-        )
+        is_win11_plus = sys.platform == "win32" and sys.getwindowsversion().build >= 22000
+        if is_win11_plus:
+            opacity_title_text = "Эффект акрилика окна"
+            opacity_desc_text = (
+                "Настройка интенсивности акрилового эффекта всего окна приложения. "
+                "При 0% эффект минимальный, при 100% — максимальный."
+            )
+        else:
+            opacity_title_text = "Прозрачность окна"
+            opacity_desc_text = (
+                "Настройка прозрачности всего окна приложения. "
+                "При 0% окно полностью прозрачное, при 100% — непрозрачное."
+            )
+
+        opacity_desc = CaptionLabel(opacity_desc_text)
         opacity_desc.setWordWrap(True)
         opacity_layout.addWidget(opacity_desc)
 
@@ -268,7 +375,7 @@ class AppearancePage(BasePage):
         opacity_icon.setPixmap(qta.icon('fa5s.adjust', color=get_theme_tokens().accent_hex).pixmap(20, 20))
         opacity_row.addWidget(opacity_icon)
 
-        opacity_title = BodyLabel("Прозрачность окна")
+        opacity_title = BodyLabel(opacity_title_text)
         opacity_row.addWidget(opacity_title)
 
         opacity_row.addStretch()
@@ -298,7 +405,7 @@ class AppearancePage(BasePage):
         # АКЦЕНТНЫЙ ЦВЕТ (qfluentwidgets setThemeColor)
         # ═══════════════════════════════════════════════════════════
         if _HAS_COLOR_PICKER:
-            self.add_section_title("Акцентный цвет")
+            self.add_section_title(text_key="page.appearance.section.accent")
 
             accent_card = SettingsCard()
             accent_layout = QVBoxLayout()
@@ -356,7 +463,7 @@ class AppearancePage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # ПРОИЗВОДИТЕЛЬНОСТЬ
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Производительность")
+        self.add_section_title(text_key="page.appearance.section.performance")
 
         perf_card = SettingsCard()
         perf_layout = QVBoxLayout()
@@ -389,6 +496,7 @@ class AppearancePage(BasePage):
         # Load saved display mode and bg preset
         self._load_display_mode()
         self._load_bg_preset()
+        self._load_ui_language()
 
     def _load_display_mode(self):
         """Load saved display mode from registry."""
@@ -432,6 +540,92 @@ class AppearancePage(BasePage):
             pass
         self.display_mode_changed.emit(mode)
 
+    def _load_ui_language(self):
+        if self._language_combo is None:
+            return
+
+        try:
+            from config.reg import get_ui_language
+            from ui.text_catalog import normalize_language
+
+            lang = normalize_language(get_ui_language())
+        except Exception:
+            lang = "ru"
+
+        index = -1
+        try:
+            index = self._language_combo.findData(lang)
+        except Exception:
+            index = -1
+
+        if index < 0:
+            index = 0
+
+        try:
+            self._language_combo.blockSignals(True)
+            self._language_combo.setCurrentIndex(index)
+            self._language_combo.blockSignals(False)
+        except Exception:
+            pass
+
+    def _on_ui_language_changed(self, index: int) -> None:
+        if self._language_combo is None:
+            return
+
+        try:
+            lang = self._language_combo.itemData(index)
+        except Exception:
+            lang = None
+
+        if not isinstance(lang, str) or not lang:
+            return
+
+        try:
+            from config.reg import set_ui_language
+
+            set_ui_language(lang)
+        except Exception:
+            pass
+
+        self.ui_language_changed.emit(lang)
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if not self._ui_built:
+            return
+
+        from ui.text_catalog import tr as tr_catalog
+
+        if self._language_desc_label is not None:
+            try:
+                self._language_desc_label.setText(
+                    tr_catalog("appearance.language.desc", language=language)
+                )
+            except Exception:
+                pass
+
+        if self._language_name_label is not None:
+            try:
+                self._language_name_label.setText(
+                    tr_catalog("appearance.language.label", language=language)
+                )
+            except Exception:
+                pass
+
+        if self._language_combo is not None:
+            try:
+                from ui.text_catalog import normalize_language
+
+                normalized = normalize_language(language)
+                idx = self._language_combo.findData(normalized)
+                if idx >= 0:
+                    self._language_combo.blockSignals(True)
+                    self._language_combo.setCurrentIndex(idx)
+                    self._language_combo.blockSignals(False)
+            except Exception:
+                pass
+
     def _load_bg_preset(self):
         """Load saved background preset from registry."""
         try:
@@ -452,6 +646,88 @@ class AppearancePage(BasePage):
                 radio.blockSignals(True)
                 radio.setChecked(key == preset)
                 radio.blockSignals(False)
+        self._update_rkn_background_control_state()
+
+    def _reload_rkn_background_options(self):
+        if self._rkn_background_combo is None:
+            return
+
+        try:
+            from config.reg import get_rkn_background
+            saved_value = get_rkn_background()
+        except Exception:
+            saved_value = None
+
+        options = get_rkn_background_options()
+
+        self._rkn_background_combo.blockSignals(True)
+        try:
+            self._rkn_background_combo.clear()
+        except Exception:
+            pass
+
+        if options:
+            for rel_path, label in options:
+                self._rkn_background_combo.addItem(label, userData=rel_path)
+
+            selected = str(saved_value or "").strip().replace("\\", "/")
+            index = -1
+            if selected:
+                try:
+                    index = self._rkn_background_combo.findData(selected)
+                except Exception:
+                    index = -1
+            if index < 0:
+                index = 0
+            self._rkn_background_combo.setCurrentIndex(index)
+
+            try:
+                from config.reg import set_rkn_background
+                selected_rel = self._rkn_background_combo.itemData(index)
+                if isinstance(selected_rel, str) and selected_rel:
+                    set_rkn_background(selected_rel)
+            except Exception:
+                pass
+        else:
+            self._rkn_background_combo.addItem("Фоны не найдены", userData="")
+            self._rkn_background_combo.setCurrentIndex(0)
+
+        self._rkn_background_combo.blockSignals(False)
+        self._update_rkn_background_control_state()
+
+    def _update_rkn_background_control_state(self):
+        if self._rkn_background_combo is None:
+            return
+
+        try:
+            current_data = self._rkn_background_combo.itemData(self._rkn_background_combo.currentIndex())
+            has_options = isinstance(current_data, str) and bool(current_data)
+        except Exception:
+            has_options = False
+
+        is_rkn_selected = bool(self._bg_radio_rkn_chan and self._bg_radio_rkn_chan.isChecked())
+        self._rkn_background_combo.setEnabled(bool(self._is_premium and is_rkn_selected and has_options))
+
+    def _on_rkn_background_changed(self, index: int):
+        if self._rkn_background_combo is None or index < 0:
+            return
+
+        try:
+            selected_rel = self._rkn_background_combo.itemData(index)
+        except Exception:
+            selected_rel = None
+
+        if not isinstance(selected_rel, str) or not selected_rel:
+            return
+
+        try:
+            from config.reg import set_rkn_background
+            set_rkn_background(selected_rel)
+        except Exception:
+            pass
+
+        if self._bg_radio_rkn_chan is not None and self._bg_radio_rkn_chan.isChecked():
+            self.background_refresh_needed.emit()
 
     def _on_bg_preset_toggled(self, preset: str, checked: bool):
         """Handle background preset RadioButton toggle."""
@@ -474,6 +750,9 @@ class AppearancePage(BasePage):
                 except Exception:
                     pass
                 self._display_mode_seg.blockSignals(False)
+        if preset == "rkn_chan":
+            self._reload_rkn_background_options()
+        self._update_rkn_background_control_state()
         self.background_preset_changed.emit(preset)
 
     def _on_mica_changed(self, checked: bool):
@@ -708,12 +987,15 @@ class AppearancePage(BasePage):
     def set_premium_status(self, is_premium: bool):
         """Update premium status — unlocks AMOLED/РКН Тян bg presets."""
         self._is_premium = is_premium
+        was_garland_enabled = bool(self._garland_checkbox and self._garland_checkbox.isChecked())
+        was_snowflakes_enabled = bool(self._snowflakes_checkbox and self._snowflakes_checkbox.isChecked())
 
         # Unlock/lock premium bg preset radio buttons
         if self._bg_radio_amoled is not None:
             self._bg_radio_amoled.setEnabled(is_premium)
         if self._bg_radio_rkn_chan is not None:
             self._bg_radio_rkn_chan.setEnabled(is_premium)
+        self._update_rkn_background_control_state()
 
         # If premium lost and a premium preset is active, switch back to standard
         if not is_premium:
@@ -748,18 +1030,12 @@ class AppearancePage(BasePage):
                 self._snowflakes_checkbox.setChecked(False)
             self._snowflakes_checkbox.blockSignals(False)
 
-        if not is_premium and self._garland_checkbox and self._garland_checkbox.isChecked():
-            self._garland_checkbox.blockSignals(True)
-            self._garland_checkbox.setChecked(False)
-            self._garland_checkbox.blockSignals(False)
+        if not is_premium and was_garland_enabled:
             from config.reg import set_garland_enabled
             set_garland_enabled(False)
             self.garland_changed.emit(False)
 
-        if not is_premium and self._snowflakes_checkbox and self._snowflakes_checkbox.isChecked():
-            self._snowflakes_checkbox.blockSignals(True)
-            self._snowflakes_checkbox.setChecked(False)
-            self._snowflakes_checkbox.blockSignals(False)
+        if not is_premium and was_snowflakes_enabled:
             from config.reg import set_snowflakes_enabled
             set_snowflakes_enabled(False)
             self.snowflakes_changed.emit(False)

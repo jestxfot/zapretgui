@@ -14,11 +14,12 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QStackedWidget,
-    QFrame, QSizePolicy,
+    QFrame, QSizePolicy, QLayout,
 )
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, SettingsRow
+from ui.text_catalog import tr as tr_catalog
 from ui.theme import get_theme_tokens
 from log import log
 
@@ -60,7 +61,13 @@ class AboutPage(BasePage):
     _POLL_TIMEOUT_S = 120
 
     def __init__(self, parent=None):
-        super().__init__("О программе", "Версия, подписка и информация", parent)
+        super().__init__(
+            "О программе",
+            "Версия, подписка и информация",
+            parent,
+            title_key="page.about.title",
+            subtitle_key="page.about.subtitle",
+        )
 
         # ZapretHub state
         self._zaphub_exe: str | None = None
@@ -77,6 +84,9 @@ class AboutPage(BasePage):
         self._support_tab_initialized = False
         self._help_tab_initialized = False
 
+        self._sub_is_premium = False
+        self._sub_days_left: int | None = None
+
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
         qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
@@ -91,11 +101,11 @@ class AboutPage(BasePage):
         # ── Pivot (tabs) ──────────────────────────────────────────────────
         if _HAS_FLUENT:
             self.tabs_pivot = SegmentedWidget()
-            self.tabs_pivot.addItem(routeKey="about", text=" О ПРОГРАММЕ",
+            self.tabs_pivot.addItem(routeKey="about", text=" " + tr_catalog("page.about.tab.about", default="О ПРОГРАММЕ"),
                                     onClick=lambda: self._switch_tab(0))
-            self.tabs_pivot.addItem(routeKey="support", text=" ПОДДЕРЖКА",
+            self.tabs_pivot.addItem(routeKey="support", text=" " + tr_catalog("page.about.tab.support", default="ПОДДЕРЖКА"),
                                     onClick=lambda: self._switch_tab(1))
-            self.tabs_pivot.addItem(routeKey="help", text=" СПРАВКА",
+            self.tabs_pivot.addItem(routeKey="help", text=" " + tr_catalog("page.about.tab.help", default="СПРАВКА"),
                                     onClick=lambda: self._switch_tab(2))
             self.tabs_pivot.setCurrentItem("about")
             self.tabs_pivot.setItemFontSize(13)
@@ -159,6 +169,100 @@ class AboutPage(BasePage):
             except Exception:
                 pass
 
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if _HAS_FLUENT and hasattr(self, "tabs_pivot"):
+            try:
+                self.tabs_pivot.setItemText("about", " " + tr_catalog("page.about.tab.about", language=language, default="О ПРОГРАММЕ"))
+                self.tabs_pivot.setItemText("support", " " + tr_catalog("page.about.tab.support", language=language, default="ПОДДЕРЖКА"))
+                self.tabs_pivot.setItemText("help", " " + tr_catalog("page.about.tab.help", language=language, default="СПРАВКА"))
+            except Exception:
+                pass
+
+        self._retranslate_about_tab()
+        if self._support_tab_initialized:
+            self._rebuild_support_tab()
+        if self._help_tab_initialized:
+            self._rebuild_help_tab()
+
+    def _clear_layout(self, layout: QLayout | None) -> None:
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            child_layout = item.layout()
+            if widget is not None:
+                try:
+                    widget.deleteLater()
+                except Exception:
+                    pass
+            elif child_layout is not None:
+                try:
+                    self._clear_layout(child_layout)
+                except Exception:
+                    pass
+
+    def _retranslate_about_tab(self) -> None:
+        try:
+            from config import APP_VERSION
+
+            self.about_section_version_label.setText(
+                tr_catalog("page.about.section.version", language=self._ui_language, default="Версия")
+            )
+            self.about_version_value_label.setText(
+                tr_catalog(
+                    "page.about.version.value_template",
+                    language=self._ui_language,
+                    default="Версия {version}",
+                ).format(version=APP_VERSION)
+            )
+            self.update_btn.setText(
+                tr_catalog("page.about.button.update_settings", language=self._ui_language, default="Настройка обновлений")
+            )
+
+            self.about_section_device_label.setText(
+                tr_catalog("page.about.section.device", language=self._ui_language, default="Устройство")
+            )
+            self.device_title_label.setText(
+                tr_catalog("page.about.device.id", language=self._ui_language, default="ID устройства")
+            )
+            self.copy_btn.setText(
+                tr_catalog("page.about.button.copy_id", language=self._ui_language, default="Копировать ID")
+            )
+
+            self.about_section_subscription_label.setText(
+                tr_catalog("page.about.section.subscription", language=self._ui_language, default="Подписка")
+            )
+            self.sub_desc_label.setText(
+                tr_catalog(
+                    "page.about.subscription.desc",
+                    language=self._ui_language,
+                    default="Подписка Zapret Premium открывает доступ к дополнительным темам, приоритетной поддержке и VPN-сервису.",
+                )
+            )
+            self.premium_btn.setText(
+                tr_catalog("page.about.button.premium_vpn", language=self._ui_language, default="Premium и VPN")
+            )
+        except Exception:
+            pass
+
+        try:
+            self.update_subscription_status(self._sub_is_premium, self._sub_days_left)
+        except Exception:
+            pass
+
+    def _rebuild_support_tab(self) -> None:
+        self._clear_layout(self._support_layout)
+        self._build_support_content(self._support_layout)
+
+    def _rebuild_help_tab(self) -> None:
+        self._clear_layout(self._help_layout)
+        self._build_help_content(self._help_layout)
+
     # ─────────────────────────────────────────────────────────────────────────
     # Tab 0: О программе
     # ─────────────────────────────────────────────────────────────────────────
@@ -168,7 +272,10 @@ class AboutPage(BasePage):
         tokens = get_theme_tokens()
 
         # ── Версия ────────────────────────────────────────────────────────
-        layout.addWidget(_make_section_label("Версия"))
+        self.about_section_version_label = _make_section_label(
+            tr_catalog("page.about.section.version", language=self._ui_language, default="Версия")
+        )
+        layout.addWidget(self.about_section_version_label)
 
         version_card = SettingsCard()
         version_layout = QHBoxLayout()
@@ -183,17 +290,33 @@ class AboutPage(BasePage):
         text_layout.setSpacing(2)
         if _HAS_FLUENT:
             name_label = SubtitleLabel("Zapret 2 GUI")
-            version_label = CaptionLabel(f"Версия {APP_VERSION}")
+            version_label = CaptionLabel(
+                tr_catalog(
+                    "page.about.version.value_template",
+                    language=self._ui_language,
+                    default="Версия {version}",
+                ).format(version=APP_VERSION)
+            )
         else:
             name_label = QLabel("Zapret 2 GUI")
             name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 16px; font-weight: 600;")
-            version_label = QLabel(f"Версия {APP_VERSION}")
+            version_label = QLabel(
+                tr_catalog(
+                    "page.about.version.value_template",
+                    language=self._ui_language,
+                    default="Версия {version}",
+                ).format(version=APP_VERSION)
+            )
             version_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         text_layout.addWidget(name_label)
-        text_layout.addWidget(version_label)
+        self.about_version_value_label = version_label
+        text_layout.addWidget(self.about_version_value_label)
         version_layout.addLayout(text_layout, 1)
 
-        self.update_btn = ActionButton("Настройка обновлений", "fa5s.sync-alt")
+        self.update_btn = ActionButton(
+            tr_catalog("page.about.button.update_settings", language=self._ui_language, default="Настройка обновлений"),
+            "fa5s.sync-alt",
+        )
         self.update_btn.setFixedHeight(36)
         version_layout.addWidget(self.update_btn)
 
@@ -203,7 +326,10 @@ class AboutPage(BasePage):
         layout.addSpacing(16)
 
         # ── Устройство ────────────────────────────────────────────────────
-        layout.addWidget(_make_section_label("Устройство"))
+        self.about_section_device_label = _make_section_label(
+            tr_catalog("page.about.section.device", language=self._ui_language, default="Устройство")
+        )
+        layout.addWidget(self.about_section_device_label)
 
         device_card = SettingsCard()
         device_layout = QHBoxLayout()
@@ -223,22 +349,26 @@ class AboutPage(BasePage):
         device_text_layout = QVBoxLayout()
         device_text_layout.setSpacing(2)
         if _HAS_FLUENT:
-            device_title = BodyLabel("ID устройства")
+            device_title = BodyLabel(tr_catalog("page.about.device.id", language=self._ui_language, default="ID устройства"))
             self.client_id_label = CaptionLabel(client_id or "—")
         else:
-            device_title = QLabel("ID устройства")
+            device_title = QLabel(tr_catalog("page.about.device.id", language=self._ui_language, default="ID устройства"))
             device_title.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 500;")
             self.client_id_label = QLabel(client_id or "—")
             self.client_id_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        self.device_title_label = device_title
         self.client_id_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        device_text_layout.addWidget(device_title)
+        device_text_layout.addWidget(self.device_title_label)
         device_text_layout.addWidget(self.client_id_label)
         device_layout.addLayout(device_text_layout, 1)
 
-        copy_btn = ActionButton("Копировать ID", "fa5s.copy")
-        copy_btn.setFixedHeight(36)
-        copy_btn.clicked.connect(self._copy_client_id)
-        device_layout.addWidget(copy_btn)
+        self.copy_btn = ActionButton(
+            tr_catalog("page.about.button.copy_id", language=self._ui_language, default="Копировать ID"),
+            "fa5s.copy",
+        )
+        self.copy_btn.setFixedHeight(36)
+        self.copy_btn.clicked.connect(self._copy_client_id)
+        device_layout.addWidget(self.copy_btn)
 
         device_card.add_layout(device_layout)
         layout.addWidget(device_card)
@@ -246,7 +376,10 @@ class AboutPage(BasePage):
         layout.addSpacing(16)
 
         # ── Подписка ──────────────────────────────────────────────────────
-        layout.addWidget(_make_section_label("Подписка"))
+        self.about_section_subscription_label = _make_section_label(
+            tr_catalog("page.about.section.subscription", language=self._ui_language, default="Подписка")
+        )
+        layout.addWidget(self.about_section_subscription_label)
 
         sub_card = SettingsCard()
         sub_layout = QVBoxLayout()
@@ -261,30 +394,44 @@ class AboutPage(BasePage):
         sub_status_layout.addWidget(self.sub_status_icon)
 
         if _HAS_FLUENT:
-            self.sub_status_label = StrongBodyLabel("Free версия")
+            self.sub_status_label = StrongBodyLabel(
+                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Free версия")
+            )
         else:
-            self.sub_status_label = QLabel("Free версия")
+            self.sub_status_label = QLabel(
+                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Free версия")
+            )
             self.sub_status_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 500;")
         sub_status_layout.addWidget(self.sub_status_label, 1)
         sub_layout.addLayout(sub_status_layout)
 
         if _HAS_FLUENT:
-            sub_desc = CaptionLabel(
-                "Подписка Zapret Premium открывает доступ к дополнительным темам, "
-                "приоритетной поддержке и VPN-сервису."
+            self.sub_desc_label = CaptionLabel(
+                tr_catalog(
+                    "page.about.subscription.desc",
+                    language=self._ui_language,
+                    default="Подписка Zapret Premium открывает доступ к дополнительным темам, приоритетной поддержке и VPN-сервису.",
+                )
             )
         else:
-            sub_desc = QLabel(
-                "Подписка Zapret Premium открывает доступ к дополнительным темам, "
-                "приоритетной поддержке и VPN-сервису."
+            self.sub_desc_label = QLabel(
+                tr_catalog(
+                    "page.about.subscription.desc",
+                    language=self._ui_language,
+                    default="Подписка Zapret Premium открывает доступ к дополнительным темам, приоритетной поддержке и VPN-сервису.",
+                )
             )
-            sub_desc.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
-        sub_desc.setWordWrap(True)
-        sub_layout.addWidget(sub_desc)
+            self.sub_desc_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
+        self.sub_desc_label.setWordWrap(True)
+        sub_layout.addWidget(self.sub_desc_label)
 
         sub_btns = QHBoxLayout()
         sub_btns.setSpacing(8)
-        self.premium_btn = ActionButton("Premium и VPN", "fa5s.star", accent=True)
+        self.premium_btn = ActionButton(
+            tr_catalog("page.about.button.premium_vpn", language=self._ui_language, default="Premium и VPN"),
+            "fa5s.star",
+            accent=True,
+        )
         self.premium_btn.setFixedHeight(36)
         sub_btns.addWidget(self.premium_btn)
         sub_btns.addStretch()
@@ -306,16 +453,33 @@ class AboutPage(BasePage):
 
     def update_subscription_status(self, is_premium: bool, days: int | None = None):
         """Обновляет отображение статуса подписки"""
+        self._sub_is_premium = bool(is_premium)
+        self._sub_days_left = days
+
         tokens = get_theme_tokens()
         if is_premium:
             self.sub_status_icon.setPixmap(qta.icon('fa5s.star', color='#ffc107').pixmap(18, 18))
             if days:
-                self.sub_status_label.setText(f"Premium (осталось {days} дней)")
+                self.sub_status_label.setText(
+                    tr_catalog(
+                        "page.about.subscription.premium_days",
+                        language=self._ui_language,
+                        default="Premium (осталось {days} дней)",
+                    ).format(days=days)
+                )
             else:
-                self.sub_status_label.setText("Premium активен")
+                self.sub_status_label.setText(
+                    tr_catalog(
+                        "page.about.subscription.premium_active",
+                        language=self._ui_language,
+                        default="Premium активен",
+                    )
+                )
         else:
             self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color=tokens.fg_faint).pixmap(18, 18))
-            self.sub_status_label.setText("Free версия")
+            self.sub_status_label.setText(
+                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Free версия")
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Tab 1: Поддержка
@@ -325,7 +489,7 @@ class AboutPage(BasePage):
         tokens = get_theme_tokens()
 
         # ── ZapretHub ─────────────────────────────────────────────────────
-        layout.addWidget(_make_section_label("ZapretHub"))
+        layout.addWidget(_make_section_label(tr_catalog("page.about.support.section.zaphub", language=self._ui_language, default="ZapretHub")))
 
         hub_card = SettingsCard()
         hub_layout = QHBoxLayout()
@@ -341,27 +505,47 @@ class AboutPage(BasePage):
         text_layout.setSpacing(2)
 
         if _HAS_FLUENT:
-            title = StrongBodyLabel("ZapretHub")
+            title = StrongBodyLabel(tr_catalog("page.about.support.zaphub.title", language=self._ui_language, default="ZapretHub"))
             title.setProperty("tone", "primary")
             text_layout.addWidget(title)
-            desc = CaptionLabel("Центр сообщества Zapret: стратегии, пресеты и форум.")
+            desc = CaptionLabel(
+                tr_catalog(
+                    "page.about.support.zaphub.desc",
+                    language=self._ui_language,
+                    default="Центр сообщества Zapret: стратегии, пресеты и форум.",
+                )
+            )
             desc.setWordWrap(True)
             desc.setProperty("tone", "muted")
             text_layout.addWidget(desc)
-            self._zaphub_status_label = CaptionLabel("Статус: проверяю…")
+            self._zaphub_status_label = CaptionLabel(
+                tr_catalog("page.about.support.zaphub.status.checking", language=self._ui_language, default="Статус: проверяю…")
+            )
         else:
-            title = QLabel("ZapretHub")
+            title = QLabel(tr_catalog("page.about.support.zaphub.title", language=self._ui_language, default="ZapretHub"))
             text_layout.addWidget(title)
-            desc = QLabel("Центр сообщества Zapret: стратегии, пресеты и форум.")
+            desc = QLabel(
+                tr_catalog(
+                    "page.about.support.zaphub.desc",
+                    language=self._ui_language,
+                    default="Центр сообщества Zapret: стратегии, пресеты и форум.",
+                )
+            )
             desc.setWordWrap(True)
             text_layout.addWidget(desc)
-            self._zaphub_status_label = QLabel("Статус: проверяю…")
+            self._zaphub_status_label = QLabel(
+                tr_catalog("page.about.support.zaphub.status.checking", language=self._ui_language, default="Статус: проверяю…")
+            )
 
         self._zaphub_status_label.setStyleSheet(f"color: {tokens.fg_muted};")
         text_layout.addWidget(self._zaphub_status_label)
         hub_layout.addLayout(text_layout, 1)
 
-        self._zaphub_action_btn = ActionButton("…", "fa5s.download", accent=True)
+        self._zaphub_action_btn = ActionButton(
+            tr_catalog("page.about.support.zaphub.button.wait", language=self._ui_language, default="..."),
+            "fa5s.download",
+            accent=True,
+        )
         self._zaphub_action_btn.setProperty("noDrag", True)
         self._zaphub_action_btn.setFixedHeight(36)
         self._zaphub_action_btn.clicked.connect(self._on_zaphub_action_clicked)
@@ -373,31 +557,39 @@ class AboutPage(BasePage):
         layout.addSpacing(16)
 
         # ── Каналы поддержки ──────────────────────────────────────────────
-        layout.addWidget(_make_section_label("Каналы поддержки"))
+        layout.addWidget(_make_section_label(tr_catalog("page.about.support.section.channels", language=self._ui_language, default="Каналы поддержки")))
 
         channels_card = SettingsCard()
 
-        tg_row = SettingsRow(
+        self.tg_row = SettingsRow(
             "fa5b.telegram",
-            "Telegram поддержка",
-            "Помощь и вопросы по использованию",
+            tr_catalog("page.about.support.telegram.title", language=self._ui_language, default="Telegram поддержка"),
+            tr_catalog("page.about.support.telegram.desc", language=self._ui_language, default="Помощь и вопросы по использованию"),
         )
-        tg_btn = ActionButton("Открыть", "fa5s.external-link-alt", accent=False)
-        tg_btn.setProperty("noDrag", True)
-        tg_btn.clicked.connect(self._open_telegram_support)
-        tg_row.set_control(tg_btn)
-        channels_card.add_widget(tg_row)
+        self.tg_btn = ActionButton(
+            tr_catalog("page.about.support.button.open", language=self._ui_language, default="Открыть"),
+            "fa5s.external-link-alt",
+            accent=False,
+        )
+        self.tg_btn.setProperty("noDrag", True)
+        self.tg_btn.clicked.connect(self._open_telegram_support)
+        self.tg_row.set_control(self.tg_btn)
+        channels_card.add_widget(self.tg_row)
 
-        dc_row = SettingsRow(
+        self.dc_row = SettingsRow(
             "fa5b.discord",
-            "Discord сервер",
-            "Сообщество и живое общение",
+            tr_catalog("page.about.support.discord.title", language=self._ui_language, default="Discord сервер"),
+            tr_catalog("page.about.support.discord.desc", language=self._ui_language, default="Сообщество и живое общение"),
         )
-        dc_btn = ActionButton("Открыть", "fa5s.external-link-alt", accent=False)
-        dc_btn.setProperty("noDrag", True)
-        dc_btn.clicked.connect(self._open_discord)
-        dc_row.set_control(dc_btn)
-        channels_card.add_widget(dc_row)
+        self.dc_btn = ActionButton(
+            tr_catalog("page.about.support.button.open", language=self._ui_language, default="Открыть"),
+            "fa5s.external-link-alt",
+            accent=False,
+        )
+        self.dc_btn.setProperty("noDrag", True)
+        self.dc_btn.clicked.connect(self._open_discord)
+        self.dc_row.set_control(self.dc_btn)
+        channels_card.add_widget(self.dc_row)
 
         layout.addWidget(channels_card)
 
@@ -429,20 +621,26 @@ class AboutPage(BasePage):
 
         if exe and os.path.exists(exe):
             self._zaphub_installing = False
-            status_label.setText("Статус: установлен")
+            status_label.setText(
+                tr_catalog("page.about.support.zaphub.status.installed", language=self._ui_language, default="Статус: установлен")
+            )
             if _HAS_SEMANTIC and get_semantic_palette:
                 semantic = get_semantic_palette()
                 status_label.setStyleSheet(f"color: {semantic.success};")
-            action_btn.setText("Открыть")
+            action_btn.setText(tr_catalog("page.about.support.zaphub.button.open", language=self._ui_language, default="Открыть"))
             action_btn.setIcon(qta.icon("fa5s.play", color=get_theme_tokens().fg))
             action_btn.setEnabled(True)
         elif self._zaphub_installing:
             action_btn.setEnabled(False)
         else:
-            status_label.setText("Статус: не установлен")
+            status_label.setText(
+                tr_catalog("page.about.support.zaphub.status.not_installed", language=self._ui_language, default="Статус: не установлен")
+            )
             tokens = get_theme_tokens()
             status_label.setStyleSheet(f"color: {tokens.fg_muted};")
-            action_btn.setText("Установить")
+            action_btn.setText(
+                tr_catalog("page.about.support.zaphub.button.install", language=self._ui_language, default="Установить")
+            )
             action_btn.setIcon(qta.icon("fa5s.download", color=tokens.fg))
             action_btn.setEnabled(True)
 
@@ -472,10 +670,18 @@ class AboutPage(BasePage):
         status_label = self._zaphub_status_label
         if action_btn is not None:
             action_btn.setEnabled(False)
-            action_btn.setText("Установка…")
+            action_btn.setText(
+                tr_catalog("page.about.support.zaphub.button.installing", language=self._ui_language, default="Установка...")
+            )
             action_btn.setIcon(qta.icon("fa5s.spinner", color=get_theme_tokens().fg))
         if status_label is not None:
-            status_label.setText("Статус: установка запущена…")
+            status_label.setText(
+                tr_catalog(
+                    "page.about.support.zaphub.status.installing",
+                    language=self._ui_language,
+                    default="Статус: установка запущена...",
+                )
+            )
             if _HAS_SEMANTIC and get_semantic_palette:
                 semantic = get_semantic_palette()
                 status_label.setStyleSheet(f"color: {semantic.warning};")
@@ -731,7 +937,7 @@ class AboutPage(BasePage):
     def _build_help_content(self, layout: QVBoxLayout):
         self._add_motto_block(layout)
         layout.addSpacing(6)
-        layout.addWidget(_make_section_label("Ссылки"))
+        layout.addWidget(_make_section_label(tr_catalog("page.about.help.section.links", language=self._ui_language, default="Ссылки")))
 
         try:
             from config.urls import INFO_URL, ANDROID_URL
@@ -744,41 +950,49 @@ class AboutPage(BasePage):
             return
 
         # ── Документация ──────────────────────────────────────────────────
-        docs_group = SettingCardGroup("Документация", self.content)
+        docs_group = SettingCardGroup(
+            tr_catalog("page.about.help.group.docs", language=self._ui_language, default="Документация"),
+            self.content,
+        )
 
         forum_card = PushSettingCard(
-            "Открыть", FluentIcon.SEND,
-            "Сайт-форум для новичков",
-            "Авторизация через Telegram-бота",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
+            FluentIcon.SEND,
+            tr_catalog("page.about.help.docs.forum.title", language=self._ui_language, default="Сайт-форум для новичков"),
+            tr_catalog("page.about.help.docs.forum.desc", language=self._ui_language, default="Авторизация через Telegram-бота"),
         )
         forum_card.clicked.connect(self._open_forum_for_beginners)
 
         info_card = HyperlinkCard(
-            INFO_URL, "Открыть",
+            INFO_URL,
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
             FluentIcon.INFO,
-            "Что это такое?",
-            "Руководство и ответы на вопросы",
+            tr_catalog("page.about.help.docs.info.title", language=self._ui_language, default="Что это такое?"),
+            tr_catalog("page.about.help.docs.info.desc", language=self._ui_language, default="Руководство и ответы на вопросы"),
         )
 
         folder_card = PushSettingCard(
-            "Открыть", FluentIcon.FOLDER,
-            "Папка с инструкциями",
-            "Открыть локальную папку help",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
+            FluentIcon.FOLDER,
+            tr_catalog("page.about.help.docs.folder.title", language=self._ui_language, default="Папка с инструкциями"),
+            tr_catalog("page.about.help.docs.folder.desc", language=self._ui_language, default="Открыть локальную папку help"),
         )
         folder_card.clicked.connect(self._open_help_folder)
 
         android_card = HyperlinkCard(
-            ANDROID_URL, "Открыть",
+            ANDROID_URL,
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
             FluentIcon.PHONE,
-            "На Android (Magisk Zapret, ByeByeDPI и др.)",
-            "Открыть инструкцию на сайте",
+            tr_catalog("page.about.help.docs.android.title", language=self._ui_language, default="На Android (Magisk Zapret, ByeByeDPI и др.)"),
+            tr_catalog("page.about.help.docs.android.desc", language=self._ui_language, default="Открыть инструкцию на сайте"),
         )
 
         github_card = HyperlinkCard(
-            "https://github.com/youtubediscord/zapret", "Открыть",
+            "https://github.com/youtubediscord/zapret",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
             FluentIcon.GITHUB,
             "GitHub",
-            "Исходный код и документация",
+            tr_catalog("page.about.help.docs.github.desc", language=self._ui_language, default="Исходный код и документация"),
         )
 
         docs_group.addSettingCards([forum_card, info_card, folder_card, android_card, github_card])
@@ -786,34 +1000,41 @@ class AboutPage(BasePage):
         layout.addSpacing(8)
 
         # ── Новости ───────────────────────────────────────────────────────
-        news_group = SettingCardGroup("Новости", self.content)
+        news_group = SettingCardGroup(
+            tr_catalog("page.about.help.group.news", language=self._ui_language, default="Новости"),
+            self.content,
+        )
 
         telegram_card = PushSettingCard(
-            "Открыть", FluentIcon.MEGAPHONE,
-            "Telegram канал",
-            "Новости и обновления",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
+            FluentIcon.MEGAPHONE,
+            tr_catalog("page.about.help.news.telegram.title", language=self._ui_language, default="Telegram канал"),
+            tr_catalog("page.about.help.news.telegram.desc", language=self._ui_language, default="Новости и обновления"),
         )
         telegram_card.clicked.connect(self._open_telegram_news)
 
         youtube_card = HyperlinkCard(
-            "https://www.youtube.com/@приватность", "Открыть",
+            "https://www.youtube.com/@приватность",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
             FluentIcon.PLAY,
-            "YouTube канал",
-            "Видео и обновления",
+            tr_catalog("page.about.help.news.youtube.title", language=self._ui_language, default="YouTube канал"),
+            tr_catalog("page.about.help.news.youtube.desc", language=self._ui_language, default="Видео и обновления"),
         )
 
         mastodon_card = HyperlinkCard(
-            "https://mastodon.social/@zapret", "Открыть",
+            "https://mastodon.social/@zapret",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
             FluentIcon.GLOBE,
-            "Mastodon профиль",
-            "Новости в Fediverse",
+            tr_catalog("page.about.help.news.mastodon.title", language=self._ui_language, default="Mastodon профиль"),
+            tr_catalog("page.about.help.news.mastodon.desc", language=self._ui_language, default="Новости в Fediverse"),
         )
 
         bastyon_card = HyperlinkCard(
-            "https://bastyon.com/zapretgui", "Открыть",
+            "https://bastyon.com/zapretgui",
+            tr_catalog("page.about.help.button.open", language=self._ui_language, default="Открыть"),
             FluentIcon.GLOBE,
-            "Bastyon профиль",
-            "Новости в Bastyon",
+            tr_catalog("page.about.help.news.bastyon.title", language=self._ui_language, default="Bastyon профиль"),
+            tr_catalog("page.about.help.news.bastyon.desc", language=self._ui_language, default="Новости в Bastyon"),
         )
 
         news_group.addSettingCards([telegram_card, youtube_card, mastodon_card, bastyon_card])
@@ -838,7 +1059,13 @@ class AboutPage(BasePage):
         motto_text_layout.setContentsMargins(0, 0, 0, 0)
         motto_text_layout.setSpacing(2)
 
-        motto_title = QLabel("keep thinking, keep searching, keep learning....")
+        motto_title = QLabel(
+            tr_catalog(
+                "page.about.help.motto.title",
+                language=self._ui_language,
+                default="keep thinking, keep searching, keep learning....",
+            )
+        )
         motto_title.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         motto_title.setWordWrap(True)
         motto_title.setStyleSheet(
@@ -847,7 +1074,13 @@ class AboutPage(BasePage):
             f"font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; }}"
         )
 
-        motto_translate = QLabel("Продолжай думать, продолжай искать, продолжай учиться....")
+        motto_translate = QLabel(
+            tr_catalog(
+                "page.about.help.motto.subtitle",
+                language=self._ui_language,
+                default="Продолжай думать, продолжай искать, продолжай учиться....",
+            )
+        )
         motto_translate.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         motto_translate.setWordWrap(True)
         motto_translate.setStyleSheet(
@@ -857,7 +1090,13 @@ class AboutPage(BasePage):
             f"padding-top: 2px; }}"
         )
 
-        motto_cta = QLabel("Zapret2 - думай свободно, ищи смелее, учись всегда.")
+        motto_cta = QLabel(
+            tr_catalog(
+                "page.about.help.motto.cta",
+                language=self._ui_language,
+                default="Zapret2 - думай свободно, ищи смелее, учись всегда.",
+            )
+        )
         motto_cta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         motto_cta.setWordWrap(True)
         motto_cta.setStyleSheet(

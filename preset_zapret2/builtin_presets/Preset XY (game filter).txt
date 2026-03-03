@@ -1,5 +1,5 @@
 # Preset: Preset XY (game filter)
-# BuiltinVersion: 1.5
+# BuiltinVersion: 2.10
 # Created: 2026-02-12T21:07:19.651846
 # Modified: 2026-02-12T21:07:19.655680
 # IconColor: #ff6666
@@ -159,6 +159,7 @@
 --ipset=lists/ipset-all.txt
 --ipset=lists/ipset-base.txt
 --ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-cloudflare.txt
 --ipset-exclude=lists/ipset-dns.txt

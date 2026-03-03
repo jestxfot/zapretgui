@@ -1,10 +1,13 @@
 import unittest
+from unittest.mock import patch
 
 from hosts.proxy_domains import (
     _get_proxy_profile_indices,
     _infer_direct_profile_index,
     _parse_hosts_ini,
     _service_has_proxy_ips,
+    get_service_domain_ip_map,
+    get_service_domain_ip_rows,
 )
 
 
@@ -67,6 +70,105 @@ class ProxyDomainsServiceGroupingTests(unittest.TestCase):
         ips = cat.services["Supercell"]["accounts.supercell.com"]
         self.assertEqual(ips[direct_idx], "144.31.14.104")
         self.assertFalse(_service_has_proxy_ips(cat, "Supercell"))
+
+    def test_raw_ipv6_hosts_lines_are_parsed_without_breaking_service(self):
+        text = "\n".join(
+            [
+                "[DNS]",
+                "Zapret DNS",
+                "XBOX DNS",
+                "Вкл. (активировать hosts)",
+                "",
+                "[WhatsApp]",
+                "2a03:2880:f36f:120:face:b00c:0:167 www.whatsapp.com",
+                "57.144.245.32 www.whatsapp.com",
+                "2a03:2880:f213:c3:face:b00c:0:167 web.whatsapp.com",
+                "57.144.223.32 web.whatsapp.com",
+                "",
+            ]
+        )
+
+        cat = _parse_hosts_ini(text)
+        self.assertIn("WhatsApp", cat.services)
+        domains = cat.services["WhatsApp"]
+        self.assertIn("www.whatsapp.com", domains)
+        self.assertIn("web.whatsapp.com", domains)
+        self.assertTrue(all(" " not in domain for domain in domains.keys()))
+
+        direct_idx = _infer_direct_profile_index(cat)
+        self.assertEqual(direct_idx, 2)
+        self.assertEqual(domains["www.whatsapp.com"][direct_idx], "57.144.245.32")
+        self.assertFalse(_service_has_proxy_ips(cat, "WhatsApp"))
+
+    def test_domain_ip_rows_preserve_multiple_ips_per_domain(self):
+        text = "\n".join(
+            [
+                "[DNS]",
+                "Zapret DNS",
+                "Вкл. (активировать hosts)",
+                "",
+                "[WhatsApp]",
+                "2a03:2880:f37a:120:face:b00c:0:167 www.whatsapp.com",
+                "57.144.245.32 www.whatsapp.com",
+                "2a03:2880:f36f:120:face:b00c:0:167 web.whatsapp.com",
+                "57.144.223.32 web.whatsapp.com",
+                "",
+            ]
+        )
+
+        cat = _parse_hosts_ini(text)
+        with patch("hosts.proxy_domains._load_catalog", return_value=cat):
+            rows = get_service_domain_ip_rows("WhatsApp", "Вкл. (активировать hosts)")
+            domain_map = get_service_domain_ip_map("WhatsApp", "Вкл. (активировать hosts)")
+
+        self.assertEqual(
+            rows,
+            [
+                ("www.whatsapp.com", "2a03:2880:f37a:120:face:b00c:0:167"),
+                ("www.whatsapp.com", "57.144.245.32"),
+                ("web.whatsapp.com", "2a03:2880:f36f:120:face:b00c:0:167"),
+                ("web.whatsapp.com", "57.144.223.32"),
+            ],
+        )
+        # Back-compat map API keeps one value per domain (last wins),
+        # but row API preserves all entries.
+        self.assertEqual(domain_map["www.whatsapp.com"], "57.144.245.32")
+
+    def test_service_mode_sections_override_inferred_proxy_detection(self):
+        text = "\n".join(
+            [
+                "[DNS]",
+                "Proxy A",
+                "Proxy B",
+                "Вкл. (активировать hosts)",
+                "",
+                "[SERVICES_DIRECT]",
+                "",
+                "[ExplicitDirect]",
+                "direct.example",
+                "11.11.11.11",
+                "22.22.22.22",
+                "33.33.33.33",
+                "",
+                "[SERVICES_DNS]",
+                "",
+                "[ExplicitDns]",
+                "dns.example",
+                "11.11.11.11",
+                "22.22.22.22",
+                "33.33.33.33",
+                "",
+            ]
+        )
+
+        cat = _parse_hosts_ini(text)
+        self.assertNotIn("SERVICES_DIRECT", cat.services)
+        self.assertNotIn("SERVICES_DNS", cat.services)
+        self.assertEqual(cat.service_modes.get("explicitdirect"), "direct")
+        self.assertEqual(cat.service_modes.get("explicitdns"), "dns")
+
+        self.assertFalse(_service_has_proxy_ips(cat, "ExplicitDirect"))
+        self.assertTrue(_service_has_proxy_ips(cat, "ExplicitDns"))
 
 
 if __name__ == "__main__":

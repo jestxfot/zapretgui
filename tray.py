@@ -1,6 +1,7 @@
 # tray.py
 
 import os
+import sys
 
 from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
@@ -11,6 +12,14 @@ try:
     HAS_QTAWESOME = True
 except ImportError:
     HAS_QTAWESOME = False
+
+try:
+    from qfluentwidgets import SystemTrayMenu, RoundMenu
+    HAS_FLUENT_TRAY_MENU = True
+except ImportError:
+    SystemTrayMenu = None
+    RoundMenu = None
+    HAS_FLUENT_TRAY_MENU = False
 
 # ----------------------------------------------------------------------
 #   SystemTrayManager
@@ -66,7 +75,8 @@ class SystemTrayManager:
     #  КОНТЕКСТНОЕ МЕНЮ
     # ------------------------------------------------------------------
     def setup_menu(self):
-        menu = QMenu()
+        using_fluent_menu = HAS_FLUENT_TRAY_MENU and SystemTrayMenu is not None
+        menu = SystemTrayMenu(parent=self.parent) if using_fluent_menu else QMenu()
         self.menu = menu
 
         # Диагностика: помогает понять, "появляется ли" меню и не закрывается ли сразу.
@@ -79,8 +89,9 @@ class SystemTrayManager:
         except Exception:
             pass
 
-        # Применяем стиль меню
-        self._apply_menu_style(menu)
+        # Применяем стиль только для обычного QMenu.
+        if not using_fluent_menu:
+            self._apply_menu_style(menu)
 
         # показать окно
         show_act = QAction("Показать", self.parent)
@@ -89,10 +100,18 @@ class SystemTrayManager:
         show_act.triggered.connect(self.show_window)
         menu.addAction(show_act)
 
-        # Прозрачность окна (быстрые пресеты + способ восстановить видимость)
-        opacity_menu = menu.addMenu("Прозрачность окна")
-        if HAS_QTAWESOME:
-            opacity_menu.setIcon(qta.icon('fa5s.adjust', color='#60cdff'))
+        # Прозрачность/акрил окна (быстрые пресеты + способ восстановить видимость)
+        is_win11_plus = sys.platform == "win32" and sys.getwindowsversion().build >= 22000
+        opacity_menu_title = "Эффект акрилика окна" if is_win11_plus else "Прозрачность окна"
+        if using_fluent_menu and RoundMenu is not None:
+            opacity_menu = RoundMenu(opacity_menu_title, menu)
+            if HAS_QTAWESOME:
+                opacity_menu.setIcon(qta.icon('fa5s.adjust', color='#60cdff'))
+            menu.addMenu(opacity_menu)
+        else:
+            opacity_menu = menu.addMenu(opacity_menu_title)
+            if HAS_QTAWESOME:
+                opacity_menu.setIcon(qta.icon('fa5s.adjust', color='#60cdff'))
 
         def set_opacity(value: int):
             try:
@@ -109,13 +128,22 @@ class SystemTrayManager:
             except Exception:
                 pass
 
-        presets = [
-            (100, "100% (непрозрачное)"),
-            (75, "75%"),
-            (50, "50%"),
-            (25, "25%"),
-            (0, "0% (прозрачный фон)"),
-        ]
+        if is_win11_plus:
+            presets = [
+                (100, "100% (максимальный эффект)"),
+                (75, "75%"),
+                (50, "50%"),
+                (25, "25%"),
+                (0, "0% (минимальный эффект)"),
+            ]
+        else:
+            presets = [
+                (100, "100% (непрозрачное)"),
+                (75, "75%"),
+                (50, "50%"),
+                (25, "25%"),
+                (0, "0% (прозрачный фон)"),
+            ]
         for value, title in presets:
             act = QAction(title, self.parent)
             act.triggered.connect(lambda checked=False, v=value: set_opacity(v))

@@ -18,6 +18,7 @@ except ImportError:
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 
@@ -25,10 +26,24 @@ class IpsetPage(BasePage):
     """Страница управления IP-сетами"""
     
     def __init__(self, parent=None):
-        super().__init__("IPset", "Управление IP-адресами и подсетями", parent)
+        super().__init__(
+            "IPset",
+            "Управление IP-адресами и подсетями",
+            parent,
+            title_key="page.ipset.title",
+            subtitle_key="page.ipset.subtitle",
+        )
         self._desc_label = None
         self._open_icon_label = None
         self._open_text_label = None
+        self._actions_card = None
+        self._info_card = None
+        self._files_info_state = {
+            "text": "",
+            "key": "page.ipset.files.loading",
+            "default": "Загрузка информации...",
+            "kwargs": {},
+        }
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -36,6 +51,50 @@ class IpsetPage(BasePage):
 
         self._build_ui()
         self._apply_theme()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
+    def _set_files_info(self, *, key: str | None = None, default: str = "", text: str | None = None, **kwargs) -> None:
+        if key:
+            rendered = self._tr(key, default, **kwargs)
+            self._files_info_state = {
+                "text": rendered,
+                "key": key,
+                "default": default,
+                "kwargs": dict(kwargs),
+            }
+            self.files_info_label.setText(rendered)
+            return
+
+        rendered_text = text if text is not None else ""
+        self._files_info_state = {
+            "text": rendered_text,
+            "key": None,
+            "default": "",
+            "kwargs": {},
+        }
+        self.files_info_label.setText(rendered_text)
+
+    def _render_files_info(self) -> None:
+        state = self._files_info_state
+        key = state.get("key")
+        if key:
+            self.files_info_label.setText(
+                self._tr(
+                    key,
+                    state.get("default") or "",
+                    **(state.get("kwargs") or {}),
+                )
+            )
+            return
+        self.files_info_label.setText(state.get("text") or "")
         
     def _build_ui(self):
         """Строит UI страницы"""
@@ -44,8 +103,11 @@ class IpsetPage(BasePage):
         # Описание
         desc_card = SettingsCard()
         desc = CaptionLabel(
-            "IP-сеты содержат IP-адреса и подсети для обхода блокировок по IP.\n"
-            "Используются когда блокировка происходит на уровне IP-адресов."
+            self._tr(
+                "page.ipset.description",
+                "IP-сеты содержат IP-адреса и подсети для обхода блокировок по IP.\n"
+                "Используются когда блокировка происходит на уровне IP-адресов.",
+            )
         )
         self._desc_label = desc
         desc.setStyleSheet(f"color: {tokens.fg_muted};")
@@ -54,7 +116,8 @@ class IpsetPage(BasePage):
         self.layout.addWidget(desc_card)
         
         # Кнопки действий
-        actions_card = SettingsCard("Действия")
+        actions_card = SettingsCard(self._tr("page.ipset.section.actions", "Действия"))
+        self._actions_card = actions_card
         actions_layout = QVBoxLayout()
         actions_layout.setSpacing(8)
         
@@ -68,12 +131,12 @@ class IpsetPage(BasePage):
         open_icon.setPixmap(qta.icon('fa5s.folder-open', color=tokens.accent_hex).pixmap(18, 18))
         open_layout.addWidget(open_icon)
         
-        open_text = BodyLabel("Открыть папку IP-сетов")
+        open_text = BodyLabel(self._tr("page.ipset.open_folder.label", "Открыть папку IP-сетов"))
         self._open_text_label = open_text
         open_text.setStyleSheet(f"color: {tokens.fg};")
         open_layout.addWidget(open_text, 1)
         
-        self.open_ipset_btn = ActionButton("Открыть", "fa5s.external-link-alt")
+        self.open_ipset_btn = ActionButton(self._tr("page.ipset.button.open", "Открыть"), "fa5s.external-link-alt")
         self.open_ipset_btn.setFixedHeight(32)
         self.open_ipset_btn.clicked.connect(self._open_ipset_folder)
         open_layout.addWidget(self.open_ipset_btn)
@@ -84,11 +147,12 @@ class IpsetPage(BasePage):
         self.layout.addWidget(actions_card)
         
         # Информация о файлах
-        info_card = SettingsCard("Информация")
+        info_card = SettingsCard(self._tr("page.ipset.section.info", "Информация"))
+        self._info_card = info_card
         info_layout = QVBoxLayout()
         info_layout.setSpacing(8)
         
-        self.files_info_label = CaptionLabel("Загрузка информации...")
+        self.files_info_label = CaptionLabel(self._tr("page.ipset.files.loading", "Загрузка информации..."))
         self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
         self.files_info_label.setWordWrap(True)
         info_layout.addWidget(self.files_info_label)
@@ -112,6 +176,26 @@ class IpsetPage(BasePage):
         if self.files_info_label is not None:
             self.files_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
 
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._desc_label is not None:
+            self._desc_label.setText(
+                self._tr(
+                    "page.ipset.description",
+                    "IP-сеты содержат IP-адреса и подсети для обхода блокировок по IP.\n"
+                    "Используются когда блокировка происходит на уровне IP-адресов.",
+                )
+            )
+        if self._actions_card is not None:
+            self._actions_card.set_title(self._tr("page.ipset.section.actions", "Действия"))
+        if self._info_card is not None:
+            self._info_card.set_title(self._tr("page.ipset.section.info", "Информация"))
+        if self._open_text_label is not None:
+            self._open_text_label.setText(self._tr("page.ipset.open_folder.label", "Открыть папку IP-сетов"))
+        self.open_ipset_btn.setText(self._tr("page.ipset.button.open", "Открыть"))
+        self._render_files_info()
+
     def _open_ipset_folder(self):
         """Открывает папку IP-сетов"""
         try:
@@ -121,7 +205,16 @@ class IpsetPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия папки: {e}", "ERROR")
             if InfoBar is not None:
-                InfoBar.error(title="Ошибка", content=f"Не удалось открыть папку:\n{e}", parent=self.window(), duration=5000)
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.ipset.error.open_folder",
+                        "Не удалось открыть папку:\n{error}",
+                        error=e,
+                    ),
+                    parent=self.window(),
+                    duration=5000,
+                )
             
     def _load_info(self):
         """Загружает информацию о файлах"""
@@ -130,7 +223,10 @@ class IpsetPage(BasePage):
             import os
             
             if not os.path.exists(LISTS_FOLDER):
-                self.files_info_label.setText("Папка не найдена")
+                self._set_files_info(
+                    key="page.ipset.files.not_found",
+                    default="Папка не найдена",
+                )
                 return
                 
             # Ищем файлы с IP
@@ -146,11 +242,17 @@ class IpsetPage(BasePage):
                 except:
                     pass
                     
-            info = f"📁 Папка: {LISTS_FOLDER}\n"
-            info += f"📄 IP-файлов: {len(ipset_files)}\n"
-            info += f"🌐 Примерно IP/подсетей: {total_ips:,}"
-            
-            self.files_info_label.setText(info)
+            self._set_files_info(
+                key="page.ipset.files.summary",
+                default="📁 Папка: {folder}\n📄 IP-файлов: {files_count}\n🌐 Примерно IP/подсетей: {total_ips}",
+                folder=LISTS_FOLDER,
+                files_count=len(ipset_files),
+                total_ips=f"{total_ips:,}",
+            )
             
         except Exception as e:
-            self.files_info_label.setText(f"Ошибка загрузки информации: {e}")
+            self._set_files_info(
+                key="page.ipset.files.error",
+                default="Ошибка загрузки информации: {error}",
+                error=e,
+            )

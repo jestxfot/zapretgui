@@ -1,5 +1,5 @@
 # Preset: ALL TCP & UDP Ютуб, Дискорд, игры и др. v2 (Ланыч)
-# BuiltinVersion: 1.5
+# BuiltinVersion: 2.10
 # Created: 2026-02-06T11:11:11.444444
 # Modified: 2026-02-06T11:11:11.444444
 # Description: 
@@ -30,7 +30,7 @@
 --new
 
 --filter-udp=443
---ipset=lists/russia-youtube-ipset.txt
+--ipset=lists/russia-youtube-rtmps.txt
 --out-range=-n8
 --payload=all
 --lua-desync=fake:repeats=6:blob=fake_default_quic

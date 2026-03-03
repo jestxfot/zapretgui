@@ -27,6 +27,7 @@ import qtawesome as qta
 from ..base_page import BasePage
 from ui.compat_widgets import set_tooltip
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 
@@ -37,10 +38,16 @@ class OrchestraRatingsPage(BasePage):
         super().__init__(
             "История стратегий (рейтинги)",
             "Рейтинг = успехи / (успехи + провалы). При UNLOCK выбирается лучшая стратегия из истории.",
-            parent
+            parent,
+            title_key="page.orchestra.ratings.title",
+            subtitle_key="page.orchestra.ratings.subtitle",
         )
         self.setObjectName("orchestraRatingsPage")
         self._refresh_loading = False
+        self._has_loaded_once = False
+        self._no_runner = False
+        self._filter_card = None
+        self._history_card = None
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -49,6 +56,15 @@ class OrchestraRatingsPage(BasePage):
         self._setup_ui()
 
         self._apply_theme()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     def _create_card(self, title: str):
         card = CardWidget(self)
@@ -60,6 +76,7 @@ class OrchestraRatingsPage(BasePage):
         if not _HAS_FLUENT:
             title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
         card_layout.addWidget(title_label)
+        card._title_label = title_label
 
         return card, card_layout
 
@@ -67,17 +84,26 @@ class OrchestraRatingsPage(BasePage):
         self._refresh_loading = loading
         if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
             self.refresh_btn.setEnabled(not loading)
+            set_tooltip(
+                self.refresh_btn,
+                self._tr("page.orchestra.ratings.button.refresh", "Обновить"),
+            )
         self._apply_theme()
 
     def _setup_ui(self):
         # === Фильтр ===
-        filter_card, filter_card_layout = self._create_card("Фильтр")
+        filter_card, filter_card_layout = self._create_card(
+            self._tr("page.orchestra.ratings.card.filter", "Фильтр")
+        )
+        self._filter_card = filter_card
 
         filter_row = QHBoxLayout()
         filter_row.setSpacing(10)
 
         self.filter_input = LineEdit()
-        self.filter_input.setPlaceholderText("Поиск по домену...")
+        self.filter_input.setPlaceholderText(
+            self._tr("page.orchestra.ratings.filter.placeholder", "Поиск по домену...")
+        )
         self.filter_input.setClearButtonEnabled(True)
         self.filter_input.textChanged.connect(self._apply_filter)
         # Styled in _apply_theme()
@@ -85,7 +111,7 @@ class OrchestraRatingsPage(BasePage):
 
         self.refresh_btn = TransparentToolButton(self)
         self.refresh_btn.setFixedSize(32, 32)
-        set_tooltip(self.refresh_btn, "Обновить")
+        set_tooltip(self.refresh_btn, self._tr("page.orchestra.ratings.button.refresh", "Обновить"))
         self.refresh_btn.clicked.connect(self._refresh_data)
         filter_row.addWidget(self.refresh_btn)
 
@@ -94,11 +120,14 @@ class OrchestraRatingsPage(BasePage):
         self.layout.addWidget(filter_card)
 
         # === Статистика ===
-        self.stats_label = CaptionLabel("Загрузка...")
+        self.stats_label = CaptionLabel(self._tr("page.orchestra.ratings.stats.loading", "Загрузка..."))
         self.layout.addWidget(self.stats_label)
 
         # === История стратегий ===
-        history_card, history_layout = self._create_card("Рейтинги по доменам")
+        history_card, history_layout = self._create_card(
+            self._tr("page.orchestra.ratings.card.history", "Рейтинги по доменам")
+        )
+        self._history_card = history_card
 
         self.history_text = PlainTextEdit()
         try:
@@ -135,7 +164,9 @@ class OrchestraRatingsPage(BasePage):
         self.history_text.setReadOnly(True)
         self.history_text.setMinimumHeight(300)
         # Styled in _apply_theme()
-        self.history_text.setPlainText("История стратегий появится после обучения...")
+        self.history_text.setPlainText(
+            self._tr("page.orchestra.ratings.history.placeholder", "История стратегий появится после обучения...")
+        )
         history_layout.addWidget(self.history_text)
 
         self.layout.addWidget(history_card)
@@ -168,12 +199,21 @@ class OrchestraRatingsPage(BasePage):
     def _refresh_data(self):
         """Обновляет данные истории"""
         self._set_refresh_loading(True)
+        self._has_loaded_once = True
         try:
             runner = self._get_runner()
             if not runner:
-                self.stats_label.setText("Оркестратор не инициализирован")
+                self._no_runner = True
+                self._full_history_data = {}
+                self._tls_data = {}
+                self._http_data = {}
+                self._udp_data = {}
+                self.stats_label.setText(
+                    self._tr("page.orchestra.ratings.status.not_initialized", "Оркестратор не инициализирован")
+                )
                 self.history_text.setPlainText("")
                 return
+            self._no_runner = False
             learned = runner.get_learned_data()
             self._full_history_data = learned.get('history', {})
             self._tls_data = learned.get('tls', {})
@@ -189,11 +229,18 @@ class OrchestraRatingsPage(BasePage):
 
     def _render_history(self):
         """Рендерит историю с учётом фильтра"""
+        if self._no_runner:
+            self.stats_label.setText(
+                self._tr("page.orchestra.ratings.status.not_initialized", "Оркестратор не инициализирован")
+            )
+            self.history_text.setPlainText("")
+            return
+
         filter_text = self.filter_input.text().strip().lower()
         history_data = self._full_history_data
 
         if not history_data:
-            self.stats_label.setText("Нет данных истории")
+            self.stats_label.setText(self._tr("page.orchestra.ratings.status.no_history", "Нет данных истории"))
             self.history_text.setPlainText("")
             return
 
@@ -218,11 +265,11 @@ class OrchestraRatingsPage(BasePage):
             # Определяем статус домена
             status = ""
             if domain in self._tls_data:
-                status = " [TLS LOCK]"
+                status = self._tr("page.orchestra.ratings.status.lock.tls", " [TLS LOCK]")
             elif domain in self._http_data:
-                status = " [HTTP LOCK]"
+                status = self._tr("page.orchestra.ratings.status.lock.http", " [HTTP LOCK]")
             elif domain in self._udp_data:
-                status = " [UDP LOCK]"
+                status = self._tr("page.orchestra.ratings.status.lock.udp", " [UDP LOCK]")
 
             # Сортируем стратегии по рейтингу
             sorted_strats = sorted(strategies.items(), key=lambda x: x[1]['rate'], reverse=True)
@@ -256,8 +303,56 @@ class OrchestraRatingsPage(BasePage):
         # Статистика
         total_domains = len(history_data)
         if filter_text:
-            self.stats_label.setText(f"Показано: {shown_domains} из {total_domains} доменов, {total_strategies} записей")
+            self.stats_label.setText(
+                self._tr(
+                    "page.orchestra.ratings.stats.filtered",
+                    "Показано: {shown} из {total} доменов, {records} записей",
+                    shown=shown_domains,
+                    total=total_domains,
+                    records=total_strategies,
+                )
+            )
         else:
-            self.stats_label.setText(f"Всего: {total_domains} доменов, {total_strategies} записей")
+            self.stats_label.setText(
+                self._tr(
+                    "page.orchestra.ratings.stats.total",
+                    "Всего: {total} доменов, {records} записей",
+                    total=total_domains,
+                    records=total_strategies,
+                )
+            )
 
         self.history_text.setPlainText("\n".join(lines))
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._filter_card is not None and hasattr(self._filter_card, "_title_label"):
+            self._filter_card._title_label.setText(
+                self._tr("page.orchestra.ratings.card.filter", "Фильтр")
+            )
+        if self._history_card is not None and hasattr(self._history_card, "_title_label"):
+            self._history_card._title_label.setText(
+                self._tr("page.orchestra.ratings.card.history", "Рейтинги по доменам")
+            )
+
+        self.filter_input.setPlaceholderText(
+            self._tr("page.orchestra.ratings.filter.placeholder", "Поиск по домену...")
+        )
+        set_tooltip(self.refresh_btn, self._tr("page.orchestra.ratings.button.refresh", "Обновить"))
+
+        if self._no_runner:
+            self.stats_label.setText(
+                self._tr("page.orchestra.ratings.status.not_initialized", "Оркестратор не инициализирован")
+            )
+            self.history_text.setPlainText("")
+            return
+
+        if not self._has_loaded_once:
+            self.stats_label.setText(self._tr("page.orchestra.ratings.stats.loading", "Загрузка..."))
+            self.history_text.setPlainText(
+                self._tr("page.orchestra.ratings.history.placeholder", "История стратегий появится после обучения...")
+            )
+            return
+
+        self._render_history()

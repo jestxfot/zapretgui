@@ -21,6 +21,7 @@ from strategy_menu.filter_engine import SearchQuery
 from config.reg import reg
 from config import REGISTRY_PATH_GUI
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 
 
 class ToggleButton(QPushButton):
@@ -238,24 +239,24 @@ class StrategySortPage(BasePage):
     filters_changed = pyqtSignal(object)  # SearchQuery
     sort_changed = pyqtSignal(str, bool)  # (sort_key, reverse)
 
-    # Label filter options: (display_text, icon_name, value)
+    # Label filter options: (translation_key, fallback_text, icon_name, value)
     LABEL_OPTIONS = [
-        ("Все", "fa5s.layer-group", ""),
-        ("Рекоменд.", "fa5s.star", "recommended"),
-        ("Эксперим.", "fa5s.flask", "experimental"),
-        ("Игровые", "fa5s.gamepad", "game"),
-        ("Устаревш.", "fa5s.archive", "deprecated"),
+        ("page.strategy_sort.option.all", "Все", "fa5s.layer-group", ""),
+        ("page.strategy_sort.option.recommended", "Рекоменд.", "fa5s.star", "recommended"),
+        ("page.strategy_sort.option.experimental", "Эксперим.", "fa5s.flask", "experimental"),
+        ("page.strategy_sort.option.game", "Игровые", "fa5s.gamepad", "game"),
+        ("page.strategy_sort.option.deprecated", "Устаревш.", "fa5s.archive", "deprecated"),
     ]
 
-    # Desync technique filter options: (display_text, icon_name, value)
+    # Desync technique filter options: (translation_key, fallback_text, icon_name, value)
     DESYNC_OPTIONS = [
-        ("Все", "fa5s.layer-group", ""),
-        ("Fake", "fa5s.mask", "fake"),
-        ("Split", "fa5s.cut", "split"),
-        ("SYN", "fa5s.bolt", "syn"),
-        ("HTTP", "fa5s.globe", "http"),
-        ("RST", "fa5s.ban", "rst"),
-        ("WSize", "fa5s.arrows-alt-h", "wsize"),
+        ("page.strategy_sort.option.all", "Все", "fa5s.layer-group", ""),
+        ("page.strategy_sort.option.fake", "Fake", "fa5s.mask", "fake"),
+        ("page.strategy_sort.option.split", "Split", "fa5s.cut", "split"),
+        ("page.strategy_sort.option.syn", "SYN", "fa5s.bolt", "syn"),
+        ("page.strategy_sort.option.http", "HTTP", "fa5s.globe", "http"),
+        ("page.strategy_sort.option.rst", "RST", "fa5s.ban", "rst"),
+        ("page.strategy_sort.option.wsize", "WSize", "fa5s.arrows-alt-h", "wsize"),
     ]
 
     # Map desync category to actual technique names
@@ -268,12 +269,12 @@ class StrategySortPage(BasePage):
         "wsize": ["wsize", "wssize"],
     }
 
-    # Sort options: (display_text, icon_name, value)
+    # Sort options: (translation_key, fallback_text, icon_name, value)
     SORT_OPTIONS = [
-        ("По умолчанию", "fa5s.sort", "default"),
-        ("А-Я", "fa5s.sort-alpha-down", "name"),
-        ("Я-А", "fa5s.sort-alpha-up", "name_desc"),
-        ("Рейтинг", "fa5s.sort-amount-down", "rating"),
+        ("page.strategy_sort.option.default", "По умолчанию", "fa5s.sort", "default"),
+        ("page.strategy_sort.option.name_asc", "А-Я", "fa5s.sort-alpha-down", "name"),
+        ("page.strategy_sort.option.name_desc", "Я-А", "fa5s.sort-alpha-up", "name_desc"),
+        ("page.strategy_sort.option.rating", "Рейтинг", "fa5s.sort-amount-down", "rating"),
     ]
 
     # Registry keys for persistence
@@ -291,20 +292,48 @@ class StrategySortPage(BasePage):
         super().__init__(
             title="Сортировка",
             subtitle="Фильтры и сортировка стратегий",
-            parent=parent
+            parent=parent,
+            title_key="page.strategy_sort.title",
+            subtitle_key="page.strategy_sort.subtitle",
         )
+        self._sections_meta: list[dict] = []
         self._setup_sections()
         self._load_settings()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
+    def _build_options(self, option_defs: list[tuple[str, str, str, str]]) -> list[tuple[str, str, str]]:
+        options: list[tuple[str, str, str]] = []
+        for text_key, fallback, icon_name, value in option_defs:
+            options.append((self._tr(text_key, fallback), icon_name, value))
+        return options
+
+    def _update_group_texts(self, group: ToggleButtonGroup, option_defs: list[tuple[str, str, str, str]]) -> None:
+        text_by_value = {
+            value: self._tr(text_key, fallback)
+            for text_key, fallback, _icon_name, value in option_defs
+        }
+        for button in getattr(group, "_buttons", []):
+            button.setText(text_by_value.get(button.value, button.text()))
 
     def _setup_sections(self):
         """Set up filter and sort sections."""
         # Section: Label filter (single-select)
         self._add_section(
-            "Тип стратегии",
-            "Выберите тип стратегии для фильтрации"
+            title_key="page.strategy_sort.section.strategy_type.title",
+            title_default="Тип стратегии",
+            description_key="page.strategy_sort.section.strategy_type.desc",
+            description_default="Выберите тип стратегии для фильтрации",
         )
         self._label_group = ToggleButtonGroup(
-            options=self.LABEL_OPTIONS,
+            options=self._build_options(self.LABEL_OPTIONS),
             multi_select=False,
             parent=self
         )
@@ -315,11 +344,13 @@ class StrategySortPage(BasePage):
 
         # Section: Desync technique filter (multi-select)
         self._add_section(
-            "Техника обхода",
-            "Можно выбрать несколько техник одновременно"
+            title_key="page.strategy_sort.section.desync.title",
+            title_default="Техника обхода",
+            description_key="page.strategy_sort.section.desync.desc",
+            description_default="Можно выбрать несколько техник одновременно",
         )
         self._desync_group = ToggleButtonGroup(
-            options=self.DESYNC_OPTIONS,
+            options=self._build_options(self.DESYNC_OPTIONS),
             multi_select=True,
             parent=self
         )
@@ -330,11 +361,13 @@ class StrategySortPage(BasePage):
 
         # Section: Sort options (single-select)
         self._add_section(
-            "Сортировка",
-            "Порядок отображения стратегий в списке"
+            title_key="page.strategy_sort.section.sort.title",
+            title_default="Сортировка",
+            description_key="page.strategy_sort.section.sort.desc",
+            description_default="Порядок отображения стратегий в списке",
         )
         self._sort_group = ToggleButtonGroup(
-            options=self.SORT_OPTIONS,
+            options=self._build_options(self.SORT_OPTIONS),
             multi_select=False,
             parent=self
         )
@@ -344,17 +377,26 @@ class StrategySortPage(BasePage):
         # Add stretch at the bottom
         self.layout.addStretch()
 
-    def _add_section(self, title: str, description: str = ""):
+    def _add_section(
+        self,
+        *,
+        title_key: str,
+        title_default: str,
+        description_key: str = "",
+        description_default: str = "",
+    ):
         """
         Add a section with title and optional description.
 
         Args:
-            title: Section title
-            description: Optional description text
+            title_key: Translation key for section title
+            title_default: Fallback section title
+            description_key: Translation key for description
+            description_default: Fallback description
         """
         # Section title
         tokens = get_theme_tokens()
-        title_label = QLabel(title)
+        title_label = QLabel(self._tr(title_key, title_default))
         title_label.setStyleSheet(f"""
             QLabel {{
                 color: {tokens.fg};
@@ -366,9 +408,18 @@ class StrategySortPage(BasePage):
         """)
         self.add_widget(title_label)
 
+        section_meta = {
+            "title_label": title_label,
+            "title_key": title_key,
+            "title_default": title_default,
+            "desc_label": None,
+            "desc_key": description_key,
+            "desc_default": description_default,
+        }
+
         # Section description
-        if description:
-            desc_label = QLabel(description)
+        if description_key or description_default:
+            desc_label = QLabel(self._tr(description_key, description_default))
             desc_label.setStyleSheet(f"""
                 QLabel {{
                     color: {tokens.fg_faint};
@@ -379,6 +430,9 @@ class StrategySortPage(BasePage):
             """)
             desc_label.setWordWrap(True)
             self.add_widget(desc_label)
+            section_meta["desc_label"] = desc_label
+
+        self._sections_meta.append(section_meta)
 
     def _load_settings(self):
         """Load saved filter and sort settings from registry."""
@@ -504,3 +558,22 @@ class StrategySortPage(BasePage):
 
         self._emit_filters_changed()
         self.sort_changed.emit("default", False)
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        for meta in self._sections_meta:
+            title_label = meta.get("title_label")
+            if title_label is not None:
+                title_label.setText(
+                    self._tr(meta.get("title_key") or "", meta.get("title_default") or "")
+                )
+            desc_label = meta.get("desc_label")
+            if desc_label is not None:
+                desc_label.setText(
+                    self._tr(meta.get("desc_key") or "", meta.get("desc_default") or "")
+                )
+
+        self._update_group_texts(self._label_group, self.LABEL_OPTIONS)
+        self._update_group_texts(self._desync_group, self.DESYNC_OPTIONS)
+        self._update_group_texts(self._sort_group, self.SORT_OPTIONS)

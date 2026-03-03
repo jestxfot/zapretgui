@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, RefreshButton, SettingsCard
+from ui.text_catalog import tr as tr_catalog
 from ui.widgets import UnifiedStrategiesList
 from log import log
 
@@ -45,15 +46,24 @@ class Zapret1StrategiesPage(BasePage):
     back_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__(title="Прямой запуск Zapret 1", parent=parent)
+        super().__init__(
+            title="Прямой запуск Zapret 1",
+            parent=parent,
+            title_key="page.z1_direct.title",
+        )
         self.parent_app = parent
 
         self._built = False
         self._build_scheduled = False
         self._breadcrumb = None
+        self._back_btn = None
         self._unified_list: UnifiedStrategiesList | None = None
         self.category_selections: dict[str, str] = {}
         self._categories: dict[str, Any] = {}
+        self._expand_btn = None
+        self._collapse_btn = None
+        self._info_btn = None
+        self._empty_state_label = None
 
         self._setup_breadcrumb()
 
@@ -73,8 +83,11 @@ class Zapret1StrategiesPage(BasePage):
                 pass
 
         try:
-            back_btn = ActionButton("← Управление")
+            back_btn = ActionButton(
+                tr_catalog("page.z1_direct.back.control", language=self._ui_language, default="← Управление")
+            )
             back_btn.clicked.connect(self.back_clicked.emit)
+            self._back_btn = back_btn
             self.layout.insertWidget(0, back_btn)
         except Exception:
             pass
@@ -85,8 +98,14 @@ class Zapret1StrategiesPage(BasePage):
         self._breadcrumb.blockSignals(True)
         try:
             self._breadcrumb.clear()
-            self._breadcrumb.addItem("control", "Управление")
-            self._breadcrumb.addItem("strategies", "Прямой запуск Zapret 1")
+            self._breadcrumb.addItem(
+                "control",
+                tr_catalog("page.z1_direct.breadcrumb.control", language=self._ui_language, default="Управление"),
+            )
+            self._breadcrumb.addItem(
+                "strategies",
+                tr_catalog("page.z1_direct.title", language=self._ui_language, default="Прямой запуск Zapret 1"),
+            )
         finally:
             self._breadcrumb.blockSignals(False)
 
@@ -127,16 +146,20 @@ class Zapret1StrategiesPage(BasePage):
 
     def _do_build(self) -> None:
         self._clear_dynamic_widgets()
+        self._empty_state_label = None
 
         self._build_toolbar()
 
         self._categories = self._load_categories()
         if not self._categories:
-            self.add_widget(
-                BodyLabel(
-                    "Категории не найдены. Проверьте наличие json/strategies/builtin/categories.txt"
+            self._empty_state_label = BodyLabel(
+                tr_catalog(
+                    "page.z1_direct.empty.no_categories",
+                    language=self._ui_language,
+                    default="Категории не найдены. Проверьте наличие json/strategies/builtin/categories.txt",
                 )
             )
+            self.add_widget(self._empty_state_label)
             return
 
         self.category_selections = self._load_current_selections()
@@ -170,17 +193,30 @@ class Zapret1StrategiesPage(BasePage):
         self._reload_btn.clicked.connect(self._reload)
         actions_layout.addWidget(self._reload_btn)
 
-        expand_btn = ActionButton("Развернуть", "fa5s.expand-alt")
+        expand_btn = ActionButton(
+            tr_catalog("page.z1_direct.toolbar.expand", language=self._ui_language, default="Развернуть"),
+            "fa5s.expand-alt",
+        )
         expand_btn.clicked.connect(self._expand_all)
         actions_layout.addWidget(expand_btn)
+        self._expand_btn = expand_btn
 
-        collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
+        collapse_btn = ActionButton(
+            tr_catalog("page.z1_direct.toolbar.collapse", language=self._ui_language, default="Свернуть"),
+            "fa5s.compress-alt",
+        )
         collapse_btn.clicked.connect(self._collapse_all)
         actions_layout.addWidget(collapse_btn)
+        self._collapse_btn = collapse_btn
 
-        info_btn = ActionButton("Что это?", "fa5s.question-circle", accent=False)
+        info_btn = ActionButton(
+            tr_catalog("page.z1_direct.toolbar.info", language=self._ui_language, default="Что это?"),
+            "fa5s.question-circle",
+            accent=False,
+        )
         info_btn.clicked.connect(self._show_info)
         actions_layout.addWidget(info_btn)
+        self._info_btn = info_btn
 
         actions_layout.addStretch()
         actions_card.add_layout(actions_layout)
@@ -268,13 +304,12 @@ class Zapret1StrategiesPage(BasePage):
         data.setdefault("description", "")
         return data
 
-    @staticmethod
-    def _strategy_name(strategy_id: str, cat_key: str) -> str:
+    def _strategy_name(self, strategy_id: str, cat_key: str) -> str:
         sid = (strategy_id or "").strip()
         if not sid or sid == "none":
-            return "Выключено"
+            return tr_catalog("page.z1_direct.strategy.off", language=self._ui_language, default="Выключено")
         if sid == "custom":
-            return "Свой набор"
+            return tr_catalog("page.z1_direct.strategy.custom", language=self._ui_language, default="Свой набор")
         try:
             from preset_zapret1.strategies_loader import load_v1_strategies
 
@@ -365,9 +400,13 @@ class Zapret1StrategiesPage(BasePage):
     def _show_info(self, *_args) -> None:
         if _HAS_FLUENT and MessageBox is not None:
             try:
-                box = MessageBox("Прямой запуск Zapret 1", _INFO_TEXT, self.window())
+                box = MessageBox(
+                    tr_catalog("page.z1_direct.info.title", language=self._ui_language, default="Прямой запуск Zapret 1"),
+                    tr_catalog("page.z1_direct.info.body", language=self._ui_language, default=_INFO_TEXT),
+                    self.window(),
+                )
                 box.hideCancelButton()
-                box.yesButton.setText("Понятно")
+                box.yesButton.setText(tr_catalog("common.ok.got_it", language=self._ui_language, default="Понятно"))
                 box.exec()
             except Exception:
                 pass
@@ -403,3 +442,37 @@ class Zapret1StrategiesPage(BasePage):
     def update_current_strategy(self, name: str) -> None:
         # Compatibility stub (used by legacy paths).
         _ = name
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self._rebuild_breadcrumb()
+        if self._back_btn is not None:
+            self._back_btn.setText(
+                tr_catalog("page.z1_direct.back.control", language=self._ui_language, default="← Управление")
+            )
+
+        if self._expand_btn is not None:
+            self._expand_btn.setText(
+                tr_catalog("page.z1_direct.toolbar.expand", language=self._ui_language, default="Развернуть")
+            )
+        if self._collapse_btn is not None:
+            self._collapse_btn.setText(
+                tr_catalog("page.z1_direct.toolbar.collapse", language=self._ui_language, default="Свернуть")
+            )
+        if self._info_btn is not None:
+            self._info_btn.setText(
+                tr_catalog("page.z1_direct.toolbar.info", language=self._ui_language, default="Что это?")
+            )
+
+        if self._empty_state_label is not None:
+            self._empty_state_label.setText(
+                tr_catalog(
+                    "page.z1_direct.empty.no_categories",
+                    language=self._ui_language,
+                    default="Категории не найдены. Проверьте наличие json/strategies/builtin/categories.txt",
+                )
+            )
+
+        if self._built:
+            self._refresh_subtitles()

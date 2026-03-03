@@ -10,8 +10,15 @@ import os
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton
-from ui.theme import get_theme_tokens
+from ui.theme import (
+    get_theme_tokens,
+    get_card_gradient_qss,
+    get_card_disabled_gradient_qss,
+    get_success_surface_gradient_qss,
+    get_neutral_card_border_qss,
+)
 from ui.theme_semantic import get_semantic_palette
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -88,6 +95,7 @@ class AutostartOptionCard(SimpleCardWidget):
         self._is_active = False
         self._icon_name = icon_name
         self._tokens = get_theme_tokens()
+        self._current_qss = ""
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -139,6 +147,14 @@ class AutostartOptionCard(SimpleCardWidget):
 
         self._apply_visuals()
 
+    def set_texts(self, title: str, description: str) -> None:
+        self._title_label.setText(title)
+        self._desc_label.setText(description)
+
+    def set_recommended_text(self, text: str) -> None:
+        if self._rec_label is not None:
+            self._rec_label.setText(text)
+
     def refresh_theme(self) -> None:
         self._tokens = get_theme_tokens()
         self._apply_visuals()
@@ -151,14 +167,54 @@ class AutostartOptionCard(SimpleCardWidget):
             icon_color = semantic.success
             arrow_icon = qta.icon("fa5s.check-circle", color=semantic.success)
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            card_bg = get_success_surface_gradient_qss(tokens.theme_name)
+            card_border = semantic.success
+            card_hover_bg = card_bg
+            card_hover_border = card_border
+            title_color = tokens.fg
+            desc_color = tokens.fg_muted
+            self.setEnabled(True)
         elif self._disabled:
             icon_color = tokens.fg_faint
             arrow_icon = qta.icon("fa5s.chevron-right", color=tokens.fg_faint)
             self.setCursor(Qt.CursorShape.ForbiddenCursor)
+            card_bg = get_card_disabled_gradient_qss(tokens.theme_name)
+            card_border = get_neutral_card_border_qss(tokens.theme_name, disabled=True)
+            card_hover_bg = card_bg
+            card_hover_border = card_border
+            title_color = tokens.fg_faint
+            desc_color = tokens.fg_faint
+            # Disabled cards must not react to hover/click at all.
+            self.setEnabled(False)
         else:
             icon_color = tokens.accent_hex if self._accent else tokens.fg
             arrow_icon = qta.icon("fa5s.chevron-right", color=tokens.fg_faint)
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+            card_bg = get_card_gradient_qss(tokens.theme_name)
+            card_border = get_neutral_card_border_qss(tokens.theme_name)
+            card_hover_bg = get_card_gradient_qss(tokens.theme_name, hover=True)
+            card_hover_border = get_neutral_card_border_qss(tokens.theme_name, hover=True)
+            title_color = tokens.fg
+            desc_color = tokens.fg_muted
+            self.setEnabled(True)
+
+        self._title_label.setStyleSheet(f"color: {title_color};")
+        self._desc_label.setStyleSheet(f"color: {desc_color};")
+
+        card_qss = f"""
+            AutostartOptionCard {{
+                background: {card_bg};
+                border: 1px solid {card_border};
+                border-radius: 8px;
+            }}
+            AutostartOptionCard:hover {{
+                background: {card_hover_bg};
+                border: 1px solid {card_hover_border};
+            }}
+        """
+        if card_qss != self._current_qss:
+            self._current_qss = card_qss
+            self.setStyleSheet(card_qss)
 
         self._icon_label.setPixmap(qta.icon(self._icon_name, color=icon_color).pixmap(28, 28))
 
@@ -219,10 +275,23 @@ class AutostartOptionCard(SimpleCardWidget):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
-        # Не реагируем на клик если карточка заблокирована или активна
-        if event.button() == Qt.MouseButton.LeftButton and not self._disabled and not self._is_active:
-            self.clicked.emit()
-        super().mousePressEvent(event)
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+
+        # Блокируем любые клики по неактивным/выбранным карточкам.
+        if self._disabled or self._is_active or not self.isEnabled():
+            event.accept()
+            return
+
+        self.clicked.emit()
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class ClickableModeCard(SimpleCardWidget):
@@ -253,13 +322,20 @@ class AutostartPage(BasePage):
     navigate_to_dpi_settings = pyqtSignal()  # Переход на страницу настроек DPI
 
     def __init__(self, parent=None):
-        super().__init__("Автозапуск", "Настройка автоматического запуска Zapret", parent)
+        super().__init__(
+            "Автозапуск",
+            "Настройка автоматического запуска Zapret",
+            parent,
+            title_key="page.autostart.title",
+            subtitle_key="page.autostart.subtitle",
+        )
 
         self._app_instance = None
         self.strategy_name = None
         self._current_autostart_type = None  # Текущий активный тип автозапуска
         self._detector_worker = None  # Фоновый поток для определения типа
         self._detection_pending = False  # Флаг ожидания результата
+        self._current_mode_method = ""
 
         self._autostart_enabled = False
 
@@ -271,6 +347,15 @@ class AutostartPage(BasePage):
 
         # Apply theme to custom inline widgets.
         self._apply_theme()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     def showEvent(self, event):
         """Вызывается при показе страницы - запускаем определение в фоне"""
@@ -345,7 +430,10 @@ class AutostartPage(BasePage):
                     self.strategy_name = self._app_instance.current_strategy_label.text()
                     if self.strategy_name == "Автостарт DPI отключен":
                         self.strategy_name = None
-                    self.current_strategy_label.setText(self.strategy_name or "Не выбрана")
+                    self.current_strategy_label.setText(
+                        self.strategy_name
+                        or self._tr("page.autostart.strategy.not_selected", "Не выбрана")
+                    )
 
         except Exception as e:
             log(f"AutostartPage._auto_init ошибка: {e}", "WARNING")
@@ -358,14 +446,16 @@ class AutostartPage(BasePage):
         """Устанавливает имя текущей стратегии"""
         self.strategy_name = name
         if hasattr(self, 'current_strategy_label'):
-            self.current_strategy_label.setText(name or "Не выбрана")
+            self.current_strategy_label.setText(
+                name or self._tr("page.autostart.strategy.not_selected", "Не выбрана")
+            )
 
     def _build_ui(self):
         tokens = get_theme_tokens()
         # ═══════════════════════════════════════════════════════════
         # Статус автозапуска
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Статус")
+        self.add_section_title(text_key="page.autostart.section.status")
 
         status_card = SettingsCard()
 
@@ -380,16 +470,23 @@ class AutostartPage(BasePage):
         status_text_layout = QVBoxLayout()
         status_text_layout.setSpacing(4)
 
-        self.status_label = StrongBodyLabel("Автозапуск отключён")
+        self.status_label = StrongBodyLabel(
+            self._tr("page.autostart.status.disabled.title", "Автозапуск отключён")
+        )
         status_text_layout.addWidget(self.status_label)
 
-        self.status_desc = CaptionLabel("Zapret не запускается автоматически")
+        self.status_desc = CaptionLabel(
+            self._tr("page.autostart.status.disabled.desc", "Zapret не запускается автоматически")
+        )
         status_text_layout.addWidget(self.status_desc)
 
         status_layout.addLayout(status_text_layout, 1)
 
         # Кнопка отключения (видна только когда автозапуск включен)
-        self.disable_btn = ActionButton("Отключить", "fa5s.times")
+        self.disable_btn = ActionButton(
+            self._tr("page.autostart.button.disable", "Отключить"),
+            "fa5s.times",
+        )
         self.disable_btn.setFixedHeight(36)
         self.disable_btn.setVisible(False)
         self.disable_btn.clicked.connect(self._on_disable_clicked)
@@ -403,7 +500,7 @@ class AutostartPage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # Режим запуска (кликабельная карточка)
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Режим")
+        self.add_section_title(text_key="page.autostart.section.mode")
 
         self.mode_card = ClickableModeCard()
         self.mode_card.clicked.connect(self._on_mode_card_clicked)
@@ -420,21 +517,29 @@ class AutostartPage(BasePage):
         self._mode_icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self._mode_icon_label)
 
-        self._mode_text_label = CaptionLabel("Текущий режим:")
+        self._mode_text_label = CaptionLabel(
+            self._tr("page.autostart.mode.current_label", "Текущий режим:")
+        )
         self._mode_text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self._mode_text_label)
 
-        self.mode_label = BodyLabel("Загрузка...")
+        self.mode_label = BodyLabel(
+            self._tr("page.autostart.mode.loading", "Загрузка...")
+        )
         self.mode_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.mode_label)
 
         mode_layout.addSpacing(20)
 
-        self._strategy_text_label = CaptionLabel("Стратегия:")
+        self._strategy_text_label = CaptionLabel(
+            self._tr("page.autostart.mode.strategy_label", "Стратегия:")
+        )
         self._strategy_text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self._strategy_text_label)
 
-        self.current_strategy_label = BodyLabel("Не выбрана")
+        self.current_strategy_label = BodyLabel(
+            self._tr("page.autostart.strategy.not_selected", "Не выбрана")
+        )
         self.current_strategy_label.setWordWrap(True)  # Перенос текста
         self.current_strategy_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         mode_layout.addWidget(self.current_strategy_label, 1)
@@ -453,14 +558,17 @@ class AutostartPage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # Варианты автозапуска
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Выберите тип автозапуска")
+        self.add_section_title(text_key="page.autostart.section.select_type")
 
         # GUI автозапуск
         self.gui_option = AutostartOptionCard(
             "fa5s.desktop",
-            "Автозапуск программы Zapret",
-            "Запускает главное окно программы при входе в Windows. "
-            "Вы сможете управлять DPI из системного трея.",
+            self._tr("page.autostart.option.gui.title", "Автозапуск программы Zapret"),
+            self._tr(
+                "page.autostart.option.gui.desc",
+                "Запускает главное окно программы при входе в Windows. "
+                "Вы сможете управлять DPI из системного трея.",
+            ),
             accent=True
         )
         self.gui_option.clicked.connect(self._on_gui_autostart)
@@ -477,10 +585,16 @@ class AutostartPage(BasePage):
         # Служба Windows (для Direct режима) - СКРЫТО: пока не реализовано
         self.service_option = AutostartOptionCard(
             "fa5s.server",
-            "Служба Windows",
-            "Создает настоящую службу Windows для запуска winws.exe. "
-            "Самый надежный способ — работает даже если никто не вошел в систему.",
+            self._tr("page.autostart.option.service.title", "Служба Windows"),
+            self._tr(
+                "page.autostart.option.service.desc",
+                "Создает настоящую службу Windows для запуска winws.exe. "
+                "Самый надежный способ — работает даже если никто не вошел в систему.",
+            ),
             recommended=True
+        )
+        self.service_option.set_recommended_text(
+            self._tr("page.autostart.option.recommended", "Рекомендуется")
         )
         self.service_option.clicked.connect(self._on_service_autostart)
         self.strategies_layout.addWidget(self.service_option)
@@ -489,8 +603,11 @@ class AutostartPage(BasePage):
         # Задача при входе - СКРЫТО: пока не реализовано
         self.logon_option = AutostartOptionCard(
             "fa5s.user",
-            "Задача при входе пользователя",
-            "Создает задачу планировщика для запуска DPI при входе пользователя в систему."
+            self._tr("page.autostart.option.logon.title", "Задача при входе пользователя"),
+            self._tr(
+                "page.autostart.option.logon.desc",
+                "Создает задачу планировщика для запуска DPI при входе пользователя в систему.",
+            )
         )
         self.logon_option.clicked.connect(self._on_logon_autostart)
         self.strategies_layout.addWidget(self.logon_option)
@@ -499,8 +616,11 @@ class AutostartPage(BasePage):
         # Задача при загрузке - СКРЫТО: пока не реализовано
         self.boot_option = AutostartOptionCard(
             "fa5s.power-off",
-            "Задача при загрузке системы",
-            "Создает задачу планировщика для запуска DPI при загрузке Windows (до входа пользователя)."
+            self._tr("page.autostart.option.boot.title", "Задача при загрузке системы"),
+            self._tr(
+                "page.autostart.option.boot.desc",
+                "Создает задачу планировщика для запуска DPI при загрузке Windows (до входа пользователя).",
+            )
         )
         self.boot_option.clicked.connect(self._on_boot_autostart)
         self.strategies_layout.addWidget(self.boot_option)
@@ -513,7 +633,7 @@ class AutostartPage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # Информация
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title("Информация")
+        self.add_section_title(text_key="page.autostart.section.info")
 
         info_card = SettingsCard()
         info_layout = QVBoxLayout()
@@ -529,9 +649,12 @@ class AutostartPage(BasePage):
         tip_layout.addWidget(tip_icon)
 
         self._tip_text_label = CaptionLabel(
-            "Рекомендация: Для максимальной надежности используйте "
-            "«Служба Windows» — она запускается раньше всех программ и автоматически "
-            "перезапускается при сбоях."
+            self._tr(
+                "page.autostart.tip.recommendation",
+                "Рекомендация: Для максимальной надежности используйте "
+                "«Служба Windows» — она запускается раньше всех программ и автоматически "
+                "перезапускается при сбоях.",
+            )
         )
         self._tip_text_label.setWordWrap(True)
         tip_layout.addWidget(self._tip_text_label, 1)
@@ -551,18 +674,27 @@ class AutostartPage(BasePage):
         try:
             from strategy_menu import get_strategy_launch_method
             method = get_strategy_launch_method()
+            self._current_mode_method = method or ""
 
             # Режим оркестратора - только автозапуск программы
             is_orchestra = method in ("orchestra", "direct_zapret2_orchestra")
 
             if method == "direct_zapret2":
-                self.mode_label.setText("Прямой запуск (Zapret 2)")
+                self.mode_label.setText(
+                    self._tr("page.autostart.mode.direct_zapret2", "Прямой запуск (Zapret 2)")
+                )
             elif method == "direct_zapret2_orchestra":
-                self.mode_label.setText("Оркестратор Zapret 2")
+                self.mode_label.setText(
+                    self._tr("page.autostart.mode.orchestra_zapret2", "Оркестратор Zapret 2")
+                )
             elif method == "orchestra":
-                self.mode_label.setText("Оркестр (автообучение)")
+                self.mode_label.setText(
+                    self._tr("page.autostart.mode.orchestra_learning", "Оркестр (автообучение)")
+                )
             else:
-                self.mode_label.setText("Классический (BAT файлы)")
+                self.mode_label.setText(
+                    self._tr("page.autostart.mode.classic_bat", "Классический (BAT файлы)")
+                )
 
             # Опции службы/задач:
             # - orchestra/direct_zapret2_orchestra: оставляем только GUI автозапуск
@@ -573,7 +705,8 @@ class AutostartPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка обновления режима: {e}", "WARNING")
-            self.mode_label.setText("Неизвестно")
+            self._current_mode_method = ""
+            self.mode_label.setText(self._tr("page.autostart.mode.unknown", "Неизвестно"))
 
     def _on_mode_card_clicked(self):
         """Обработчик клика по карточке режима"""
@@ -634,38 +767,108 @@ class AutostartPage(BasePage):
             except Exception:
                 pass
 
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.disable_btn.setText(self._tr("page.autostart.button.disable", "Отключить"))
+        self._mode_text_label.setText(self._tr("page.autostart.mode.current_label", "Текущий режим:"))
+        self._strategy_text_label.setText(self._tr("page.autostart.mode.strategy_label", "Стратегия:"))
+
+        self.gui_option.set_texts(
+            self._tr("page.autostart.option.gui.title", "Автозапуск программы Zapret"),
+            self._tr(
+                "page.autostart.option.gui.desc",
+                "Запускает главное окно программы при входе в Windows. "
+                "Вы сможете управлять DPI из системного трея.",
+            ),
+        )
+        self.service_option.set_texts(
+            self._tr("page.autostart.option.service.title", "Служба Windows"),
+            self._tr(
+                "page.autostart.option.service.desc",
+                "Создает настоящую службу Windows для запуска winws.exe. "
+                "Самый надежный способ — работает даже если никто не вошел в систему.",
+            ),
+        )
+        self.service_option.set_recommended_text(
+            self._tr("page.autostart.option.recommended", "Рекомендуется")
+        )
+        self.logon_option.set_texts(
+            self._tr("page.autostart.option.logon.title", "Задача при входе пользователя"),
+            self._tr(
+                "page.autostart.option.logon.desc",
+                "Создает задачу планировщика для запуска DPI при входе пользователя в систему.",
+            ),
+        )
+        self.boot_option.set_texts(
+            self._tr("page.autostart.option.boot.title", "Задача при загрузке системы"),
+            self._tr(
+                "page.autostart.option.boot.desc",
+                "Создает задачу планировщика для запуска DPI при загрузке Windows (до входа пользователя).",
+            ),
+        )
+        self._tip_text_label.setText(
+            self._tr(
+                "page.autostart.tip.recommendation",
+                "Рекомендация: Для максимальной надежности используйте "
+                "«Служба Windows» — она запускается раньше всех программ и автоматически "
+                "перезапускается при сбоях.",
+            )
+        )
+
+        self.update_status(
+            self._autostart_enabled,
+            self.strategy_name,
+            self._current_autostart_type,
+        )
+
     def update_status(self, enabled: bool, strategy_name: str = None, autostart_type: str = None):
         """Обновляет отображение статуса автозапуска"""
         self._autostart_enabled = bool(enabled)
         if enabled:
-            self.status_label.setText("Автозапуск включён")
+            self.status_label.setText(
+                self._tr("page.autostart.status.enabled.title", "Автозапуск включён")
+            )
 
             type_desc = ""
             if autostart_type:
                 type_map = {
-                    "service": "как служба Windows",
-                    "logon": "при входе пользователя",
-                    "boot": "при загрузке системы",
-                    "gui": "программа Zapret"
+                    "service": self._tr("page.autostart.status.type.service", "как служба Windows"),
+                    "logon": self._tr("page.autostart.status.type.logon", "при входе пользователя"),
+                    "boot": self._tr("page.autostart.status.type.boot", "при загрузке системы"),
+                    "gui": self._tr("page.autostart.status.type.gui", "программа Zapret"),
                 }
                 type_desc = type_map.get(autostart_type, "")
 
-            desc = f"Zapret запускается автоматически"
+            desc = self._tr("page.autostart.status.enabled.desc.base", "Zapret запускается автоматически")
             if type_desc:
-                desc += f" {type_desc}"
+                desc = self._tr(
+                    "page.autostart.status.enabled.desc.with_type",
+                    "{base} {type_desc}",
+                    base=desc,
+                    type_desc=type_desc,
+                )
             self.status_desc.setText(desc)
 
             self.status_icon.setPixmap(qta.icon('fa5s.check-circle', color=get_semantic_palette().success).pixmap(20, 20))
             self.disable_btn.setVisible(True)
         else:
-            self.status_label.setText("Автозапуск отключён")
-            self.status_desc.setText("Zapret не запускается автоматически")
+            self.status_label.setText(
+                self._tr("page.autostart.status.disabled.title", "Автозапуск отключён")
+            )
+            self.status_desc.setText(
+                self._tr("page.autostart.status.disabled.desc", "Zapret не запускается автоматически")
+            )
             tokens = get_theme_tokens()
             self.status_icon.setPixmap(qta.icon('fa5s.circle', color=tokens.fg_faint).pixmap(20, 20))
             self.disable_btn.setVisible(False)
 
         if strategy_name:
             self.current_strategy_label.setText(strategy_name)
+        elif not self.current_strategy_label.text().strip():
+            self.current_strategy_label.setText(
+                self._tr("page.autostart.strategy.not_selected", "Не выбрана")
+            )
 
         # Обновляем состояние карточек (блокировка/разблокировка)
         self._update_options_state(enabled, autostart_type)
@@ -689,12 +892,19 @@ class AutostartPage(BasePage):
             "boot": self.boot_option
         }
 
-        if autostart_enabled and active_type:
-            # Блокируем ВСЕ карточки, активную выделяем особым образом
-            for type_name, card in type_to_card.items():
-                is_active_card = type_name == active_type
-                log(f"  Card '{type_name}': active={is_active_card}", "DEBUG")
-                card.set_disabled(True, is_active=is_active_card)
+        if autostart_enabled:
+            if active_type:
+                # Блокируем ВСЕ карточки, активную выделяем особым образом.
+                for type_name, card in type_to_card.items():
+                    is_active_card = type_name == active_type
+                    log(f"  Card '{type_name}': active={is_active_card}", "DEBUG")
+                    card.set_disabled(True, is_active=is_active_card)
+            else:
+                # Статус включен, но тип пока неизвестен (например, до завершения детекции).
+                # В этом состоянии все варианты должны быть некликабельны.
+                for type_name, card in type_to_card.items():
+                    log(f"  Card '{type_name}': disabled=True (type pending)", "DEBUG")
+                    card.set_disabled(True, is_active=False)
         else:
             # Разблокируем все карточки
             for type_name, card in type_to_card.items():
@@ -838,4 +1048,3 @@ class AutostartPage(BasePage):
             self._current_autostart_type = "boot"
             self.update_status(True, name, "boot")
             self.autostart_enabled.emit()
-

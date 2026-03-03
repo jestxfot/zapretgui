@@ -789,23 +789,23 @@ class BuildReleaseGUI:
         return ROOT
 
     def _source_root(self) -> Path:
-        # ожидаем соседний репозиторий/папку zapret рядом с zapretgui
-        return ROOT.parent / "zapret"
+        # единый канонический путь сборки внутри репозитория
+        return ROOT / "dist"
 
     def _produced_installer_path(self, channel: str, version: str) -> Path:
         suf = "_TEST" if channel == "test" else ""
         v = version_to_filename_suffix(version)
-        return self._project_root() / f"Zapret2Setup{suf}_{v}.exe"
+        return self._source_root() / f"Zapret2Setup{suf}_{v}.exe"
 
     def _built_exe_path(self) -> Path:
-        # Canonical dist path for Inno Setup (SOURCEPATH): ../zapret/Zapret.exe
+        # Canonical dist path for Inno Setup (SOURCEPATH): ./dist/Zapret.exe
         return self._source_root() / "Zapret.exe"
 
     def _sync_built_exe_to_source_root(self) -> None:
-        """Sync build output from ../zapret/Zapret/ into ../zapret/.
+        """Sync build output from ./dist/Zapret/ into ./dist/.
 
-        PyInstaller/Nuitka produce onedir into ../zapret/Zapret/{Zapret.exe,_internal}.
-        Inno Setup installs from SOURCEPATH=../zapret, so we must refresh Zapret.exe + _internal there.
+        PyInstaller/Nuitka produce onedir into ./dist/Zapret/{Zapret.exe,_internal}.
+        Inno Setup installs from SOURCEPATH=./dist, so we must refresh Zapret.exe + _internal there.
         """
 
         def _safe_replace(src: Path, dst: Path, label: str, *, attempts: int = 8, base_delay: float = 0.6) -> None:
@@ -1650,7 +1650,7 @@ class BuildReleaseGUI:
                     (60, "Сборка PyInstaller", lambda: run_pyinstaller(channel, ROOT, run, self.log_queue)),
                 ])
 
-            # Sync built Zapret.exe/_internal into SOURCEPATH (../zapret)
+            # Sync built Zapret.exe/_internal into SOURCEPATH (./dist)
             steps.append((70, "Синхронизация Zapret.exe", lambda: self._sync_built_exe_to_source_root()))
             
             if fast_exe:
@@ -1783,6 +1783,7 @@ class BuildReleaseGUI:
 
         project_root = self._project_root()
         source_root = self._source_root()
+        source_root.mkdir(parents=True, exist_ok=True)
         universal_iss = project_root / "zapret_universal.iss"
         iss_workdir = Path(tempfile.mkdtemp(prefix="iscc_"))
         target_iss = iss_workdir / f"zapret_{channel}.iss"
@@ -1791,8 +1792,8 @@ class BuildReleaseGUI:
         temp_name = f"Zapret2Setup_{channel}_{timestamp}_tmp"
         final_name = f"Zapret2Setup{'_TEST' if channel == 'test' else ''}_{version_to_filename_suffix(version)}"
         
-        temp_file = project_root / f"{temp_name}.exe"
-        final_file = project_root / f"{final_name}.exe"
+        temp_file = source_root / f"{temp_name}.exe"
+        final_file = source_root / f"{final_name}.exe"
 
         if final_file.exists():
             counter = 1
@@ -1916,7 +1917,7 @@ class BuildReleaseGUI:
                 pass
 
     def _find_latest_installer(self, channel: str, version: str) -> Optional[Path]:
-        project_root = self._project_root()
+        project_root = self._source_root()
         v = version_to_filename_suffix(version)
         suf = "_TEST" if channel == "test" else ""
         pat = f"Zapret2Setup{suf}_{v}*.exe"

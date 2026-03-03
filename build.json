@@ -258,8 +258,8 @@
    "value": "F:/Apps/zapret/zapretgui/zero_1024.bin;."
   }
  ],
- "nonPyinstallerOptions": {
-  "increaseRecursionLimit": true,
-  "manualArguments": ""
- }
+  "nonPyinstallerOptions": {
+   "increaseRecursionLimit": true,
+   "manualArguments": "--hidden-import ui.pages.strategy_scan_page"
+  }
 }

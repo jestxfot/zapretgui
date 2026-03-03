@@ -12,6 +12,7 @@ import os
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton, set_tooltip
 from ui.theme import get_theme_tokens, get_card_gradient_qss
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -40,10 +41,11 @@ class BlobItemWidget(QFrame):
     
     deleted = pyqtSignal(str)  # имя блоба
     
-    def __init__(self, name: str, info: dict, parent=None):
+    def __init__(self, name: str, info: dict, parent=None, language: str = "ru"):
         super().__init__(parent)
         self.blob_name = name
         self.blob_info = info
+        self._ui_language = language
 
         self._tokens = get_theme_tokens()
         self._current_qss = ""
@@ -59,6 +61,15 @@ class BlobItemWidget(QFrame):
         # Политика размера: предпочитает минимальную ширину
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self._build_ui()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
         
     def _build_ui(self):
         layout = QHBoxLayout(self)
@@ -81,7 +92,7 @@ class BlobItemWidget(QFrame):
         name_layout.addWidget(self._name_label)
         
         if self.blob_info.get("is_user"):
-            self._user_badge = QLabel("пользовательский")
+            self._user_badge = QLabel(self._tr("page.blobs.item.user_badge", "пользовательский"))
             self._user_badge.setStyleSheet("""
                 QLabel {
                     color: #ffc107;
@@ -123,11 +134,11 @@ class BlobItemWidget(QFrame):
             if self.blob_info.get("exists", True):
                 self._status_label = QLabel("✓")
                 self._status_label.setStyleSheet("color: #6ccb5f; font-size: 14px;")
-                set_tooltip(self._status_label, "Файл найден")
+                set_tooltip(self._status_label, self._tr("page.blobs.item.file_found", "Файл найден"))
             else:
                 self._status_label = QLabel("✗")
                 self._status_label.setStyleSheet("color: #ff6b6b; font-size: 14px;")
-                set_tooltip(self._status_label, "Файл не найден")
+                set_tooltip(self._status_label, self._tr("page.blobs.item.file_missing", "Файл не найден"))
             layout.addWidget(self._status_label)
         
         # Кнопка удаления (только для пользовательских)
@@ -149,6 +160,16 @@ class BlobItemWidget(QFrame):
     def refresh_theme(self) -> None:
         self._tokens = get_theme_tokens()
         self._apply_theme()
+
+    def set_ui_language(self, language: str) -> None:
+        self._ui_language = language
+        if self._user_badge is not None:
+            self._user_badge.setText(self._tr("page.blobs.item.user_badge", "пользовательский"))
+        if self._status_label is not None:
+            if self.blob_info.get("exists", True):
+                set_tooltip(self._status_label, self._tr("page.blobs.item.file_found", "Файл найден"))
+            else:
+                set_tooltip(self._status_label, self._tr("page.blobs.item.file_missing", "Файл не найден"))
 
     def _apply_theme(self) -> None:
         tokens = self._tokens or get_theme_tokens("Темная синяя")
@@ -197,8 +218,8 @@ class BlobItemWidget(QFrame):
     def _on_delete(self):
         """Запрос на удаление блоба"""
         box = MessageBox(
-            "Удаление блоба",
-            f"Удалить пользовательский блоб '{self.blob_name}'?",
+            self._tr("page.blobs.dialog.delete.title", "Удаление блоба"),
+            self._tr("page.blobs.dialog.delete.body", "Удалить пользовательский блоб '{name}'?", name=self.blob_name),
             self.window(),
         )
         if box.exec():
@@ -208,44 +229,56 @@ class BlobItemWidget(QFrame):
 class AddBlobDialog(MessageBoxBase):
     """Диалог добавления нового блоба (qfluentwidgets MessageBoxBase)"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, language: str = "ru"):
         super().__init__(parent)
+        self._ui_language = language
+
+        def _tr(key: str, default: str, **kwargs) -> str:
+            text = tr_catalog(key, language=self._ui_language, default=default)
+            if kwargs:
+                try:
+                    return text.format(**kwargs)
+                except Exception:
+                    return text
+            return text
+
+        self._tr = _tr
 
         # Заголовок
-        self.titleLabel = SubtitleLabel("Добавить блоб", self.widget)
+        self.titleLabel = SubtitleLabel(self._tr("page.blobs.dialog.add.title", "Добавить блоб"), self.widget)
 
         # Имя
-        name_label = BodyLabel("Имя", self.widget)
+        name_label = BodyLabel(self._tr("page.blobs.dialog.add.name", "Имя"), self.widget)
         self.name_edit = LineEdit(self.widget)
-        self.name_edit.setPlaceholderText("Латиница, цифры, подчеркивания")
+        self.name_edit.setPlaceholderText(self._tr("page.blobs.dialog.add.name.placeholder", "Латиница, цифры, подчеркивания"))
 
         # Тип
-        type_label = BodyLabel("Тип", self.widget)
+        type_label = BodyLabel(self._tr("page.blobs.dialog.add.type", "Тип"), self.widget)
         self.type_combo = ComboBox(self.widget)
-        self.type_combo.addItem("Файл (.bin)", userData="file")
-        self.type_combo.addItem("Hex значение", userData="hex")
+        self.type_combo.addItem(self._tr("page.blobs.dialog.add.type.file", "Файл (.bin)"), userData="file")
+        self.type_combo.addItem(self._tr("page.blobs.dialog.add.type.hex", "Hex значение"), userData="hex")
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
 
         # Значение + кнопка обзора
-        value_label = BodyLabel("Значение", self.widget)
+        value_label = BodyLabel(self._tr("page.blobs.dialog.add.value", "Значение"), self.widget)
         self._value_container = QWidget(self.widget)
         value_layout = QHBoxLayout(self._value_container)
         value_layout.setContentsMargins(0, 0, 0, 0)
         value_layout.setSpacing(6)
         self.value_edit = LineEdit(self._value_container)
-        self.value_edit.setPlaceholderText("Путь к файлу")
+        self.value_edit.setPlaceholderText(self._tr("page.blobs.dialog.add.value.path_placeholder", "Путь к файлу"))
         value_layout.addWidget(self.value_edit, 1)
         self.browse_btn = TransparentToolButton(self._value_container)
         self.browse_btn.setIcon(qta.icon("fa5s.folder-open", color="#888"))
         self.browse_btn.setFixedSize(32, 32)
-        set_tooltip(self.browse_btn, "Выбрать файл")
+        set_tooltip(self.browse_btn, self._tr("page.blobs.dialog.add.browse.tooltip", "Выбрать файл"))
         self.browse_btn.clicked.connect(self._browse_file)
         value_layout.addWidget(self.browse_btn)
 
         # Описание
-        desc_label = BodyLabel("Описание (опционально)", self.widget)
+        desc_label = BodyLabel(self._tr("page.blobs.dialog.add.description", "Описание (опционально)"), self.widget)
         self.desc_edit = LineEdit(self.widget)
-        self.desc_edit.setPlaceholderText("Краткое описание блоба")
+        self.desc_edit.setPlaceholderText(self._tr("page.blobs.dialog.add.description.placeholder", "Краткое описание блоба"))
 
         # Строка ошибки
         self._error_label = CaptionLabel("", self.widget)
@@ -269,8 +302,8 @@ class AddBlobDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.desc_edit)
         self.viewLayout.addWidget(self._error_label)
 
-        self.yesButton.setText("Добавить")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(self._tr("page.blobs.dialog.add.button.add", "Добавить"))
+        self.cancelButton.setText(self._tr("page.blobs.dialog.add.button.cancel", "Отмена"))
         self.widget.setMinimumWidth(400)
 
     def _on_type_changed(self, index):
@@ -278,9 +311,13 @@ class AddBlobDialog(MessageBoxBase):
         blob_type = self.type_combo.currentData()
         self.browse_btn.setVisible(blob_type == "file")
         if blob_type == "hex":
-            self.value_edit.setPlaceholderText("Hex значение (например: 0x0E0E0F0E)")
+            self.value_edit.setPlaceholderText(
+                self._tr("page.blobs.dialog.add.value.hex_placeholder", "Hex значение (например: 0x0E0E0F0E)")
+            )
         else:
-            self.value_edit.setPlaceholderText("Путь к .bin файлу")
+            self.value_edit.setPlaceholderText(
+                self._tr("page.blobs.dialog.add.value.path_placeholder_bin", "Путь к .bin файлу")
+            )
 
     def _browse_file(self):
         """Выбор файла"""
@@ -288,7 +325,7 @@ class AddBlobDialog(MessageBoxBase):
 
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Выберите файл блоба",
+            self._tr("page.blobs.dialog.add.browse.title", "Выберите файл блоба"),
             BIN_FOLDER,
             "Binary files (*.bin);;All files (*.*)",
         )
@@ -305,22 +342,25 @@ class AddBlobDialog(MessageBoxBase):
         value = self.value_edit.text().strip()
 
         if not name:
-            self._show_error("Введите имя блоба")
+            self._show_error(self._tr("page.blobs.dialog.add.error.name_required", "Введите имя блоба"))
             return False
 
         if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
             self._show_error(
-                "Имя должно начинаться с буквы и содержать только латиницу, цифры и подчеркивания"
+                self._tr(
+                    "page.blobs.dialog.add.error.name_invalid",
+                    "Имя должно начинаться с буквы и содержать только латиницу, цифры и подчеркивания",
+                )
             )
             return False
 
         if not value:
-            self._show_error("Введите значение блоба")
+            self._show_error(self._tr("page.blobs.dialog.add.error.value_required", "Введите значение блоба"))
             return False
 
         blob_type = self.type_combo.currentData()
         if blob_type == "hex" and not value.startswith("0x"):
-            self._show_error("Hex значение должно начинаться с 0x")
+            self._show_error(self._tr("page.blobs.dialog.add.error.hex_prefix", "Hex значение должно начинаться с 0x"))
             return False
 
         return True
@@ -345,7 +385,13 @@ class BlobsPage(BasePage):
     back_clicked = pyqtSignal()  # → PageName.ZAPRET2_DIRECT_CONTROL
 
     def __init__(self, parent=None):
-        super().__init__("Блобы", "Управление бинарными данными для стратегий", parent)
+        super().__init__(
+            "Блобы",
+            "Управление бинарными данными для стратегий",
+            parent,
+            title_key="page.blobs.title",
+            subtitle_key="page.blobs.subtitle",
+        )
 
         self._desc_label = None
         self._filter_icon_label = None
@@ -358,6 +404,15 @@ class BlobsPage(BasePage):
 
         self._apply_theme()
 
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
     def _build_ui(self):
         """Строит UI страницы"""
 
@@ -365,7 +420,8 @@ class BlobsPage(BasePage):
         if _HAS_FLUENT_INPUTS:
             from PyQt6.QtCore import QSize
             back_btn = TransparentPushButton(parent=self)
-            back_btn.setText("Управление")
+            back_btn.setText(self._tr("page.blobs.button.back", "Управление"))
+            self._back_btn = back_btn
             back_btn.setIcon(qta.icon("fa5s.chevron-left", color="#888"))
             back_btn.setIconSize(QSize(12, 12))
             back_btn.clicked.connect(self.back_clicked.emit)
@@ -380,9 +436,10 @@ class BlobsPage(BasePage):
         # Описание
         desc_card = SettingsCard()
         desc = QLabel(
-            "Блобы — это бинарные данные (файлы .bin или hex-значения), "
-            "используемые в стратегиях для имитации TLS/QUIC пакетов.\n"
-            "Вы можете добавлять свои блобы для кастомных стратегий."
+            self._tr(
+                "page.blobs.description",
+                "Блобы — это бинарные данные (файлы .bin или hex-значения), используемые в стратегиях для имитации TLS/QUIC пакетов.\nВы можете добавлять свои блобы для кастомных стратегий.",
+            )
         )
         self._desc_label = desc
         desc.setWordWrap(True)
@@ -395,7 +452,7 @@ class BlobsPage(BasePage):
         actions_layout.setSpacing(8)
         
         # Кнопка добавления
-        self.add_btn = ActionButton("Добавить блоб", "fa5s.plus")
+        self.add_btn = ActionButton(self._tr("page.blobs.button.add", "Добавить блоб"), "fa5s.plus")
         self.add_btn.clicked.connect(self._add_blob)
         actions_layout.addWidget(self.add_btn)
         
@@ -405,12 +462,12 @@ class BlobsPage(BasePage):
         actions_layout.addWidget(self.reload_btn)
         
         # Открыть папку bin
-        self.open_folder_btn = ActionButton("Папка bin", "fa5s.folder-open")
+        self.open_folder_btn = ActionButton(self._tr("page.blobs.button.bin_folder", "Папка bin"), "fa5s.folder-open")
         self.open_folder_btn.clicked.connect(self._open_bin_folder)
         actions_layout.addWidget(self.open_folder_btn)
         
         # Открыть JSON
-        self.open_json_btn = ActionButton("Открыть JSON", "fa5s.file-code")
+        self.open_json_btn = ActionButton(self._tr("page.blobs.button.open_json", "Открыть JSON"), "fa5s.file-code")
         self.open_json_btn.clicked.connect(self._open_json)
         actions_layout.addWidget(self.open_json_btn)
         
@@ -433,7 +490,7 @@ class BlobsPage(BasePage):
         filter_layout.addWidget(filter_icon)
         
         self.filter_edit = LineEdit()
-        self.filter_edit.setPlaceholderText("Фильтр по имени...")
+        self.filter_edit.setPlaceholderText(self._tr("page.blobs.filter.placeholder", "Фильтр по имени..."))
         self.filter_edit.textChanged.connect(self._filter_blobs)
         filter_layout.addWidget(self.filter_edit, 1)
         
@@ -517,29 +574,35 @@ class BlobsPage(BasePage):
             
             # Секция пользовательских блобов
             if user_blobs:
-                user_header = QLabel(f"★ Пользовательские ({len(user_blobs)})")
+                user_header = QLabel(
+                    self._tr("page.blobs.section.user", "★ Пользовательские ({count})", count=len(user_blobs))
+                )
                 user_header.setProperty("blobSection", "user")
                 self.blobs_layout.addWidget(user_header)
                 
                 for name, info in sorted(user_blobs.items()):
-                    item = BlobItemWidget(name, info)
+                    item = BlobItemWidget(name, info, language=self._ui_language)
                     item.deleted.connect(self._delete_blob)
                     self.blobs_layout.addWidget(item)
             
             # Секция системных блобов
             if system_blobs:
-                system_header = QLabel(f"Системные ({len(system_blobs)})")
+                system_header = QLabel(
+                    self._tr("page.blobs.section.system", "Системные ({count})", count=len(system_blobs))
+                )
                 system_header.setProperty("blobSection", "system")
                 self.blobs_layout.addWidget(system_header)
                 
                 for name, info in sorted(system_blobs.items()):
-                    item = BlobItemWidget(name, info)
+                    item = BlobItemWidget(name, info, language=self._ui_language)
                     self.blobs_layout.addWidget(item)
             
             # Обновляем счётчик
             total = len(blobs_info)
             user_count = len(user_blobs)
-            self.count_label.setText(f"{total} блобов ({user_count} пользовательских)")
+            self.count_label.setText(
+                self._tr("page.blobs.count", "{total} блобов ({user} пользовательских)", total=total, user=user_count)
+            )
 
             # Refresh styles for newly created widgets.
             self._apply_theme()
@@ -549,7 +612,9 @@ class BlobsPage(BasePage):
             import traceback
             log(traceback.format_exc(), "DEBUG")
             
-            error_label = QLabel(f"❌ Ошибка загрузки: {e}")
+            error_label = QLabel(
+                self._tr("page.blobs.error.load", "❌ Ошибка загрузки: {error}", error=e)
+            )
             error_label.setProperty("blobSection", "error")
             self.blobs_layout.addWidget(error_label)
 
@@ -573,7 +638,7 @@ class BlobsPage(BasePage):
                     
     def _add_blob(self):
         """Открывает диалог добавления блоба"""
-        dialog = AddBlobDialog(self.window())
+        dialog = AddBlobDialog(self.window(), language=self._ui_language)
         if dialog.exec():
             data = dialog.get_data()
             try:
@@ -583,11 +648,19 @@ class BlobsPage(BasePage):
                     log(f"Добавлен блоб: {data['name']}", "INFO")
                     self._load_blobs()
                 else:
-                    InfoBar.warning(title="Ошибка", content="Не удалось сохранить блоб", parent=self.window())
+                    InfoBar.warning(
+                        title=self._tr("common.error.title", "Ошибка"),
+                        content=self._tr("page.blobs.error.save", "Не удалось сохранить блоб"),
+                        parent=self.window(),
+                    )
 
             except Exception as e:
                 log(f"Ошибка добавления блоба: {e}", "ERROR")
-                InfoBar.warning(title="Ошибка", content=f"Не удалось добавить блоб: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.blobs.error.add", "Не удалось добавить блоб: {error}", error=e),
+                    parent=self.window(),
+                )
                 
     def _delete_blob(self, name: str):
         """Удаляет пользовательский блоб"""
@@ -598,11 +671,19 @@ class BlobsPage(BasePage):
                 log(f"Удалён блоб: {name}", "INFO")
                 self._load_blobs()
             else:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось удалить блоб '{name}'", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.blobs.error.delete_named", "Не удалось удалить блоб '{name}'", name=name),
+                    parent=self.window(),
+                )
 
         except Exception as e:
             log(f"Ошибка удаления блоба: {e}", "ERROR")
-            InfoBar.warning(title="Ошибка", content=f"Не удалось удалить блоб: {e}", parent=self.window())
+            InfoBar.warning(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.blobs.error.delete", "Не удалось удалить блоб: {error}", error=e),
+                parent=self.window(),
+            )
             
     def _reload_blobs(self):
         """Перезагружает блобы из JSON"""
@@ -624,7 +705,11 @@ class BlobsPage(BasePage):
             os.startfile(BIN_FOLDER)
         except Exception as e:
             log(f"Ошибка открытия папки: {e}", "ERROR")
-            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть папку: {e}", parent=self.window())
+            InfoBar.warning(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.blobs.error.open_folder", "Не удалось открыть папку: {error}", error=e),
+                parent=self.window(),
+            )
             
     def _open_json(self):
         """Открывает файл blobs.json в редакторе"""
@@ -634,4 +719,28 @@ class BlobsPage(BasePage):
             os.startfile(json_path)
         except Exception as e:
             log(f"Ошибка открытия JSON: {e}", "ERROR")
-            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть файл: {e}", parent=self.window())
+            InfoBar.warning(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.blobs.error.open_file", "Не удалось открыть файл: {error}", error=e),
+                parent=self.window(),
+            )
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if hasattr(self, "_back_btn") and self._back_btn is not None:
+            self._back_btn.setText(self._tr("page.blobs.button.back", "Управление"))
+        if self._desc_label is not None:
+            self._desc_label.setText(
+                self._tr(
+                    "page.blobs.description",
+                    "Блобы — это бинарные данные (файлы .bin или hex-значения), используемые в стратегиях для имитации TLS/QUIC пакетов.\nВы можете добавлять свои блобы для кастомных стратегий.",
+                )
+            )
+
+        self.add_btn.setText(self._tr("page.blobs.button.add", "Добавить блоб"))
+        self.open_folder_btn.setText(self._tr("page.blobs.button.bin_folder", "Папка bin"))
+        self.open_json_btn.setText(self._tr("page.blobs.button.open_json", "Открыть JSON"))
+        self.filter_edit.setPlaceholderText(self._tr("page.blobs.filter.placeholder", "Фильтр по имени..."))
+
+        self._load_blobs()

@@ -1,42 +1,102 @@
 from ui.compat_widgets import set_tooltip
 from ui.pages.zapret2.direct_control_page import Zapret2DirectControlPage
+from ui.text_catalog import tr as tr_catalog
 
 
 class OrchestraZapret2DirectControlPage(Zapret2DirectControlPage):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._apply_orchestra_labels()
+        self._refresh_direct_mode_label()
+
+    def _apply_orchestra_labels(self, language: str | None = None) -> None:
         try:
-            self.title_label.setText("Управление Orchestra Z2")
+            self.title_label.setText(
+                tr_catalog(
+                    "page.z2_orchestra_control.title",
+                    language=language,
+                    default="Управление Orchestra Z2",
+                )
+            )
             if self.subtitle_label is not None:
                 self.subtitle_label.setText(
-                    "Управление пресетами и запуском для режима direct_zapret2_orchestra."
+                    tr_catalog(
+                        "page.z2_orchestra_control.subtitle",
+                        language=language,
+                        default="Управление пресетами и запуском для режима direct_zapret2_orchestra.",
+                    )
                 )
 
             if getattr(self, "control_section_label", None) is not None:
-                self.control_section_label.setText("Управление Orchestra Z2")
+                self.control_section_label.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.section.management",
+                        language=language,
+                        default="Управление Orchestra Z2",
+                    )
+                )
             if getattr(self, "preset_section_label", None) is not None:
-                self.preset_section_label.setText("Сменить пресет Orchestra Z2")
+                self.preset_section_label.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.section.preset",
+                        language=language,
+                        default="Сменить пресет Orchestra Z2",
+                    )
+                )
             if getattr(self, "direct_section_label", None) is not None:
-                self.direct_section_label.setText("Тонкая настройка активного пресета")
+                self.direct_section_label.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.section.direct_tuning",
+                        language=language,
+                        default="Тонкая настройка активного пресета",
+                    )
+                )
 
             if getattr(self, "presets_btn", None) is not None:
-                self.presets_btn.setText("Пресеты Orchestra")
+                self.presets_btn.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.button.presets",
+                        language=language,
+                        default="Пресеты Orchestra",
+                    )
+                )
             if getattr(self, "direct_open_btn", None) is not None:
-                self.direct_open_btn.setText("Прямой запуск")
+                self.direct_open_btn.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.button.direct_open",
+                        language=language,
+                        default="Прямой запуск",
+                    )
+                )
             if getattr(self, "direct_mode_btn", None) is not None:
                 self.direct_mode_btn.setVisible(False)
 
             if getattr(self, "direct_mode_caption", None) is not None:
-                self.direct_mode_caption.setText("Редактирование активного пресета по категориям")
+                self.direct_mode_caption.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.section.category_editing",
+                        language=language,
+                        default="Редактирование активного пресета по категориям",
+                    )
+                )
 
             if getattr(self, "wssize_toggle", None) is not None:
                 self.wssize_toggle.setVisible(False)
             if getattr(self, "blobs_open_btn", None) is not None:
-                self.blobs_open_btn.setText("Открыть блобы")
+                self.blobs_open_btn.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.button.blobs_open",
+                        language=language,
+                        default="Открыть блобы",
+                    )
+                )
 
         except Exception:
             pass
-        self._refresh_direct_mode_label()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+        self._apply_orchestra_labels(language=language)
 
     def _open_direct_mode_dialog(self) -> None:
         return

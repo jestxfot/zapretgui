@@ -95,7 +95,7 @@ class InitializationManager:
         init_tasks.extend([
             (1800, self._init_hostlists_check),   # Проверка hostlists (в фоне)
             (2000, self._init_ipsets_check),      # Проверка ipsets (в фоне)
-            (2600, self._init_subscription_check),# Проверка подписки (сеть)
+            (12000, self._init_subscription_check),# Проверка подписки (сеть, отложено)
         ])
 
         for delay, task in init_tasks:
@@ -616,9 +616,26 @@ class InitializationManager:
             log("Запуск фоновой проверки подписки...", "DEBUG")
             
             if hasattr(self.app, 'subscription_manager') and self.app.subscription_manager:
+                # Не дублируем сетевые проверки: если первичная инициализация уже
+                # выполняется или завершилась, дополнительная проверка не нужна.
+                if bool(getattr(self.app, '_startup_subscription_ready', False)):
+                    log("Фоновая проверка подписки пропущена: первичная проверка уже завершена", "DEBUG")
+                    return
+
+                init_thread = getattr(self.app.subscription_manager, '_subscription_thread', None)
+                try:
+                    if init_thread is not None and init_thread.isRunning():
+                        log("Фоновая проверка подписки пропущена: идет первичная инициализация", "DEBUG")
+                        return
+                except RuntimeError:
+                    pass
+
                 # Запускаем проверку в фоне (silent=True чтобы не показывать уведомления)
-                self.app.subscription_manager.check_and_update_subscription_async(silent=True)
-                log("Фоновая проверка подписки запущена", "INFO")
+                started = self.app.subscription_manager.check_and_update_subscription_async(silent=True)
+                if started:
+                    log("Фоновая проверка подписки запущена", "INFO")
+                else:
+                    log("Фоновая проверка подписки отложена: donate_checker еще не готов", "DEBUG")
             else:
                 log("subscription_manager не инициализирован, повторная попытка через 1с", "WARNING")
                 # Повторная попытка через 1 секунду

@@ -67,8 +67,8 @@ DirExistsWarning=no
 PrivilegesRequired=admin
 DefaultGroupName={#GroupName}
 AllowNoIcons=yes
-; ✅ Выходной файл в папке проекта
-OutputDir={#PROJECTPATH}
+; ✅ Выходной файл в папке dist проекта
+OutputDir={#PROJECTPATH}\dist
 OutputBaseFilename={#OutputName}
 Compression=lzma2
 SolidCompression=yes

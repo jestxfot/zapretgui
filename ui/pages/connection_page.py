@@ -31,6 +31,7 @@ from ui.compat_widgets import SettingsCard, ActionButton
 from connection_test import ConnectionTestWorker, LogSendWorker
 from config import LOGS_FOLDER, APP_VERSION
 from tgram.tg_log_delta import get_client_id
+from ui.text_catalog import tr as tr_catalog
 
 
 if _HAS_FLUENT_WIDGETS:
@@ -94,6 +95,8 @@ class ConnectionTestPage(BasePage):
             "Диагностика соединения",
             "Автотест Discord и YouTube, проверка DNS подмены и отправка логов в поддержку",
             parent,
+            title_key="page.connection.title",
+            subtitle_key="page.connection.subtitle",
         )
         self.is_testing = False
         self.is_sending_log = False
@@ -126,19 +129,25 @@ class ConnectionTestPage(BasePage):
     def _build_header(self):
         hero_card = SettingsCard()
 
-        title = StrongBodyLabel("Диагностика сетевых соединений")
-        hero_card.add_widget(title)
-
-        subtitle = BodyLabel(
-            "Проверьте доступность Discord и YouTube, найдите подмену DNS и быстро отправьте лог в поддержку."
+        self.hero_title = StrongBodyLabel(
+            tr_catalog("page.connection.hero.title", language=self._ui_language, default="Диагностика сетевых соединений")
         )
-        subtitle.setWordWrap(True)
-        hero_card.add_widget(subtitle)
+        hero_card.add_widget(self.hero_title)
+
+        self.hero_subtitle = BodyLabel(
+            tr_catalog(
+                "page.connection.hero.subtitle",
+                language=self._ui_language,
+                default="Проверьте доступность Discord и YouTube, найдите подмену DNS и быстро отправьте лог в поддержку.",
+            )
+        )
+        self.hero_subtitle.setWordWrap(True)
+        hero_card.add_widget(self.hero_subtitle)
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(8)
-        self.status_badge = StatusBadge("Готово к тестированию", "info")
-        self.progress_badge = StatusBadge("Ожидает запуска", "muted")
+        self.status_badge = StatusBadge(tr_catalog("page.connection.status.ready", language=self._ui_language, default="Готово к тестированию"), "info")
+        self.progress_badge = StatusBadge(tr_catalog("page.connection.progress.waiting", language=self._ui_language, default="Ожидает запуска"), "muted")
         badges_layout.addWidget(self.status_badge)
         badges_layout.addWidget(self.progress_badge)
         badges_layout.addStretch()
@@ -147,21 +156,16 @@ class ConnectionTestPage(BasePage):
         self.container_layout.addWidget(hero_card)
 
     def _build_controls(self):
-        card = SettingsCard("Тестирование")
+        card = SettingsCard(tr_catalog("page.connection.card.testing", language=self._ui_language, default="Тестирование"))
 
         # Тип теста
         selector_row = QHBoxLayout()
         selector_row.setSpacing(12)
-        selector_row.addWidget(BodyLabel("Выбор теста:"))
+        self.test_select_label = BodyLabel(tr_catalog("page.connection.test.select", language=self._ui_language, default="Выбор теста:"))
+        selector_row.addWidget(self.test_select_label)
 
         self.test_combo = ComboBox()
-        self.test_combo.addItems(
-            [
-                "🌐 Все тесты (Discord + YouTube)",
-                "🎮 Только Discord",
-                "🎬 Только YouTube",
-            ]
-        )
+        self._refresh_test_combo_items()
         selector_row.addWidget(self.test_combo, 1)
         card.add_layout(selector_row)
 
@@ -169,16 +173,16 @@ class ConnectionTestPage(BasePage):
         buttons_row = QHBoxLayout()
         buttons_row.setSpacing(8)
 
-        self.start_btn = ActionButton("Запустить тест", "fa5s.play", accent=True)
+        self.start_btn = ActionButton(tr_catalog("page.connection.button.start", language=self._ui_language, default="Запустить тест"), "fa5s.play", accent=True)
         self.start_btn.clicked.connect(self.start_test)
         buttons_row.addWidget(self.start_btn, 1)
 
-        self.stop_btn = ActionButton("Стоп", "fa5s.stop")
+        self.stop_btn = ActionButton(tr_catalog("page.connection.button.stop", language=self._ui_language, default="Стоп"), "fa5s.stop")
         self.stop_btn.clicked.connect(self.stop_test)
         self.stop_btn.setEnabled(False)
         buttons_row.addWidget(self.stop_btn, 1)
 
-        self.send_log_btn = ActionButton("Отправить лог", "fa5s.paper-plane")
+        self.send_log_btn = ActionButton(tr_catalog("page.connection.button.send_log", language=self._ui_language, default="Отправить лог"), "fa5s.paper-plane")
         self.send_log_btn.clicked.connect(self.send_log_to_telegram)
         self.send_log_btn.setEnabled(False)
         buttons_row.addWidget(self.send_log_btn, 1)
@@ -189,7 +193,7 @@ class ConnectionTestPage(BasePage):
         status_layout = QHBoxLayout()
         status_layout.setSpacing(12)
 
-        self.status_label = CaptionLabel("Готово к тестированию")
+        self.status_label = CaptionLabel(tr_catalog("page.connection.status.ready", language=self._ui_language, default="Готово к тестированию"))
         status_layout.addWidget(self.status_label, 1)
 
         self.progress_bar = IndeterminateProgressBar()
@@ -200,7 +204,7 @@ class ConnectionTestPage(BasePage):
         self.container_layout.addWidget(card)
 
     def _build_log_viewer(self):
-        log_card = SettingsCard("Результат тестирования")
+        log_card = SettingsCard(tr_catalog("page.connection.card.result", language=self._ui_language, default="Результат тестирования"))
         self.result_text = _ScrollBlockingTextBase()
         self.result_text.setReadOnly(True)
         log_card.add_widget(self.result_text)
@@ -460,6 +464,35 @@ class ConnectionTestPage(BasePage):
     def _set_status(self, text: str, status: str = "muted"):
         self.status_label.setText(text)
         self.status_badge.set_status(text, status)
+
+    def _refresh_test_combo_items(self) -> None:
+        current = self.test_combo.currentIndex() if hasattr(self, "test_combo") else 0
+        items = [
+            tr_catalog("page.connection.test.all", language=self._ui_language, default="🌐 Все тесты (Discord + YouTube)"),
+            tr_catalog("page.connection.test.discord_only", language=self._ui_language, default="🎮 Только Discord"),
+            tr_catalog("page.connection.test.youtube_only", language=self._ui_language, default="🎬 Только YouTube"),
+        ]
+        self.test_combo.clear()
+        self.test_combo.addItems(items)
+        self.test_combo.setCurrentIndex(max(0, min(current, len(items) - 1)))
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.hero_title.setText(tr_catalog("page.connection.hero.title", language=self._ui_language, default="Диагностика сетевых соединений"))
+        self.hero_subtitle.setText(
+            tr_catalog(
+                "page.connection.hero.subtitle",
+                language=self._ui_language,
+                default="Проверьте доступность Discord и YouTube, найдите подмену DNS и быстро отправьте лог в поддержку.",
+            )
+        )
+        self.test_select_label.setText(tr_catalog("page.connection.test.select", language=self._ui_language, default="Выбор теста:"))
+        self._refresh_test_combo_items()
+
+        self.start_btn.setText(tr_catalog("page.connection.button.start", language=self._ui_language, default="Запустить тест"))
+        self.stop_btn.setText(tr_catalog("page.connection.button.stop", language=self._ui_language, default="Стоп"))
+        self.send_log_btn.setText(tr_catalog("page.connection.button.send_log", language=self._ui_language, default="Отправить лог"))
     
     def cleanup(self):
         """Очистка потоков при закрытии"""

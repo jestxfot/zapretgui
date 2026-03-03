@@ -30,6 +30,7 @@ from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from .strategies_page_base import ResetActionButton
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 def split_domains(text: str) -> list[str]:
@@ -105,9 +106,11 @@ class CustomDomainsPage(BasePage):
     
     def __init__(self, parent=None):
         super().__init__(
-            "Кастомные (мои) домены (hostlist) для работы с Zapret", 
-            "Управление доменами (other.txt). Субдомены учитываются автоматически. Строчка rkn.ru учитывает и сайт fuckyou.rkn.ru и сайт ass.rkn.ru. Чтобы исключить субдомены напишите домен с символов ^ в начале, то есть например так ^rkn.ru", 
-            parent
+            "Кастомные (мои) домены (hostlist) для работы с Zapret",
+            "Управление доменами (other.txt). Субдомены учитываются автоматически. Строчка rkn.ru учитывает и сайт fuckyou.rkn.ru и сайт ass.rkn.ru. Чтобы исключить субдомены напишите домен с символов ^ в начале, то есть например так ^rkn.ru",
+            parent,
+            title_key="page.custom_domains.title",
+            subtitle_key="page.custom_domains.subtitle",
         )
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme_styles())
@@ -115,6 +118,9 @@ class CustomDomainsPage(BasePage):
 
         self._build_ui()
         QTimer.singleShot(100, self._load_domains)
+
+    def _tr(self, key: str, default: str) -> str:
+        return tr_catalog(key, language=self._ui_language, default=default)
         
     def _build_ui(self):
         """Строит UI страницы"""
@@ -122,91 +128,105 @@ class CustomDomainsPage(BasePage):
         
         # Описание
         desc_card = SettingsCard()
-        desc = BodyLabel(
-            "Здесь редактируется файл other.user.txt (только ваши домены). "
-            "Системная база берётся из шаблона и отдельно хранится в other.base.txt, "
-            "а общий other.txt собирается автоматически. URL автоматически преобразуются в домены. "
-            "Изменения сохраняются автоматически. Поддерживается Ctrl+Z."
+        self._desc_label = BodyLabel(
+            self._tr(
+                "page.custom_domains.description",
+                "Здесь редактируется файл other.user.txt (только ваши домены). Системная база берётся из шаблона и отдельно хранится в other.base.txt, а общий other.txt собирается автоматически. URL автоматически преобразуются в домены. Изменения сохраняются автоматически. Поддерживается Ctrl+Z.",
+            )
         )
         try:
-            desc.setProperty("tone", "muted")
+            self._desc_label.setProperty("tone", "muted")
         except Exception:
             pass
-        desc.setWordWrap(True)
-        desc_card.add_widget(desc)
+        self._desc_label.setWordWrap(True)
+        desc_card.add_widget(self._desc_label)
         self.layout.addWidget(desc_card)
         
         # Добавление домена
-        add_card = SettingsCard("Добавить домен")
+        self._add_card = SettingsCard(self._tr("page.custom_domains.card.add", "Добавить домен"))
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
         
         self.domain_input = LineEdit()
-        self.domain_input.setPlaceholderText("Введите домен или URL (например: example.com или https://site.com/page)")
+        self.domain_input.setPlaceholderText(
+            self._tr(
+                "page.custom_domains.input.placeholder",
+                "Введите домен или URL (например: example.com или https://site.com/page)",
+            )
+        )
         self.domain_input.returnPressed.connect(self._add_domain)
         add_layout.addWidget(self.domain_input, 1)
-        
-        self.add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+
+        self.add_btn = ActionButton(self._tr("page.custom_domains.button.add", "Добавить"), "fa5s.plus", accent=True)
         self.add_btn.setFixedHeight(38)
         self.add_btn.clicked.connect(self._add_domain)
         add_layout.addWidget(self.add_btn)
         
-        add_card.add_layout(add_layout)
-        self.layout.addWidget(add_card)
+        self._add_card.add_layout(add_layout)
+        self.layout.addWidget(self._add_card)
         
         # Действия
-        actions_card = SettingsCard("Действия")
+        self._actions_card = SettingsCard(self._tr("page.custom_domains.card.actions", "Действия"))
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
         
         # Открыть файл
-        self.open_file_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        self.open_file_btn = ActionButton(self._tr("page.custom_domains.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
         self.open_file_btn.setFixedHeight(36)
-        set_tooltip(self.open_file_btn, "Сохраняет изменения и открывает other.user.txt в проводнике")
+        set_tooltip(
+            self.open_file_btn,
+            self._tr("page.custom_domains.tooltip.open_file", "Сохраняет изменения и открывает other.user.txt в проводнике"),
+        )
         self.open_file_btn.clicked.connect(self._open_file)
         actions_layout.addWidget(self.open_file_btn)
 
         # Сбросить файл
         self.reset_btn = ResetActionButton(
-            "Сбросить файл",
-            confirm_text="Подтвердить сброс",
+            self._tr("page.custom_domains.button.reset_file", "Сбросить файл"),
+            confirm_text=self._tr("page.custom_domains.confirm.reset_file", "Подтвердить сброс"),
         )
         self.reset_btn.setFixedHeight(36)
         set_tooltip(
             self.reset_btn,
-            "Очищает other.user.txt (мои домены) и пересобирает other.txt из системной базы"
+            self._tr(
+                "page.custom_domains.tooltip.reset_file",
+                "Очищает other.user.txt (мои домены) и пересобирает other.txt из системной базы",
+            ),
         )
         self.reset_btn.reset_confirmed.connect(self._reset_file)
         actions_layout.addWidget(self.reset_btn)
 
         # Очистить всё
         self.clear_btn = ResetActionButton(
-            "Очистить всё",
-            confirm_text="Подтвердить очистку",
+            self._tr("page.custom_domains.button.clear_all", "Очистить всё"),
+            confirm_text=self._tr("page.custom_domains.confirm.clear_all", "Подтвердить очистку"),
         )
         self.clear_btn.setFixedHeight(36)
         set_tooltip(
             self.clear_btn,
-            "Удаляет только пользовательские домены. Базовые домены из шаблона останутся"
+            self._tr(
+                "page.custom_domains.tooltip.clear_all",
+                "Удаляет только пользовательские домены. Базовые домены из шаблона останутся",
+            ),
         )
         self.clear_btn.reset_confirmed.connect(self._clear_all)
         actions_layout.addWidget(self.clear_btn)
         
         actions_layout.addStretch()
-        actions_card.add_layout(actions_layout)
-        self.layout.addWidget(actions_card)
+        self._actions_card.add_layout(actions_layout)
+        self.layout.addWidget(self._actions_card)
         
         # Текстовый редактор (вместо списка)
-        editor_card = SettingsCard("other.user.txt (редактор)")
+        self._editor_card = SettingsCard(self._tr("page.custom_domains.card.editor", "other.user.txt (редактор)"))
         editor_layout = QVBoxLayout()
         editor_layout.setSpacing(8)
         
         self.text_edit = ScrollBlockingPlainTextEdit()
         self.text_edit.setPlaceholderText(
-            "Домены по одному на строку:\n"
-            "example.com\n"
-            "subdomain.site.org\n\n"
-            "Комментарии начинаются с #"
+            self._tr(
+                "page.custom_domains.editor.placeholder",
+                "Домены по одному на строку:\nexample.com\nsubdomain.site.org\n\nКомментарии начинаются с #",
+            )
         )
         self.text_edit.setStyleSheet(
             f"""
@@ -239,15 +259,17 @@ class CustomDomainsPage(BasePage):
         editor_layout.addWidget(self.text_edit)
         
         # Подсказка
-        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        self._hint_label = CaptionLabel(
+            self._tr("page.custom_domains.hint.autosave", "Изменения сохраняются автоматически через 500мс")
+        )
         try:
-            hint.setProperty("tone", "faint")
+            self._hint_label.setProperty("tone", "faint")
         except Exception:
             pass
-        editor_layout.addWidget(hint)
+        editor_layout.addWidget(self._hint_label)
         
-        editor_card.add_layout(editor_layout)
-        self.layout.addWidget(editor_card)
+        self._editor_card.add_layout(editor_layout)
+        self.layout.addWidget(self._editor_card)
         
         # Статистика
         self.status_label = CaptionLabel()
@@ -312,10 +334,12 @@ class CustomDomainsPage(BasePage):
             
             self._update_status()
             log(f"Загружено {len(domains)} строк из other.user.txt", "INFO")
-            
+
         except Exception as e:
             log(f"Ошибка загрузки доменов: {e}", "ERROR")
-            self.status_label.setText(f"❌ Ошибка: {e}")
+            self.status_label.setText(
+                self._tr("page.custom_domains.status.error", "❌ Ошибка: {error}").format(error=e)
+            )
             
     def _on_text_changed(self):
         """Запускает таймер автосохранения"""
@@ -325,7 +349,10 @@ class CustomDomainsPage(BasePage):
     def _auto_save(self):
         """Автосохранение"""
         self._save_domains()
-        self.status_label.setText(self.status_label.text() + " • ✅ Сохранено")
+        self.status_label.setText(
+            self.status_label.text()
+            + self._tr("page.custom_domains.status.suffix.saved", " • ✅ Сохранено")
+        )
         
     def _save_domains(self):
         """Сохраняет домены в файл"""
@@ -411,7 +438,10 @@ class CustomDomainsPage(BasePage):
         base_count = len(base_set)
         total_count = len(base_set.union(user_set))
         self.status_label.setText(
-            f"📊 Доменов: {total_count} (база: {base_count}, пользовательские: {user_count})"
+            self._tr(
+                "page.custom_domains.status.stats",
+                "📊 Доменов: {total} (база: {base}, пользовательские: {user})",
+            ).format(total=total_count, base=base_count, user=user_count)
         )
 
     def _get_base_domains_set(self) -> set[str]:
@@ -485,8 +515,11 @@ class CustomDomainsPage(BasePage):
         if not domain:
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content=f"Не удалось распознать домен:\n{text}\n\nВведите корректный домен (например: example.com)",
+                    title=self._tr("page.custom_domains.infobar.error", "Ошибка"),
+                    content=self._tr(
+                        "page.custom_domains.infobar.invalid_domain",
+                        "Не удалось распознать домен:\n{value}\n\nВведите корректный домен (например: example.com)",
+                    ).format(value=text),
                     parent=self.window(),
                 )
             return
@@ -497,7 +530,13 @@ class CustomDomainsPage(BasePage):
 
         if domain.lower() in current_domains:
             if InfoBar:
-                InfoBar.info(title="Информация", content=f"Домен уже добавлен:\n{domain}", parent=self.window())
+                InfoBar.info(
+                    title=self._tr("page.custom_domains.infobar.info", "Информация"),
+                    content=self._tr("page.custom_domains.infobar.duplicate", "Домен уже добавлен:\n{domain}").format(
+                        domain=domain
+                    ),
+                    parent=self.window(),
+                )
             return
         
         # Добавляем в конец
@@ -523,14 +562,30 @@ class CustomDomainsPage(BasePage):
 
             if reset_other_file_from_template():
                 self._load_domains()
-                self.status_label.setText(self.status_label.text() + " • ✅ Сброшено")
+                self.status_label.setText(
+                    self.status_label.text()
+                    + self._tr("page.custom_domains.status.suffix.reset", " • ✅ Сброшено")
+                )
             else:
                 if InfoBar:
-                    InfoBar.warning(title="Ошибка", content="Не удалось сбросить my hostlist", parent=self.window())
+                    InfoBar.warning(
+                        title=self._tr("page.custom_domains.infobar.error", "Ошибка"),
+                        content=self._tr(
+                            "page.custom_domains.infobar.reset_failed",
+                            "Не удалось сбросить my hostlist",
+                        ),
+                        parent=self.window(),
+                    )
         except Exception as e:
             log(f"Ошибка сброса my hostlist: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось сбросить:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.custom_domains.infobar.error", "Ошибка"),
+                    content=self._tr("page.custom_domains.infobar.reset_failed_error", "Не удалось сбросить:\n{error}").format(
+                        error=e
+                    ),
+                    parent=self.window(),
+                )
                 
     def _open_file(self):
         """Открывает файл в проводнике"""
@@ -554,4 +609,69 @@ class CustomDomainsPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия файла: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.custom_domains.infobar.error", "Ошибка"),
+                    content=self._tr("page.custom_domains.infobar.open_failed", "Не удалось открыть:\n{error}").format(
+                        error=e
+                    ),
+                    parent=self.window(),
+                )
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self._desc_label.setText(
+            self._tr(
+                "page.custom_domains.description",
+                "Здесь редактируется файл other.user.txt (только ваши домены). Системная база берётся из шаблона и отдельно хранится в other.base.txt, а общий other.txt собирается автоматически. URL автоматически преобразуются в домены. Изменения сохраняются автоматически. Поддерживается Ctrl+Z.",
+            )
+        )
+        self._add_card.set_title(self._tr("page.custom_domains.card.add", "Добавить домен"))
+        self._actions_card.set_title(self._tr("page.custom_domains.card.actions", "Действия"))
+        self._editor_card.set_title(self._tr("page.custom_domains.card.editor", "other.user.txt (редактор)"))
+
+        self.domain_input.setPlaceholderText(
+            self._tr(
+                "page.custom_domains.input.placeholder",
+                "Введите домен или URL (например: example.com или https://site.com/page)",
+            )
+        )
+        self.add_btn.setText(self._tr("page.custom_domains.button.add", "Добавить"))
+        self.open_file_btn.setText(self._tr("page.custom_domains.button.open_file", "Открыть файл"))
+
+        self.reset_btn._default_text = self._tr("page.custom_domains.button.reset_file", "Сбросить файл")
+        self.reset_btn._confirm_text = self._tr("page.custom_domains.confirm.reset_file", "Подтвердить сброс")
+        self.reset_btn.setText(self.reset_btn._default_text)
+
+        self.clear_btn._default_text = self._tr("page.custom_domains.button.clear_all", "Очистить всё")
+        self.clear_btn._confirm_text = self._tr("page.custom_domains.confirm.clear_all", "Подтвердить очистку")
+        self.clear_btn.setText(self.clear_btn._default_text)
+
+        set_tooltip(
+            self.open_file_btn,
+            self._tr("page.custom_domains.tooltip.open_file", "Сохраняет изменения и открывает other.user.txt в проводнике"),
+        )
+        set_tooltip(
+            self.reset_btn,
+            self._tr(
+                "page.custom_domains.tooltip.reset_file",
+                "Очищает other.user.txt (мои домены) и пересобирает other.txt из системной базы",
+            ),
+        )
+        set_tooltip(
+            self.clear_btn,
+            self._tr(
+                "page.custom_domains.tooltip.clear_all",
+                "Удаляет только пользовательские домены. Базовые домены из шаблона останутся",
+            ),
+        )
+
+        self.text_edit.setPlaceholderText(
+            self._tr(
+                "page.custom_domains.editor.placeholder",
+                "Домены по одному на строку:\nexample.com\nsubdomain.site.org\n\nКомментарии начинаются с #",
+            )
+        )
+        self._hint_label.setText(self._tr("page.custom_domains.hint.autosave", "Изменения сохраняются автоматически через 500мс"))
+
+        self._update_status()

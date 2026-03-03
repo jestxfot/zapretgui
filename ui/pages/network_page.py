@@ -31,6 +31,7 @@ from .dpi_settings_page import Win11ToggleRow
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 from dns import DNS_PROVIDERS, DNSForceManager
 
@@ -324,7 +325,13 @@ class NetworkPage(BasePage):
     test_completed = pyqtSignal(list)  # Результаты теста соединения
     
     def __init__(self, parent=None):
-        super().__init__("Сеть", "Настройки DNS и доступа к сервисам", parent)
+        super().__init__(
+            "Сеть",
+            "Настройки DNS и доступа к сервисам",
+            parent,
+            title_key="page.network.title",
+            subtitle_key="page.network.subtitle",
+        )
         
         self._dns_manager = None
         self._adapters = []
@@ -334,10 +341,33 @@ class NetworkPage(BasePage):
         self._ui_built = False  # Флаг чтобы UI строился только один раз
         self._force_dns_active = False
         self._ipv6_available = False
+        self._test_in_progress = False
+        self._force_dns_status_enabled = False
+        self._force_dns_status_details_key: str | None = None
+        self._force_dns_status_details_kwargs: dict = {}
+        self._force_dns_status_details_fallback = ""
         
         self.dns_cards = {}
         self.adapter_cards = []
         self._page_initialized = False
+
+    def _tr(self, key: str, default: str) -> str:
+        return tr_catalog(key, language=self._ui_language, default=default)
+
+    def _set_reset_button_texts(
+        self,
+        button,
+        text_key: str,
+        text_default: str,
+        confirm_key: str,
+        confirm_default: str,
+    ) -> None:
+        try:
+            button._default_text = self._tr(text_key, text_default)
+            button._confirm_text = self._tr(confirm_key, confirm_default)
+            button.setText(button._default_text)
+        except Exception:
+            pass
 
     def showEvent(self, event):  # noqa: N802 (Qt override)
         super().showEvent(event)
@@ -347,6 +377,67 @@ class NetworkPage(BasePage):
             self._page_initialized = True
             self._build_ui()
             self._start_loading()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if hasattr(self, "loading_label"):
+            self.loading_label.setText(self._tr("page.network.loading", "⏳ Загрузка..."))
+
+        if hasattr(self, "custom_label"):
+            self.custom_label.setText(self._tr("page.network.custom.label", "Свой:"))
+        if hasattr(self, "custom_apply_btn"):
+            self.custom_apply_btn.setText(self._tr("page.network.custom.apply", "OK"))
+
+        if hasattr(self, "test_btn"):
+            if self._test_in_progress:
+                self.test_btn.setText(self._tr("page.network.button.test.in_progress", "Проверка..."))
+            else:
+                self.test_btn.setText(self._tr("page.network.button.test", "Тест соединения"))
+
+        if hasattr(self, "dns_flush_btn"):
+            self._set_reset_button_texts(
+                self.dns_flush_btn,
+                "page.network.button.flush_dns_cache",
+                "Сбросить DNS кэш",
+                "page.network.button.flush_dns_cache.confirm",
+                "Сбросить?",
+            )
+
+        if hasattr(self, "auto_label"):
+            self.auto_label.setText(self._tr("page.network.dns.auto", "Автоматически (DHCP)"))
+
+        if hasattr(self, "force_dns_card"):
+            self.force_dns_card.set_title(
+                self._tr(
+                    "page.network.force_dns.card.title",
+                    "Принудительно прописывает Google DNS для обхода блокировок",
+                )
+            )
+        if hasattr(self, "force_dns_toggle"):
+            self.force_dns_toggle.set_texts(
+                self._tr("page.network.force_dns.toggle.title", "Принудительный DNS"),
+                self._tr(
+                    "page.network.force_dns.toggle.description",
+                    "Устанавливает Google DNS на активные адаптеры",
+                ),
+            )
+        if hasattr(self, "force_dns_reset_dhcp_btn"):
+            self._set_reset_button_texts(
+                self.force_dns_reset_dhcp_btn,
+                "page.network.force_dns.reset.button",
+                "Сбросить DNS на DHCP",
+                "page.network.force_dns.reset.confirm",
+                "Отключить Force DNS и сбросить DNS на DHCP для всех адаптеров?",
+            )
+
+        if hasattr(self, "force_dns_status_label"):
+            self._update_force_dns_status(
+                self._force_dns_status_enabled,
+                self._force_dns_status_details_key,
+                details_kwargs=self._force_dns_status_details_kwargs,
+                details_fallback=self._force_dns_status_details_fallback,
+            )
         
     def _build_ui(self):
         """Строит интерфейс страницы"""
@@ -362,7 +453,7 @@ class NetworkPage(BasePage):
         # ═══════════════════════════════════════════════════════════════
         # DNS СЕРВЕРЫ
         # ═══════════════════════════════════════════════════════════════
-        self.add_section_title("DNS Серверы")
+        self.add_section_title(text_key="page.network.section.dns_servers")
         
         # Индикатор загрузки
         self.loading_card = SettingsCard()
@@ -370,9 +461,9 @@ class NetworkPage(BasePage):
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         if _HAS_FLUENT_LABELS:
-            self.loading_label = BodyLabel("⏳ Загрузка...")
+            self.loading_label = BodyLabel(self._tr("page.network.loading", "⏳ Загрузка..."))
         else:
-            self.loading_label = QLabel("⏳ Загрузка...")
+            self.loading_label = QLabel(self._tr("page.network.loading", "⏳ Загрузка..."))
             self.loading_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         loading_layout.addWidget(self.loading_label)
@@ -415,11 +506,11 @@ class NetworkPage(BasePage):
         custom_layout.addWidget(self.custom_indicator)
         
         if _HAS_FLUENT_LABELS:
-            custom_label = BodyLabel("Свой:")
+            self.custom_label = BodyLabel(self._tr("page.network.custom.label", "Свой:"))
         else:
-            custom_label = QLabel("Свой:")
-            custom_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
-        custom_layout.addWidget(custom_label)
+            self.custom_label = QLabel(self._tr("page.network.custom.label", "Свой:"))
+            self.custom_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        custom_layout.addWidget(self.custom_label)
         
         self.custom_primary = LineEdit()
         self.custom_primary.setPlaceholderText("8.8.8.8")
@@ -433,7 +524,7 @@ class NetworkPage(BasePage):
         self.custom_secondary.returnPressed.connect(self._apply_custom_dns_quick)
         custom_layout.addWidget(self.custom_secondary)
         
-        self.custom_apply_btn = ActionButton("OK", "fa5s.check")
+        self.custom_apply_btn = ActionButton(self._tr("page.network.custom.apply", "OK"), "fa5s.check")
         self.custom_apply_btn.setFixedSize(70, 26)
         self.custom_apply_btn.clicked.connect(self._apply_custom_dns_quick)
         custom_layout.addWidget(self.custom_apply_btn)
@@ -449,7 +540,7 @@ class NetworkPage(BasePage):
         # ═══════════════════════════════════════════════════════════════
         # СЕТЕВЫЕ АДАПТЕРЫ
         # ═══════════════════════════════════════════════════════════════
-        self.add_section_title("Сетевые адаптеры")
+        self.add_section_title(text_key="page.network.section.adapters")
         
         # Контейнер для адаптеров
         self.adapters_container = QWidget()
@@ -464,19 +555,22 @@ class NetworkPage(BasePage):
         # ═══════════════════════════════════════════════════════════════
         # ДИАГНОСТИКА
         # ═══════════════════════════════════════════════════════════════
-        self.add_section_title("Утилиты")
+        self.add_section_title(text_key="page.network.section.tools")
         
         tools_card = SettingsCard()
         tools_layout = QHBoxLayout()
         tools_layout.setContentsMargins(10, 8, 12, 8)
         tools_layout.setSpacing(8)
         
-        self.test_btn = ActionButton("Тест соединения", "fa5s.wifi")
+        self.test_btn = ActionButton(self._tr("page.network.button.test", "Тест соединения"), "fa5s.wifi")
         self.test_btn.setFixedHeight(28)
         self.test_btn.clicked.connect(self._test_connection)
         tools_layout.addWidget(self.test_btn)
         
-        self.dns_flush_btn = ResetActionButton("Сбросить DNS кэш", confirm_text="Сбросить?")
+        self.dns_flush_btn = ResetActionButton(
+            self._tr("page.network.button.flush_dns_cache", "Сбросить DNS кэш"),
+            confirm_text=self._tr("page.network.button.flush_dns_cache.confirm", "Сбросить?"),
+        )
         self.dns_flush_btn.setFixedHeight(28)
         self.dns_flush_btn.reset_confirmed.connect(self._flush_dns_cache)
         tools_layout.addWidget(self.dns_flush_btn)
@@ -589,11 +683,11 @@ class NetworkPage(BasePage):
         auto_layout.addWidget(auto_icon)
         
         if _HAS_FLUENT_LABELS:
-            auto_label = StrongBodyLabel("Автоматически (DHCP)")
+            self.auto_label = StrongBodyLabel(self._tr("page.network.dns.auto", "Автоматически (DHCP)"))
         else:
-            auto_label = QLabel("Автоматически (DHCP)")
-            auto_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
-        auto_layout.addWidget(auto_label)
+            self.auto_label = QLabel(self._tr("page.network.dns.auto", "Автоматически (DHCP)"))
+            self.auto_label.setStyleSheet(f"color: {tokens.fg}; font-size: 12px; font-weight: 500;")
+        auto_layout.addWidget(self.auto_label)
         
         auto_layout.addStretch()
         
@@ -919,18 +1013,26 @@ class NetworkPage(BasePage):
         self._force_dns_active = manager.is_force_dns_enabled()
         
         # Секция DNS
-        self.add_section_title("DNS")
+        self.add_section_title(text_key="page.network.section.force_dns")
         
         # Карточка
-        self.force_dns_card = SettingsCard("Принудительно прописывает Google DNS для обхода блокировок")
+        self.force_dns_card = SettingsCard(
+            self._tr(
+                "page.network.force_dns.card.title",
+                "Принудительно прописывает Google DNS для обхода блокировок",
+            )
+        )
         dns_layout = QVBoxLayout()
         dns_layout.setSpacing(8)
         
         # Toggle row в стиле Win11
         self.force_dns_toggle = Win11ToggleRow(
             "fa5s.shield-alt",
-            "Принудительный DNS",
-            "Устанавливает Google DNS на активные адаптеры",
+            self._tr("page.network.force_dns.toggle.title", "Принудительный DNS"),
+            self._tr(
+                "page.network.force_dns.toggle.description",
+                "Устанавливает Google DNS на активные адаптеры",
+            ),
             tokens.accent_hex
         )
         self.force_dns_toggle.setChecked(self._force_dns_active)
@@ -946,8 +1048,11 @@ class NetworkPage(BasePage):
         dns_layout.addWidget(self.force_dns_status_label)
 
         self.force_dns_reset_dhcp_btn = ResetActionButton(
-            "Сбросить DNS на DHCP",
-            confirm_text="Отключить Force DNS и сбросить DNS на DHCP для всех адаптеров?"
+            self._tr("page.network.force_dns.reset.button", "Сбросить DNS на DHCP"),
+            confirm_text=self._tr(
+                "page.network.force_dns.reset.confirm",
+                "Отключить Force DNS и сбросить DNS на DHCP для всех адаптеров?",
+            ),
         )
         self.force_dns_reset_dhcp_btn.setFixedHeight(30)
         self.force_dns_reset_dhcp_btn.reset_confirmed.connect(self._reset_dns_to_dhcp)
@@ -978,20 +1083,34 @@ class NetworkPage(BasePage):
                 
                 if success:
                     self._force_dns_active = True
-                    self._update_force_dns_status(True, f"{ok_count}/{total} адаптеров")
+                    self._update_force_dns_status(
+                        True,
+                        "page.network.force_dns.status.details.adapters_applied",
+                        details_kwargs={"ok_count": ok_count, "total": total},
+                        details_fallback=f"{ok_count}/{total} адаптеров",
+                    )
                 else:
                     self._set_force_dns_toggle(False)
-                    self._update_force_dns_status(False, "Не удалось включить")
+                    self._update_force_dns_status(
+                        False,
+                        "page.network.force_dns.status.details.enable_failed",
+                    )
             else:
                 success, message = manager.disable_force_dns(reset_to_auto=False)
                 log(message, "DNS")
 
                 if success:
                     self._force_dns_active = False
-                    self._update_force_dns_status(False, "Текущий DNS сохранен")
+                    self._update_force_dns_status(
+                        False,
+                        "page.network.force_dns.status.details.dns_saved",
+                    )
                 else:
                     self._set_force_dns_toggle(True)
-                    self._update_force_dns_status(True, "Не удалось отключить")
+                    self._update_force_dns_status(
+                        True,
+                        "page.network.force_dns.status.details.disable_failed",
+                    )
             
             self._update_dns_selection_state()
             self._refresh_adapters_dns()
@@ -999,7 +1118,10 @@ class NetworkPage(BasePage):
         except Exception as e:
             log(f"Ошибка переключения Force DNS: {e}", "ERROR")
             self._set_force_dns_toggle(not enabled)
-            self._update_force_dns_status(not enabled, "Ошибка применения")
+            self._update_force_dns_status(
+                not enabled,
+                "page.network.force_dns.status.details.apply_error",
+            )
     
     def _set_force_dns_toggle(self, checked: bool):
         """Устанавливает состояние переключателя без триггера сигналов"""
@@ -1007,14 +1129,41 @@ class NetworkPage(BasePage):
         self.force_dns_toggle.setChecked(checked)
         self.force_dns_toggle.toggle.blockSignals(False)
     
-    def _update_force_dns_status(self, enabled: bool, details: str = ""):
+    def _update_force_dns_status(
+        self,
+        enabled: bool,
+        details_key: str | None = None,
+        *,
+        details_kwargs: dict | None = None,
+        details_fallback: str = "",
+    ):
         """Обновляет текст статуса для принудительного DNS"""
         if not hasattr(self, "force_dns_status_label"):
             return
+
+        self._force_dns_status_enabled = bool(enabled)
+        self._force_dns_status_details_key = details_key
+        self._force_dns_status_details_kwargs = dict(details_kwargs or {})
+        self._force_dns_status_details_fallback = details_fallback or ""
         
-        status = "Принудительный DNS включен" if enabled else "Принудительный DNS отключен"
-        if details:
-            status = f"{status} ({details})"
+        status = (
+            self._tr("page.network.force_dns.status.enabled", "Принудительный DNS включен")
+            if enabled
+            else self._tr("page.network.force_dns.status.disabled", "Принудительный DNS отключен")
+        )
+
+        details_text = ""
+        if details_key:
+            details_default = details_fallback or ""
+            try:
+                details_text = self._tr(details_key, details_default).format(**(details_kwargs or {}))
+            except Exception:
+                details_text = self._tr(details_key, details_default)
+        elif details_fallback:
+            details_text = details_fallback
+
+        if details_text:
+            status = f"{status} ({details_text})"
         self.force_dns_status_label.setText(status)
     
     def _update_dns_selection_state(self):
@@ -1070,7 +1219,14 @@ class NetworkPage(BasePage):
             manager.flush_dns_cache()
         except Exception as e:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось очистить кэш: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.network.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.network.error.flush_cache_failed",
+                        "Не удалось очистить кэш: {error}",
+                    ).format(error=e),
+                    parent=self.window(),
+                )
 
     def _reset_dns_to_dhcp(self):
         """Явно сбрасывает DNS на DHCP и отключает Force DNS"""
@@ -1093,9 +1249,15 @@ class NetworkPage(BasePage):
                 self._selected_provider = None
 
             if success:
-                self._update_force_dns_status(False, "DNS сброшен на DHCP")
+                self._update_force_dns_status(
+                    False,
+                    "page.network.force_dns.status.details.dhcp_reset",
+                )
             else:
-                self._update_force_dns_status(False, "Force DNS отключен, DHCP не применён")
+                self._update_force_dns_status(
+                    False,
+                    "page.network.force_dns.status.details.dhcp_not_applied",
+                )
 
             self._update_dns_selection_state()
             self._refresh_adapters_dns()
@@ -1103,24 +1265,39 @@ class NetworkPage(BasePage):
             if InfoBar:
                 if success:
                     InfoBar.success(
-                        title="DNS",
-                        content="DNS сброшен на DHCP для всех адаптеров",
+                        title=self._tr("page.network.info.title", "DNS"),
+                        content=self._tr(
+                            "page.network.info.dhcp_reset_all",
+                            "DNS сброшен на DHCP для всех адаптеров",
+                        ),
                         parent=self.window(),
                     )
                 else:
-                    InfoBar.warning(title="DNS", content=message, parent=self.window())
+                    InfoBar.warning(
+                        title=self._tr("page.network.info.title", "DNS"),
+                        content=message,
+                        parent=self.window(),
+                    )
 
         except Exception as e:
             log(f"Ошибка сброса DNS на DHCP: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось сбросить DNS: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.network.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.network.error.reset_dhcp_failed",
+                        "Не удалось сбросить DNS: {error}",
+                    ).format(error=e),
+                    parent=self.window(),
+                )
 
     def _test_connection(self):
         """Тестирует соединение с интернетом"""
         import subprocess
 
+        self._test_in_progress = True
         self.test_btn.setEnabled(False)
-        self.test_btn.setText("Проверка...")
+        self.test_btn.setText(self._tr("page.network.button.test.in_progress", "Проверка..."))
 
         # Подключаем сигнал (однократно)
         try:
@@ -1132,8 +1309,8 @@ class NetworkPage(BasePage):
         def run_test():
             results = []
             test_hosts = [
-                ("Google DNS", "8.8.8.8"),
-                ("Cloudflare DNS", "1.1.1.1"),
+                (self._tr("page.network.test.host.google_dns", "Google DNS"), "8.8.8.8"),
+                (self._tr("page.network.test.host.cloudflare_dns", "Cloudflare DNS"), "1.1.1.1"),
                 ("google.com", "google.com"),
                 ("youtube.com", "youtube.com"),
             ]
@@ -1163,8 +1340,9 @@ class NetworkPage(BasePage):
 
     def _on_test_complete(self, results: list):
         """Вызывается из главного потока после завершения теста"""
+        self._test_in_progress = False
         self.test_btn.setEnabled(True)
-        self.test_btn.setText("Тест соединения")
+        self.test_btn.setText(self._tr("page.network.button.test", "Тест соединения"))
 
         # Формируем отчёт
         report_lines = []
@@ -1179,8 +1357,22 @@ class NetworkPage(BasePage):
 
         if all_ok:
             if InfoBar:
-                InfoBar.success(title="Тест соединения", content=f"Все проверки пройдены:\n\n{report}", parent=self.window())
+                InfoBar.success(
+                    title=self._tr("page.network.test.infobar.title", "Тест соединения"),
+                    content=self._tr(
+                        "page.network.test.infobar.all_ok",
+                        "Все проверки пройдены:\n\n{report}",
+                    ).format(report=report),
+                    parent=self.window(),
+                )
         else:
             if InfoBar:
-                InfoBar.warning(title="Тест соединения", content=f"Некоторые проверки не пройдены:\n\n{report}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.network.test.infobar.title", "Тест соединения"),
+                    content=self._tr(
+                        "page.network.test.infobar.partial",
+                        "Некоторые проверки не пройдены:\n\n{report}",
+                    ).format(report=report),
+                    parent=self.window(),
+                )
     

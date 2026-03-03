@@ -25,6 +25,15 @@ from .network_hints import maybe_log_disable_dpi_for_update
 
 TIMEOUT = 15  # Увеличен с 10 до 15 сек для медленных соединений
 
+# Автопереключение на другой источник, если текущий сервер слишком медленный.
+# Порог достаточно консервативный, чтобы не ломать нормальные медленные сети,
+# но уходить с явно «зажатых» зеркал.
+SLOW_MIRROR_THRESHOLD_MBPS = 0.35
+SLOW_MIRROR_GRACE_SECONDS = 15.0
+SLOW_MIRROR_WINDOW_SECONDS = 4.0
+SLOW_MIRROR_MAX_SECONDS = 18.0
+SLOW_MIRROR_MIN_BYTES = 8 * 1024 * 1024
+
 # ──────────────────────────── Запуск установщика с UAC ─────────────────────────
 # ВАЖНО ДЛЯ БУДУЩИХ РАЗРАБОТЧИКОВ:
 # НЕ ИСПОЛЬЗОВАТЬ ctypes.windll.shell32.ShellExecuteW с "runas"!
@@ -108,8 +117,9 @@ def _safe_set_status(parent, msg: str):
     else:
         print(msg)
 
-def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], None] | None, 
-                         verify_ssl: bool = True, max_retries: int = 2):
+def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], None] | None,
+                         verify_ssl: bool = True, max_retries: int = 2,
+                         enable_slow_mirror_switch: bool = True):
     """
     ОПТИМИЗИРОВАННОЕ скачивание с защитой от повторных загрузок
     """
@@ -173,9 +183,10 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             chunk_size = 2097152  # 2MB
             timeout = (10, 90)
             
-            # ✅ Resume ТОЛЬКО со второй попытки
+            # ✅ Resume для любой попытки, если уже есть значимый partial-файл.
+            # Это позволяет переключаться на более быстрые зеркала без потери прогресса.
             resume_from = 0
-            if os.path.exists(dest) and attempt > 0:
+            if os.path.exists(dest):
                 resume_from = os.path.getsize(dest)
                 if resume_from > 1048576:  # > 1MB
                     log(f"📥 Возобновление с {resume_from/1024/1024:.1f} МБ", "🔄 DOWNLOAD")
@@ -208,18 +219,54 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
                 
                 with open(dest, mode, buffering=4194304) as fp:
                     start_time = time()
+                    slow_window_started = start_time
+                    slow_window_bytes = 0
+                    slow_seconds_accum = 0.0
+                    last_slow_log_time = 0.0
                     
                     try:
                         for chunk in resp.iter_content(chunk_size=chunk_size):
                             if chunk:
                                 fp.write(chunk)
                                 done += len(chunk)
+                                slow_window_bytes += len(chunk)
                                 
                                 current_time = time()
                                 if on_progress and total:
                                     if (current_time - last_update_time) >= update_interval:
                                         on_progress(done, total)
                                         last_update_time = current_time
+
+                                if enable_slow_mirror_switch:
+                                    window_elapsed = current_time - slow_window_started
+                                    if window_elapsed >= SLOW_MIRROR_WINDOW_SECONDS:
+                                        window_speed_bps = slow_window_bytes / max(window_elapsed, 1e-6)
+                                        downloaded_now = done - resume_from
+                                        remaining = (total - done) if total > 0 else None
+                                        too_slow = window_speed_bps < (SLOW_MIRROR_THRESHOLD_MBPS * 1024 * 1024)
+                                        enough_data = downloaded_now >= SLOW_MIRROR_MIN_BYTES
+                                        after_grace = (current_time - start_time) >= SLOW_MIRROR_GRACE_SECONDS
+                                        not_finishing = (remaining is None) or (remaining > (8 * 1024 * 1024))
+
+                                        if too_slow and enough_data and after_grace and not_finishing:
+                                            slow_seconds_accum += window_elapsed
+                                            if (current_time - last_slow_log_time) >= 6.0:
+                                                log(
+                                                    f"🐢 Низкая скорость {window_speed_bps / 1024 / 1024:.2f} MB/s, "
+                                                    f"возможен переход на другое зеркало",
+                                                    "🔄 DOWNLOAD",
+                                                )
+                                                last_slow_log_time = current_time
+                                        else:
+                                            slow_seconds_accum = 0.0
+
+                                        if slow_seconds_accum >= SLOW_MIRROR_MAX_SECONDS:
+                                            raise requests.exceptions.ConnectionError(
+                                                "Slow download: mirror is too slow, switching source"
+                                            )
+
+                                        slow_window_started = current_time
+                                        slow_window_bytes = 0
                         
                         if on_progress and total:
                             on_progress(total, total)
@@ -249,8 +296,17 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             log(f"❌ Попытка {attempt + 1} не удалась: {last_error}", "🔄 DOWNLOAD")
             maybe_log_disable_dpi_for_update(e, scope="download", level="🔄 DOWNLOAD")
         
-        # Удаляем файл если не resume-able ошибка
-        if os.path.exists(dest) and "Incomplete download" not in str(last_error):
+        # Удаляем файл если ошибка не resume-able.
+        # Для медленного зеркала partial сохраняем, чтобы следующий источник
+        # продолжил скачивание через Range.
+        keep_partial = False
+        try:
+            err_text = str(last_error)
+            keep_partial = ("Incomplete download" in err_text) or ("Slow download" in err_text)
+        except Exception:
+            keep_partial = False
+
+        if os.path.exists(dest) and not keep_partial:
             try:
                 os.remove(dest)
             except:
@@ -550,7 +606,8 @@ class UpdateWorker(QObject):
                     setup_exe,
                     _prog,
                     verify_ssl=verify_ssl,
-                    max_retries=retries
+                    max_retries=retries,
+                    enable_slow_mirror_switch=(idx < len(download_urls) - 1),
                 )
                 
                 download_error = None

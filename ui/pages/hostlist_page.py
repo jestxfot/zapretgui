@@ -34,6 +34,7 @@ from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from .strategies_page_base import ResetActionButton
 from ui.compat_widgets import SettingsCard, ActionButton, set_tooltip
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 
@@ -48,6 +49,8 @@ class HostlistPage(BasePage):
             "Листы",
             "Управление hostlist и ipset списками для обхода блокировок",
             parent,
+            title_key="page.hostlist.title",
+            subtitle_key="page.hostlist.subtitle",
         )
         self._ui_built = False
         self._info_loaded_once = False
@@ -83,9 +86,20 @@ class HostlistPage(BasePage):
         self._ipru_status_timer.setSingleShot(True)
         self._ipru_status_timer.timeout.connect(self._ipru_update_status)
 
+        self._action_rows: list[dict] = []
+
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_editor_styles())
         qconfig.themeColorChanged.connect(lambda _: self._apply_editor_styles())
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     # ──────────────────────────────────────────────────────────────────────────
     # Qt event overrides
@@ -134,11 +148,11 @@ class HostlistPage(BasePage):
         self.stacked.addWidget(panel_exclusions)
 
         if self.pivot is not None:
-            self.pivot.addItem("hostlist",   "Hostlist",    lambda: self._switch_tab(0))
-            self.pivot.addItem("ipset",      "IPset",       lambda: self._switch_tab(1))
-            self.pivot.addItem("domains",    "Мои домены",  lambda: self._switch_tab(2))
-            self.pivot.addItem("ips",        "Мои IP",      lambda: self._switch_tab(3))
-            self.pivot.addItem("exclusions", "Исключения",  lambda: self._switch_tab(4))
+            self.pivot.addItem("hostlist", self._tr("page.hostlist.tab.hostlist", "Hostlist"), lambda: self._switch_tab(0))
+            self.pivot.addItem("ipset", self._tr("page.hostlist.tab.ipset", "IPset"), lambda: self._switch_tab(1))
+            self.pivot.addItem("domains", self._tr("page.hostlist.tab.domains", "Мои домены"), lambda: self._switch_tab(2))
+            self.pivot.addItem("ips", self._tr("page.hostlist.tab.ips", "Мои IP"), lambda: self._switch_tab(3))
+            self.pivot.addItem("exclusions", self._tr("page.hostlist.tab.exclusions", "Исключения"), lambda: self._switch_tab(4))
             self.pivot.setCurrentItem("hostlist")
             self.pivot.setItemFontSize(13)
             self.layout.addWidget(self.pivot)
@@ -175,28 +189,47 @@ class HostlistPage(BasePage):
         lay.setSpacing(12)
 
         desc_card = SettingsCard()
-        desc = BodyLabel("Используется для обхода блокировок по доменам.")
+        desc = BodyLabel(
+            self._tr("page.hostlist.hostlist.desc", "Используется для обхода блокировок по доменам.")
+        )
+        self._hostlist_desc_label = desc
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         lay.addWidget(desc_card)
 
-        manage_card = SettingsCard("Управление")
+        manage_card = SettingsCard(self._tr("page.hostlist.section.manage", "Управление"))
+        self._hostlist_manage_card = manage_card
         manage_card.add_widget(self._build_action_row(
-            title="Открыть папку хостлистов",
+            title=self._tr("page.hostlist.hostlist.action.open_folder.title", "Открыть папку хостлистов"),
             icon_name="fa5s.folder-open",
-            button_text="Открыть",
+            button_text=self._tr("page.hostlist.button.open", "Открыть"),
             button_icon="fa5s.external-link-alt",
             callback=self._open_lists_folder,
+            title_key="page.hostlist.hostlist.action.open_folder.title",
+            title_default="Открыть папку хостлистов",
+            button_key="page.hostlist.button.open",
+            button_default="Открыть",
         ))
         manage_card.add_widget(self._build_action_row(
-            title="Перестроить хостлисты",
+            title=self._tr("page.hostlist.hostlist.action.rebuild.title", "Перестроить хостлисты"),
             icon_name="fa5s.sync-alt",
-            button_text="Перестроить",
+            button_text=self._tr("page.hostlist.button.rebuild", "Перестроить"),
             button_icon="fa5s.sync-alt",
             callback=self._rebuild_hostlists,
-            subtitle="Обновляет списки из встроенной базы",
+            subtitle=self._tr(
+                "page.hostlist.hostlist.action.rebuild.subtitle",
+                "Обновляет списки из встроенной базы",
+            ),
+            title_key="page.hostlist.hostlist.action.rebuild.title",
+            title_default="Перестроить хостлисты",
+            subtitle_key="page.hostlist.hostlist.action.rebuild.subtitle",
+            subtitle_default="Обновляет списки из встроенной базы",
+            button_key="page.hostlist.button.rebuild",
+            button_default="Перестроить",
         ))
-        self.hostlist_info_label = CaptionLabel("Загрузка информации...")
+        self.hostlist_info_label = CaptionLabel(
+            self._tr("page.hostlist.info.loading", "Загрузка информации...")
+        )
         self.hostlist_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
         self.hostlist_info_label.setWordWrap(True)
         manage_card.add_widget(self.hostlist_info_label)
@@ -213,20 +246,33 @@ class HostlistPage(BasePage):
         lay.setSpacing(12)
 
         desc_card = SettingsCard()
-        desc = BodyLabel("Используется для обхода блокировок по IP-адресам и подсетям.")
+        desc = BodyLabel(
+            self._tr(
+                "page.hostlist.ipset.desc",
+                "Используется для обхода блокировок по IP-адресам и подсетям.",
+            )
+        )
+        self._ipset_desc_label = desc
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         lay.addWidget(desc_card)
 
-        manage_card = SettingsCard("Управление")
+        manage_card = SettingsCard(self._tr("page.hostlist.section.manage", "Управление"))
+        self._ipset_manage_card = manage_card
         manage_card.add_widget(self._build_action_row(
-            title="Открыть папку IP-сетов",
+            title=self._tr("page.hostlist.ipset.action.open_folder.title", "Открыть папку IP-сетов"),
             icon_name="fa5s.folder-open",
-            button_text="Открыть",
+            button_text=self._tr("page.hostlist.button.open", "Открыть"),
             button_icon="fa5s.external-link-alt",
             callback=self._open_lists_folder,
+            title_key="page.hostlist.ipset.action.open_folder.title",
+            title_default="Открыть папку IP-сетов",
+            button_key="page.hostlist.button.open",
+            button_default="Открыть",
         ))
-        self.ipset_info_label = CaptionLabel("Загрузка информации...")
+        self.ipset_info_label = CaptionLabel(
+            self._tr("page.hostlist.info.loading", "Загрузка информации...")
+        )
         self.ipset_info_label.setStyleSheet(f"color: {tokens.fg_muted};")
         self.ipset_info_label.setWordWrap(True)
         manage_card.add_widget(self.ipset_info_label)
@@ -243,64 +289,111 @@ class HostlistPage(BasePage):
 
         desc_card = SettingsCard()
         desc = BodyLabel(
-            "Редактируется файл other.user.txt (только ваши домены). "
-            "Системная база хранится в other.base.txt, общий other.txt собирается автоматически. "
-            "URL автоматически преобразуются в домены. Изменения сохраняются автоматически. "
-            "Поддерживается Ctrl+Z."
+            self._tr(
+                "page.hostlist.domains.desc",
+                "Редактируется файл other.user.txt (только ваши домены). "
+                "Системная база хранится в other.base.txt, общий other.txt собирается автоматически. "
+                "URL автоматически преобразуются в домены. Изменения сохраняются автоматически. "
+                "Поддерживается Ctrl+Z.",
+            )
         )
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         lay.addWidget(desc_card)
 
-        add_card = SettingsCard("Добавить домен")
+        add_card = SettingsCard(self._tr("page.hostlist.domains.section.add", "Добавить домен"))
+        self._domains_add_card = add_card
         add_row = QHBoxLayout()
         add_row.setSpacing(8)
         self._d_input = LineEdit()
         if hasattr(self._d_input, "setPlaceholderText"):
-            self._d_input.setPlaceholderText("Введите домен или URL (например: example.com)")
+            self._d_input.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.domains.input.placeholder",
+                    "Введите домен или URL (например: example.com)",
+                )
+            )
         if hasattr(self._d_input, "returnPressed"):
             self._d_input.returnPressed.connect(self._domains_add)
         add_row.addWidget(self._d_input, 1)
-        self._d_add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self._d_add_btn = ActionButton(
+            self._tr("page.hostlist.button.add", "Добавить"),
+            "fa5s.plus",
+            accent=True,
+        )
         self._d_add_btn.setFixedHeight(38)
         self._d_add_btn.clicked.connect(self._domains_add)
         add_row.addWidget(self._d_add_btn)
         add_card.add_layout(add_row)
         lay.addWidget(add_card)
 
-        actions_card = SettingsCard("Действия")
+        actions_card = SettingsCard(self._tr("page.hostlist.section.actions", "Действия"))
+        self._domains_actions_card = actions_card
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
-        open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        open_btn = ActionButton(self._tr("page.hostlist.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
+        self._domains_open_btn = open_btn
         open_btn.setFixedHeight(36)
-        set_tooltip(open_btn, "Сохраняет изменения и открывает other.user.txt в проводнике")
+        set_tooltip(
+            open_btn,
+            self._tr(
+                "page.hostlist.domains.tooltip.open_file",
+                "Сохраняет изменения и открывает other.user.txt в проводнике",
+            ),
+        )
         open_btn.clicked.connect(self._domains_open_file)
         actions_row.addWidget(open_btn)
-        reset_btn = ResetActionButton("Сбросить файл", confirm_text="Подтвердить сброс")
+        reset_btn = ResetActionButton(
+            self._tr("page.hostlist.button.reset_file", "Сбросить файл"),
+            confirm_text=self._tr("page.hostlist.confirm.reset", "Подтвердить сброс"),
+        )
+        self._domains_reset_btn = reset_btn
         reset_btn.setFixedHeight(36)
-        set_tooltip(reset_btn, "Очищает other.user.txt и пересобирает other.txt из системной базы")
+        set_tooltip(
+            reset_btn,
+            self._tr(
+                "page.hostlist.domains.tooltip.reset_file",
+                "Очищает other.user.txt и пересобирает other.txt из системной базы",
+            ),
+        )
         reset_btn.reset_confirmed.connect(self._domains_reset_file)
         actions_row.addWidget(reset_btn)
-        clear_btn = ResetActionButton("Очистить всё", confirm_text="Подтвердить очистку")
+        clear_btn = ResetActionButton(
+            self._tr("page.hostlist.button.clear_all", "Очистить всё"),
+            confirm_text=self._tr("page.hostlist.confirm.clear", "Подтвердить очистку"),
+        )
+        self._domains_clear_btn = clear_btn
         clear_btn.setFixedHeight(36)
-        set_tooltip(clear_btn, "Удаляет только пользовательские домены")
+        set_tooltip(
+            clear_btn,
+            self._tr("page.hostlist.domains.tooltip.clear_all", "Удаляет только пользовательские домены"),
+        )
         clear_btn.reset_confirmed.connect(self._domains_clear_all)
         actions_row.addWidget(clear_btn)
         actions_row.addStretch()
         actions_card.add_layout(actions_row)
         lay.addWidget(actions_card)
 
-        editor_card = SettingsCard("other.user.txt (редактор)")
+        editor_card = SettingsCard(
+            self._tr("page.hostlist.domains.section.editor", "other.user.txt (редактор)")
+        )
+        self._domains_editor_card = editor_card
         editor_lay = QVBoxLayout()
         editor_lay.setSpacing(8)
         self._d_editor = ScrollBlockingPlainTextEdit()
         self._d_editor.setPlaceholderText(
-            "Домены по одному на строку:\nexample.com\nsubdomain.site.org\n\nКомментарии начинаются с #"
+            self._tr(
+                "page.hostlist.domains.editor.placeholder",
+                "Домены по одному на строку:\nexample.com\nsubdomain.site.org\n\nКомментарии начинаются с #",
+            )
         )
         self._d_editor.setMinimumHeight(350)
         self._d_editor.textChanged.connect(self._domains_on_text_changed)
         editor_lay.addWidget(self._d_editor)
-        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        hint = CaptionLabel(
+            self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+        )
+        self._domains_hint_label = hint
         editor_lay.addWidget(hint)
         editor_card.add_layout(editor_lay)
         lay.addWidget(editor_card)
@@ -320,40 +413,49 @@ class HostlistPage(BasePage):
 
         desc_card = SettingsCard()
         desc = BodyLabel(
-            "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
-            "• Одиночный IP: 1.2.3.4\n"
-            "• Подсеть: 10.0.0.0/8\n"
-            "Диапазоны (a-b) не поддерживаются. Изменения сохраняются автоматически.\n"
-            "Системная база хранится в ipset-all.base.txt и автоматически объединяется в ipset-all.txt."
+            self._tr(
+                "page.hostlist.ips.desc",
+                "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
+                "• Одиночный IP: 1.2.3.4\n"
+                "• Подсеть: 10.0.0.0/8\n"
+                "Диапазоны (a-b) не поддерживаются. Изменения сохраняются автоматически.\n"
+                "Системная база хранится в ipset-all.base.txt и автоматически объединяется в ipset-all.txt.",
+            )
         )
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         lay.addWidget(desc_card)
 
-        add_card = SettingsCard("Добавить IP/подсеть")
+        add_card = SettingsCard(self._tr("page.hostlist.ips.section.add", "Добавить IP/подсеть"))
+        self._ips_add_card = add_card
         add_row = QHBoxLayout()
         add_row.setSpacing(8)
         self._i_input = LineEdit()
         if hasattr(self._i_input, "setPlaceholderText"):
-            self._i_input.setPlaceholderText("Например: 1.2.3.4 или 10.0.0.0/8")
+            self._i_input.setPlaceholderText(
+                self._tr("page.hostlist.ips.input.placeholder", "Например: 1.2.3.4 или 10.0.0.0/8")
+            )
         if hasattr(self._i_input, "returnPressed"):
             self._i_input.returnPressed.connect(self._ips_add)
         add_row.addWidget(self._i_input, 1)
-        self._i_add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self._i_add_btn = ActionButton(self._tr("page.hostlist.button.add", "Добавить"), "fa5s.plus", accent=True)
         self._i_add_btn.setFixedHeight(38)
         self._i_add_btn.clicked.connect(self._ips_add)
         add_row.addWidget(self._i_add_btn)
         add_card.add_layout(add_row)
         lay.addWidget(add_card)
 
-        actions_card = SettingsCard("Действия")
+        actions_card = SettingsCard(self._tr("page.hostlist.section.actions", "Действия"))
+        self._ips_actions_card = actions_card
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
-        open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        open_btn = ActionButton(self._tr("page.hostlist.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
+        self._ips_open_btn = open_btn
         open_btn.setFixedHeight(36)
         open_btn.clicked.connect(self._ips_open_file)
         actions_row.addWidget(open_btn)
-        clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
+        clear_btn = ActionButton(self._tr("page.hostlist.button.clear_all", "Очистить всё"), "fa5s.trash-alt")
+        self._ips_clear_btn = clear_btn
         clear_btn.setFixedHeight(36)
         clear_btn.clicked.connect(self._ips_clear_all)
         actions_row.addWidget(clear_btn)
@@ -361,17 +463,26 @@ class HostlistPage(BasePage):
         actions_card.add_layout(actions_row)
         lay.addWidget(actions_card)
 
-        editor_card = SettingsCard("ipset-all.user.txt (редактор)")
+        editor_card = SettingsCard(
+            self._tr("page.hostlist.ips.section.editor", "ipset-all.user.txt (редактор)")
+        )
+        self._ips_editor_card = editor_card
         editor_lay = QVBoxLayout()
         editor_lay.setSpacing(8)
         self._i_editor = ScrollBlockingPlainTextEdit()
         self._i_editor.setPlaceholderText(
-            "IP/подсети по одному на строку:\n192.168.0.1\n10.0.0.0/8\n\nКомментарии начинаются с #"
+            self._tr(
+                "page.hostlist.ips.editor.placeholder",
+                "IP/подсети по одному на строку:\n192.168.0.1\n10.0.0.0/8\n\nКомментарии начинаются с #",
+            )
         )
         self._i_editor.setMinimumHeight(350)
         self._i_editor.textChanged.connect(self._ips_on_text_changed)
         editor_lay.addWidget(self._i_editor)
-        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        hint = CaptionLabel(
+            self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+        )
+        self._ips_hint_label = hint
         editor_lay.addWidget(hint)
         self._i_error_label = CaptionLabel()
         self._i_error_label.setWordWrap(True)
@@ -400,6 +511,12 @@ class HostlistPage(BasePage):
         button_icon: str,
         callback,
         subtitle: str = "",
+        title_key: str = "",
+        title_default: str = "",
+        subtitle_key: str = "",
+        subtitle_default: str = "",
+        button_key: str = "",
+        button_default: str = "",
     ) -> QWidget:
         tokens = get_theme_tokens()
         row = QWidget()
@@ -414,18 +531,33 @@ class HostlistPage(BasePage):
         if subtitle:
             text_lay = QVBoxLayout()
             text_lay.setSpacing(2)
-            text_lay.addWidget(BodyLabel(title))
+            title_lbl = BodyLabel(title)
+            text_lay.addWidget(title_lbl)
             sub = CaptionLabel(subtitle)
             sub.setStyleSheet(f"color: {tokens.fg_faint};")
             text_lay.addWidget(sub)
             row_lay.addLayout(text_lay, 1)
         else:
-            row_lay.addWidget(BodyLabel(title), 1)
+            title_lbl = BodyLabel(title)
+            sub = None
+            row_lay.addWidget(title_lbl, 1)
 
         btn = ActionButton(button_text, button_icon)
         btn.setFixedHeight(32)
         btn.clicked.connect(callback)
         row_lay.addWidget(btn)
+
+        self._action_rows.append({
+            "title_label": title_lbl,
+            "subtitle_label": sub,
+            "button": btn,
+            "title_key": title_key,
+            "title_default": title_default or title,
+            "subtitle_key": subtitle_key,
+            "subtitle_default": subtitle_default or subtitle,
+            "button_key": button_key,
+            "button_default": button_default or button_text,
+        })
         return row
 
     def _apply_editor_styles(self):
@@ -496,26 +628,39 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия папки: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть папку:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.error.open_folder", "Не удалось открыть папку:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _rebuild_hostlists(self):
         try:
             from utils.hostlists_manager import startup_hostlists_check
             startup_hostlists_check()
             if InfoBar:
-                InfoBar.success(title="Готово", content="Хостлисты обновлены", parent=self.window())
+                InfoBar.success(
+                    title=self._tr("page.hostlist.infobar.done", "Готово"),
+                    content=self._tr("page.hostlist.infobar.hostlists_rebuilt", "Хостлисты обновлены"),
+                    parent=self.window(),
+                )
             self._load_info()
         except Exception as e:
             log(f"Ошибка перестроения: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось перестроить:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.error.rebuild", "Не удалось перестроить:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _load_info(self):
         try:
             from config import LISTS_FOLDER
             if not os.path.exists(LISTS_FOLDER):
-                self.hostlist_info_label.setText("Папка листов не найдена")
-                self.ipset_info_label.setText("Папка листов не найдена")
+                not_found = self._tr("page.hostlist.info.folder_not_found", "Папка листов не найдена")
+                self.hostlist_info_label.setText(not_found)
+                self.ipset_info_label.setText(not_found)
                 return
             txt_files = [f for f in os.listdir(LISTS_FOLDER) if f.endswith(".txt")]
             ipset_files = [f for f in txt_files if self._is_ipset_file_name(f)]
@@ -523,18 +668,31 @@ class HostlistPage(BasePage):
             hl_lines = self._count_lines(LISTS_FOLDER, hostlist_files, max_files=12, skip_comments=False)
             ip_lines = self._count_lines(LISTS_FOLDER, ipset_files, max_files=12, skip_comments=True)
             self.hostlist_info_label.setText(
-                f"📁 Папка: {LISTS_FOLDER}\n"
-                f"📄 Файлов: {len(hostlist_files)}\n"
-                f"📝 Примерно строк: {hl_lines:,}"
+                self._tr(
+                    "page.hostlist.info.hostlist.summary",
+                    "📁 Папка: {folder}\n📄 Файлов: {files_count}\n📝 Примерно строк: {lines_count}",
+                    folder=LISTS_FOLDER,
+                    files_count=len(hostlist_files),
+                    lines_count=f"{hl_lines:,}",
+                )
             )
             self.ipset_info_label.setText(
-                f"📁 Папка: {LISTS_FOLDER}\n"
-                f"📄 IP-файлов: {len(ipset_files)}\n"
-                f"🌐 Примерно IP/подсетей: {ip_lines:,}"
+                self._tr(
+                    "page.hostlist.info.ipset.summary",
+                    "📁 Папка: {folder}\n📄 IP-файлов: {files_count}\n🌐 Примерно IP/подсетей: {lines_count}",
+                    folder=LISTS_FOLDER,
+                    files_count=len(ipset_files),
+                    lines_count=f"{ip_lines:,}",
+                )
             )
         except Exception as e:
-            self.hostlist_info_label.setText(f"Ошибка загрузки информации: {e}")
-            self.ipset_info_label.setText(f"Ошибка загрузки информации: {e}")
+            error_text = self._tr(
+                "page.hostlist.info.error",
+                "Ошибка загрузки информации: {error}",
+                error=e,
+            )
+            self.hostlist_info_label.setText(error_text)
+            self.ipset_info_label.setText(error_text)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Domains editor logic
@@ -557,7 +715,9 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка загрузки доменов: {e}", "ERROR")
             if hasattr(self, "_d_status"):
-                self._d_status.setText(f"❌ Ошибка: {e}")
+                self._d_status.setText(
+                    self._tr("page.hostlist.status.error", "❌ Ошибка: {error}", error=e)
+                )
 
     def _domains_on_text_changed(self):
         self._domains_save_timer.start(500)
@@ -566,7 +726,9 @@ class HostlistPage(BasePage):
     def _domains_auto_save(self):
         self._domains_save()
         if hasattr(self, "_d_status"):
-            self._d_status.setText(self._d_status.text() + " • ✅ Сохранено")
+            self._d_status.setText(
+                self._d_status.text() + self._tr("page.hostlist.status.saved_suffix", " • ✅ Сохранено")
+            )
 
     def _domains_save(self):
         try:
@@ -601,7 +763,9 @@ class HostlistPage(BasePage):
             return
         text = self._d_editor.toPlainText()
         lines = [ln.strip() for ln in text.split("\n") if ln.strip() and not ln.strip().startswith("#")]
-        self._d_status.setText(f"📊 Доменов: {len(lines)}")
+        self._d_status.setText(
+            self._tr("page.hostlist.status.domains_count", "📊 Доменов: {count}", count=len(lines))
+        )
 
     def _domains_add(self):
         text = self._d_input.text().strip() if hasattr(self._d_input, "text") else ""
@@ -611,8 +775,12 @@ class HostlistPage(BasePage):
         if not domain:
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content=f"Не удалось распознать домен:\n{text}\n\nВведите корректный домен (например: example.com)",
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.hostlist.domains.error.invalid_domain",
+                        "Не удалось распознать домен:\n{value}\n\nВведите корректный домен (например: example.com)",
+                        value=text,
+                    ),
                     parent=self.window(),
                 )
             return
@@ -620,7 +788,11 @@ class HostlistPage(BasePage):
         existing = [ln.strip().lower() for ln in current.split("\n") if ln.strip() and not ln.strip().startswith("#")]
         if domain.lower() in existing:
             if InfoBar:
-                InfoBar.info(title="Информация", content=f"Домен уже добавлен:\n{domain}", parent=self.window())
+                InfoBar.info(
+                    title=self._tr("page.hostlist.infobar.info", "Информация"),
+                    content=self._tr("page.hostlist.domains.info.already_added", "Домен уже добавлен:\n{domain}", domain=domain),
+                    parent=self.window(),
+                )
             return
         if current and not current.endswith("\n"):
             current += "\n"
@@ -643,7 +815,11 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия файла: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.error.open_file", "Не удалось открыть:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _domains_reset_file(self):
         try:
@@ -651,14 +827,24 @@ class HostlistPage(BasePage):
             if reset_other_file_from_template():
                 self._load_domains()
                 if hasattr(self, "_d_status"):
-                    self._d_status.setText(self._d_status.text() + " • ✅ Сброшено")
+                    self._d_status.setText(
+                        self._d_status.text() + self._tr("page.hostlist.status.reset_suffix", " • ✅ Сброшено")
+                    )
             else:
                 if InfoBar:
-                    InfoBar.warning(title="Ошибка", content="Не удалось сбросить my hostlist", parent=self.window())
+                    InfoBar.warning(
+                        title=self._tr("common.error.title", "Ошибка"),
+                        content=self._tr("page.hostlist.domains.error.reset_failed", "Не удалось сбросить my hostlist"),
+                        parent=self.window(),
+                    )
         except Exception as e:
             log(f"Ошибка сброса hostlist: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось сбросить:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.domains.error.reset_exception", "Не удалось сбросить:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _domains_clear_all(self):
         self._d_editor.setPlainText("")
@@ -726,7 +912,9 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка загрузки ipset-all.user.txt: {e}", "ERROR")
             if hasattr(self, "_i_status"):
-                self._i_status.setText(f"❌ Ошибка: {e}")
+                self._i_status.setText(
+                    self._tr("page.hostlist.status.error", "❌ Ошибка: {error}", error=e)
+                )
 
     def _ips_on_text_changed(self):
         self._ips_save_timer.start(500)
@@ -735,7 +923,9 @@ class HostlistPage(BasePage):
     def _ips_auto_save(self):
         self._ips_save()
         if hasattr(self, "_i_status"):
-            self._i_status.setText(self._i_status.text() + " • ✅ Сохранено")
+            self._i_status.setText(
+                self._i_status.text() + self._tr("page.hostlist.status.saved_suffix", " • ✅ Сохранено")
+            )
 
     def _ips_save(self):
         try:
@@ -771,7 +961,13 @@ class HostlistPage(BasePage):
             # Show/hide error label
             if hasattr(self, "_i_error_label"):
                 if invalid:
-                    self._i_error_label.setText("❌ Неверный формат: " + ", ".join(invalid[:5]))
+                    self._i_error_label.setText(
+                        self._tr(
+                            "page.hostlist.ips.error.invalid_format",
+                            "❌ Неверный формат: {items}",
+                            items=", ".join(invalid[:5]),
+                        )
+                    )
                     self._i_error_label.show()
                 else:
                     self._i_error_label.hide()
@@ -803,7 +999,13 @@ class HostlistPage(BasePage):
         total_count = len(base_set.union(valid_entries))
 
         self._i_status.setText(
-            f"📊 Записей: {total_count} (база: {base_count}, пользовательские: {user_count})"
+            self._tr(
+                "page.hostlist.status.entries_count",
+                "📊 Записей: {total} (база: {base}, пользовательские: {user})",
+                total=total_count,
+                base=base_count,
+                user=user_count,
+            )
         )
 
     def _get_base_ips_set(self) -> set[str]:
@@ -826,8 +1028,11 @@ class HostlistPage(BasePage):
         if not norm:
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content="Не удалось распознать IP или подсеть.\nПримеры: 1.2.3.4 или 10.0.0.0/8",
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.hostlist.ips.error.invalid_ip",
+                        "Не удалось распознать IP или подсеть.\nПримеры: 1.2.3.4 или 10.0.0.0/8",
+                    ),
                     parent=self.window(),
                 )
             return
@@ -835,7 +1040,11 @@ class HostlistPage(BasePage):
         existing = [ln.strip().lower() for ln in current.split("\n") if ln.strip() and not ln.strip().startswith("#")]
         if norm.lower() in existing:
             if InfoBar:
-                InfoBar.info(title="Информация", content=f"Запись уже есть:\n{norm}", parent=self.window())
+                InfoBar.info(
+                    title=self._tr("page.hostlist.infobar.info", "Информация"),
+                    content=self._tr("page.hostlist.ips.info.already_exists", "Запись уже есть:\n{entry}", entry=norm),
+                    parent=self.window(),
+                )
             return
         if current and not current.endswith("\n"):
             current += "\n"
@@ -857,14 +1066,22 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия ipset-all.user.txt: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.error.open_file", "Не удалось открыть:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _ips_clear_all(self):
         text = self._i_editor.toPlainText().strip()
         if not text:
             return
         if MessageBox:
-            box = MessageBox("Очистить всё", "Удалить все записи?", self.window())
+            box = MessageBox(
+                self._tr("page.hostlist.dialog.clear.title", "Очистить всё"),
+                self._tr("page.hostlist.ips.dialog.clear.body", "Удалить все записи?"),
+                self.window(),
+            )
             if box.exec():
                 self._i_editor.clear()
         else:
@@ -882,46 +1099,70 @@ class HostlistPage(BasePage):
 
         desc_card = SettingsCard()
         desc = BodyLabel(
-            "Здесь два типа исключений:\n"
-            "• Домены: netrogat.user.txt -> netrogat.txt (--hostlist-exclude)\n"
-            "• IP/подсети: ipset-ru.user.txt -> ipset-ru.txt (--ipset-exclude)"
+            self._tr(
+                "page.hostlist.exclusions.desc",
+                "Здесь два типа исключений:\n"
+                "• Домены: netrogat.user.txt -> netrogat.txt (--hostlist-exclude)\n"
+                "• IP/подсети: ipset-ru.user.txt -> ipset-ru.txt (--ipset-exclude)",
+            )
         )
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         lay.addWidget(desc_card)
 
-        add_card = SettingsCard("Добавить домен")
+        add_card = SettingsCard(self._tr("page.hostlist.exclusions.section.add_domain", "Добавить домен"))
+        self._excl_add_card = add_card
         add_row = QHBoxLayout()
         add_row.setSpacing(8)
         self._excl_input = LineEdit()
         if hasattr(self._excl_input, "setPlaceholderText"):
-            self._excl_input.setPlaceholderText("Например: example.com, site.com или через пробел")
+            self._excl_input.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.exclusions.input.domain.placeholder",
+                    "Например: example.com, site.com или через пробел",
+                )
+            )
         if hasattr(self._excl_input, "returnPressed"):
             self._excl_input.returnPressed.connect(self._excl_add)
         add_row.addWidget(self._excl_input, 1)
-        self._excl_add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self._excl_add_btn = ActionButton(
+            self._tr("page.hostlist.button.add", "Добавить"),
+            "fa5s.plus",
+            accent=True,
+        )
         self._excl_add_btn.setFixedHeight(38)
         self._excl_add_btn.clicked.connect(self._excl_add)
         add_row.addWidget(self._excl_add_btn)
         add_card.add_layout(add_row)
         lay.addWidget(add_card)
 
-        actions_card = SettingsCard("Действия")
+        actions_card = SettingsCard(self._tr("page.hostlist.section.actions", "Действия"))
+        self._excl_actions_card = actions_card
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
-        defaults_btn = ActionButton("Добавить недостающие", "fa5s.plus-circle")
+        defaults_btn = ActionButton(
+            self._tr("page.hostlist.exclusions.button.add_missing", "Добавить недостающие"),
+            "fa5s.plus-circle",
+        )
+        self._excl_defaults_btn = defaults_btn
         defaults_btn.setFixedHeight(36)
         defaults_btn.clicked.connect(self._excl_add_missing_defaults)
         actions_row.addWidget(defaults_btn)
-        open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        open_btn = ActionButton(self._tr("page.hostlist.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
+        self._excl_open_btn = open_btn
         open_btn.setFixedHeight(36)
         open_btn.clicked.connect(self._excl_open_file)
         actions_row.addWidget(open_btn)
-        open_final_btn = ActionButton("Открыть итоговый", "fa5s.file-alt")
+        open_final_btn = ActionButton(
+            self._tr("page.hostlist.exclusions.button.open_final", "Открыть итоговый"),
+            "fa5s.file-alt",
+        )
+        self._excl_open_final_btn = open_final_btn
         open_final_btn.setFixedHeight(36)
         open_final_btn.clicked.connect(self._excl_open_final_file)
         actions_row.addWidget(open_final_btn)
-        clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
+        clear_btn = ActionButton(self._tr("page.hostlist.button.clear_all", "Очистить всё"), "fa5s.trash-alt")
+        self._excl_clear_btn = clear_btn
         clear_btn.setFixedHeight(36)
         clear_btn.clicked.connect(self._excl_clear_all)
         actions_row.addWidget(clear_btn)
@@ -929,17 +1170,26 @@ class HostlistPage(BasePage):
         actions_card.add_layout(actions_row)
         lay.addWidget(actions_card)
 
-        editor_card = SettingsCard("netrogat.user.txt (редактор)")
+        editor_card = SettingsCard(
+            self._tr("page.hostlist.exclusions.section.editor_domain", "netrogat.user.txt (редактор)")
+        )
+        self._excl_editor_card = editor_card
         editor_lay = QVBoxLayout()
         editor_lay.setSpacing(8)
         self._excl_editor = ScrollBlockingPlainTextEdit()
         self._excl_editor.setPlaceholderText(
-            "Домены по одному на строку:\ngosuslugi.ru\nvk.com\n\nКомментарии начинаются с #"
+            self._tr(
+                "page.hostlist.exclusions.editor.domain.placeholder",
+                "Домены по одному на строку:\ngosuslugi.ru\nvk.com\n\nКомментарии начинаются с #",
+            )
         )
         self._excl_editor.setMinimumHeight(350)
         self._excl_editor.textChanged.connect(self._excl_on_text_changed)
         editor_lay.addWidget(self._excl_editor)
-        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        hint = CaptionLabel(
+            self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+        )
+        self._excl_hint_label = hint
         editor_lay.addWidget(hint)
         editor_card.add_layout(editor_lay)
         lay.addWidget(editor_card)
@@ -948,45 +1198,70 @@ class HostlistPage(BasePage):
         lay.addWidget(self._excl_status)
 
         ipru_intro = SettingsCard()
-        ipru_title = StrongBodyLabel("IP-исключения (--ipset-exclude)")
+        ipru_title = StrongBodyLabel(
+            self._tr("page.hostlist.exclusions.ipru.title", "IP-исключения (--ipset-exclude)")
+        )
+        self._ipru_title_label = ipru_title
         ipru_title.setWordWrap(True)
         ipru_intro.add_widget(ipru_title)
         ipru_desc = CaptionLabel(
-            "Редактируйте только ipset-ru.user.txt. "
-            "Системная база хранится в ipset-ru.base.txt и автоматически объединяется в ipset-ru.txt."
+            self._tr(
+                "page.hostlist.exclusions.ipru.desc",
+                "Редактируйте только ipset-ru.user.txt. "
+                "Системная база хранится в ipset-ru.base.txt и автоматически объединяется в ipset-ru.txt.",
+            )
         )
+        self._ipru_desc_label = ipru_desc
         ipru_desc.setWordWrap(True)
         ipru_intro.add_widget(ipru_desc)
         lay.addWidget(ipru_intro)
 
-        ipru_add_card = SettingsCard("Добавить IP/подсеть в исключения")
+        ipru_add_card = SettingsCard(
+            self._tr("page.hostlist.exclusions.ipru.section.add", "Добавить IP/подсеть в исключения")
+        )
+        self._ipru_add_card = ipru_add_card
         ipru_add_row = QHBoxLayout()
         ipru_add_row.setSpacing(8)
         self._ipru_input = LineEdit()
         if hasattr(self._ipru_input, "setPlaceholderText"):
-            self._ipru_input.setPlaceholderText("Например: 1.2.3.4 или 10.0.0.0/8")
+            self._ipru_input.setPlaceholderText(
+                self._tr("page.hostlist.ips.input.placeholder", "Например: 1.2.3.4 или 10.0.0.0/8")
+            )
         if hasattr(self._ipru_input, "returnPressed"):
             self._ipru_input.returnPressed.connect(self._ipru_add)
         ipru_add_row.addWidget(self._ipru_input, 1)
-        self._ipru_add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self._ipru_add_btn = ActionButton(
+            self._tr("page.hostlist.button.add", "Добавить"),
+            "fa5s.plus",
+            accent=True,
+        )
         self._ipru_add_btn.setFixedHeight(38)
         self._ipru_add_btn.clicked.connect(self._ipru_add)
         ipru_add_row.addWidget(self._ipru_add_btn)
         ipru_add_card.add_layout(ipru_add_row)
         lay.addWidget(ipru_add_card)
 
-        ipru_actions_card = SettingsCard("Действия IP-исключений")
+        ipru_actions_card = SettingsCard(
+            self._tr("page.hostlist.exclusions.ipru.section.actions", "Действия IP-исключений")
+        )
+        self._ipru_actions_card = ipru_actions_card
         ipru_actions_row = QHBoxLayout()
         ipru_actions_row.setSpacing(8)
-        ipru_open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        ipru_open_btn = ActionButton(self._tr("page.hostlist.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
+        self._ipru_open_btn = ipru_open_btn
         ipru_open_btn.setFixedHeight(36)
         ipru_open_btn.clicked.connect(self._ipru_open_file)
         ipru_actions_row.addWidget(ipru_open_btn)
-        ipru_open_final_btn = ActionButton("Открыть итоговый", "fa5s.file-alt")
+        ipru_open_final_btn = ActionButton(
+            self._tr("page.hostlist.exclusions.button.open_final", "Открыть итоговый"),
+            "fa5s.file-alt",
+        )
+        self._ipru_open_final_btn = ipru_open_final_btn
         ipru_open_final_btn.setFixedHeight(36)
         ipru_open_final_btn.clicked.connect(self._ipru_open_final_file)
         ipru_actions_row.addWidget(ipru_open_final_btn)
-        ipru_clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
+        ipru_clear_btn = ActionButton(self._tr("page.hostlist.button.clear_all", "Очистить всё"), "fa5s.trash-alt")
+        self._ipru_clear_btn = ipru_clear_btn
         ipru_clear_btn.setFixedHeight(36)
         ipru_clear_btn.clicked.connect(self._ipru_clear_all)
         ipru_actions_row.addWidget(ipru_clear_btn)
@@ -994,20 +1269,29 @@ class HostlistPage(BasePage):
         ipru_actions_card.add_layout(ipru_actions_row)
         lay.addWidget(ipru_actions_card)
 
-        ipru_editor_card = SettingsCard("ipset-ru.user.txt (редактор)")
+        ipru_editor_card = SettingsCard(
+            self._tr("page.hostlist.exclusions.ipru.section.editor", "ipset-ru.user.txt (редактор)")
+        )
+        self._ipru_editor_card = ipru_editor_card
         ipru_editor_lay = QVBoxLayout()
         ipru_editor_lay.setSpacing(8)
         self._ipru_editor = ScrollBlockingPlainTextEdit()
         self._ipru_editor.setPlaceholderText(
-            "IP/подсети по одному на строку:\n"
-            "31.13.64.0/18\n"
-            "77.88.0.0/18\n\n"
-            "Комментарии начинаются с #"
+            self._tr(
+                "page.hostlist.exclusions.ipru.editor.placeholder",
+                "IP/подсети по одному на строку:\n"
+                "31.13.64.0/18\n"
+                "77.88.0.0/18\n\n"
+                "Комментарии начинаются с #",
+            )
         )
         self._ipru_editor.setMinimumHeight(260)
         self._ipru_editor.textChanged.connect(self._ipru_on_text_changed)
         ipru_editor_lay.addWidget(self._ipru_editor)
-        ipru_hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
+        ipru_hint = CaptionLabel(
+            self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+        )
+        self._ipru_hint_label = ipru_hint
         ipru_editor_lay.addWidget(ipru_hint)
         self._ipru_error_label = CaptionLabel()
         self._ipru_error_label.setWordWrap(True)
@@ -1042,7 +1326,9 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка загрузки netrogat: {e}", "ERROR")
             if hasattr(self, "_excl_status"):
-                self._excl_status.setText(f"❌ Ошибка: {e}")
+                self._excl_status.setText(
+                    self._tr("page.hostlist.status.error", "❌ Ошибка: {error}", error=e)
+                )
 
         self._load_ipru_exclusions()
 
@@ -1070,7 +1356,9 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка загрузки ipset-ru.user.txt: {e}", "ERROR")
             if hasattr(self, "_ipru_status"):
-                self._ipru_status.setText(f"❌ Ошибка: {e}")
+                self._ipru_status.setText(
+                    self._tr("page.hostlist.status.error", "❌ Ошибка: {error}", error=e)
+                )
 
     def _excl_on_text_changed(self):
         self._excl_save_timer.start(500)
@@ -1079,7 +1367,9 @@ class HostlistPage(BasePage):
     def _excl_auto_save(self):
         self._excl_save()
         if hasattr(self, "_excl_status"):
-            self._excl_status.setText(self._excl_status.text() + " • ✅ Сохранено")
+            self._excl_status.setText(
+                self._excl_status.text() + self._tr("page.hostlist.status.saved_suffix", " • ✅ Сохранено")
+            )
 
     def _excl_save(self):
         try:
@@ -1144,7 +1434,13 @@ class HostlistPage(BasePage):
         base_count = len(base_set)
         total_count = len(base_set.union(valid_entries))
         self._excl_status.setText(
-            f"📊 Доменов: {total_count} (база: {base_count}, пользовательские: {user_count})"
+            self._tr(
+                "page.hostlist.status.domains_full_count",
+                "📊 Доменов: {total} (база: {base}, пользовательские: {user})",
+                total=total_count,
+                base=base_count,
+                user=user_count,
+            )
         )
 
     def _get_excl_base_set(self) -> set[str]:
@@ -1171,7 +1467,11 @@ class HostlistPage(BasePage):
         parts = split_domains(raw)
         if not parts:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content="Не удалось распознать домен.", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.exclusions.error.invalid_domain", "Не удалось распознать домен."),
+                    parent=self.window(),
+                )
             return
         current = self._excl_editor.toPlainText()
         current_domains = [ln.strip().lower() for ln in current.split("\n") if ln.strip() and not ln.strip().startswith("#")]
@@ -1191,14 +1491,26 @@ class HostlistPage(BasePage):
             added.append(norm)
         if not added and not skipped and invalid:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content="Не удалось распознать домены.", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.exclusions.error.invalid_domains", "Не удалось распознать домены."),
+                    parent=self.window(),
+                )
             return
         if not added and skipped:
             if InfoBar:
                 if len(skipped) == 1:
-                    InfoBar.info(title="Информация", content=f"Домен уже есть: {skipped[0]}", parent=self.window())
+                    InfoBar.info(
+                        title=self._tr("page.hostlist.infobar.info", "Информация"),
+                        content=self._tr("page.hostlist.exclusions.info.domain_exists", "Домен уже есть: {domain}", domain=skipped[0]),
+                        parent=self.window(),
+                    )
                 else:
-                    InfoBar.info(title="Информация", content=f"Все домены уже есть ({len(skipped)})", parent=self.window())
+                    InfoBar.info(
+                        title=self._tr("page.hostlist.infobar.info", "Информация"),
+                        content=self._tr("page.hostlist.exclusions.info.all_domains_exist", "Все домены уже есть ({count})", count=len(skipped)),
+                        parent=self.window(),
+                    )
             return
         if current and not current.endswith("\n"):
             current += "\n"
@@ -1208,8 +1520,12 @@ class HostlistPage(BasePage):
             self._excl_input.clear()
         if skipped and InfoBar:
             InfoBar.success(
-                title="Добавлено",
-                content=f"Добавлено доменов. Пропущено уже существующих: {len(skipped)}",
+                title=self._tr("page.hostlist.infobar.added", "Добавлено"),
+                content=self._tr(
+                    "page.hostlist.exclusions.info.added_with_skipped",
+                    "Добавлено доменов. Пропущено уже существующих: {count}",
+                    count=len(skipped),
+                ),
                 parent=self.window(),
             )
 
@@ -1228,7 +1544,11 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия netrogat.user.txt: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.error.open_file", "Не удалось открыть:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _excl_open_final_file(self):
         try:
@@ -1246,8 +1566,12 @@ class HostlistPage(BasePage):
             log(f"Ошибка открытия итогового netrogat.txt: {e}", "ERROR")
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content=f"Не удалось открыть итоговый файл: {e}",
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.hostlist.error.open_final_file",
+                        "Не удалось открыть итоговый файл: {error}",
+                        error=e,
+                    ),
                     parent=self.window(),
                 )
 
@@ -1256,7 +1580,11 @@ class HostlistPage(BasePage):
         if not text:
             return
         if MessageBox:
-            box = MessageBox("Очистить всё", "Удалить все домены?", self.window())
+            box = MessageBox(
+                self._tr("page.hostlist.dialog.clear.title", "Очистить всё"),
+                self._tr("page.hostlist.exclusions.dialog.clear.body", "Удалить все домены?"),
+                self.window(),
+            )
             if box.exec():
                 self._excl_editor.clear()
         else:
@@ -1274,8 +1602,11 @@ class HostlistPage(BasePage):
         if added == 0:
             if InfoBar:
                 InfoBar.success(
-                    title="Готово",
-                    content="Системная база уже содержит все домены по умолчанию.",
+                    title=self._tr("page.hostlist.infobar.done", "Готово"),
+                    content=self._tr(
+                        "page.hostlist.exclusions.info.defaults_already_present",
+                        "Системная база уже содержит все домены по умолчанию.",
+                    ),
                     parent=self.window(),
                 )
             return
@@ -1283,8 +1614,12 @@ class HostlistPage(BasePage):
         self._excl_update_status()
         if InfoBar:
             InfoBar.success(
-                title="Готово",
-                content=f"Восстановлено доменов в системной базе: {added}",
+                title=self._tr("page.hostlist.infobar.done", "Готово"),
+                content=self._tr(
+                    "page.hostlist.exclusions.info.defaults_restored",
+                    "Восстановлено доменов в системной базе: {count}",
+                    count=added,
+                ),
                 parent=self.window(),
             )
 
@@ -1295,7 +1630,9 @@ class HostlistPage(BasePage):
     def _ipru_auto_save(self):
         self._ipru_save()
         if hasattr(self, "_ipru_status"):
-            self._ipru_status.setText(self._ipru_status.text() + " • ✅ Сохранено")
+            self._ipru_status.setText(
+                self._ipru_status.text() + self._tr("page.hostlist.status.saved_suffix", " • ✅ Сохранено")
+            )
 
     def _ipru_save(self):
         try:
@@ -1332,7 +1669,13 @@ class HostlistPage(BasePage):
 
             if hasattr(self, "_ipru_error_label"):
                 if invalid:
-                    self._ipru_error_label.setText("❌ Неверный формат: " + ", ".join(invalid[:5]))
+                    self._ipru_error_label.setText(
+                        self._tr(
+                            "page.hostlist.ips.error.invalid_format",
+                            "❌ Неверный формат: {items}",
+                            items=", ".join(invalid[:5]),
+                        )
+                    )
                     self._ipru_error_label.show()
                 else:
                     self._ipru_error_label.hide()
@@ -1364,7 +1707,13 @@ class HostlistPage(BasePage):
         base_count = len(base_set)
         total_count = len(base_set.union(valid_entries))
         self._ipru_status.setText(
-            f"📊 IP-исключений: {total_count} (база: {base_count}, пользовательские: {user_count})"
+            self._tr(
+                "page.hostlist.status.ipru_count",
+                "📊 IP-исключений: {total} (база: {base}, пользовательские: {user})",
+                total=total_count,
+                base=base_count,
+                user=user_count,
+            )
         )
 
     def _get_ipru_base_set(self) -> set[str]:
@@ -1405,17 +1754,28 @@ class HostlistPage(BasePage):
 
         if not added and invalid and InfoBar:
             InfoBar.warning(
-                title="Ошибка",
-                content="Не удалось распознать IP или подсеть. Пример: 1.2.3.4 или 10.0.0.0/8",
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr(
+                    "page.hostlist.ips.error.invalid_ip",
+                    "Не удалось распознать IP или подсеть.\nПримеры: 1.2.3.4 или 10.0.0.0/8",
+                ),
                 parent=self.window(),
             )
             return
 
         if not added and skipped and InfoBar:
             if len(skipped) == 1:
-                InfoBar.info(title="Информация", content=f"Запись уже есть: {skipped[0]}", parent=self.window())
+                InfoBar.info(
+                    title=self._tr("page.hostlist.infobar.info", "Информация"),
+                    content=self._tr("page.hostlist.ips.info.already_exists", "Запись уже есть:\n{entry}", entry=skipped[0]),
+                    parent=self.window(),
+                )
             else:
-                InfoBar.info(title="Информация", content=f"Все записи уже есть ({len(skipped)})", parent=self.window())
+                InfoBar.info(
+                    title=self._tr("page.hostlist.infobar.info", "Информация"),
+                    content=self._tr("page.hostlist.ips.info.all_entries_exist", "Все записи уже есть ({count})", count=len(skipped)),
+                    parent=self.window(),
+                )
             return
 
         if current and not current.endswith("\n"):
@@ -1427,8 +1787,12 @@ class HostlistPage(BasePage):
 
         if skipped and InfoBar:
             InfoBar.success(
-                title="Добавлено",
-                content=f"Добавлено IP-исключений. Пропущено уже существующих: {len(skipped)}",
+                title=self._tr("page.hostlist.infobar.added", "Добавлено"),
+                content=self._tr(
+                    "page.hostlist.ips.info.added_with_skipped",
+                    "Добавлено IP-исключений. Пропущено уже существующих: {count}",
+                    count=len(skipped),
+                ),
                 parent=self.window(),
             )
 
@@ -1447,7 +1811,11 @@ class HostlistPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия ipset-ru.user.txt: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.hostlist.error.open_file", "Не удалось открыть:\n{error}", error=e),
+                    parent=self.window(),
+                )
 
     def _ipru_open_final_file(self):
         try:
@@ -1465,8 +1833,12 @@ class HostlistPage(BasePage):
             log(f"Ошибка открытия итогового ipset-ru.txt: {e}", "ERROR")
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content=f"Не удалось открыть итоговый файл: {e}",
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.hostlist.error.open_final_file",
+                        "Не удалось открыть итоговый файл: {error}",
+                        error=e,
+                    ),
                     parent=self.window(),
                 )
 
@@ -1475,11 +1847,216 @@ class HostlistPage(BasePage):
         if not text:
             return
         if MessageBox:
-            box = MessageBox("Очистить всё", "Удалить все IP-исключения?", self.window())
+            box = MessageBox(
+                self._tr("page.hostlist.dialog.clear.title", "Очистить всё"),
+                self._tr("page.hostlist.exclusions.ipru.dialog.clear.body", "Удалить все IP-исключения?"),
+                self.window(),
+            )
             if box.exec():
                 self._ipru_editor.clear()
         else:
             self._ipru_editor.clear()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+        if not self._ui_built:
+            return
+
+        if self.pivot is not None:
+            self.pivot.setItemText("hostlist", self._tr("page.hostlist.tab.hostlist", "Hostlist"))
+            self.pivot.setItemText("ipset", self._tr("page.hostlist.tab.ipset", "IPset"))
+            self.pivot.setItemText("domains", self._tr("page.hostlist.tab.domains", "Мои домены"))
+            self.pivot.setItemText("ips", self._tr("page.hostlist.tab.ips", "Мои IP"))
+            self.pivot.setItemText("exclusions", self._tr("page.hostlist.tab.exclusions", "Исключения"))
+
+        for row in self._action_rows:
+            if row.get("title_label") is not None:
+                row["title_label"].setText(
+                    self._tr(row.get("title_key") or "", row.get("title_default") or "")
+                )
+            if row.get("subtitle_label") is not None:
+                row["subtitle_label"].setText(
+                    self._tr(row.get("subtitle_key") or "", row.get("subtitle_default") or "")
+                )
+            if row.get("button") is not None:
+                row["button"].setText(
+                    self._tr(row.get("button_key") or "", row.get("button_default") or "")
+                )
+
+        if hasattr(self, "_hostlist_desc_label"):
+            self._hostlist_desc_label.setText(
+                self._tr("page.hostlist.hostlist.desc", "Используется для обхода блокировок по доменам.")
+            )
+        if hasattr(self, "_ipset_desc_label"):
+            self._ipset_desc_label.setText(
+                self._tr("page.hostlist.ipset.desc", "Используется для обхода блокировок по IP-адресам и подсетям.")
+            )
+        if hasattr(self, "_hostlist_manage_card"):
+            self._hostlist_manage_card.set_title(self._tr("page.hostlist.section.manage", "Управление"))
+        if hasattr(self, "_ipset_manage_card"):
+            self._ipset_manage_card.set_title(self._tr("page.hostlist.section.manage", "Управление"))
+
+        if hasattr(self, "_domains_add_card"):
+            self._domains_add_card.set_title(self._tr("page.hostlist.domains.section.add", "Добавить домен"))
+        if hasattr(self, "_domains_actions_card"):
+            self._domains_actions_card.set_title(self._tr("page.hostlist.section.actions", "Действия"))
+        if hasattr(self, "_domains_editor_card"):
+            self._domains_editor_card.set_title(self._tr("page.hostlist.domains.section.editor", "other.user.txt (редактор)"))
+        if hasattr(self, "_d_input"):
+            self._d_input.setPlaceholderText(
+                self._tr("page.hostlist.domains.input.placeholder", "Введите домен или URL (например: example.com)")
+            )
+        if hasattr(self, "_d_add_btn"):
+            self._d_add_btn.setText(self._tr("page.hostlist.button.add", "Добавить"))
+        if hasattr(self, "_domains_open_btn"):
+            self._domains_open_btn.setText(self._tr("page.hostlist.button.open_file", "Открыть файл"))
+            set_tooltip(
+                self._domains_open_btn,
+                self._tr(
+                    "page.hostlist.domains.tooltip.open_file",
+                    "Сохраняет изменения и открывает other.user.txt в проводнике",
+                ),
+            )
+        if hasattr(self, "_domains_reset_btn"):
+            self._domains_reset_btn._default_text = self._tr("page.hostlist.button.reset_file", "Сбросить файл")
+            self._domains_reset_btn._confirm_text = self._tr("page.hostlist.confirm.reset", "Подтвердить сброс")
+            self._domains_reset_btn.setText(self._domains_reset_btn._default_text)
+            set_tooltip(
+                self._domains_reset_btn,
+                self._tr(
+                    "page.hostlist.domains.tooltip.reset_file",
+                    "Очищает other.user.txt и пересобирает other.txt из системной базы",
+                ),
+            )
+        if hasattr(self, "_domains_clear_btn"):
+            self._domains_clear_btn._default_text = self._tr("page.hostlist.button.clear_all", "Очистить всё")
+            self._domains_clear_btn._confirm_text = self._tr("page.hostlist.confirm.clear", "Подтвердить очистку")
+            self._domains_clear_btn.setText(self._domains_clear_btn._default_text)
+            set_tooltip(
+                self._domains_clear_btn,
+                self._tr("page.hostlist.domains.tooltip.clear_all", "Удаляет только пользовательские домены"),
+            )
+        if hasattr(self, "_d_editor"):
+            self._d_editor.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.domains.editor.placeholder",
+                    "Домены по одному на строку:\nexample.com\nsubdomain.site.org\n\nКомментарии начинаются с #",
+                )
+            )
+        if hasattr(self, "_domains_hint_label"):
+            self._domains_hint_label.setText(
+                self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+            )
+
+        if hasattr(self, "_ips_add_card"):
+            self._ips_add_card.set_title(self._tr("page.hostlist.ips.section.add", "Добавить IP/подсеть"))
+        if hasattr(self, "_ips_actions_card"):
+            self._ips_actions_card.set_title(self._tr("page.hostlist.section.actions", "Действия"))
+        if hasattr(self, "_ips_editor_card"):
+            self._ips_editor_card.set_title(self._tr("page.hostlist.ips.section.editor", "ipset-all.user.txt (редактор)"))
+        if hasattr(self, "_i_input"):
+            self._i_input.setPlaceholderText(
+                self._tr("page.hostlist.ips.input.placeholder", "Например: 1.2.3.4 или 10.0.0.0/8")
+            )
+        if hasattr(self, "_i_add_btn"):
+            self._i_add_btn.setText(self._tr("page.hostlist.button.add", "Добавить"))
+        if hasattr(self, "_ips_open_btn"):
+            self._ips_open_btn.setText(self._tr("page.hostlist.button.open_file", "Открыть файл"))
+        if hasattr(self, "_ips_clear_btn"):
+            self._ips_clear_btn.setText(self._tr("page.hostlist.button.clear_all", "Очистить всё"))
+        if hasattr(self, "_i_editor"):
+            self._i_editor.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.ips.editor.placeholder",
+                    "IP/подсети по одному на строку:\n192.168.0.1\n10.0.0.0/8\n\nКомментарии начинаются с #",
+                )
+            )
+        if hasattr(self, "_ips_hint_label"):
+            self._ips_hint_label.setText(
+                self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+            )
+
+        if hasattr(self, "_excl_add_card"):
+            self._excl_add_card.set_title(self._tr("page.hostlist.exclusions.section.add_domain", "Добавить домен"))
+        if hasattr(self, "_excl_actions_card"):
+            self._excl_actions_card.set_title(self._tr("page.hostlist.section.actions", "Действия"))
+        if hasattr(self, "_excl_editor_card"):
+            self._excl_editor_card.set_title(self._tr("page.hostlist.exclusions.section.editor_domain", "netrogat.user.txt (редактор)"))
+        if hasattr(self, "_excl_input"):
+            self._excl_input.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.exclusions.input.domain.placeholder",
+                    "Например: example.com, site.com или через пробел",
+                )
+            )
+        if hasattr(self, "_excl_add_btn"):
+            self._excl_add_btn.setText(self._tr("page.hostlist.button.add", "Добавить"))
+        if hasattr(self, "_excl_defaults_btn"):
+            self._excl_defaults_btn.setText(self._tr("page.hostlist.exclusions.button.add_missing", "Добавить недостающие"))
+        if hasattr(self, "_excl_open_btn"):
+            self._excl_open_btn.setText(self._tr("page.hostlist.button.open_file", "Открыть файл"))
+        if hasattr(self, "_excl_open_final_btn"):
+            self._excl_open_final_btn.setText(self._tr("page.hostlist.exclusions.button.open_final", "Открыть итоговый"))
+        if hasattr(self, "_excl_clear_btn"):
+            self._excl_clear_btn.setText(self._tr("page.hostlist.button.clear_all", "Очистить всё"))
+        if hasattr(self, "_excl_editor"):
+            self._excl_editor.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.exclusions.editor.domain.placeholder",
+                    "Домены по одному на строку:\ngosuslugi.ru\nvk.com\n\nКомментарии начинаются с #",
+                )
+            )
+        if hasattr(self, "_excl_hint_label"):
+            self._excl_hint_label.setText(
+                self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+            )
+
+        if hasattr(self, "_ipru_title_label"):
+            self._ipru_title_label.setText(
+                self._tr("page.hostlist.exclusions.ipru.title", "IP-исключения (--ipset-exclude)")
+            )
+        if hasattr(self, "_ipru_desc_label"):
+            self._ipru_desc_label.setText(
+                self._tr(
+                    "page.hostlist.exclusions.ipru.desc",
+                    "Редактируйте только ipset-ru.user.txt. Системная база хранится в ipset-ru.base.txt и автоматически объединяется в ipset-ru.txt.",
+                )
+            )
+        if hasattr(self, "_ipru_add_card"):
+            self._ipru_add_card.set_title(self._tr("page.hostlist.exclusions.ipru.section.add", "Добавить IP/подсеть в исключения"))
+        if hasattr(self, "_ipru_actions_card"):
+            self._ipru_actions_card.set_title(self._tr("page.hostlist.exclusions.ipru.section.actions", "Действия IP-исключений"))
+        if hasattr(self, "_ipru_editor_card"):
+            self._ipru_editor_card.set_title(self._tr("page.hostlist.exclusions.ipru.section.editor", "ipset-ru.user.txt (редактор)"))
+        if hasattr(self, "_ipru_input"):
+            self._ipru_input.setPlaceholderText(
+                self._tr("page.hostlist.ips.input.placeholder", "Например: 1.2.3.4 или 10.0.0.0/8")
+            )
+        if hasattr(self, "_ipru_add_btn"):
+            self._ipru_add_btn.setText(self._tr("page.hostlist.button.add", "Добавить"))
+        if hasattr(self, "_ipru_open_btn"):
+            self._ipru_open_btn.setText(self._tr("page.hostlist.button.open_file", "Открыть файл"))
+        if hasattr(self, "_ipru_open_final_btn"):
+            self._ipru_open_final_btn.setText(self._tr("page.hostlist.exclusions.button.open_final", "Открыть итоговый"))
+        if hasattr(self, "_ipru_clear_btn"):
+            self._ipru_clear_btn.setText(self._tr("page.hostlist.button.clear_all", "Очистить всё"))
+        if hasattr(self, "_ipru_editor"):
+            self._ipru_editor.setPlaceholderText(
+                self._tr(
+                    "page.hostlist.exclusions.ipru.editor.placeholder",
+                    "IP/подсети по одному на строку:\n31.13.64.0/18\n77.88.0.0/18\n\nКомментарии начинаются с #",
+                )
+            )
+        if hasattr(self, "_ipru_hint_label"):
+            self._ipru_hint_label.setText(
+                self._tr("page.hostlist.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+            )
+
+        self._load_info()
+        self._domains_update_status()
+        self._ips_update_status()
+        self._excl_update_status()
+        self._ipru_update_status()
 
     @staticmethod
     def _normalize_ip(text: str) -> Optional[str]:

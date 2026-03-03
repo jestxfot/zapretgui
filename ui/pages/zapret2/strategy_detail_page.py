@@ -62,7 +62,18 @@ from launcher_common.blobs import get_blobs_info
 from preset_zapret2 import PresetManager, SyndataSettings
 from ui.zapret2_strategy_marks import DirectZapret2MarksStore, DirectZapret2FavoritesStore
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
+
+
+def _tr_text(language: str, key: str, default: str, **kwargs) -> str:
+    text = tr_catalog(key, language=language, default=default)
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except Exception:
+            return text
+    return text
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,20 +83,33 @@ from log import log
 class _ArgsEditorDialog(MessageBoxBase):
     """Диалог редактирования аргументов стратегии на базе MessageBoxBase."""
 
-    def __init__(self, initial_text: str = "", parent=None):
+    def __init__(self, initial_text: str = "", parent=None, language: str = "ru"):
         super().__init__(parent)
+        self._ui_language = language
         if _HAS_FLUENT:
             from qfluentwidgets import SubtitleLabel as _SubLabel
-            self._title_lbl = _SubLabel("Аргументы стратегии")
+            self._title_lbl = _SubLabel(
+                _tr_text(self._ui_language, "page.z2_strategy_detail.args_dialog.title", "Аргументы стратегии")
+            )
         else:
-            self._title_lbl = QLabel("Аргументы стратегии")
+            self._title_lbl = QLabel(
+                _tr_text(self._ui_language, "page.z2_strategy_detail.args_dialog.title", "Аргументы стратегии")
+            )
         self.viewLayout.addWidget(self._title_lbl)
 
         if _HAS_FLUENT:
             from qfluentwidgets import CaptionLabel as _Cap
-            hint = _Cap("Один аргумент на строку. Изменяет только выбранную категорию.")
+            hint = _Cap(
+                _tr_text(
+                    self._ui_language,
+                    "page.z2_strategy_detail.args_dialog.hint",
+                    "Один аргумент на строку. Изменяет только выбранную категорию.",
+                )
+            )
         else:
-            hint = QLabel("Один аргумент на строку.")
+            hint = QLabel(
+                _tr_text(self._ui_language, "page.z2_strategy_detail.args_dialog.hint.short", "Один аргумент на строку.")
+            )
         self.viewLayout.addWidget(hint)
 
         self._text_edit = TextEdit()
@@ -120,7 +144,11 @@ class _ArgsEditorDialog(MessageBoxBase):
         except Exception:
             pass
         self._text_edit.setPlaceholderText(
-            "Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1"
+            _tr_text(
+                self._ui_language,
+                "page.z2_strategy_detail.args_dialog.placeholder",
+                "Например:\n--dpi-desync=multisplit\n--dpi-desync-split-pos=1",
+            )
         )
         self._text_edit.setMinimumWidth(420)
         self._text_edit.setMinimumHeight(120)
@@ -131,8 +159,12 @@ class _ArgsEditorDialog(MessageBoxBase):
         self._text_edit.setText(initial_text)
         self.viewLayout.addWidget(self._text_edit)
 
-        self.yesButton.setText("Сохранить")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(
+            _tr_text(self._ui_language, "page.z2_strategy_detail.args_dialog.button.save", "Сохранить")
+        )
+        self.cancelButton.setText(
+            _tr_text(self._ui_language, "page.z2_strategy_detail.args_dialog.button.cancel", "Отмена")
+        )
 
     def validate(self) -> bool:
         return True
@@ -388,23 +420,45 @@ class ArgsPreview(CaptionLabel):
 class _PresetNameDialog(MessageBoxBase):
     """WinUI-style modal dialog for preset create / rename (uses qfluentwidgets MessageBoxBase)."""
 
-    def __init__(self, mode: str, old_name: str = "", parent=None):
+    def __init__(self, mode: str, old_name: str = "", parent=None, language: str = "ru"):
         super().__init__(parent)
         self._mode = mode  # "create" | "rename"
+        self._ui_language = language
 
-        title_text = "Создать пресет" if mode == "create" else "Переименовать пресет"
+        title_text = (
+            _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.create.title", "Создать пресет")
+            if mode == "create"
+            else _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.rename.title", "Переименовать пресет")
+        )
         self.titleLabel = SubtitleLabel(title_text, self.widget)
 
         if mode == "rename" and old_name:
-            from_label = CaptionLabel(f"Текущее имя: {old_name}", self.widget)
+            from_label = CaptionLabel(
+                _tr_text(
+                    self._ui_language,
+                    "page.z2_strategy_detail.preset_dialog.rename.current_name",
+                    "Текущее имя: {name}",
+                    name=old_name,
+                ),
+                self.widget,
+            )
             self.viewLayout.addWidget(self.titleLabel)
             self.viewLayout.addWidget(from_label)
         else:
             self.viewLayout.addWidget(self.titleLabel)
 
-        name_label = BodyLabel("Название", self.widget)
+        name_label = BodyLabel(
+            _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.name_label", "Название"),
+            self.widget,
+        )
         self.name_edit = LineEdit(self.widget)
-        self.name_edit.setPlaceholderText("Введите название пресета…")
+        self.name_edit.setPlaceholderText(
+            _tr_text(
+                self._ui_language,
+                "page.z2_strategy_detail.preset_dialog.name_placeholder",
+                "Введите название пресета...",
+            )
+        )
         if mode == "rename" and old_name:
             self.name_edit.setText(old_name)
         self.name_edit.returnPressed.connect(self._validate_and_accept)
@@ -422,8 +476,14 @@ class _PresetNameDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.name_edit)
         self.viewLayout.addWidget(self._error_label)
 
-        self.yesButton.setText("Создать" if mode == "create" else "Переименовать")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(
+            _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.button.create", "Создать")
+            if mode == "create"
+            else _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.button.rename", "Переименовать")
+        )
+        self.cancelButton.setText(
+            _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.button.cancel", "Отмена")
+        )
         self.widget.setMinimumWidth(360)
 
     def _validate_and_accept(self):
@@ -433,7 +493,9 @@ class _PresetNameDialog(MessageBoxBase):
     def validate(self) -> bool:
         name = self.name_edit.text().strip()
         if not name:
-            self._error_label.setText("Введите название пресета")
+            self._error_label.setText(
+                _tr_text(self._ui_language, "page.z2_strategy_detail.preset_dialog.error.empty", "Введите название пресета")
+            )
             self._error_label.show()
             return False
         self._error_label.hide()
@@ -465,7 +527,9 @@ class StrategyDetailPage(BasePage):
         super().__init__(
             title="",  # Заголовок будет установлен динамически
             subtitle="",
-            parent=parent
+            title_key="page.z2_strategy_detail.title",
+            subtitle_key="page.z2_strategy_detail.subtitle",
+            parent=parent,
         )
         # BasePage uses `SetMaximumSize` to clamp the content widget to its layout's
         # sizeHint. With dynamic/lazy-loaded content (like strategies list), this can
@@ -536,6 +600,9 @@ class StrategyDetailPage(BasePage):
         self._last_parent_link_icon_color = None
         self._last_edit_args_icon_color = None
         self._last_sort_icon_color = None
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        return _tr_text(self._ui_language, key, default, **kwargs)
 
     def _ensure_content_built(self) -> None:
         if self._content_built:
@@ -795,9 +862,12 @@ class StrategyDetailPage(BasePage):
             self._breadcrumb.blockSignals(True)
             try:
                 self._breadcrumb.clear()
-                self._breadcrumb.addItem("control", "Управление")
-                self._breadcrumb.addItem("strategies", "Стратегии DPI")
-                self._breadcrumb.addItem("detail", cat_name or "Категория")
+                self._breadcrumb.addItem("control", self._tr("page.z2_strategy_detail.breadcrumb.control", "Управление"))
+                self._breadcrumb.addItem("strategies", self._tr("page.z2_strategy_detail.breadcrumb.strategies", "Стратегии DPI"))
+                self._breadcrumb.addItem(
+                    "detail",
+                    cat_name or self._tr("page.z2_strategy_detail.header.category_fallback", "Категория"),
+                )
             finally:
                 self._breadcrumb.blockSignals(False)
 
@@ -832,9 +902,9 @@ class StrategyDetailPage(BasePage):
             from qfluentwidgets import BreadcrumbBar as _BreadcrumbBar
             self._breadcrumb = _BreadcrumbBar(self)
             self._breadcrumb.blockSignals(True)
-            self._breadcrumb.addItem("control", "Управление")
-            self._breadcrumb.addItem("strategies", "Стратегии DPI")
-            self._breadcrumb.addItem("detail", "Категория")
+            self._breadcrumb.addItem("control", self._tr("page.z2_strategy_detail.breadcrumb.control", "Управление"))
+            self._breadcrumb.addItem("strategies", self._tr("page.z2_strategy_detail.breadcrumb.strategies", "Стратегии DPI"))
+            self._breadcrumb.addItem("detail", self._tr("page.z2_strategy_detail.header.category_fallback", "Категория"))
             self._breadcrumb.blockSignals(False)
             self._breadcrumb.currentItemChanged.connect(self._on_breadcrumb_item_changed)
             header_layout.addWidget(self._breadcrumb)
@@ -844,7 +914,7 @@ class StrategyDetailPage(BasePage):
             back_row.setContentsMargins(0, 0, 0, 0)
             back_row.setSpacing(4)
             self._parent_link = TransparentPushButton(parent=self)
-            self._parent_link.setText("Стратегии DPI")
+            self._parent_link.setText(self._tr("page.z2_strategy_detail.back.strategies", "Стратегии DPI"))
             self._parent_link.setIcon(qta.icon('fa5s.chevron-left', color=tokens.fg_muted))
             self._parent_link.setIconSize(QSize(12, 12))
             self._parent_link.clicked.connect(self.back_clicked.emit)
@@ -853,7 +923,7 @@ class StrategyDetailPage(BasePage):
             header_layout.addLayout(back_row)
 
         # Current page title
-        self._title = TitleLabel("Выберите категорию")
+        self._title = TitleLabel(self._tr("page.z2_strategy_detail.header.select_category", "Выберите категорию"))
         header_layout.addWidget(self._title)
 
         # Строка с галочкой и подзаголовком
@@ -905,8 +975,13 @@ class StrategyDetailPage(BasePage):
 
         # Toggle включения/выключения категории (без фоновой карточки)
         self._enable_toggle = Win11ToggleRow(
-            "fa5s.power-off", "Включить обход",
-            "Активировать DPI-обход для этой категории", "#4CAF50"
+            "fa5s.power-off",
+            self._tr("page.z2_strategy_detail.toggle.enable.title", "Включить обход"),
+            self._tr(
+                "page.z2_strategy_detail.toggle.enable.description",
+                "Активировать DPI-обход для этой категории",
+            ),
+            "#4CAF50",
         )
         self._enable_toggle.toggled.connect(self._on_enable_toggled)
         settings_host_layout.addWidget(self._enable_toggle)
@@ -929,12 +1004,12 @@ class StrategyDetailPage(BasePage):
         # Режим фильтрации row
         self._filter_mode_frame = SettingsRow(
             "fa5s.filter",
-            "Режим фильтрации",
-            "Hostlist - по доменам, IPset - по IP",
+            self._tr("page.z2_strategy_detail.filter_mode.title", "Режим фильтрации"),
+            self._tr("page.z2_strategy_detail.filter_mode.description", "Hostlist - по доменам, IPset - по IP"),
         )
         self._filter_mode_selector = SwitchButton(parent=self)
-        self._filter_mode_selector.setOnText("IPset")
-        self._filter_mode_selector.setOffText("Hostlist")
+        self._filter_mode_selector.setOnText(self._tr("page.z2_strategy_detail.filter.ipset", "IPset"))
+        self._filter_mode_selector.setOffText(self._tr("page.z2_strategy_detail.filter.hostlist", "Hostlist"))
         self._filter_mode_selector.checkedChanged.connect(
             lambda checked: self._on_filter_mode_changed("ipset" if checked else "hostlist")
         )
@@ -944,28 +1019,40 @@ class StrategyDetailPage(BasePage):
         # OUT RANGE
         self._out_range_frame = SettingsRow(
             "fa5s.sliders-h",
-            "Out Range",
-            "Ограничение исходящих пакетов",
+            self._tr("page.z2_strategy_detail.out_range.title", "Out Range"),
+            self._tr("page.z2_strategy_detail.out_range.description", "Ограничение исходящих пакетов"),
         )
-        mode_label = BodyLabel("Режим:")
-        self._out_range_frame.control_container.addWidget(mode_label)
+        self._out_range_mode_label = BodyLabel(self._tr("page.z2_strategy_detail.out_range.mode", "Режим:"))
+        self._out_range_frame.control_container.addWidget(self._out_range_mode_label)
 
         self._out_range_seg = SegmentedWidget()
         self._out_range_seg.addItem("n", "n", lambda: self._select_out_range_mode("n"))
         self._out_range_seg.addItem("d", "d", lambda: self._select_out_range_mode("d"))
-        set_tooltip(self._out_range_seg, "n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными")
+        set_tooltip(
+            self._out_range_seg,
+            self._tr(
+                "page.z2_strategy_detail.out_range.mode.tooltip",
+                "n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными",
+            ),
+        )
         self._out_range_mode = "n"
         self._out_range_seg.setCurrentItem("n")
         self._out_range_frame.control_container.addWidget(self._out_range_seg)
 
-        value_label = BodyLabel("Значение:")
-        self._out_range_frame.control_container.addWidget(value_label)
+        self._out_range_value_label = BodyLabel(self._tr("page.z2_strategy_detail.out_range.value", "Значение:"))
+        self._out_range_frame.control_container.addWidget(self._out_range_value_label)
 
         self._out_range_spin = SpinBox()
         self._out_range_spin.setRange(1, 999)
         self._out_range_spin.setValue(8)
         self._out_range_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        set_tooltip(self._out_range_spin, "--out-range: ограничение количества исходящих пакетов (n) или задержки (d)")
+        set_tooltip(
+            self._out_range_spin,
+            self._tr(
+                "page.z2_strategy_detail.out_range.value.tooltip",
+                "--out-range: ограничение количества исходящих пакетов (n) или задержки (d)",
+            ),
+        )
         self._out_range_spin.valueChanged.connect(self._save_syndata_settings)
         self._out_range_frame.control_container.addWidget(self._out_range_spin)
 
@@ -978,7 +1065,9 @@ class StrategyDetailPage(BasePage):
         self._send_frame = SettingsCard()
 
         self._send_toggle_row = Win11ToggleRow(
-            "fa5s.paper-plane", "Send параметры", "Отправка копий пакетов"
+            "fa5s.paper-plane",
+            self._tr("page.z2_strategy_detail.send.toggle.title", "Send параметры"),
+            self._tr("page.z2_strategy_detail.send.toggle.description", "Отправка копий пакетов"),
         )
         self._send_toggle = self._send_toggle_row.toggle
         self._send_toggle_row.toggled.connect(self._on_send_toggled)
@@ -993,14 +1082,23 @@ class StrategyDetailPage(BasePage):
 
         # send_repeats row
         self._send_repeats_row = Win11NumberRow(
-            "fa5s.redo", "repeats", "Количество повторных отправок", min_val=0, max_val=10, default_val=2
+            "fa5s.redo",
+            self._tr("page.z2_strategy_detail.send.repeats.title", "repeats"),
+            self._tr("page.z2_strategy_detail.send.repeats.description", "Количество повторных отправок"),
+            min_val=0,
+            max_val=10,
+            default_val=2,
         )
         self._send_repeats_spin = self._send_repeats_row.spinbox
         self._send_repeats_row.valueChanged.connect(self._save_syndata_settings)
         send_settings_layout.addWidget(self._send_repeats_row)
 
         # send_ip_ttl row
-        self._send_ip_ttl_frame = SettingsRow("fa5s.stopwatch", "ip_ttl", "TTL для IPv4 отправляемых пакетов")
+        self._send_ip_ttl_frame = SettingsRow(
+            "fa5s.stopwatch",
+            self._tr("page.z2_strategy_detail.send.ip_ttl.title", "ip_ttl"),
+            self._tr("page.z2_strategy_detail.send.ip_ttl.description", "TTL для IPv4 отправляемых пакетов"),
+        )
         self._send_ip_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
@@ -1010,7 +1108,11 @@ class StrategyDetailPage(BasePage):
         send_settings_layout.addWidget(self._send_ip_ttl_frame)
 
         # send_ip6_ttl row
-        self._send_ip6_ttl_frame = SettingsRow("fa5s.stopwatch", "ip6_ttl", "TTL для IPv6 отправляемых пакетов")
+        self._send_ip6_ttl_frame = SettingsRow(
+            "fa5s.stopwatch",
+            self._tr("page.z2_strategy_detail.send.ip6_ttl.title", "ip6_ttl"),
+            self._tr("page.z2_strategy_detail.send.ip6_ttl.description", "TTL для IPv6 отправляемых пакетов"),
+        )
         self._send_ip6_ttl_selector = TTLButtonSelector(
             values=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             labels=["off", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
@@ -1021,15 +1123,24 @@ class StrategyDetailPage(BasePage):
 
         # send_ip_id row
         self._send_ip_id_row = Win11ComboRow(
-            "fa5s.fingerprint", "ip_id", "Режим IP ID для отправляемых пакетов",
-            items=[("none", None), ("seq", None), ("rnd", None), ("zero", None)]
+            "fa5s.fingerprint",
+            self._tr("page.z2_strategy_detail.send.ip_id.title", "ip_id"),
+            self._tr("page.z2_strategy_detail.send.ip_id.description", "Режим IP ID для отправляемых пакетов"),
+            items=[("none", None), ("seq", None), ("rnd", None), ("zero", None)],
         )
         self._send_ip_id_combo = self._send_ip_id_row.combo
         self._send_ip_id_row.currentTextChanged.connect(self._save_syndata_settings)
         send_settings_layout.addWidget(self._send_ip_id_row)
 
         # send_badsum row
-        self._send_badsum_frame = SettingsRow("fa5s.exclamation-triangle", "badsum", "Отправлять пакеты с неправильной контрольной суммой")
+        self._send_badsum_frame = SettingsRow(
+            "fa5s.exclamation-triangle",
+            self._tr("page.z2_strategy_detail.send.badsum.title", "badsum"),
+            self._tr(
+                "page.z2_strategy_detail.send.badsum.description",
+                "Отправлять пакеты с неправильной контрольной суммой",
+            ),
+        )
         self._send_badsum_check = SwitchButton()
         self._send_badsum_check.checkedChanged.connect(self._save_syndata_settings)
         self._send_badsum_frame.set_control(self._send_badsum_check)
@@ -1044,7 +1155,12 @@ class StrategyDetailPage(BasePage):
         self._syndata_frame = SettingsCard()
 
         self._syndata_toggle_row = Win11ToggleRow(
-            "fa5s.cog", "Syndata параметры", "Дополнительные параметры обхода DPI"
+            "fa5s.cog",
+            self._tr("page.z2_strategy_detail.syndata.toggle.title", "Syndata параметры"),
+            self._tr(
+                "page.z2_strategy_detail.syndata.toggle.description",
+                "Дополнительные параметры обхода DPI",
+            ),
         )
         self._syndata_toggle = self._syndata_toggle_row.toggle
         self._syndata_toggle_row.toggled.connect(self._on_syndata_toggled)
@@ -1067,7 +1183,10 @@ class StrategyDetailPage(BasePage):
         blob_items = [(n, None) for n in blob_names]
 
         self._blob_row = Win11ComboRow(
-            "fa5s.file-code", "blob", "Полезная нагрузка пакета", items=blob_items
+            "fa5s.file-code",
+            self._tr("page.z2_strategy_detail.syndata.blob.title", "blob"),
+            self._tr("page.z2_strategy_detail.syndata.blob.description", "Полезная нагрузка пакета"),
+            items=blob_items,
         )
         self._blob_combo = self._blob_row.combo
         self._blob_row.currentTextChanged.connect(self._save_syndata_settings)
@@ -1075,8 +1194,10 @@ class StrategyDetailPage(BasePage):
 
         # tls_mod selector row
         self._tls_mod_row = Win11ComboRow(
-            "fa5s.shield-alt", "tls_mod", "Модификация полезной нагрузки TLS",
-            items=[("none", None), ("rnd", None), ("rndsni", None), ("sni=google.com", None)]
+            "fa5s.shield-alt",
+            self._tr("page.z2_strategy_detail.syndata.tls_mod.title", "tls_mod"),
+            self._tr("page.z2_strategy_detail.syndata.tls_mod.description", "Модификация полезной нагрузки TLS"),
+            items=[("none", None), ("rnd", None), ("rndsni", None), ("sni=google.com", None)],
         )
         self._tls_mod_combo = self._tls_mod_row.combo
         self._tls_mod_row.currentTextChanged.connect(self._save_syndata_settings)
@@ -1086,7 +1207,14 @@ class StrategyDetailPage(BasePage):
         # AUTOTTL SETTINGS (три строки с кнопками)
         # ═══════════════════════════════════════════════════════════════
         # --- Delta row ---
-        self._autottl_delta_frame = SettingsRow("fa5s.clock", "AutoTTL Delta", "Смещение от измеренного TTL (OFF = убрать ip_autottl)")
+        self._autottl_delta_frame = SettingsRow(
+            "fa5s.clock",
+            self._tr("page.z2_strategy_detail.syndata.autottl_delta.title", "AutoTTL Delta"),
+            self._tr(
+                "page.z2_strategy_detail.syndata.autottl_delta.description",
+                "Смещение от измеренного TTL (OFF = убрать ip_autottl)",
+            ),
+        )
         self._autottl_delta_selector = TTLButtonSelector(
             values=[0, -1, -2, -3, -4, -5, -6, -7, -8, -9],
             labels=["OFF", "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"]
@@ -1096,7 +1224,11 @@ class StrategyDetailPage(BasePage):
         settings_layout.addWidget(self._autottl_delta_frame)
 
         # --- Min row ---
-        self._autottl_min_frame = SettingsRow("fa5s.angle-down", "AutoTTL Min", "Минимальный TTL")
+        self._autottl_min_frame = SettingsRow(
+            "fa5s.angle-down",
+            self._tr("page.z2_strategy_detail.syndata.autottl_min.title", "AutoTTL Min"),
+            self._tr("page.z2_strategy_detail.syndata.autottl_min.description", "Минимальный TTL"),
+        )
         self._autottl_min_selector = TTLButtonSelector(
             values=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             labels=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
@@ -1106,7 +1238,11 @@ class StrategyDetailPage(BasePage):
         settings_layout.addWidget(self._autottl_min_frame)
 
         # --- Max row ---
-        self._autottl_max_frame = SettingsRow("fa5s.angle-up", "AutoTTL Max", "Максимальный TTL")
+        self._autottl_max_frame = SettingsRow(
+            "fa5s.angle-up",
+            self._tr("page.z2_strategy_detail.syndata.autottl_max.title", "AutoTTL Max"),
+            self._tr("page.z2_strategy_detail.syndata.autottl_max.description", "Максимальный TTL"),
+        )
         self._autottl_max_selector = TTLButtonSelector(
             values=[15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
             labels=["15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25"]
@@ -1117,8 +1253,10 @@ class StrategyDetailPage(BasePage):
 
         # TCP flags row
         self._tcp_flags_row = Win11ComboRow(
-            "fa5s.flag", "tcp_flags_unset", "Сбросить TCP флаги",
-            items=[("none", None), ("ack", None), ("psh", None), ("ack,psh", None)]
+            "fa5s.flag",
+            self._tr("page.z2_strategy_detail.syndata.tcp_flags.title", "tcp_flags_unset"),
+            self._tr("page.z2_strategy_detail.syndata.tcp_flags.description", "Сбросить TCP флаги"),
+            items=[("none", None), ("ack", None), ("psh", None), ("ack,psh", None)],
         )
         self._tcp_flags_combo = self._tcp_flags_row.combo
         self._tcp_flags_row.currentTextChanged.connect(self._save_syndata_settings)
@@ -1135,21 +1273,39 @@ class StrategyDetailPage(BasePage):
         reset_row.setContentsMargins(0, 8, 0, 0)
         reset_row.setSpacing(8)
 
-        self._create_preset_btn = ActionButton("Создать пресет", "fa5s.plus")
-        set_tooltip(self._create_preset_btn, "Создать новый пресет на основе текущих настроек")
+        self._create_preset_btn = ActionButton(
+            self._tr("page.z2_strategy_detail.button.create_preset", "Создать пресет"),
+            "fa5s.plus",
+        )
+        set_tooltip(
+            self._create_preset_btn,
+            self._tr(
+                "page.z2_strategy_detail.button.create_preset.tooltip",
+                "Создать новый пресет на основе текущих настроек",
+            ),
+        )
         self._create_preset_btn.clicked.connect(self._on_create_preset_clicked)
         reset_row.addWidget(self._create_preset_btn)
 
-        self._rename_preset_btn = ActionButton("Переименовать", "fa5s.pen")
-        set_tooltip(self._rename_preset_btn, "Переименовать текущий активный пресет")
+        self._rename_preset_btn = ActionButton(
+            self._tr("page.z2_strategy_detail.button.rename_preset", "Переименовать"),
+            "fa5s.pen",
+        )
+        set_tooltip(
+            self._rename_preset_btn,
+            self._tr(
+                "page.z2_strategy_detail.button.rename_preset.tooltip",
+                "Переименовать текущий активный пресет",
+            ),
+        )
         self._rename_preset_btn.clicked.connect(self._on_rename_preset_clicked)
         reset_row.addWidget(self._rename_preset_btn)
 
         reset_row.addStretch()
 
         self._reset_settings_btn = ResetActionButton(
-            "Сбросить настройки",
-            confirm_text="Сбросить все?"
+            self._tr("page.z2_strategy_detail.button.reset_settings", "Сбросить настройки"),
+            confirm_text=self._tr("page.z2_strategy_detail.button.reset_settings.confirm", "Сбросить все?"),
         )
         self._reset_settings_btn.reset_confirmed.connect(self._on_reset_settings_confirmed)
         reset_row.addWidget(self._reset_settings_btn)
@@ -1177,7 +1333,9 @@ class StrategyDetailPage(BasePage):
         search_layout.setSpacing(6)
 
         self._search_input = LineEdit()
-        self._search_input.setPlaceholderText("Поиск по имени или args...")
+        self._search_input.setPlaceholderText(
+            self._tr("page.z2_strategy_detail.search.placeholder", "Поиск по имени или args...")
+        )
         self._search_input.setFixedHeight(36)
         self._search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self._search_input)
@@ -1187,7 +1345,7 @@ class StrategyDetailPage(BasePage):
         self._sort_btn.setIconSize(QSize(16, 16))
         self._sort_btn.setFixedSize(36, 36)
         self._sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_tooltip(self._sort_btn, "Сортировка")
+        set_tooltip(self._sort_btn, self._tr("page.z2_strategy_detail.sort.tooltip.short", "Сортировка"))
         self._sort_btn.clicked.connect(self._show_sort_menu)
         search_layout.addWidget(self._sort_btn)
 
@@ -1195,7 +1353,7 @@ class StrategyDetailPage(BasePage):
         self._filter_combo = ComboBox(parent=self)
         self._filter_combo.setFixedHeight(36)
         self._filter_combo.setFixedWidth(130)
-        self._filter_combo.addItem("Все техники")
+        self._filter_combo.addItem(self._tr("page.z2_strategy_detail.filter.technique.all", "Все техники"))
         for label, _key in STRATEGY_TECHNIQUE_FILTERS:
             self._filter_combo.addItem(label)
         self._filter_combo.setCurrentIndex(0)
@@ -1212,7 +1370,13 @@ class StrategyDetailPage(BasePage):
         self._edit_args_btn.setIconSize(QSize(16, 16))
         self._edit_args_btn.setFixedSize(36, 36)
         self._edit_args_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_tooltip(self._edit_args_btn, "Аргументы стратегии (по выбранной категории)")
+        set_tooltip(
+            self._edit_args_btn,
+            self._tr(
+                "page.z2_strategy_detail.args.tooltip",
+                "Аргументы стратегии (по выбранной категории)",
+            ),
+        )
         self._edit_args_btn.setEnabled(False)
         self._edit_args_btn.clicked.connect(self._toggle_args_editor)
         search_layout.addWidget(self._edit_args_btn)
@@ -1378,7 +1542,10 @@ class StrategyDetailPage(BasePage):
 
         # Обновляем заголовок (только название категории в breadcrumb)
         self._title.setText(category_info.full_name)
-        self._subtitle.setText(f"{category_info.protocol}  |  порты: {category_info.ports}")
+        self._subtitle.setText(
+            f"{category_info.protocol}  |  "
+            f"{self._tr('page.z2_strategy_detail.subtitle.ports', 'порты: {ports}', ports=category_info.ports)}"
+        )
         self._update_selected_strategy_header(self._selected_strategy_id)
 
         # Sync BreadcrumbBar with the new category
@@ -1386,8 +1553,8 @@ class StrategyDetailPage(BasePage):
             self._breadcrumb.blockSignals(True)
             try:
                 self._breadcrumb.clear()
-                self._breadcrumb.addItem("control", "Управление")
-                self._breadcrumb.addItem("strategies", "Стратегии DPI")
+                self._breadcrumb.addItem("control", self._tr("page.z2_strategy_detail.breadcrumb.control", "Управление"))
+                self._breadcrumb.addItem("strategies", self._tr("page.z2_strategy_detail.breadcrumb.strategies", "Стратегии DPI"))
                 self._breadcrumb.addItem("detail", category_info.full_name)
             finally:
                 self._breadcrumb.blockSignals(False)
@@ -1736,9 +1903,13 @@ class StrategyDetailPage(BasePage):
 
                     if InfoBar:
                         InfoBar.warning(
-                            title="Нет стратегий",
-                            content=f"Для категории '{self._category_key}' не найдено стратегий.",
-                            parent=self.window()
+                            title=self._tr("page.z2_strategy_detail.infobar.no_strategies.title", "Нет стратегий"),
+                            content=self._tr(
+                                "page.z2_strategy_detail.infobar.no_strategies.content",
+                                "Для категории '{category}' не найдено стратегий.",
+                                category=self._category_key,
+                            ),
+                            parent=self.window(),
                         )
                 return
 
@@ -1752,16 +1923,22 @@ class StrategyDetailPage(BasePage):
                 # В этом режиме всегда есть пункт "(без изменений)"
                 self._pending_strategies_items.append({
                     'id': "none",
-                    'name': "(без изменений)",
-                    'desc': "Снять отметку со стратегии (фаза будет пропущена)",
+                    'name': self._tr("page.z2_strategy_detail.tree.phase.none.name", "(без изменений)"),
+                    'desc': self._tr(
+                        "page.z2_strategy_detail.tree.phase.none.desc",
+                        "Снять отметку со стратегии (фаза будет пропущена)",
+                    ),
                     'arg_str': "--new",
                     'is_custom': False
                 })
                 # И пункт "(custom_args...)"
                 self._pending_strategies_items.append({
                     'id': CUSTOM_STRATEGY_ID,
-                    'name': "Пользовательские аргументы (custom)",
-                    'desc': "Неизвестные аргументы, загруженные из профиля",
+                    'name': self._tr("page.z2_strategy_detail.tree.phase.custom.name", "Пользовательские аргументы (custom)"),
+                    'desc': self._tr(
+                        "page.z2_strategy_detail.tree.phase.custom.desc",
+                        "Неизвестные аргументы, загруженные из профиля",
+                    ),
                     'arg_str': "...",
                     'is_custom': True
                 })
@@ -1783,8 +1960,11 @@ class StrategyDetailPage(BasePage):
             else:
                 self._pending_strategies_items.append({
                     'id': "none",
-                    'name': "Выключено (без DPI-обхода)",
-                    'desc': "Трафик пускается напрямую без модификаций",
+                    'name': self._tr("page.z2_strategy_detail.tree.disabled.name", "Выключено (без DPI-обхода)"),
+                    'desc': self._tr(
+                        "page.z2_strategy_detail.tree.disabled.desc",
+                        "Трафик пускается напрямую без модификаций",
+                    ),
                     'arg_str': ""
                 })
 
@@ -2210,10 +2390,14 @@ class StrategyDetailPage(BasePage):
             manager = _PM()
         except Exception as e:
             if InfoBar:
-                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=str(e),
+                    parent=self.window(),
+                )
             return
 
-        dialog = _PresetNameDialog("create", parent=self.window())
+        dialog = _PresetNameDialog("create", parent=self.window(), language=self._ui_language)
         if not dialog.exec():
             return
         name = dialog.get_name()
@@ -2223,8 +2407,12 @@ class StrategyDetailPage(BasePage):
             if manager.preset_exists(name):
                 if InfoBar:
                     InfoBar.warning(
-                        title="Уже существует",
-                        content=f"Пресет '{name}' уже существует.",
+                        title=self._tr("page.z2_strategy_detail.infobar.preset.exists.title", "Уже существует"),
+                        content=self._tr(
+                            "page.z2_strategy_detail.infobar.preset.exists.content",
+                            "Пресет '{name}' уже существует.",
+                            name=name,
+                        ),
                         parent=self.window(),
                     )
                 return
@@ -2233,17 +2421,32 @@ class StrategyDetailPage(BasePage):
                 log(f"Создан пресет '{name}'", "INFO")
                 if InfoBar:
                     InfoBar.success(
-                        title="Пресет создан",
-                        content=f"Пресет '{name}' создан на основе текущих настроек.",
+                        title=self._tr("page.z2_strategy_detail.infobar.preset.created.title", "Пресет создан"),
+                        content=self._tr(
+                            "page.z2_strategy_detail.infobar.preset.created.content",
+                            "Пресет '{name}' создан на основе текущих настроек.",
+                            name=name,
+                        ),
                         parent=self.window(),
                     )
             else:
                 if InfoBar:
-                    InfoBar.warning(title="Ошибка", content="Не удалось создать пресет.", parent=self.window())
+                    InfoBar.warning(
+                        title=self._tr("common.error.title", "Ошибка"),
+                        content=self._tr(
+                            "page.z2_strategy_detail.infobar.preset.create_failed",
+                            "Не удалось создать пресет.",
+                        ),
+                        parent=self.window(),
+                    )
         except Exception as e:
             log(f"Ошибка создания пресета: {e}", "ERROR")
             if InfoBar:
-                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=str(e),
+                    parent=self.window(),
+                )
 
     def _on_rename_preset_clicked(self):
         """Открывает WinUI-диалог переименования текущего активного пресета."""
@@ -2253,19 +2456,26 @@ class StrategyDetailPage(BasePage):
             old_name = (manager.get_active_preset_name() or "").strip()
         except Exception as e:
             if InfoBar:
-                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=str(e),
+                    parent=self.window(),
+                )
             return
 
         if not old_name:
             if InfoBar:
                 InfoBar.warning(
-                    title="Нет активного пресета",
-                    content="Активный пресет не найден.",
+                    title=self._tr("page.z2_strategy_detail.infobar.preset.no_active.title", "Нет активного пресета"),
+                    content=self._tr(
+                        "page.z2_strategy_detail.infobar.preset.no_active.content",
+                        "Активный пресет не найден.",
+                    ),
                     parent=self.window(),
                 )
             return
 
-        dialog = _PresetNameDialog("rename", old_name=old_name, parent=self.window())
+        dialog = _PresetNameDialog("rename", old_name=old_name, parent=self.window(), language=self._ui_language)
         if not dialog.exec():
             return
         new_name = dialog.get_name()
@@ -2275,8 +2485,12 @@ class StrategyDetailPage(BasePage):
             if manager.preset_exists(new_name):
                 if InfoBar:
                     InfoBar.warning(
-                        title="Уже существует",
-                        content=f"Пресет '{new_name}' уже существует.",
+                        title=self._tr("page.z2_strategy_detail.infobar.preset.exists.title", "Уже существует"),
+                        content=self._tr(
+                            "page.z2_strategy_detail.infobar.preset.exists.content",
+                            "Пресет '{name}' уже существует.",
+                            name=new_name,
+                        ),
                         parent=self.window(),
                     )
                 return
@@ -2284,17 +2498,33 @@ class StrategyDetailPage(BasePage):
                 log(f"Пресет '{old_name}' переименован в '{new_name}'", "INFO")
                 if InfoBar:
                     InfoBar.success(
-                        title="Переименован",
-                        content=f"Пресет переименован: '{old_name}' → '{new_name}'.",
+                        title=self._tr("page.z2_strategy_detail.infobar.preset.renamed.title", "Переименован"),
+                        content=self._tr(
+                            "page.z2_strategy_detail.infobar.preset.renamed.content",
+                            "Пресет переименован: '{old}' -> '{new}'.",
+                            old=old_name,
+                            new=new_name,
+                        ),
                         parent=self.window(),
                     )
             else:
                 if InfoBar:
-                    InfoBar.warning(title="Ошибка", content="Не удалось переименовать пресет.", parent=self.window())
+                    InfoBar.warning(
+                        title=self._tr("common.error.title", "Ошибка"),
+                        content=self._tr(
+                            "page.z2_strategy_detail.infobar.preset.rename_failed",
+                            "Не удалось переименовать пресет.",
+                        ),
+                        parent=self.window(),
+                    )
         except Exception as e:
             log(f"Ошибка переименования пресета: {e}", "ERROR")
             if InfoBar:
-                InfoBar.error(title="Ошибка", content=str(e), parent=self.window())
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=str(e),
+                    parent=self.window(),
+                )
 
     def _on_reset_settings_confirmed(self):
         """Сбрасывает настройки категории на значения по умолчанию (встроенный шаблон)"""
@@ -3637,7 +3867,7 @@ class StrategyDetailPage(BasePage):
             return
 
         initial = self._load_args_text()
-        dlg = _ArgsEditorDialog(initial_text=initial, parent=self.window())
+        dlg = _ArgsEditorDialog(initial_text=initial, parent=self.window(), language=self._ui_language)
         if dlg.exec():
             self._apply_args_editor(dlg.get_text())
 
@@ -3718,12 +3948,12 @@ class StrategyDetailPage(BasePage):
     def _build_sort_tooltip(self) -> str:
         mode = str(self._sort_mode or "default").strip().lower() or "default"
         if mode == "name_asc":
-            label = "По имени (А-Я)"
+            label = self._tr("page.z2_strategy_detail.sort.name_asc", "По имени (А-Я)")
         elif mode == "name_desc":
-            label = "По имени (Я-А)"
+            label = self._tr("page.z2_strategy_detail.sort.name_desc", "По имени (Я-А)")
         else:
-            label = "По умолчанию"
-        return f"Сортировка: {label}"
+            label = self._tr("page.z2_strategy_detail.sort.default", "По умолчанию")
+        return self._tr("page.z2_strategy_detail.sort.tooltip", "Сортировка: {label}", label=label)
 
     def _update_sort_button_ui(self) -> None:
         btn = getattr(self, "_sort_btn", None)
@@ -3865,9 +4095,9 @@ class StrategyDetailPage(BasePage):
             self._apply_sort()
 
         entries = [
-            (_sort_icon, "По умолчанию",  "default"),
-            (_asc_icon,  "По имени (А-Я)", "name_asc"),
-            (_desc_icon, "По имени (Я-А)", "name_desc"),
+            (_sort_icon, self._tr("page.z2_strategy_detail.sort.default", "По умолчанию"), "default"),
+            (_asc_icon, self._tr("page.z2_strategy_detail.sort.name_asc", "По имени (А-Я)"), "name_asc"),
+            (_desc_icon, self._tr("page.z2_strategy_detail.sort.name_desc", "По имени (Я-А)"), "name_desc"),
         ]
         for icon, label, mode in entries:
             act = Action(icon, label, checkable=True) if _HAS_FLUENT else Action(label)
@@ -3892,3 +4122,251 @@ class StrategyDetailPage(BasePage):
         sid = self._selected_strategy_id or self._current_strategy_id or "none"
         if sid and self._strategies_tree.has_strategy(sid):
             self._strategies_tree.set_selected_strategy(sid)
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if not getattr(self, "_content_built", False):
+            return
+
+        if getattr(self, "_breadcrumb", None) is not None:
+            self._breadcrumb.blockSignals(True)
+            try:
+                self._breadcrumb.clear()
+                self._breadcrumb.addItem("control", self._tr("page.z2_strategy_detail.breadcrumb.control", "Управление"))
+                self._breadcrumb.addItem(
+                    "strategies", self._tr("page.z2_strategy_detail.breadcrumb.strategies", "Стратегии DPI")
+                )
+                detail = ""
+                try:
+                    detail = self._category_info.full_name if self._category_info else ""
+                except Exception:
+                    detail = ""
+                self._breadcrumb.addItem(
+                    "detail",
+                    detail or self._tr("page.z2_strategy_detail.header.category_fallback", "Категория"),
+                )
+            finally:
+                self._breadcrumb.blockSignals(False)
+
+        if getattr(self, "_parent_link", None) is not None:
+            self._parent_link.setText(self._tr("page.z2_strategy_detail.back.strategies", "Стратегии DPI"))
+
+        if getattr(self, "_title", None) is not None:
+            cat_name = ""
+            protocol = ""
+            ports = ""
+            try:
+                if self._category_info:
+                    cat_name = str(getattr(self._category_info, "full_name", "") or "").strip()
+                    protocol = str(getattr(self._category_info, "protocol", "") or "").strip()
+                    ports = str(getattr(self._category_info, "ports", "") or "").strip()
+            except Exception:
+                pass
+            self._title.setText(cat_name or self._tr("page.z2_strategy_detail.header.select_category", "Выберите категорию"))
+            if getattr(self, "_subtitle", None) is not None:
+                if protocol:
+                    self._subtitle.setText(
+                        f"{protocol}  |  "
+                        f"{self._tr('page.z2_strategy_detail.subtitle.ports', 'порты: {ports}', ports=ports)}"
+                    )
+                else:
+                    self._subtitle.setText("")
+
+        if getattr(self, "_enable_toggle", None) is not None:
+            self._enable_toggle.set_texts(
+                self._tr("page.z2_strategy_detail.toggle.enable.title", "Включить обход"),
+                self._tr(
+                    "page.z2_strategy_detail.toggle.enable.description",
+                    "Активировать DPI-обход для этой категории",
+                ),
+            )
+
+        if getattr(self, "_filter_mode_frame", None) is not None:
+            self._filter_mode_frame.set_title(
+                self._tr("page.z2_strategy_detail.filter_mode.title", "Режим фильтрации")
+            )
+            self._filter_mode_frame.set_description(
+                self._tr("page.z2_strategy_detail.filter_mode.description", "Hostlist - по доменам, IPset - по IP")
+            )
+        if getattr(self, "_filter_mode_selector", None) is not None:
+            if hasattr(self._filter_mode_selector, "setOnText"):
+                self._filter_mode_selector.setOnText(self._tr("page.z2_strategy_detail.filter.ipset", "IPset"))
+            if hasattr(self._filter_mode_selector, "setOffText"):
+                self._filter_mode_selector.setOffText(self._tr("page.z2_strategy_detail.filter.hostlist", "Hostlist"))
+
+        if getattr(self, "_out_range_mode_label", None) is not None:
+            self._out_range_mode_label.setText(self._tr("page.z2_strategy_detail.out_range.mode", "Режим:"))
+        if getattr(self, "_out_range_value_label", None) is not None:
+            self._out_range_value_label.setText(self._tr("page.z2_strategy_detail.out_range.value", "Значение:"))
+        if getattr(self, "_out_range_frame", None) is not None:
+            self._out_range_frame.set_title(self._tr("page.z2_strategy_detail.out_range.title", "Out Range"))
+            self._out_range_frame.set_description(
+                self._tr("page.z2_strategy_detail.out_range.description", "Ограничение исходящих пакетов")
+            )
+        if getattr(self, "_out_range_seg", None) is not None:
+            set_tooltip(
+                self._out_range_seg,
+                self._tr(
+                    "page.z2_strategy_detail.out_range.mode.tooltip",
+                    "n = количество пакетов с самого первого, d = отсчитывать ТОЛЬКО количество пакетов с данными",
+                ),
+            )
+        if getattr(self, "_out_range_spin", None) is not None:
+            set_tooltip(
+                self._out_range_spin,
+                self._tr(
+                    "page.z2_strategy_detail.out_range.value.tooltip",
+                    "--out-range: ограничение количества исходящих пакетов (n) или задержки (d)",
+                ),
+            )
+
+        if getattr(self, "_search_input", None) is not None:
+            self._search_input.setPlaceholderText(
+                self._tr("page.z2_strategy_detail.search.placeholder", "Поиск по имени или args...")
+            )
+
+        if getattr(self, "_sort_btn", None) is not None:
+            self._update_sort_button_ui()
+
+        if getattr(self, "_filter_combo", None) is not None:
+            idx = self._filter_combo.currentIndex()
+            self._filter_combo.blockSignals(True)
+            self._filter_combo.clear()
+            self._filter_combo.addItem(self._tr("page.z2_strategy_detail.filter.technique.all", "Все техники"))
+            for label, _key in STRATEGY_TECHNIQUE_FILTERS:
+                self._filter_combo.addItem(label)
+            self._filter_combo.setCurrentIndex(max(0, idx))
+            self._filter_combo.blockSignals(False)
+
+        if getattr(self, "_edit_args_btn", None) is not None:
+            set_tooltip(
+                self._edit_args_btn,
+                self._tr(
+                    "page.z2_strategy_detail.args.tooltip",
+                    "Аргументы стратегии (по выбранной категории)",
+                ),
+            )
+
+        if getattr(self, "_send_toggle_row", None) is not None:
+            self._send_toggle_row.set_texts(
+                self._tr("page.z2_strategy_detail.send.toggle.title", "Send параметры"),
+                self._tr("page.z2_strategy_detail.send.toggle.description", "Отправка копий пакетов"),
+            )
+        if getattr(self, "_send_repeats_row", None) is not None:
+            self._send_repeats_row.set_texts(
+                self._tr("page.z2_strategy_detail.send.repeats.title", "repeats"),
+                self._tr("page.z2_strategy_detail.send.repeats.description", "Количество повторных отправок"),
+            )
+        if getattr(self, "_send_ip_ttl_frame", None) is not None:
+            self._send_ip_ttl_frame.set_title(self._tr("page.z2_strategy_detail.send.ip_ttl.title", "ip_ttl"))
+            self._send_ip_ttl_frame.set_description(
+                self._tr("page.z2_strategy_detail.send.ip_ttl.description", "TTL для IPv4 отправляемых пакетов")
+            )
+        if getattr(self, "_send_ip6_ttl_frame", None) is not None:
+            self._send_ip6_ttl_frame.set_title(self._tr("page.z2_strategy_detail.send.ip6_ttl.title", "ip6_ttl"))
+            self._send_ip6_ttl_frame.set_description(
+                self._tr("page.z2_strategy_detail.send.ip6_ttl.description", "TTL для IPv6 отправляемых пакетов")
+            )
+        if getattr(self, "_send_ip_id_row", None) is not None:
+            self._send_ip_id_row.set_texts(
+                self._tr("page.z2_strategy_detail.send.ip_id.title", "ip_id"),
+                self._tr("page.z2_strategy_detail.send.ip_id.description", "Режим IP ID для отправляемых пакетов"),
+            )
+        if getattr(self, "_send_badsum_frame", None) is not None:
+            self._send_badsum_frame.set_title(self._tr("page.z2_strategy_detail.send.badsum.title", "badsum"))
+            self._send_badsum_frame.set_description(
+                self._tr(
+                    "page.z2_strategy_detail.send.badsum.description",
+                    "Отправлять пакеты с неправильной контрольной суммой",
+                )
+            )
+
+        if getattr(self, "_syndata_toggle_row", None) is not None:
+            self._syndata_toggle_row.set_texts(
+                self._tr("page.z2_strategy_detail.syndata.toggle.title", "Syndata параметры"),
+                self._tr(
+                    "page.z2_strategy_detail.syndata.toggle.description",
+                    "Дополнительные параметры обхода DPI",
+                ),
+            )
+        if getattr(self, "_blob_row", None) is not None:
+            self._blob_row.set_texts(
+                self._tr("page.z2_strategy_detail.syndata.blob.title", "blob"),
+                self._tr("page.z2_strategy_detail.syndata.blob.description", "Полезная нагрузка пакета"),
+            )
+        if getattr(self, "_tls_mod_row", None) is not None:
+            self._tls_mod_row.set_texts(
+                self._tr("page.z2_strategy_detail.syndata.tls_mod.title", "tls_mod"),
+                self._tr("page.z2_strategy_detail.syndata.tls_mod.description", "Модификация полезной нагрузки TLS"),
+            )
+        if getattr(self, "_autottl_delta_frame", None) is not None:
+            self._autottl_delta_frame.set_title(
+                self._tr("page.z2_strategy_detail.syndata.autottl_delta.title", "AutoTTL Delta")
+            )
+            self._autottl_delta_frame.set_description(
+                self._tr(
+                    "page.z2_strategy_detail.syndata.autottl_delta.description",
+                    "Смещение от измеренного TTL (OFF = убрать ip_autottl)",
+                )
+            )
+        if getattr(self, "_autottl_min_frame", None) is not None:
+            self._autottl_min_frame.set_title(
+                self._tr("page.z2_strategy_detail.syndata.autottl_min.title", "AutoTTL Min")
+            )
+            self._autottl_min_frame.set_description(
+                self._tr("page.z2_strategy_detail.syndata.autottl_min.description", "Минимальный TTL")
+            )
+        if getattr(self, "_autottl_max_frame", None) is not None:
+            self._autottl_max_frame.set_title(
+                self._tr("page.z2_strategy_detail.syndata.autottl_max.title", "AutoTTL Max")
+            )
+            self._autottl_max_frame.set_description(
+                self._tr("page.z2_strategy_detail.syndata.autottl_max.description", "Максимальный TTL")
+            )
+        if getattr(self, "_tcp_flags_row", None) is not None:
+            self._tcp_flags_row.set_texts(
+                self._tr("page.z2_strategy_detail.syndata.tcp_flags.title", "tcp_flags_unset"),
+                self._tr("page.z2_strategy_detail.syndata.tcp_flags.description", "Сбросить TCP флаги"),
+            )
+
+        if getattr(self, "_create_preset_btn", None) is not None:
+            self._create_preset_btn.setText(
+                self._tr("page.z2_strategy_detail.button.create_preset", "Создать пресет")
+            )
+            set_tooltip(
+                self._create_preset_btn,
+                self._tr(
+                    "page.z2_strategy_detail.button.create_preset.tooltip",
+                    "Создать новый пресет на основе текущих настроек",
+                ),
+            )
+        if getattr(self, "_rename_preset_btn", None) is not None:
+            self._rename_preset_btn.setText(
+                self._tr("page.z2_strategy_detail.button.rename_preset", "Переименовать")
+            )
+            set_tooltip(
+                self._rename_preset_btn,
+                self._tr(
+                    "page.z2_strategy_detail.button.rename_preset.tooltip",
+                    "Переименовать текущий активный пресет",
+                ),
+            )
+        if getattr(self, "_reset_settings_btn", None) is not None:
+            self._reset_settings_btn.setText(
+                self._tr("page.z2_strategy_detail.button.reset_settings", "Сбросить настройки")
+            )
+            try:
+                self._reset_settings_btn._confirm_text = self._tr(
+                    "page.z2_strategy_detail.button.reset_settings.confirm", "Сбросить все?"
+                )
+            except Exception:
+                pass
+
+        updater = getattr(self, "_update_header_labels", None)
+        if callable(updater):
+            try:
+                updater()
+            except Exception:
+                pass
+        self._update_selected_strategy_header(self._selected_strategy_id)

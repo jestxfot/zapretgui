@@ -17,6 +17,7 @@ from config.config import ZAPRET2_MODES, ZAPRET1_DIRECT_MODES
 from strategy_menu import get_strategy_launch_method
 from ui.theme import get_theme_tokens
 from ui.compat_widgets import ActionButton
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -35,11 +36,17 @@ class PresetConfigPage(BasePage):
 
         super().__init__(
             "Активный пресет",
-            f"Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете "
-            f"обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. "
-            f"GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла "
-            f"— {self._preset_display_name}",
+            tr_catalog(
+                "page.preset_config.subtitle_template",
+                default=(
+                    "Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете "
+                    "обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. "
+                    "GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла "
+                    "— {preset_name}"
+                ),
+            ).format(preset_name=self._preset_display_name),
             parent,
+            title_key="page.preset_config.title",
         )
 
         self._is_loading = False
@@ -102,15 +109,39 @@ class PresetConfigPage(BasePage):
             try:
                 if hasattr(self, 'subtitle_label'):
                     self.subtitle_label.setText(
-                        "Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете "
-                        "обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. "
-                        "GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла "
-                        f"— {self._preset_display_name}"
+                        tr_catalog(
+                            "page.preset_config.subtitle_template",
+                            default=(
+                                "Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете "
+                                "обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. "
+                                "GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла "
+                                "— {preset_name}"
+                            ),
+                        ).format(preset_name=self._preset_display_name)
                     )
             except Exception:
                 pass
         # В любом случае обновляем ожидаемый процесс под новый режим
         self._sync_process_status_from_cache()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+        try:
+            if self.subtitle_label is not None:
+                self.subtitle_label.setText(
+                    tr_catalog(
+                        "page.preset_config.subtitle_template",
+                        language=language,
+                        default=(
+                            "Пресет - это txt файл с настройками программы, вместо использования GUI Вы можете "
+                            "обмениваться напрямую этими пресетами, чтобы быстро изменить настройки программы. "
+                            "GUI подхватывает настройки отсюда. В данном окне представлен редактор основного txt файла "
+                            "— {preset_name}"
+                        ),
+                    ).format(preset_name=self._preset_display_name)
+                )
+        except Exception:
+            pass
 
     def _build_ui(self):
         """Строит UI страницы"""

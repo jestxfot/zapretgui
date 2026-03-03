@@ -46,6 +46,7 @@ except ImportError:
 from ..base_page import BasePage
 from ui.compat_widgets import set_tooltip
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 from orchestra.blocked_strategies_manager import ASKEY_ALL
 
@@ -53,12 +54,26 @@ from orchestra.blocked_strategies_manager import ASKEY_ALL
 class BlockedDomainRow(QFrame):
     """Виджет-ряд для одной заблокированной стратегии с редактируемым номером"""
 
-    def __init__(self, hostname: str, strategy: int, askey: str, is_default: bool = False, parent=None):
+    def __init__(
+        self,
+        hostname: str,
+        strategy: int,
+        askey: str,
+        is_default: bool = False,
+        parent=None,
+        *,
+        system_tooltip: str = "",
+        add_tooltip: str = "",
+        delete_tooltip: str = "",
+    ):
         super().__init__(parent)
         self.hostname = hostname
         self.original_strategy = strategy  # Сохраняем оригинальную стратегию для изменений
         self.askey = askey
         self.is_default = is_default
+        self._system_tooltip = system_tooltip or "Системная блокировка (нельзя изменить)"
+        self._add_tooltip = add_tooltip or "Добавить ещё одну заблокированную стратегию для этого домена"
+        self._delete_tooltip = delete_tooltip or "Разблокировать"
 
         self._tokens = get_theme_tokens()
         self._current_qss = ""
@@ -83,7 +98,7 @@ class BlockedDomainRow(QFrame):
         if is_default:
             lock_icon = QLabel()
             self._lock_icon_label = lock_icon
-            set_tooltip(lock_icon, "Системная блокировка (нельзя изменить)")
+            set_tooltip(lock_icon, self._system_tooltip)
             layout.addWidget(lock_icon)
 
         # Домен
@@ -122,7 +137,7 @@ class BlockedDomainRow(QFrame):
             self._add_btn = add_btn
             add_btn.setIconSize(QSize(14, 14))
             add_btn.setFixedSize(24, 24)
-            set_tooltip(add_btn, "Добавить ещё одну заблокированную стратегию для этого домена")
+            set_tooltip(add_btn, self._add_tooltip)
             add_btn.clicked.connect(self._on_add_clicked)
             layout.addWidget(add_btn)
 
@@ -131,7 +146,7 @@ class BlockedDomainRow(QFrame):
             self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
-            set_tooltip(delete_btn, "Разблокировать")
+            set_tooltip(delete_btn, self._delete_tooltip)
             delete_btn.clicked.connect(self._on_delete_clicked)
             layout.addWidget(delete_btn)
 
@@ -217,10 +232,14 @@ class OrchestraBlockedPage(BasePage):
         super().__init__(
             "Заблокированные стратегии",
             "Системные блокировки (strategy=1 для заблокированных РКН сайтов) + пользовательский чёрный список. Оркестратор не будет их использовать.",
-            parent
+            parent,
+            title_key="page.orchestra.blocked.title",
+            subtitle_key="page.orchestra.blocked.subtitle",
         )
         self.setObjectName("orchestraBlockedPage")
         self._hint_label = None
+        self._add_card = None
+        self._list_card = None
         # Инициализируем пустые данные (будут загружены при первом showEvent)
         self._direct_blocked_by_askey = {askey: {} for askey in ASKEY_ALL}
         self._initial_load_done = False
@@ -234,6 +253,15 @@ class OrchestraBlockedPage(BasePage):
 
         self._apply_theme()
 
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
     def _create_card(self, title: str):
         card = CardWidget(self)
         card_layout = QVBoxLayout(card)
@@ -244,6 +272,7 @@ class OrchestraBlockedPage(BasePage):
         if not _HAS_FLUENT:
             title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
         card_layout.addWidget(title_label)
+        card._title_label = title_label
 
         return card, card_layout
 
@@ -251,17 +280,26 @@ class OrchestraBlockedPage(BasePage):
         self._refresh_loading = loading
         if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
             self.refresh_btn.setEnabled(not loading)
+            set_tooltip(
+                self.refresh_btn,
+                self._tr("page.orchestra.blocked.button.refresh.tooltip", "Обновить"),
+            )
         self._apply_theme()
 
     def _setup_ui(self):
         # === Карточка добавления ===
-        add_card, add_card_layout = self._create_card("Заблокировать стратегию вручную")
+        add_card, add_card_layout = self._create_card(
+            self._tr("page.orchestra.blocked.card.add", "Заблокировать стратегию вручную")
+        )
+        self._add_card = add_card
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
         # Домен
         self.domain_input = LineEdit()
-        self.domain_input.setPlaceholderText("example.com")
+        self.domain_input.setPlaceholderText(
+            self._tr("page.orchestra.blocked.input.domain.placeholder", "example.com")
+        )
         # Styled in _apply_theme()
         add_layout.addWidget(self.domain_input, 1)
 
@@ -283,7 +321,10 @@ class OrchestraBlockedPage(BasePage):
         # Icon styled in _apply_theme()
         self.block_btn.setIconSize(QSize(18, 18))
         self.block_btn.setFixedSize(36, 36)
-        set_tooltip(self.block_btn, "Заблокировать стратегию")
+        set_tooltip(
+            self.block_btn,
+            self._tr("page.orchestra.blocked.button.block.tooltip", "Заблокировать стратегию"),
+        )
         self.block_btn.clicked.connect(self._block_strategy)
         add_layout.addWidget(self.block_btn)
 
@@ -291,7 +332,10 @@ class OrchestraBlockedPage(BasePage):
         self.layout.addWidget(add_card)
 
         # === Карточка списка ===
-        list_card, list_layout = self._create_card("Чёрный список")
+        list_card, list_layout = self._create_card(
+            self._tr("page.orchestra.blocked.card.list", "Чёрный список")
+        )
+        self._list_card = list_card
         list_layout.setSpacing(8)
 
         # Кнопка и счётчик сверху
@@ -300,7 +344,9 @@ class OrchestraBlockedPage(BasePage):
 
         # Поиск
         self.search_input = LineEdit()
-        self.search_input.setPlaceholderText("Поиск по доменам...")
+        self.search_input.setPlaceholderText(
+            self._tr("page.orchestra.blocked.search.placeholder", "Поиск по доменам...")
+        )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._filter_list)
         # Styled in _apply_theme()
@@ -309,13 +355,24 @@ class OrchestraBlockedPage(BasePage):
         # Кнопка обновления списка из реестра
         self.refresh_btn = TransparentToolButton(self)
         self.refresh_btn.setFixedSize(32, 32)
-        set_tooltip(self.refresh_btn, "Обновить")
+        set_tooltip(
+            self.refresh_btn,
+            self._tr("page.orchestra.blocked.button.refresh.tooltip", "Обновить"),
+        )
         self.refresh_btn.clicked.connect(self._reload_from_registry)
         top_row.addWidget(self.refresh_btn)
 
-        self.unblock_all_btn = PushButton("Очистить пользовательские")
+        self.unblock_all_btn = PushButton(
+            self._tr("page.orchestra.blocked.button.clear_user", "Очистить пользовательские")
+        )
         self.unblock_all_btn.setFixedHeight(32)
-        set_tooltip(self.unblock_all_btn, "Удалить все пользовательские блокировки (системные останутся)")
+        set_tooltip(
+            self.unblock_all_btn,
+            self._tr(
+                "page.orchestra.blocked.button.clear_user.tooltip",
+                "Удалить все пользовательские блокировки (системные останутся)",
+            ),
+        )
         self.unblock_all_btn.clicked.connect(self._unblock_all)
         top_row.addWidget(self.unblock_all_btn)
         top_row.addStretch()
@@ -327,7 +384,12 @@ class OrchestraBlockedPage(BasePage):
         list_layout.addWidget(self.count_label)
 
         # Подсказка
-        hint_label = CaptionLabel("Измените номер стратегии и она автоматически сохранится • Системные блокировки неизменяемы")
+        hint_label = CaptionLabel(
+            self._tr(
+                "page.orchestra.blocked.hint",
+                "Измените номер стратегии и она автоматически сохранится • Системные блокировки неизменяемы",
+            )
+        )
         self._hint_label = hint_label
         list_layout.addWidget(hint_label)
 
@@ -382,6 +444,53 @@ class OrchestraBlockedPage(BasePage):
                     row.refresh_theme()
         except Exception:
             pass
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._add_card is not None and hasattr(self._add_card, "_title_label"):
+            self._add_card._title_label.setText(
+                self._tr("page.orchestra.blocked.card.add", "Заблокировать стратегию вручную")
+            )
+        if self._list_card is not None and hasattr(self._list_card, "_title_label"):
+            self._list_card._title_label.setText(
+                self._tr("page.orchestra.blocked.card.list", "Чёрный список")
+            )
+
+        self.domain_input.setPlaceholderText(
+            self._tr("page.orchestra.blocked.input.domain.placeholder", "example.com")
+        )
+        self.search_input.setPlaceholderText(
+            self._tr("page.orchestra.blocked.search.placeholder", "Поиск по доменам...")
+        )
+        self.unblock_all_btn.setText(
+            self._tr("page.orchestra.blocked.button.clear_user", "Очистить пользовательские")
+        )
+        if self._hint_label is not None:
+            self._hint_label.setText(
+                self._tr(
+                    "page.orchestra.blocked.hint",
+                    "Измените номер стратегии и она автоматически сохранится • Системные блокировки неизменяемы",
+                )
+            )
+
+        set_tooltip(
+            self.block_btn,
+            self._tr("page.orchestra.blocked.button.block.tooltip", "Заблокировать стратегию"),
+        )
+        set_tooltip(
+            self.refresh_btn,
+            self._tr("page.orchestra.blocked.button.refresh.tooltip", "Обновить"),
+        )
+        set_tooltip(
+            self.unblock_all_btn,
+            self._tr(
+                "page.orchestra.blocked.button.clear_user.tooltip",
+                "Удалить все пользовательские блокировки (системные останутся)",
+            ),
+        )
+
+        self._refresh_data()
 
     def showEvent(self, event):
         """При показе страницы загружаем данные один раз (без авто-обновления)"""
@@ -479,12 +588,31 @@ class OrchestraBlockedPage(BasePage):
         default_items = [x for x in all_blocked if x[3]]
 
         if user_items:
-            user_header = QLabel(f"Пользовательские ({len(user_items)})")
+            user_header = QLabel(
+                self._tr(
+                    "page.orchestra.blocked.section.user",
+                    "Пользовательские ({count})",
+                    count=len(user_items),
+                )
+            )
             user_header.setProperty("blockedSection", "user")
             self.rows_layout.addWidget(user_header)
 
             for hostname, strategy, askey, is_default in user_items:
-                row = BlockedDomainRow(hostname, strategy, askey, is_default=False)
+                row = BlockedDomainRow(
+                    hostname,
+                    strategy,
+                    askey,
+                    is_default=False,
+                    add_tooltip=self._tr(
+                        "page.orchestra.blocked.row.add.tooltip",
+                        "Добавить ещё одну заблокированную стратегию для этого домена",
+                    ),
+                    delete_tooltip=self._tr(
+                        "page.orchestra.blocked.row.unblock.tooltip",
+                        "Разблокировать",
+                    ),
+                )
                 self.rows_layout.addWidget(row)
                 self._blocked_rows.append(row)
 
@@ -495,12 +623,27 @@ class OrchestraBlockedPage(BasePage):
                 spacer.setFixedHeight(12)
                 self.rows_layout.addWidget(spacer)
 
-            default_header = QLabel(f"Системные ({len(default_items)}) - заблокированные РКН сайты")
+            default_header = QLabel(
+                self._tr(
+                    "page.orchestra.blocked.section.system",
+                    "Системные ({count}) - заблокированные РКН сайты",
+                    count=len(default_items),
+                )
+            )
             default_header.setProperty("blockedSection", "default")
             self.rows_layout.addWidget(default_header)
 
             for hostname, strategy, askey, is_default in default_items:
-                row = BlockedDomainRow(hostname, strategy, askey, is_default=True)
+                row = BlockedDomainRow(
+                    hostname,
+                    strategy,
+                    askey,
+                    is_default=True,
+                    system_tooltip=self._tr(
+                        "page.orchestra.blocked.row.system.tooltip",
+                        "Системная блокировка (нельзя изменить)",
+                    ),
+                )
                 self.rows_layout.addWidget(row)
                 self._blocked_rows.append(row)
 
@@ -543,13 +686,19 @@ class OrchestraBlockedPage(BasePage):
             # Перезапускаем оркестратор чтобы применить изменения
             if runner.is_running():
                 runner.restart()
-                InfoBar.success(
-                    title="Применено",
-                    content=f"Стратегия #{strategy} разблокирована для {hostname}. Оркестратор перезапускается.",
-                    isClosable=True,
-                    duration=3000,
-                    parent=self.window()
-                )
+                if InfoBar is not None:
+                    InfoBar.success(
+                        title=self._tr("page.orchestra.blocked.infobar.applied.title", "Применено"),
+                        content=self._tr(
+                            "page.orchestra.blocked.infobar.unblocked",
+                            "Стратегия #{strategy} разблокирована для {domain}. Оркестратор перезапускается.",
+                            strategy=strategy,
+                            domain=hostname,
+                        ),
+                        isClosable=True,
+                        duration=3000,
+                        parent=self.window(),
+                    )
         self._refresh_data()
 
     def _prefill_domain(self, hostname: str):
@@ -570,7 +719,9 @@ class OrchestraBlockedPage(BasePage):
             blocked_data = self._direct_blocked_by_askey
             blocked_manager = None
         else:
-            self.count_label.setText("Нажмите 'Обновить' для загрузки данных")
+            self.count_label.setText(
+                self._tr("page.orchestra.blocked.count.reload_hint", "Нажмите 'Обновить' для загрузки данных")
+            )
             return
 
         user_count = 0
@@ -588,7 +739,15 @@ class OrchestraBlockedPage(BasePage):
                     else:
                         user_count += 1
         total = user_count + default_count
-        self.count_label.setText(f"Всего: {total} ({user_count} пользовательских + {default_count} системных)")
+        self.count_label.setText(
+            self._tr(
+                "page.orchestra.blocked.count.total",
+                "Всего: {total} ({user_count} пользовательских + {default_count} системных)",
+                total=total,
+                user_count=user_count,
+                default_count=default_count,
+            )
+        )
 
     def _block_strategy(self):
         """Блокирует стратегию"""
@@ -613,13 +772,19 @@ class OrchestraBlockedPage(BasePage):
         # Перезапускаем оркестратор чтобы применить изменения
         if runner.is_running():
             runner.restart()
-            InfoBar.success(
-                title="Применено",
-                content=f"Стратегия #{strategy} заблокирована для {domain}. Оркестратор перезапускается.",
-                isClosable=True,
-                duration=3000,
-                parent=self.window()
-            )
+            if InfoBar is not None:
+                InfoBar.success(
+                    title=self._tr("page.orchestra.blocked.infobar.applied.title", "Применено"),
+                    content=self._tr(
+                        "page.orchestra.blocked.infobar.blocked",
+                        "Стратегия #{strategy} заблокирована для {domain}. Оркестратор перезапускается.",
+                        strategy=strategy,
+                        domain=domain,
+                    ),
+                    isClosable=True,
+                    duration=3000,
+                    parent=self.window(),
+                )
 
     def _unblock_all(self):
         """Очищает пользовательский чёрный список (системные блокировки остаются)"""
@@ -636,31 +801,46 @@ class OrchestraBlockedPage(BasePage):
                         user_count += 1
 
         if user_count == 0:
-            InfoBar.info(
-                title="Информация",
-                content="Нет пользовательских блокировок для удаления. Системные блокировки не удаляются.",
-                isClosable=True,
-                duration=4000,
-                parent=self.window()
-            )
+            if InfoBar is not None:
+                InfoBar.info(
+                    title=self._tr("page.orchestra.blocked.infobar.info.title", "Информация"),
+                    content=self._tr(
+                        "page.orchestra.blocked.infobar.no_user_blocks",
+                        "Нет пользовательских блокировок для удаления. Системные блокировки не удаляются.",
+                    ),
+                    isClosable=True,
+                    duration=4000,
+                    parent=self.window(),
+                )
             return
 
-        box = MessageBox(
-            "Подтверждение",
-            f"Очистить пользовательский чёрный список ({user_count} записей)?\n\nСистемные блокировки останутся.",
-            self.window()
-        )
-        if box.exec():
+        confirmed = True
+        if MessageBox is not None:
+            box = MessageBox(
+                self._tr("page.orchestra.blocked.dialog.clear_user.title", "Подтверждение"),
+                self._tr(
+                    "page.orchestra.blocked.dialog.clear_user.body",
+                    "Очистить пользовательский чёрный список ({count} записей)?\n\nСистемные блокировки останутся.",
+                    count=user_count,
+                ),
+                self.window(),
+            )
+            confirmed = bool(box.exec())
+        if confirmed:
             runner.blocked_manager.clear()
             log(f"Очищен пользовательский чёрный список ({user_count} записей)", "INFO")
             self._refresh_data()
             # Перезапускаем оркестратор чтобы применить изменения
             if runner.is_running():
                 runner.restart()
-                InfoBar.success(
-                    title="Применено",
-                    content="Чёрный список очищен. Оркестратор перезапускается.",
-                    isClosable=True,
-                    duration=3000,
-                    parent=self.window()
-                )
+                if InfoBar is not None:
+                    InfoBar.success(
+                        title=self._tr("page.orchestra.blocked.infobar.applied.title", "Применено"),
+                        content=self._tr(
+                            "page.orchestra.blocked.infobar.cleared",
+                            "Чёрный список очищен. Оркестратор перезапускается.",
+                        ),
+                        isClosable=True,
+                        duration=3000,
+                        parent=self.window(),
+                    )

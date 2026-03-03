@@ -63,3 +63,51 @@ def test_extract_strategy_args_removes_strategy_tags():
     assert ":strategy=" not in extracted
     assert "--lua-desync=pass" in extracted
     assert "--lua-desync=fake:blob=tls7" in extracted
+
+
+def test_orchestra_first_block_can_start_with_hostlist_before_filter():
+    content = "\n".join(
+        [
+            "# Preset: Test",
+            "# ActivePreset: Test",
+            "",
+            "--lua-init=@lua/zapret-lib.lua",
+            "",
+            "--hostlist=lists/youtube.txt",
+            "--filter-tcp=443",
+            "--lua-desync=pass:strategy=1",
+        ]
+    )
+
+    data = _parser.parse_preset_content(content)
+
+    assert len(data.categories) == 1
+    assert "--hostlist=lists/youtube.txt" not in data.base_args
+    assert "--hostlist=lists/youtube.txt" in data.categories[0].args
+    assert "--lua-desync=pass" in data.categories[0].strategy_args
+    assert ":strategy=" not in data.categories[0].strategy_args
+
+
+def test_orchestra_single_block_many_lists_maps_many_categories():
+    content = "\n".join(
+        [
+            "# Preset: Test",
+            "# ActivePreset: Test",
+            "",
+            "--filter-tcp=80,443",
+            "--hostlist=lists/youtube.txt",
+            "--hostlist=lists/discord.txt",
+            "--ipset=lists/ipset-twitter.txt",
+            "--lua-desync=multisplit:pos=2:strategy=7",
+        ]
+    )
+
+    data = _parser.parse_preset_content(content)
+
+    cats = {block.category for block in data.categories}
+    assert "youtube" in cats
+    assert "discord" in cats
+    assert "twitter" in cats
+    for block in data.categories:
+        assert "--lua-desync=multisplit:pos=2" in block.strategy_args
+        assert ":strategy=" not in block.strategy_args

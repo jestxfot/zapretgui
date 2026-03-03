@@ -149,11 +149,18 @@ def setup_direct_service(
                     description=f"{SERVICE_DESCRIPTION} (стратегия: {strategy_name})",
                     auto_start=True,
                 ):
-                    if start_service_with_nssm(SERVICE_NAME):
-                        log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
-                    else:
-                        log("⚠ Служба создана через NSSM, но не запущена", "WARNING")
+                    if not start_service_with_nssm(SERVICE_NAME):
+                        error_msg = "Служба создана через NSSM, но не запущена"
+                        log(error_msg, "❌ ERROR")
+                        try:
+                            delete_service(SERVICE_NAME)
+                        except Exception:
+                            pass
+                        if ui_error_cb:
+                            ui_error_cb(error_msg)
+                        return False
 
+                    log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
                     set_autostart_enabled(True, "direct_service")
                     return True
 
@@ -174,13 +181,28 @@ def setup_direct_service(
                 auto_start=True,
             ):
                 try:
-                    if start_service(SERVICE_NAME):
-                        log(f"✅ Служба {SERVICE_NAME} создана через WinAPI и запущена", "SUCCESS")
-                    else:
-                        log("⚠ Служба создана через WinAPI, но не удалось запустить (см. лог)", "WARNING")
+                    if not start_service(SERVICE_NAME):
+                        error_msg = "Служба создана через WinAPI, но не удалось запустить"
+                        log(error_msg, "❌ ERROR")
+                        try:
+                            delete_service(SERVICE_NAME)
+                        except Exception:
+                            pass
+                        if ui_error_cb:
+                            ui_error_cb(error_msg)
+                        return False
                 except Exception as e:
-                    log(f"⚠ Ошибка запуска службы после создания: {e}", "WARNING")
+                    error_msg = f"Ошибка запуска службы после создания: {e}"
+                    log(error_msg, "❌ ERROR")
+                    try:
+                        delete_service(SERVICE_NAME)
+                    except Exception:
+                        pass
+                    if ui_error_cb:
+                        ui_error_cb(error_msg)
+                    return False
 
+                log(f"✅ Служба {SERVICE_NAME} создана через WinAPI и запущена", "SUCCESS")
                 set_autostart_enabled(True, "direct_service")
                 return True
 
@@ -210,11 +232,18 @@ def setup_direct_service(
                 auto_start=True
             ):
                 # Запускаем службу
-                if start_service_with_nssm(SERVICE_NAME):
-                    log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
-                else:
-                    log(f"⚠ Служба создана через NSSM, но не запущена", "WARNING")
-                
+                if not start_service_with_nssm(SERVICE_NAME):
+                    error_msg = "Служба создана через NSSM, но не запущена"
+                    log(error_msg, "❌ ERROR")
+                    try:
+                        delete_service(SERVICE_NAME)
+                    except Exception:
+                        pass
+                    if ui_error_cb:
+                        ui_error_cb(error_msg)
+                    return False
+
+                log(f"✅ Служба {SERVICE_NAME} создана через NSSM и запущена", "SUCCESS")
                 set_autostart_enabled(True, "direct_service")
                 return True
             else:
@@ -240,11 +269,18 @@ def setup_direct_service(
             auto_start=True
         ):
             # Запускаем службу
-            if start_service(SERVICE_NAME):
-                log(f"Служба {SERVICE_NAME} создана через .bat и запущена", "✅ SUCCESS")
-            else:
-                log(f"Служба создана, но не удалось запустить", "WARNING")
-            
+            if not start_service(SERVICE_NAME):
+                error_msg = "Служба создана через .bat, но не удалось запустить"
+                log(error_msg, "❌ ERROR")
+                try:
+                    delete_service(SERVICE_NAME)
+                except Exception:
+                    pass
+                if ui_error_cb:
+                    ui_error_cb(error_msg)
+                return False
+
+            log(f"Служба {SERVICE_NAME} создана через .bat и запущена", "✅ SUCCESS")
             set_autostart_enabled(True, "direct_service")
             # Сообщение об успехе показывает вызывающий код
             return True

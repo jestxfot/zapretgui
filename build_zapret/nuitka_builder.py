@@ -260,8 +260,8 @@ def run_nuitka(
 
     root_path = Path(root_path).resolve()
     if target_dir is None:
-        # Inno Setup (*.iss) ожидает файлы в "{#SourcePath}\\Zapret\\*"
-        target_dir = root_path.parent / "zapret" / "Zapret"
+        # Canonical output path inside repo
+        target_dir = root_path / "dist" / "Zapret"
     target_dir = Path(target_dir).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
 

@@ -121,8 +121,8 @@ def _invalidate_file_cache(filepath: Path) -> None:
 
 
 def _has_categories_file(directory: Path) -> bool:
-    """Проверяет наличие файла категорий (TXT или JSON)"""
-    return (directory / "categories.txt").exists() or (directory / "categories.json").exists()
+    """Проверяет наличие файла категорий (TXT)."""
+    return (directory / "categories.txt").exists()
 
 
 def _has_any_strategy_files(directory: Path) -> bool:
@@ -767,10 +767,10 @@ def load_categories_txt_text(text: str, *, source_name: str = "<embedded>") -> O
 
 def load_categories() -> Dict[str, Dict]:
     """
-    Загружает категории (вкладки сервисов) из TXT или JSON файлов.
+    Загружает категории (вкладки сервисов) из TXT файла.
 
     Порядок загрузки:
-    1. builtin/categories.txt (или .json как fallback) - встроенные категории
+    1. builtin/categories.txt - встроенные категории
     2. один общий user_categories.txt вне папки установки - пользовательские категории (добавляются к builtin)
 
     Returns:
@@ -781,41 +781,9 @@ def load_categories() -> Dict[str, Dict]:
 
     builtin_dir = _get_builtin_dir()
 
-    # Загружаем builtin категории (сначала TXT, потом JSON как fallback)
+    # Загружаем builtin категории только из categories.txt
     builtin_txt = builtin_dir / "categories.txt"
-    builtin_json = builtin_dir / "categories.json"
-
-    builtin_data = None
-    builtin_needs_repair = False
-    if builtin_txt.exists():
-        builtin_data = load_categories_txt(builtin_txt)
-        if not builtin_data:
-            builtin_needs_repair = True
-    elif builtin_json.exists():
-        builtin_data = load_json_file(builtin_json)
-        if not builtin_data:
-            builtin_needs_repair = True
-    else:
-        builtin_needs_repair = True
-
-    if not (builtin_data and 'categories' in builtin_data):
-        # Fallback: встроенная копия категорий (в коде), чтобы пережить удаление/поломку файла.
-        try:
-            from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
-
-            builtin_data = load_categories_txt_text(DEFAULT_CATEGORIES_TXT, source_name="builtin_categories_txt.py")
-            if builtin_data and 'categories' in builtin_data:
-                log("Файл categories.txt отсутствует/повреждён: использую встроенный fallback категорий", "WARNING")
-
-                if builtin_needs_repair:
-                    try:
-                        builtin_txt.parent.mkdir(parents=True, exist_ok=True)
-                        builtin_txt.write_text(DEFAULT_CATEGORIES_TXT, encoding="utf-8")
-                        log(f"Восстановлен файл категорий: {builtin_txt}", "INFO")
-                    except Exception as e:
-                        log(f"Не удалось восстановить файл категорий {builtin_txt}: {e}", "WARNING")
-        except Exception as e:
-            log(f"Не удалось загрузить встроенный fallback категорий: {e}", "ERROR")
+    builtin_data = load_categories_txt(builtin_txt)
 
     if builtin_data and 'categories' in builtin_data:
         for cat in builtin_data['categories']:
@@ -825,7 +793,7 @@ def load_categories() -> Dict[str, Dict]:
                 categories[key] = cat
         log(f"Загружено {len(categories)} встроенных категорий", "DEBUG")
     else:
-        log(f"Не найден файл категорий в {builtin_dir}", "WARNING")
+        log(f"Не удалось загрузить встроенные категории из {builtin_txt}", "WARNING")
 
     # Загружаем user категории (добавляются к builtin, НЕ перезаписывают builtin).
     # Храним вне папки установки (pyinstaller/обновления могут затереть файлы).

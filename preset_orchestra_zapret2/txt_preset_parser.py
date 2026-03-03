@@ -38,6 +38,28 @@ def invalidate_category_inference_cache() -> None:
 _PLACEHOLDER_HOSTLIST_FILES = {"unknown.txt"}
 _PLACEHOLDER_IPSET_FILES = {"ipset-unknown.txt"}
 
+_CATEGORY_BLOCK_START_PREFIXES = (
+    "--filter-tcp",
+    "--filter-udp",
+    "--filter-l7",
+    "--hostlist=",
+    "--hostlist-domains=",
+    "--hostlist-exclude=",
+    "--ipset=",
+    "--ipset-exclude=",
+    "--ipset-ip=",
+)
+
+_FILTER_SELECTOR_PREFIXES = (
+    "--filter-",
+    "--hostlist=",
+    "--hostlist-domains=",
+    "--hostlist-exclude=",
+    "--ipset=",
+    "--ipset-exclude=",
+    "--ipset-ip=",
+)
+
 
 def _normalize_category_key(value: str) -> str:
     return str(value or "").strip().lower()
@@ -108,8 +130,8 @@ class CategoryBlock:
     """
     Represents a single category block in preset file.
 
-    A block starts with --filter-tcp or --filter-udp and ends before --new or EOF.
-    Category is extracted from --hostlist=xxx.txt or --ipset=xxx.txt.
+    A block ends before --new or EOF and may start with --filter-* or list selectors.
+    Category is extracted from --hostlist=xxx.txt / --ipset=xxx.txt (supports multiple).
 
     Attributes:
         category: Category name extracted from hostlist/ipset (e.g., "youtube", "discord")
@@ -265,6 +287,26 @@ def extract_category_from_args(args: str) -> Tuple[str, str, str]:
         category = category[6:]  # Remove 'ipset-'
 
     return (category.lower(), filter_mode, filter_path)
+
+
+def extract_categories_from_args(args: str) -> List[Tuple[str, str, str]]:
+    """
+    Extracts all categories referenced by --hostlist= / --ipset= selectors.
+
+    Keeps original order and removes exact duplicates.
+    """
+    out: List[Tuple[str, str, str]] = []
+    seen: Set[Tuple[str, str, str]] = set()
+
+    for mode, value in re.findall(r'--(hostlist|ipset)=([^\s]+)', args):
+        cat, filter_mode, filter_file = extract_category_from_args(f"--{mode}={value}")
+        item = (cat, filter_mode, filter_file)
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+
+    return out
 
 
 _WINDOWS_ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)")
@@ -654,39 +696,40 @@ def extract_strategy_args(
     except Exception:
         base_filter_tokens = set()
 
-    lines = args.strip().split('\n')
-    strategy_lines = []
+    tokens = re.findall(r"--[^\s]+", args or "")
+    strategy_tokens = []
 
-    for line in lines:
-        line = line.strip()
-        if not line:
+    for token in tokens:
+        token = token.strip()
+        if not token:
             continue
-        line = re.sub(r':strategy=\d+', '', line)
-        # Skip lines that are part of the category base_filter (important for L7 payload filters),
+
+        token = re.sub(r':strategy=\d+', '', token)
+
+        # Skip tokens that are part of category base_filter (important for L7 payload filters),
         # otherwise they accumulate on each preset sync.
         try:
-            token = _normalize_filter_token(line)
+            normalized = _normalize_filter_token(token)
         except Exception:
-            token = ""
-        if base_filter_tokens and token and token in base_filter_tokens:
+            normalized = ""
+        if base_filter_tokens and normalized and normalized in base_filter_tokens:
             continue
-        # Skip filter, hostlist/ipset, and syndata/send lines
-        if line.startswith('--filter-') or \
-           line.startswith('--hostlist=') or \
-           line.startswith('--hostlist-domains=') or \
-           line.startswith('--hostlist-exclude=') or \
-           line.startswith('--ipset=') or \
-           line.startswith('--ipset-exclude=') or \
-           line.startswith('--ipset-ip=') or \
-           line.startswith('--out-range') or \
-           line.startswith('--lua-desync=syndata:') or \
-           line == '--lua-desync=syndata' or \
-           line.startswith('--lua-desync=send:') or \
-           line == '--lua-desync=send':
-            continue
-        strategy_lines.append(line)
 
-    return '\n'.join(strategy_lines)
+        token_l = token.lower()
+        # Skip filter/list selector tokens and non-strategy transport helpers.
+        if token_l.startswith(_FILTER_SELECTOR_PREFIXES):
+            continue
+        if token_l.startswith('--out-range'):
+            continue
+        if token_l.startswith('--lua-desync=syndata:') or \
+           token_l == '--lua-desync=syndata' or \
+           token_l.startswith('--lua-desync=send:') or \
+           token_l == '--lua-desync=send':
+            continue
+
+        strategy_tokens.append(token)
+
+    return '\n'.join(strategy_tokens)
 
 
 def extract_syndata_from_args(args: str) -> Dict:
@@ -906,30 +949,31 @@ def parse_preset_content(content: str) -> PresetData:
     data.raw_header = '\n'.join(header_lines)
 
     # Phase 2: Split into base_args and category blocks
-    # Base args = everything before first --filter-* line
+    # Base args = everything before first category marker
     # Category blocks = separated by --new
 
     remaining_lines = lines[content_start_idx:]
 
-    # Find first --filter-* to split base_args
-    first_filter_idx = None
+    # Find first category marker to split base_args.
+    # Some custom blocks may start with --hostlist/--ipset before --filter-*.
+    first_block_idx = None
     for i, line in enumerate(remaining_lines):
-        stripped = line.strip()
-        if stripped.startswith('--filter-tcp') or stripped.startswith('--filter-udp') or stripped.startswith('--filter-l7'):
-            first_filter_idx = i
+        stripped = line.strip().lower()
+        if stripped.startswith(_CATEGORY_BLOCK_START_PREFIXES):
+            first_block_idx = i
             break
 
-    if first_filter_idx is None:
+    if first_block_idx is None:
         # No category blocks, all is base_args
         data.base_args = '\n'.join(line for line in remaining_lines if line.strip())
         return data
 
     # Split base_args
-    base_lines = remaining_lines[:first_filter_idx]
+    base_lines = remaining_lines[:first_block_idx]
     data.base_args = '\n'.join(line.strip() for line in base_lines if line.strip())
 
     # Phase 3: Parse category blocks
-    block_lines = remaining_lines[first_filter_idx:]
+    block_lines = remaining_lines[first_block_idx:]
 
     # Split by --new
     blocks_raw = []
@@ -953,66 +997,81 @@ def parse_preset_content(content: str) -> PresetData:
         block_args = '\n'.join(block_lines_list)
 
         # Extract category info
+        categories_from_lists = extract_categories_from_args(block_args)
         category, filter_mode, filter_file = extract_category_from_args(block_args)
         inferred_category, inferred_mode = infer_category_key_from_args(block_args)
-        if inferred_category != "unknown":
-            category = inferred_category
-            if not filter_mode and inferred_mode in ("ipset", "hostlist"):
-                filter_mode = inferred_mode
-        if not filter_mode:
-            filter_mode = "hostlist"
-        protocol, port = extract_protocol_and_port(block_args)
-        # Exclude base_filter tokens (including --payload for L7 categories) from strategy_args,
-        # otherwise they accumulate on each sync and blow up the preset file.
-        strategy_args = extract_strategy_args(
-            block_args,
-            category_key=(inferred_category if inferred_category != "unknown" else category),
-            filter_mode=(inferred_mode or filter_mode),
-        )
+        category_entries: List[Tuple[str, str, str]] = []
 
+        if categories_from_lists:
+            category_entries.extend(categories_from_lists)
+        else:
+            if inferred_category != "unknown":
+                category = inferred_category
+                if not filter_mode and inferred_mode in ("ipset", "hostlist"):
+                    filter_mode = inferred_mode
+            if not filter_mode:
+                filter_mode = "hostlist"
+            category_entries.append((category, filter_mode, filter_file))
+
+        base_protocol, base_port = extract_protocol_and_port(block_args)
         has_port_filter = bool(re.search(r'--filter-(tcp|udp)=', block_args))
-        if inferred_category != "unknown" and not has_port_filter:
-            cat_info = _load_category_info().get(inferred_category)
-            if cat_info:
-                proto_raw = str(cat_info.get("protocol", "")).upper()
-                if "UDP" in proto_raw or "QUIC" in proto_raw or "L7" in proto_raw:
-                    protocol = "udp"
-                elif proto_raw:
-                    protocol = "tcp"
-                ports_raw = cat_info.get("ports")
-                if ports_raw:
-                    port = str(ports_raw).strip()
 
-        # Extract syndata/send/out-range parameters.
-        # NOTE: syndata/send are TCP-only (SYN-based). For UDP/QUIC we intentionally ignore them.
-        syndata_dict = {}
-        syndata_dict.update(extract_out_range_from_args(block_args))
-        if protocol == "tcp":
-            syndata_dict.update(extract_syndata_from_args(block_args))
-            syndata_dict.update(extract_send_from_args(block_args))
+        for category_key, category_mode, category_file in category_entries:
+            if not category_mode:
+                category_mode = "hostlist"
 
-            # Clean up: if autottl is already present in a separate syndata line,
-            # strip redundant `:ip_autottl=...` fragments from strategy lines.
-            if syndata_dict.get("autottl_delta") is not None and \
-               syndata_dict.get("autottl_min") is not None and \
-               syndata_dict.get("autottl_max") is not None and strategy_args:
-                autottl_str = f"{syndata_dict['autottl_delta']},{syndata_dict['autottl_min']}-{syndata_dict['autottl_max']}"
-                # Only strip exact matches to avoid breaking strategies that intentionally differ.
-                strategy_args = re.sub(rf":ip_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
-                strategy_args = re.sub(rf":ip6_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+            # Exclude base_filter tokens (including --payload for L7 categories) from strategy_args,
+            # otherwise they accumulate on each sync and blow up the preset file.
+            strategy_args = extract_strategy_args(
+                block_args,
+                category_key=category_key,
+                filter_mode=category_mode,
+            )
 
-        block = CategoryBlock(
-            category=category,
-            protocol=protocol,
-            filter_mode=filter_mode,
-            filter_file=filter_file,
-            port=port,
-            args=block_args,
-            strategy_args=strategy_args,
-            syndata_dict=syndata_dict if syndata_dict else None
-        )
+            protocol = base_protocol
+            port = base_port
+            if category_key != "unknown" and not has_port_filter:
+                cat_info = _load_category_info().get(category_key)
+                if cat_info:
+                    proto_raw = str(cat_info.get("protocol", "")).upper()
+                    if "UDP" in proto_raw or "QUIC" in proto_raw or "L7" in proto_raw:
+                        protocol = "udp"
+                    elif proto_raw:
+                        protocol = "tcp"
+                    ports_raw = cat_info.get("ports")
+                    if ports_raw:
+                        port = str(ports_raw).strip()
 
-        data.categories.append(block)
+            # Extract syndata/send/out-range parameters.
+            # NOTE: syndata/send are TCP-only (SYN-based). For UDP/QUIC we intentionally ignore them.
+            syndata_dict = {}
+            syndata_dict.update(extract_out_range_from_args(block_args))
+            if protocol == "tcp":
+                syndata_dict.update(extract_syndata_from_args(block_args))
+                syndata_dict.update(extract_send_from_args(block_args))
+
+                # Clean up: if autottl is already present in a separate syndata line,
+                # strip redundant `:ip_autottl=...` fragments from strategy lines.
+                if syndata_dict.get("autottl_delta") is not None and \
+                   syndata_dict.get("autottl_min") is not None and \
+                   syndata_dict.get("autottl_max") is not None and strategy_args:
+                    autottl_str = f"{syndata_dict['autottl_delta']},{syndata_dict['autottl_min']}-{syndata_dict['autottl_max']}"
+                    # Only strip exact matches to avoid breaking strategies that intentionally differ.
+                    strategy_args = re.sub(rf":ip_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+                    strategy_args = re.sub(rf":ip6_autottl={re.escape(autottl_str)}(?=(:|$))", "", strategy_args)
+
+            block = CategoryBlock(
+                category=category_key,
+                protocol=protocol,
+                filter_mode=category_mode,
+                filter_file=category_file,
+                port=port,
+                args=block_args,
+                strategy_args=strategy_args,
+                syndata_dict=syndata_dict if syndata_dict else None
+            )
+
+            data.categories.append(block)
 
     # Deduplicate in case file already contains duplicates
     data.deduplicate_categories()

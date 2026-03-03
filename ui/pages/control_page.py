@@ -3,7 +3,7 @@
 
 import os
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread, QTimer
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
 import qtawesome as qta
 
@@ -23,6 +23,7 @@ from .base_page import BasePage
 from ui.compat_widgets import SettingsRow, PulsingDot
 from ui.compat_widgets import SettingsCard, ActionButton, PrimaryActionButton, StatusIndicator, set_tooltip
 from ui.pages.strategies_page_base import ResetActionButton
+from ui.text_catalog import tr as tr_catalog
 
 try:
     from qfluentwidgets import themeColor, isDarkTheme
@@ -68,14 +69,31 @@ class ControlPage(BasePage):
     """Страница управления DPI"""
 
     def __init__(self, parent=None):
-        super().__init__("Управление", "Запуск и остановка Zapret, быстрые настройки программы.", parent)
+        super().__init__(
+            "Управление",
+            "Запуск и остановка Zapret, быстрые настройки программы.",
+            parent,
+            title_key="page.control.title",
+            subtitle_key="page.control.subtitle",
+        )
+        self._program_settings_synced = False
         
         self._build_ui()
         self._update_stop_winws_button_text()
 
+    def showEvent(self, event):  # noqa: N802 (Qt naming)
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        if self._program_settings_synced:
+            return
+
+        self._program_settings_synced = True
+        QTimer.singleShot(0, self._sync_program_settings)
+
     def _build_ui(self):
         # Статус работы
-        self.add_section_title("Статус работы")
+        self.add_section_title(text_key="page.control.section.status")
         
         status_card = SettingsCard()
         
@@ -91,16 +109,24 @@ class ControlPage(BasePage):
         status_text_layout.setSpacing(2)
         
         if _HAS_FLUENT_LABELS:
-            self.status_title = SubtitleLabel("Проверка...")
+            self.status_title = SubtitleLabel(
+                tr_catalog("page.control.status.checking", language=self._ui_language, default="Проверка...")
+            )
         else:
-            self.status_title = QLabel("Проверка...")
+            self.status_title = QLabel(
+                tr_catalog("page.control.status.checking", language=self._ui_language, default="Проверка...")
+            )
             self.status_title.setStyleSheet("font-size: 15px; font-weight: 600;")
         status_text_layout.addWidget(self.status_title)
         
         if _HAS_FLUENT_LABELS:
-            self.status_desc = CaptionLabel("Определение состояния процесса")
+            self.status_desc = CaptionLabel(
+                tr_catalog("page.control.status.detecting", language=self._ui_language, default="Определение состояния процесса")
+            )
         else:
-            self.status_desc = QLabel("Определение состояния процесса")
+            self.status_desc = QLabel(
+                tr_catalog("page.control.status.detecting", language=self._ui_language, default="Определение состояния процесса")
+            )
             self.status_desc.setStyleSheet("font-size: 12px;")
         status_text_layout.addWidget(self.status_desc)
         
@@ -111,7 +137,7 @@ class ControlPage(BasePage):
         self.add_spacing(16)
         
         # Управление
-        self.add_section_title("Управление Zapret")
+        self.add_section_title(text_key="page.control.section.management")
         
         control_card = SettingsCard()
 
@@ -133,16 +159,26 @@ class ControlPage(BasePage):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(12)
         
-        self.start_btn = BigActionButton("Запустить Zapret", "fa5s.play", accent=True)
+        self.start_btn = BigActionButton(
+            tr_catalog("page.control.button.start", language=self._ui_language, default="Запустить Zapret"),
+            "fa5s.play",
+            accent=True,
+        )
         buttons_layout.addWidget(self.start_btn)
         
         # Кнопка остановки только winws.exe / winws2.exe (в зависимости от режима)
-        self.stop_winws_btn = StopButton("Остановить только winws.exe", "fa5s.stop")
+        self.stop_winws_btn = StopButton(
+            tr_catalog("page.control.button.stop_only_winws", language=self._ui_language, default="Остановить только winws.exe"),
+            "fa5s.stop",
+        )
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
         
         # Кнопка полного выхода (остановка + закрытие программы)
-        self.stop_and_exit_btn = StopButton("Остановить и закрыть программу", "fa5s.power-off")
+        self.stop_and_exit_btn = StopButton(
+            tr_catalog("page.control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть программу"),
+            "fa5s.power-off",
+        )
         self.stop_and_exit_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_and_exit_btn)
         
@@ -154,7 +190,7 @@ class ControlPage(BasePage):
         self.add_spacing(16)
 
         # Текущая стратегия
-        self.add_section_title("Текущая стратегия")
+        self.add_section_title(text_key="page.control.section.current_strategy")
 
         strategy_card = SettingsCard()
 
@@ -175,18 +211,26 @@ class ControlPage(BasePage):
         strategy_text_layout.setSpacing(2)
 
         if _HAS_FLUENT_LABELS:
-            self.strategy_label = StrongBodyLabel("Не выбрана")
+            self.strategy_label = StrongBodyLabel(
+                tr_catalog("page.control.strategy.not_selected", language=self._ui_language, default="Не выбрана")
+            )
         else:
-            self.strategy_label = QLabel("Не выбрана")
+            self.strategy_label = QLabel(
+                tr_catalog("page.control.strategy.not_selected", language=self._ui_language, default="Не выбрана")
+            )
             self.strategy_label.setStyleSheet("font-size: 14px; font-weight: 500;")
         self.strategy_label.setWordWrap(True)
         self.strategy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         strategy_text_layout.addWidget(self.strategy_label)
 
         if _HAS_FLUENT_LABELS:
-            self.strategy_desc = CaptionLabel("Выберите стратегию в разделе «Стратегии»")
+            self.strategy_desc = CaptionLabel(
+                tr_catalog("page.control.strategy.select_hint", language=self._ui_language, default="Выберите стратегию в разделе «Стратегии»")
+            )
         else:
-            self.strategy_desc = QLabel("Выберите стратегию в разделе «Стратегии»")
+            self.strategy_desc = QLabel(
+                tr_catalog("page.control.strategy.select_hint", language=self._ui_language, default="Выберите стратегию в разделе «Стратегии»")
+            )
             self.strategy_desc.setStyleSheet("font-size: 11px;")
         strategy_text_layout.addWidget(self.strategy_desc)
 
@@ -198,7 +242,7 @@ class ControlPage(BasePage):
         self.add_spacing(16)
 
         # Настройки программы (бывшие пункты Alt-меню "Настройки")
-        self.add_section_title("Настройки программы")
+        self.add_section_title(text_key="page.control.section.program_settings")
 
         program_settings_card = SettingsCard()
 
@@ -210,10 +254,13 @@ class ControlPage(BasePage):
         # Автозагрузка DPI
         auto_row = SettingsRow(
             "fa5s.bolt",
-            "Автозагрузка DPI",
-            "Запускать Zapret автоматически при старте программы",
+            tr_catalog("page.control.setting.autostart.title", language=self._ui_language, default="Автозагрузка DPI"),
+            tr_catalog("page.control.setting.autostart.desc", language=self._ui_language, default="Запускать Zapret автоматически при старте программы"),
         )
-        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.auto_row = auto_row
+        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.auto_dpi_toggle.setProperty("noDrag", True)
         if hasattr(self.auto_dpi_toggle, "toggled"):
             self.auto_dpi_toggle.toggled.connect(self._on_auto_dpi_toggled)
@@ -223,10 +270,13 @@ class ControlPage(BasePage):
         # Windows Defender
         defender_row = SettingsRow(
             "fa5s.shield-alt",
-            "Отключить Windows Defender",
-            "Требуются права администратора",
+            tr_catalog("page.control.setting.defender.title", language=self._ui_language, default="Отключить Windows Defender"),
+            tr_catalog("page.control.setting.defender.desc", language=self._ui_language, default="Требуются права администратора"),
         )
-        self.defender_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.defender_row = defender_row
+        self.defender_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.defender_toggle.setProperty("noDrag", True)
         if hasattr(self.defender_toggle, "toggled"):
             self.defender_toggle.toggled.connect(self._on_defender_toggled)
@@ -236,10 +286,13 @@ class ControlPage(BasePage):
         # MAX blocker
         max_row = SettingsRow(
             "fa5s.ban",
-            "Блокировать установку MAX",
-            "Блокирует запуск/установку MAX и домены в hosts",
+            tr_catalog("page.control.setting.max_block.title", language=self._ui_language, default="Блокировать установку MAX"),
+            tr_catalog("page.control.setting.max_block.desc", language=self._ui_language, default="Блокирует запуск/установку MAX и домены в hosts"),
         )
-        self.max_block_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.max_row = max_row
+        self.max_block_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.max_block_toggle.setProperty("noDrag", True)
         if hasattr(self.max_block_toggle, "toggled"):
             self.max_block_toggle.toggled.connect(self._on_max_blocker_toggled)
@@ -249,10 +302,14 @@ class ControlPage(BasePage):
         # Сброс программы
         reset_row = SettingsRow(
             "fa5s.undo",
-            "Сбросить программу",
-            "Очистить кэш проверок запуска (без удаления пресетов/настроек)",
+            tr_catalog("page.control.setting.reset.title", language=self._ui_language, default="Сбросить программу"),
+            tr_catalog("page.control.setting.reset.desc", language=self._ui_language, default="Очистить кэш проверок запуска (без удаления пресетов/настроек)"),
         )
-        self.reset_program_btn = ResetActionButton("Сбросить", confirm_text="Сбросить?")
+        self.reset_row = reset_row
+        self.reset_program_btn = ResetActionButton(
+            tr_catalog("page.control.button.reset", language=self._ui_language, default="Сбросить"),
+            confirm_text=tr_catalog("page.control.button.reset_confirm", language=self._ui_language, default="Сбросить?"),
+        )
         self.reset_program_btn.setProperty("noDrag", True)
         self.reset_program_btn.reset_confirmed.connect(self._on_reset_program_clicked)
         reset_row.set_control(self.reset_program_btn)
@@ -261,10 +318,13 @@ class ControlPage(BasePage):
         # Установка сертификата (необязательно)
         cert_row = SettingsRow(
             "fa5s.certificate",
-            "Установить сертификат",
-            "Необязательно. Добавляет сертификат установщика Zapret GUI в исключения антивируса (может помочь против блокировок Defender. НЕ действует на Касперский!)",
+            tr_catalog("page.control.setting.certificate.title", language=self._ui_language, default="Установить сертификат"),
+            tr_catalog("page.control.setting.certificate.desc", language=self._ui_language, default="Необязательно. Добавляет сертификат установщика Zapret GUI в исключения антивируса (может помочь против блокировок Defender. НЕ действует на Касперский!)"),
         )
-        self.install_cert_btn = ActionButton("Установить")
+        self.cert_row = cert_row
+        self.install_cert_btn = ActionButton(
+            tr_catalog("page.control.button.install", language=self._ui_language, default="Установить")
+        )
         self.install_cert_btn.setProperty("noDrag", True)
         self.install_cert_btn.clicked.connect(self._on_install_certificate_clicked)
         cert_row.set_control(self.install_cert_btn)
@@ -275,26 +335,29 @@ class ControlPage(BasePage):
         self.add_spacing(16)
         
         # Дополнительные действия
-        self.add_section_title("Дополнительно")
+        self.add_section_title(text_key="page.control.section.additional")
         
         extra_card = SettingsCard()
         
         extra_layout = QHBoxLayout()
         extra_layout.setSpacing(8)
         
-        self.test_btn = ActionButton("Тест соединения", "fa5s.wifi")
+        self.test_btn = ActionButton(
+            tr_catalog("page.control.button.connection_test", language=self._ui_language, default="Тест соединения"),
+            "fa5s.wifi",
+        )
         extra_layout.addWidget(self.test_btn)
         
-        self.folder_btn = ActionButton("Открыть папку", "fa5s.folder-open")
+        self.folder_btn = ActionButton(
+            tr_catalog("page.control.button.open_folder", language=self._ui_language, default="Открыть папку"),
+            "fa5s.folder-open",
+        )
         extra_layout.addWidget(self.folder_btn)
         
         extra_layout.addStretch()
         extra_card.add_layout(extra_layout)
         
         self.add_widget(extra_card)
-
-        # Первичная синхронизация состояния тогглов с текущими настройками
-        self._sync_program_settings()
 
         self._cert_install_thread = None
         self._cert_install_worker = None
@@ -606,10 +669,21 @@ class ControlPage(BasePage):
 
             method = get_strategy_launch_method()
             exe_name = os.path.basename(get_winws_exe_for_method(method)) or "winws.exe"
-            self.stop_winws_btn.setText(f"Остановить только {exe_name}")
+            template = tr_catalog(
+                "page.control.button.stop_only_template",
+                language=self._ui_language,
+                default="Остановить только {exe_name}",
+            )
+            self.stop_winws_btn.setText(template.format(exe_name=exe_name))
         except Exception:
             # Fallback на старую подпись (не ломаем UI из-за циклических импортов/ошибок реестра)
-            self.stop_winws_btn.setText("Остановить только winws.exe")
+            self.stop_winws_btn.setText(
+                tr_catalog(
+                    "page.control.button.stop_only_winws",
+                    language=self._ui_language,
+                    default="Остановить только winws.exe",
+                )
+            )
         
     def set_loading(self, loading: bool, text: str = ""):
         """Показывает/скрывает индикатор загрузки и блокирует кнопки"""
@@ -631,12 +705,64 @@ class ControlPage(BasePage):
         self.start_btn._update_style()
         self.stop_winws_btn._update_style()
         self.stop_and_exit_btn._update_style()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.start_btn.setText(tr_catalog("page.control.button.start", language=self._ui_language, default="Запустить Zapret"))
+        self.stop_and_exit_btn.setText(
+            tr_catalog("page.control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть программу")
+        )
+        self.test_btn.setText(tr_catalog("page.control.button.connection_test", language=self._ui_language, default="Тест соединения"))
+        self.folder_btn.setText(tr_catalog("page.control.button.open_folder", language=self._ui_language, default="Открыть папку"))
+        self.install_cert_btn.setText(tr_catalog("page.control.button.install", language=self._ui_language, default="Установить"))
+
+        self.reset_program_btn._default_text = tr_catalog("page.control.button.reset", language=self._ui_language, default="Сбросить")
+        self.reset_program_btn._confirm_text = tr_catalog(
+            "page.control.button.reset_confirm",
+            language=self._ui_language,
+            default="Сбросить?",
+        )
+        self.reset_program_btn.setText(self.reset_program_btn._default_text)
+
+        self.auto_row.set_title(tr_catalog("page.control.setting.autostart.title", language=self._ui_language, default="Автозагрузка DPI"))
+        self.auto_row.set_description(
+            tr_catalog("page.control.setting.autostart.desc", language=self._ui_language, default="Запускать Zapret автоматически при старте программы")
+        )
+        self.defender_row.set_title(tr_catalog("page.control.setting.defender.title", language=self._ui_language, default="Отключить Windows Defender"))
+        self.defender_row.set_description(
+            tr_catalog("page.control.setting.defender.desc", language=self._ui_language, default="Требуются права администратора")
+        )
+        self.max_row.set_title(tr_catalog("page.control.setting.max_block.title", language=self._ui_language, default="Блокировать установку MAX"))
+        self.max_row.set_description(
+            tr_catalog("page.control.setting.max_block.desc", language=self._ui_language, default="Блокирует запуск/установку MAX и домены в hosts")
+        )
+        self.reset_row.set_title(tr_catalog("page.control.setting.reset.title", language=self._ui_language, default="Сбросить программу"))
+        self.reset_row.set_description(
+            tr_catalog("page.control.setting.reset.desc", language=self._ui_language, default="Очистить кэш проверок запуска (без удаления пресетов/настроек)")
+        )
+        self.cert_row.set_title(tr_catalog("page.control.setting.certificate.title", language=self._ui_language, default="Установить сертификат"))
+        self.cert_row.set_description(
+            tr_catalog(
+                "page.control.setting.certificate.desc",
+                language=self._ui_language,
+                default="Необязательно. Добавляет сертификат установщика Zapret GUI в исключения антивируса (может помочь против блокировок Defender. НЕ действует на Касперский!)",
+            )
+        )
+
+        self._update_stop_winws_button_text()
+        self.update_status(bool(self.stop_winws_btn.isVisible()))
+        self.update_strategy(self.strategy_label.text())
         
     def update_status(self, is_running: bool):
         """Обновляет отображение статуса"""
         if is_running:
-            self.status_title.setText("Zapret работает")
-            self.status_desc.setText("Обход блокировок активен")
+            self.status_title.setText(
+                tr_catalog("page.control.status.running", language=self._ui_language, default="Zapret работает")
+            )
+            self.status_desc.setText(
+                tr_catalog("page.control.status.bypass_active", language=self._ui_language, default="Обход блокировок активен")
+            )
             self.status_dot.set_color('#6ccb5f')
             self.status_dot.start_pulse()
             self.start_btn.setVisible(False)
@@ -644,8 +770,12 @@ class ControlPage(BasePage):
             self.stop_winws_btn.setVisible(True)
             self.stop_and_exit_btn.setVisible(True)
         else:
-            self.status_title.setText("Zapret остановлен")
-            self.status_desc.setText("Нажмите «Запустить» для активации")
+            self.status_title.setText(
+                tr_catalog("page.control.status.stopped", language=self._ui_language, default="Zapret остановлен")
+            )
+            self.status_desc.setText(
+                tr_catalog("page.control.status.press_start", language=self._ui_language, default="Нажмите «Запустить» для активации")
+            )
             self.status_dot.set_color('#ff6b6b')
             self.status_dot.stop_pulse()
             self.start_btn.setVisible(True)
@@ -674,20 +804,32 @@ class ControlPage(BasePage):
                     active_names.append(getattr(info, "full_name", None) or cat_key)
 
                 if not active_names:
-                    name = "Не выбрана"
+                    name = tr_catalog("page.control.strategy.not_selected", language=self._ui_language, default="Не выбрана")
                     set_tooltip(self.strategy_label, "")
                 else:
                     if len(active_names) <= 2:
                         name = " • ".join(active_names)
                     else:
-                        name = " • ".join(active_names[:2]) + f" +{len(active_names) - 2} ещё"
+                        more_template = tr_catalog(
+                            "page.control.strategy.more_template",
+                            language=self._ui_language,
+                            default="+{count} ещё",
+                        )
+                        name = " • ".join(active_names[:2]) + " " + more_template.format(count=len(active_names) - 2)
                     set_tooltip(self.strategy_label, "\n".join(active_names))
         except Exception:
             pass
 
-        if name and name != "Автостарт DPI отключен":
+        not_selected = tr_catalog("page.control.strategy.not_selected", language=self._ui_language, default="Не выбрана")
+        if name and name not in ("Автостарт DPI отключен", not_selected):
             self.strategy_label.setText(name)
-            self.strategy_desc.setText("Активная стратегия обхода")
+            self.strategy_desc.setText(
+                tr_catalog("page.control.strategy.active", language=self._ui_language, default="Активная стратегия обхода")
+            )
         else:
-            self.strategy_label.setText("Не выбрана")
-            self.strategy_desc.setText("Выберите стратегию в разделе «Стратегии»")
+            self.strategy_label.setText(
+                tr_catalog("page.control.strategy.not_selected", language=self._ui_language, default="Не выбрана")
+            )
+            self.strategy_desc.setText(
+                tr_catalog("page.control.strategy.select_hint", language=self._ui_language, default="Выберите стратегию в разделе «Стратегии»")
+            )

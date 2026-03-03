@@ -71,6 +71,7 @@ a = Analysis(
         'ui.pages.zapret1.user_presets_page',
         'ui.pages.zapret1.strategy_detail_page_v1',
         'ui.pages.blockcheck_page',
+        'ui.pages.strategy_scan_page',
         'ui.pages.dpi_settings_page',
         'ui.pages.blobs_page',
         'ui.pages.connection_page',

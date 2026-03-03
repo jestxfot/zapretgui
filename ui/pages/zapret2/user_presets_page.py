@@ -44,6 +44,7 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, PrimaryActionButton, SettingsCard, LineEdit, set_tooltip
+from ui.text_catalog import tr as tr_catalog
 
 try:
     from qfluentwidgets import (
@@ -83,6 +84,16 @@ _CSS_RGBA_COLOR_RE = re.compile(
     r"^\s*rgba?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*(?:,\s*([0-9]*\.?[0-9]+)\s*)?\)\s*$",
     re.IGNORECASE,
 )
+
+
+def _tr_text(key: str, language: str, default: str, **kwargs) -> str:
+    text = tr_catalog(key, language=language, default=default)
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except Exception:
+            return text
+    return text
 
 
 def _accent_fg_for_tokens(tokens) -> str:
@@ -315,20 +326,14 @@ class _PresetListDelegate(QStyledItemDelegate):
         "export": "fa5s.file-export",
     }
 
-    _ACTION_TOOLTIPS = {
-        "rename": "Переименовать",
-        "duplicate": "Дублировать",
-        "reset": "Сбросить",
-        "delete": "Удалить",
-        "export": "Экспорт",
-    }
-
     _PENDING_SHAKE_ROTATIONS = (0, -8, 8, -6, 6, -4, 4, -2, 0)
     _PENDING_SHAKE_INTERVAL_MS = 50
 
     def __init__(self, view: QListView):
         super().__init__(view)
         self._view = view
+        self._ui_language = "ru"
+        self._action_tooltips: dict[str, str] = {}
         self._pending_destructive: Optional[tuple[str, str]] = None
         self._pending_timer = QTimer(self)
         self._pending_timer.setSingleShot(True)
@@ -337,6 +342,20 @@ class _PresetListDelegate(QStyledItemDelegate):
         self._pending_shake_rotation = 0
         self._pending_shake_timer = QTimer(self)
         self._pending_shake_timer.timeout.connect(self._advance_pending_shake)
+        self.set_ui_language("ru")
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        return _tr_text(key, self._ui_language, default, **kwargs)
+
+    def set_ui_language(self, language: str) -> None:
+        self._ui_language = language
+        self._action_tooltips = {
+            "rename": self._tr("page.z2_user_presets.delegate.tooltip.rename", "Переименовать"),
+            "duplicate": self._tr("page.z2_user_presets.delegate.tooltip.duplicate", "Дублировать"),
+            "reset": "",
+            "delete": "",
+            "export": self._tr("page.z2_user_presets.delegate.tooltip.export", "Экспорт"),
+        }
 
     def reset_interaction_state(self):
         self._clear_pending_destructive(update=False)
@@ -402,33 +421,39 @@ class _PresetListDelegate(QStyledItemDelegate):
         if not action:
             return super().helpEvent(event, view, option, index)
 
-        tooltip = self._ACTION_TOOLTIPS.get(action, "")
-        if action in {"reset", "delete"} and self._pending_destructive == (name, action):
-            tooltip = f"{tooltip}\nНажмите ещё раз для подтверждения"
+        tooltip = self._action_tooltips.get(action, "")
         if tooltip:
             QToolTip.showText(event.globalPos(), tooltip, view)
             return True
         return super().helpEvent(event, view, option, index)
 
-    def _handle_action_click(self, name: str, action: str, event: QMouseEvent):
+    def _handle_action_click(self, name: str, action: str, _event: QMouseEvent):
         if action in {"reset", "delete"}:
-            key = (name, action)
-            if self._pending_destructive == key:
-                self._clear_pending_destructive(update=False)
-                self.action_triggered.emit(action, name)
-                self._view.viewport().update()
-                return
-
-            self._pending_destructive = key
-            self._start_pending_shake()
-            self._pending_timer.start(3000)
-            QToolTip.showText(event.globalPosition().toPoint(), "Нажмите ещё раз для подтверждения", self._view)
-            self._view.viewport().update()
+            self._pulse_destructive_action(name, action)
             return
 
         self._clear_pending_destructive(update=False)
         self.action_triggered.emit(action, name)
         self._view.viewport().update()
+
+    def _pulse_destructive_action(self, name: str, action: str, delay_ms: int = 170) -> None:
+        key = (name, action)
+        if self._pending_destructive is not None:
+            return
+
+        self._pending_destructive = key
+        self._start_pending_shake()
+        self._pending_timer.start(max(800, int(delay_ms) + 200))
+        self._view.viewport().update()
+
+        def _emit_action() -> None:
+            if self._pending_destructive != key:
+                return
+            self.action_triggered.emit(action, name)
+            self._clear_pending_destructive(update=False)
+            self._view.viewport().update()
+
+        QTimer.singleShot(max(0, int(delay_ms)), _emit_action)
 
     def _clear_pending_destructive(self, update: bool = True):
         self._pending_timer.stop()
@@ -575,7 +600,7 @@ class _PresetListDelegate(QStyledItemDelegate):
         right_cursor = action_rects[0][1].left() - 10 if action_rects else row_rect.right() - 12
 
         if is_active:
-            badge_text = "Активен"
+            badge_text = self._tr("page.z2_user_presets.delegate.badge.active", "Активен")
             badge_font = painter.font()
             badge_font.setPointSize(8)
             badge_font.setBold(True)
@@ -654,35 +679,63 @@ class _PresetListDelegate(QStyledItemDelegate):
 class _CreatePresetDialog(MessageBoxBase):
     """Диалог создания нового пресета."""
 
-    def __init__(self, existing_names: list, parent=None):
+    def __init__(self, existing_names: list, parent=None, language: str = "ru"):
         if parent and not parent.isWindow():
             parent = parent.window()
         super().__init__(parent)
+        self._ui_language = language
+
+        def _tr(key: str, default: str, **kwargs) -> str:
+            return _tr_text(key, self._ui_language, default, **kwargs)
+
+        self._tr = _tr
         self._existing_names = list(existing_names)
         self._source = "current"
 
-        self.titleLabel = SubtitleLabel("Новый пресет", self.widget)
+        self.titleLabel = SubtitleLabel(
+            self._tr("page.z2_user_presets.dialog.create.title", "Новый пресет"),
+            self.widget,
+        )
         self.subtitleLabel = BodyLabel(
-            "Сохраните текущие настройки как отдельный пресет, "
-            "чтобы быстро переключаться между конфигурациями.",
+            self._tr(
+                "page.z2_user_presets.dialog.create.subtitle",
+                "Сохраните текущие настройки как отдельный пресет, чтобы быстро переключаться между конфигурациями.",
+            ),
             self.widget,
         )
         self.subtitleLabel.setWordWrap(True)
 
-        name_label = BodyLabel("Название", self.widget)
+        name_label = BodyLabel(
+            self._tr("page.z2_user_presets.dialog.create.name", "Название"),
+            self.widget,
+        )
         self.nameEdit = LineEdit(self.widget)
-        self.nameEdit.setPlaceholderText("Например: Игры / YouTube / Дом")
+        self.nameEdit.setPlaceholderText(
+            self._tr(
+                "page.z2_user_presets.dialog.create.placeholder",
+                "Например: Игры / YouTube / Дом",
+            )
+        )
         self.nameEdit.setClearButtonEnabled(True)
 
         source_row = QHBoxLayout()
-        source_label = BodyLabel("Создать на основе", self.widget)
+        source_label = BodyLabel(
+            self._tr("page.z2_user_presets.dialog.create.source", "Создать на основе"),
+            self.widget,
+        )
         source_row.addWidget(source_label)
         source_row.addStretch()
         try:
             from qfluentwidgets import SegmentedWidget
             self._source_seg = SegmentedWidget(self.widget)
-            self._source_seg.addItem("current", "Текущего активного")
-            self._source_seg.addItem("empty", "Пустого")
+            self._source_seg.addItem(
+                "current",
+                self._tr("page.z2_user_presets.dialog.create.source.current", "Текущего активного"),
+            )
+            self._source_seg.addItem(
+                "empty",
+                self._tr("page.z2_user_presets.dialog.create.source.empty", "Пустого"),
+            )
             self._source_seg.setCurrentItem("current")
             self._source_seg.currentItemChanged.connect(lambda k: setattr(self, "_source", k))
             source_row.addWidget(self._source_seg)
@@ -704,18 +757,26 @@ class _CreatePresetDialog(MessageBoxBase):
         self.viewLayout.addLayout(source_row)
         self.viewLayout.addWidget(self.warningLabel)
 
-        self.yesButton.setText("Создать")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(self._tr("page.z2_user_presets.dialog.create.button.create", "Создать"))
+        self.cancelButton.setText(self._tr("page.z2_user_presets.dialog.button.cancel", "Отмена"))
         self.widget.setMinimumWidth(420)
 
     def validate(self) -> bool:
         name = self.nameEdit.text().strip()
         if not name:
-            self.warningLabel.setText("Введите название.")
+            self.warningLabel.setText(
+                self._tr("page.z2_user_presets.dialog.validation.enter_name", "Введите название.")
+            )
             self.warningLabel.show()
             return False
         if name in self._existing_names:
-            self.warningLabel.setText(f"Пресет «{name}» уже существует.")
+            self.warningLabel.setText(
+                self._tr(
+                    "page.z2_user_presets.dialog.validation.exists",
+                    "Пресет «{name}» уже существует.",
+                    name=name,
+                )
+            )
             self.warningLabel.show()
             return False
         self.warningLabel.hide()
@@ -725,25 +786,49 @@ class _CreatePresetDialog(MessageBoxBase):
 class _RenamePresetDialog(MessageBoxBase):
     """Диалог переименования пресета."""
 
-    def __init__(self, current_name: str, existing_names: list, parent=None):
+    def __init__(self, current_name: str, existing_names: list, parent=None, language: str = "ru"):
         if parent and not parent.isWindow():
             parent = parent.window()
         super().__init__(parent)
+        self._ui_language = language
+
+        def _tr(key: str, default: str, **kwargs) -> str:
+            return _tr_text(key, self._ui_language, default, **kwargs)
+
+        self._tr = _tr
         self._current_name = str(current_name or "")
         self._existing_names = [n for n in existing_names if n != self._current_name]
 
-        self.titleLabel = SubtitleLabel("Переименовать", self.widget)
+        self.titleLabel = SubtitleLabel(
+            self._tr("page.z2_user_presets.dialog.rename.title", "Переименовать"),
+            self.widget,
+        )
         self.subtitleLabel = BodyLabel(
-            "Имя пресета отображается в списке и используется для переключения.",
+            self._tr(
+                "page.z2_user_presets.dialog.rename.subtitle",
+                "Имя пресета отображается в списке и используется для переключения.",
+            ),
             self.widget,
         )
         self.subtitleLabel.setWordWrap(True)
 
-        from_label = CaptionLabel(f"Текущее имя: {self._current_name}", self.widget)
-        name_label = BodyLabel("Новое имя", self.widget)
+        from_label = CaptionLabel(
+            self._tr(
+                "page.z2_user_presets.dialog.rename.current_name",
+                "Текущее имя: {name}",
+                name=self._current_name,
+            ),
+            self.widget,
+        )
+        name_label = BodyLabel(
+            self._tr("page.z2_user_presets.dialog.rename.new_name", "Новое имя"),
+            self.widget,
+        )
         self.nameEdit = LineEdit(self.widget)
         self.nameEdit.setText(self._current_name)
-        self.nameEdit.setPlaceholderText("Новое имя...")
+        self.nameEdit.setPlaceholderText(
+            self._tr("page.z2_user_presets.dialog.rename.placeholder", "Новое имя...")
+        )
         self.nameEdit.selectAll()
         self.nameEdit.setClearButtonEnabled(True)
 
@@ -762,21 +847,29 @@ class _RenamePresetDialog(MessageBoxBase):
         self.viewLayout.addWidget(self.nameEdit)
         self.viewLayout.addWidget(self.warningLabel)
 
-        self.yesButton.setText("Переименовать")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(self._tr("page.z2_user_presets.dialog.rename.button", "Переименовать"))
+        self.cancelButton.setText(self._tr("page.z2_user_presets.dialog.button.cancel", "Отмена"))
         self.widget.setMinimumWidth(420)
 
     def validate(self) -> bool:
         name = self.nameEdit.text().strip()
         if not name:
-            self.warningLabel.setText("Введите название.")
+            self.warningLabel.setText(
+                self._tr("page.z2_user_presets.dialog.validation.enter_name", "Введите название.")
+            )
             self.warningLabel.show()
             return False
         if name == self._current_name:
             self.warningLabel.hide()
             return True
         if name in self._existing_names:
-            self.warningLabel.setText(f"Пресет «{name}» уже существует.")
+            self.warningLabel.setText(
+                self._tr(
+                    "page.z2_user_presets.dialog.validation.exists",
+                    "Пресет «{name}» уже существует.",
+                    name=name,
+                )
+            )
             self.warningLabel.show()
             return False
         self.warningLabel.hide()
@@ -786,23 +879,43 @@ class _RenamePresetDialog(MessageBoxBase):
 class _ResetAllPresetsDialog(MessageBoxBase):
     """Диалог подтверждения перезаписи пресетов из шаблонов."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, language: str = "ru"):
         if parent and not parent.isWindow():
             parent = parent.window()
         super().__init__(parent)
-        self.titleLabel = SubtitleLabel("Вернуть заводские пресеты", self.widget)
+        self._ui_language = language
+        self.titleLabel = SubtitleLabel(
+            _tr_text(
+                "page.z2_user_presets.dialog.reset_all.title",
+                self._ui_language,
+                "Вернуть заводские пресеты",
+            ),
+            self.widget,
+        )
         self.bodyLabel = BodyLabel(
-            "Стандартные пресеты будут восстановлены как после установки.\n"
-            "Ваши изменения в стандартных пресетах будут потеряны.\n"
-            "Пользовательские пресеты с другими именами останутся.\n"
-            "Текущий активный пресет будет применен заново автоматически.",
+            _tr_text(
+                "page.z2_user_presets.dialog.reset_all.body",
+                self._ui_language,
+                "Стандартные пресеты будут восстановлены как после установки.\n"
+                "Ваши изменения в стандартных пресетах будут потеряны.\n"
+                "Пользовательские пресеты с другими именами останутся.\n"
+                "Текущий активный пресет будет применен заново автоматически.",
+            ),
             self.widget,
         )
         self.bodyLabel.setWordWrap(True)
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.bodyLabel)
-        self.yesButton.setText("Вернуть заводские")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(
+            _tr_text(
+                "page.z2_user_presets.dialog.reset_all.button",
+                self._ui_language,
+                "Вернуть заводские",
+            )
+        )
+        self.cancelButton.setText(
+            _tr_text("page.z2_user_presets.dialog.button.cancel", self._ui_language, "Отмена")
+        )
         self.widget.setMinimumWidth(380)
 
 
@@ -813,16 +926,26 @@ class Zapret2UserPresetsPage(BasePage):
     back_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__("Мои пресеты", "", parent)
+        super().__init__(
+            "Мои пресеты",
+            "",
+            parent,
+            title_key="page.z2_user_presets.title",
+        )
+
+        self._back_btn = None
+        self._configs_title_label = None
+        self._get_configs_btn = None
 
         # Back navigation (breadcrumb — to Zapret2DirectControlPage)
         try:
             tokens = get_theme_tokens()
             _back_btn = TransparentPushButton()
-            _back_btn.setText("Управление")
+            _back_btn.setText(self._tr("page.z2_user_presets.back.control", "Управление"))
             _back_btn.setIcon(qta.icon("fa5s.chevron-left", color=tokens.fg_muted))
             _back_btn.setIconSize(QSize(12, 12))
             _back_btn.clicked.connect(self.back_clicked.emit)
+            self._back_btn = _back_btn
             _back_row_layout = QHBoxLayout()
             _back_row_layout.setContentsMargins(0, 0, 0, 0)
             _back_row_layout.setSpacing(0)
@@ -873,6 +996,9 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception:
             pass
 
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        return _tr_text(key, self._ui_language, default, **kwargs)
+
     def _preset_backend_module(self) -> str:
         try:
             from strategy_menu import get_strategy_launch_method
@@ -889,11 +1015,18 @@ class Zapret2UserPresetsPage(BasePage):
     def _apply_mode_labels(self) -> None:
         try:
             if self._is_orchestra_backend():
-                self.title_label.setText("Мои пресеты (Оркестратор Z2)")
+                self.title_label.setText(
+                    self._tr("page.z2_user_presets.title.orchestra", "Мои пресеты (Оркестратор Z2)")
+                )
                 if self.subtitle_label is not None:
-                    self.subtitle_label.setText("Управление пресетами для режима direct_zapret2_orchestra")
+                    self.subtitle_label.setText(
+                        self._tr(
+                            "page.z2_user_presets.subtitle.orchestra",
+                            "Управление пресетами для режима direct_zapret2_orchestra",
+                        )
+                    )
             else:
-                self.title_label.setText("Мои пресеты")
+                self.title_label.setText(self._tr("page.z2_user_presets.title", "Мои пресеты"))
                 if self.subtitle_label is not None:
                     self.subtitle_label.setText("")
         except Exception:
@@ -1121,13 +1254,22 @@ class Zapret2UserPresetsPage(BasePage):
         self._configs_icon.setPixmap(qta.icon("fa5b.telegram", color=tokens.accent_hex).pixmap(18, 18))
         configs_layout.addWidget(self._configs_icon)
         configs_title = StrongBodyLabel(
-            "Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно"
+            self._tr(
+                "page.z2_user_presets.configs.title",
+                "Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно",
+            )
         )
+        self._configs_title_label = configs_title
         configs_title.setWordWrap(True)
         configs_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         configs_title.setMinimumWidth(0)
         configs_layout.addWidget(configs_title, 1)
-        get_configs_btn = ActionButton("Получить конфиги", "fa5s.external-link-alt", accent=True)
+        get_configs_btn = ActionButton(
+            self._tr("page.z2_user_presets.configs.button", "Получить конфиги"),
+            "fa5s.external-link-alt",
+            accent=True,
+        )
+        self._get_configs_btn = get_configs_btn
         get_configs_btn.setFixedHeight(36)
         get_configs_btn.clicked.connect(self._open_new_configs_post)
         configs_layout.addWidget(get_configs_btn)
@@ -1135,7 +1277,10 @@ class Zapret2UserPresetsPage(BasePage):
         self.add_widget(configs_card)
 
         # "Restore deleted presets" button
-        self._restore_deleted_btn = ActionButton("Восстановить удалённые пресеты", "fa5s.undo")
+        self._restore_deleted_btn = ActionButton(
+            self._tr("page.z2_user_presets.button.restore_deleted", "Восстановить удалённые пресеты"),
+            "fa5s.undo",
+        )
         self._restore_deleted_btn.setFixedHeight(32)
         self._restore_deleted_btn.clicked.connect(self._on_restore_deleted)
         self._restore_deleted_btn.setVisible(False)
@@ -1162,25 +1307,45 @@ class Zapret2UserPresetsPage(BasePage):
 
         self.create_btn = PrimaryToolButton(FluentIcon.ADD if FluentIcon else None)
         self.create_btn.setFixedSize(36, 36)
-        set_tooltip(self.create_btn, "Создать новый пресет")
+        set_tooltip(
+            self.create_btn,
+            self._tr("page.z2_user_presets.tooltip.create", "Создать новый пресет"),
+        )
         self.create_btn.clicked.connect(self._on_create_clicked)
 
-        self.import_btn = self._create_secondary_row_button("Импорт", "fa5s.file-import")
-        set_tooltip(self.import_btn, "Импорт пресета из файла")
+        self.import_btn = self._create_secondary_row_button(
+            self._tr("page.z2_user_presets.button.import", "Импорт"),
+            "fa5s.file-import",
+        )
+        set_tooltip(
+            self.import_btn,
+            self._tr("page.z2_user_presets.tooltip.import", "Импорт пресета из файла"),
+        )
         self.import_btn.clicked.connect(self._on_import_clicked)
 
-        self.reset_all_btn = self._create_secondary_row_button("Вернуть заводские", "fa5s.undo")
+        self.reset_all_btn = self._create_secondary_row_button(
+            self._tr("page.z2_user_presets.button.reset_all", "Вернуть заводские"),
+            "fa5s.undo",
+        )
         set_tooltip(
             self.reset_all_btn,
-            "Восстанавливает стандартные пресеты. "
-            "Ваши изменения в стандартных пресетах будут потеряны."
+            self._tr(
+                "page.z2_user_presets.tooltip.reset_all",
+                "Восстанавливает стандартные пресеты. Ваши изменения в стандартных пресетах будут потеряны.",
+            ),
         )
         self.reset_all_btn.clicked.connect(self._on_reset_all_presets_clicked)
 
-        self.presets_info_btn = self._create_secondary_row_button("Вики по пресетам", "fa5s.info-circle")
+        self.presets_info_btn = self._create_secondary_row_button(
+            self._tr("page.z2_user_presets.button.wiki", "Вики по пресетам"),
+            "fa5s.info-circle",
+        )
         self.presets_info_btn.clicked.connect(self._open_presets_info)
 
-        self.info_btn = self._create_secondary_row_button("Что это такое?", "fa5s.question-circle")
+        self.info_btn = self._create_secondary_row_button(
+            self._tr("page.z2_user_presets.button.what_is_this", "Что это такое?"),
+            "fa5s.question-circle",
+        )
         self.info_btn.clicked.connect(self._on_info_clicked)
 
         self._toolbar_buttons = [
@@ -1197,7 +1362,9 @@ class Zapret2UserPresetsPage(BasePage):
 
         # Search presets by name (filters the list).
         self._preset_search_input = LineEdit()
-        self._preset_search_input.setPlaceholderText("Поиск пресетов по имени...")
+        self._preset_search_input.setPlaceholderText(
+            self._tr("page.z2_user_presets.search.placeholder", "Поиск пресетов по имени...")
+        )
         self._preset_search_input.setClearButtonEnabled(True)
         self._preset_search_input.setFixedHeight(34)
         self._preset_search_input.setProperty("noDrag", True)
@@ -1220,6 +1387,7 @@ class Zapret2UserPresetsPage(BasePage):
 
         self._presets_model = _PresetListModel(self.presets_list)
         self._presets_delegate = _PresetListDelegate(self.presets_list)
+        self._presets_delegate.set_ui_language(self._ui_language)
         self._presets_delegate.action_triggered.connect(self._on_preset_list_action)
         self.presets_list.setModel(self._presets_model)
         self.presets_list.setItemDelegate(self._presets_delegate)
@@ -1245,11 +1413,14 @@ class Zapret2UserPresetsPage(BasePage):
     def _on_info_clicked(self) -> None:
         if MessageBox:
             box = MessageBox(
-                "Что это такое?",
-                'Здесь кнопка для нубов — "хочу чтобы нажал и всё работало". '
-                "Выбираете любой пресет — тыкаете — перезагружаете вкладку и смотрите, "
-                "что ресурс открывается (или не открывается). Если не открывается — тыкаете на следующий пресет. "
-                "Также здесь можно создавать, импортировать, экспортировать и переключать пользовательские пресеты.",
+                self._tr("page.z2_user_presets.info.title", "Что это такое?"),
+                self._tr(
+                    "page.z2_user_presets.info.body",
+                    'Здесь кнопка для нубов — "хочу чтобы нажал и всё работало". '
+                    "Выбираете любой пресет — тыкаете — перезагружаете вкладку и смотрите, "
+                    "что ресурс открывается (или не открывается). Если не открывается — тыкаете на следующий пресет. "
+                    "Также здесь можно создавать, импортировать, экспортировать и переключать пользовательские пресеты.",
+                ),
                 self.window(),
             )
             box.cancelButton.hide()
@@ -1405,7 +1576,7 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception:
             existing = []
 
-        dlg = _CreatePresetDialog(existing, self.window())
+        dlg = _CreatePresetDialog(existing, self.window(), language=self._ui_language)
         if not dlg.exec():
             return
 
@@ -1416,14 +1587,22 @@ class Zapret2UserPresetsPage(BasePage):
             manager = self._get_manager()
             preset = manager.create_preset(name, from_current=from_current)
             if not preset:
-                InfoBar.error(title="Ошибка", content="Не удалось создать пресет.", parent=self.window())
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.z2_user_presets.error.create_failed", "Не удалось создать пресет."),
+                    parent=self.window(),
+                )
                 return
             log(f"Создан пресет '{name}'", "INFO")
             self.preset_created.emit(name)
             self._load_presets()
         except Exception as e:
             log(f"Ошибка создания пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _show_inline_action_rename(self, current_name: str):
         try:
@@ -1432,7 +1611,7 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception:
             existing = []
 
-        dlg = _RenamePresetDialog(current_name, existing, self.window())
+        dlg = _RenamePresetDialog(current_name, existing, self.window(), language=self._ui_language)
         if not dlg.exec():
             return
 
@@ -1443,13 +1622,21 @@ class Zapret2UserPresetsPage(BasePage):
         try:
             manager = self._get_manager()
             if not manager.rename_preset(current_name, new_name):
-                InfoBar.error(title="Ошибка", content="Не удалось переименовать пресет.", parent=self.window())
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.z2_user_presets.error.rename_failed", "Не удалось переименовать пресет."),
+                    parent=self.window(),
+                )
                 return
             log(f"Пресет '{current_name}' переименован в '{new_name}'", "INFO")
             self._load_presets()
         except Exception as e:
             log(f"Ошибка переименования пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_create_clicked(self):
         self._show_inline_action_create()
@@ -1457,7 +1644,7 @@ class Zapret2UserPresetsPage(BasePage):
     def _on_import_clicked(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Импортировать пресет",
+            self._tr("page.z2_user_presets.file_dialog.import_title", "Импортировать пресет"),
             "",
             "Preset files (*.txt);;All files (*.*)",
         )
@@ -1471,8 +1658,12 @@ class Zapret2UserPresetsPage(BasePage):
 
             if manager.preset_exists(name):
                 box = MessageBox(
-                    "Пресет существует",
-                    f"Пресет '{name}' уже существует. Импортировать с другим именем?",
+                    self._tr("page.z2_user_presets.dialog.import_exists.title", "Пресет существует"),
+                    self._tr(
+                        "page.z2_user_presets.dialog.import_exists.body",
+                        "Пресет '{name}' уже существует. Импортировать с другим именем?",
+                        name=name,
+                    ),
                     self.window(),
                 )
                 if box.exec():
@@ -1488,14 +1679,22 @@ class Zapret2UserPresetsPage(BasePage):
                 self.preset_created.emit(name)
                 self._load_presets()
             else:
-                InfoBar.warning(title="Ошибка", content="Не удалось импортировать пресет", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.z2_user_presets.error.import_failed", "Не удалось импортировать пресет"),
+                    parent=self.window(),
+                )
 
         except Exception as e:
             log(f"Ошибка импорта пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка импорта: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.import_exception", "Ошибка импорта: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_reset_all_presets_clicked(self):
-        dlg = _ResetAllPresetsDialog(self.window())
+        dlg = _ResetAllPresetsDialog(self.window(), language=self._ui_language)
         if not dlg.exec():
             return
 
@@ -1519,7 +1718,15 @@ class Zapret2UserPresetsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка массового восстановления пресетов: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка восстановления пресетов: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr(
+                    "page.z2_user_presets.error.reset_all_exception",
+                    "Ошибка восстановления пресетов: {error}",
+                    error=e,
+                ),
+                parent=self.window(),
+            )
         finally:
             self._bulk_reset_running = False
 
@@ -1536,7 +1743,9 @@ class Zapret2UserPresetsPage(BasePage):
 
     def _restore_reset_all_button_label(self) -> None:
         try:
-            self.reset_all_btn.setText("Вернуть заводские")
+            self.reset_all_btn.setText(
+                self._tr("page.z2_user_presets.button.reset_all", "Вернуть заводские")
+            )
             self.reset_all_btn.setIcon(qta.icon("fa5s.undo", color=get_theme_tokens().fg))
         except Exception:
             pass
@@ -1600,20 +1809,46 @@ class Zapret2UserPresetsPage(BasePage):
                 add_preset_row(name)
 
             if game_filter_names:
-                rows.append({"kind": "section", "text": "Игры (game filter)"})
+                rows.append(
+                    {
+                        "kind": "section",
+                        "text": self._tr("page.z2_user_presets.section.games", "Игры (game filter)"),
+                    }
+                )
                 for name in game_filter_names:
                     add_preset_row(name)
 
             if all_tcp_names:
-                rows.append({"kind": "section", "text": "Все сайты и игры(ALL TCP/UDP)"})
+                rows.append(
+                    {
+                        "kind": "section",
+                        "text": self._tr(
+                            "page.z2_user_presets.section.all_tcp_udp",
+                            "Все сайты и игры(ALL TCP/UDP)",
+                        ),
+                    }
+                )
                 for name in all_tcp_names:
                     add_preset_row(name)
 
             if not rows:
                 if query:
-                    rows.append({"kind": "empty", "text": "Ничего не найдено."})
+                    rows.append(
+                        {
+                            "kind": "empty",
+                            "text": self._tr("page.z2_user_presets.empty.not_found", "Ничего не найдено."),
+                        }
+                    )
                 else:
-                    rows.append({"kind": "empty", "text": "Нет пресетов. Создайте новый или импортируйте из файла."})
+                    rows.append(
+                        {
+                            "kind": "empty",
+                            "text": self._tr(
+                                "page.z2_user_presets.empty.none",
+                                "Нет пресетов. Создайте новый или импортируйте из файла.",
+                            ),
+                        }
+                    )
 
             if self._presets_delegate:
                 self._presets_delegate.reset_interaction_state()
@@ -1656,11 +1891,23 @@ class Zapret2UserPresetsPage(BasePage):
                 self.preset_switched.emit(name)
                 self._load_presets()
             else:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось активировать пресет '{name}'", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.z2_user_presets.error.activate_failed",
+                        "Не удалось активировать пресет '{name}'",
+                        name=name,
+                    ),
+                    parent=self.window(),
+                )
 
         except Exception as e:
             log(f"Ошибка активации пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_rename_preset(self, name: str):
         self._show_inline_action_rename(name)
@@ -1680,18 +1927,54 @@ class Zapret2UserPresetsPage(BasePage):
                 self.preset_created.emit(new_name)
                 self._load_presets()
             else:
-                InfoBar.warning(title="Ошибка", content="Не удалось дублировать пресет", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.z2_user_presets.error.duplicate_failed", "Не удалось дублировать пресет"),
+                    parent=self.window(),
+                )
 
         except Exception as e:
             log(f"Ошибка дублирования пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_reset_preset(self, name: str):
         try:
+            if MessageBox:
+                box = MessageBox(
+                    self._tr("page.z2_user_presets.dialog.reset_single.title", "Сбросить пресет?"),
+                    self._tr(
+                        "page.z2_user_presets.dialog.reset_single.body",
+                        "Пресет '{name}' будет перезаписан данными из шаблона.\n"
+                        "Все изменения в этом пресете будут потеряны.\n"
+                        "Этот пресет станет активным и будет применен заново.",
+                        name=name,
+                    ),
+                    self.window(),
+                )
+                box.yesButton.setText(
+                    self._tr("page.z2_user_presets.dialog.reset_single.button", "Сбросить")
+                )
+                box.cancelButton.setText(
+                    self._tr("page.z2_user_presets.dialog.button.cancel", "Отмена")
+                )
+                if not box.exec():
+                    return
+
             manager = self._get_manager()
 
             if not manager.reset_preset_to_default_template(name):
-                InfoBar.warning(title="Ошибка", content="Не удалось сбросить пресет к настройкам шаблона", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.z2_user_presets.error.reset_failed",
+                        "Не удалось сбросить пресет к настройкам шаблона",
+                    ),
+                    parent=self.window(),
+                )
                 return
 
             log(f"Сброшен пресет '{name}' к шаблону", "INFO")
@@ -1700,10 +1983,35 @@ class Zapret2UserPresetsPage(BasePage):
 
         except Exception as e:
             log(f"Ошибка сброса пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_delete_preset(self, name: str):
         try:
+            if MessageBox:
+                box = MessageBox(
+                    self._tr("page.z2_user_presets.dialog.delete_single.title", "Удалить пресет?"),
+                    self._tr(
+                        "page.z2_user_presets.dialog.delete_single.body",
+                        "Пресет '{name}' будет удален из списка пользовательских пресетов.\n"
+                        "Изменения в этом пресете будут потеряны.\n"
+                        "Вернуть его можно только через восстановление удаленных пресетов (если доступен шаблон).",
+                        name=name,
+                    ),
+                    self.window(),
+                )
+                box.yesButton.setText(
+                    self._tr("page.z2_user_presets.dialog.delete_single.button", "Удалить")
+                )
+                box.cancelButton.setText(
+                    self._tr("page.z2_user_presets.dialog.button.cancel", "Отмена")
+                )
+                if not box.exec():
+                    return
+
             manager = self._get_manager()
 
             if manager.delete_preset(name):
@@ -1717,16 +2025,24 @@ class Zapret2UserPresetsPage(BasePage):
                 self.preset_deleted.emit(name)
                 self._load_presets()
             else:
-                InfoBar.warning(title="Ошибка", content="Не удалось удалить пресет", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.z2_user_presets.error.delete_failed", "Не удалось удалить пресет"),
+                    parent=self.window(),
+                )
 
         except Exception as e:
             log(f"Ошибка удаления пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_export_preset(self, name: str):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Экспортировать пресет",
+            self._tr("page.z2_user_presets.file_dialog.export_title", "Экспортировать пресет"),
             f"{name}.txt",
             "Preset files (*.txt);;All files (*.*)",
         )
@@ -1739,13 +2055,29 @@ class Zapret2UserPresetsPage(BasePage):
 
             if manager.export_preset(name, Path(file_path)):
                 log(f"Экспортирован пресет '{name}' в {file_path}", "INFO")
-                InfoBar.success(title="Успех", content=f"Пресет экспортирован: {file_path}", parent=self.window())
+                InfoBar.success(
+                    title=self._tr("page.z2_user_presets.infobar.success", "Успех"),
+                    content=self._tr(
+                        "page.z2_user_presets.info.exported",
+                        "Пресет экспортирован: {path}",
+                        path=file_path,
+                    ),
+                    parent=self.window(),
+                )
             else:
-                InfoBar.warning(title="Ошибка", content="Не удалось экспортировать пресет", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.z2_user_presets.error.export_failed", "Не удалось экспортировать пресет"),
+                    parent=self.window(),
+                )
 
         except Exception as e:
             log(f"Ошибка экспорта пресета: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr("page.z2_user_presets.error.generic", "Ошибка: {error}", error=e),
+                parent=self.window(),
+            )
 
     def _on_restore_deleted(self):
         """Restore all previously deleted presets that have matching templates."""
@@ -1761,7 +2093,15 @@ class Zapret2UserPresetsPage(BasePage):
             self._load_presets()
         except Exception as e:
             log(f"Ошибка восстановления удалённых пресетов: {e}", "ERROR")
-            InfoBar.error(title="Ошибка", content=f"Ошибка восстановления: {e}", parent=self.window())
+            InfoBar.error(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr(
+                    "page.z2_user_presets.error.restore_deleted",
+                    "Ошибка восстановления: {error}",
+                    error=e,
+                ),
+                parent=self.window(),
+            )
 
     def _on_preset_switched_callback(self, name: str):
         _ = name
@@ -1803,4 +2143,70 @@ class Zapret2UserPresetsPage(BasePage):
             open_telegram_link("nozapretinrussia_bot")
         except Exception as e:
             log(f"Ошибка открытия Telegram: {e}", "ERROR")
-            InfoBar.warning(title="Ошибка", content=f"Не удалось открыть Telegram: {e}", parent=self.window())
+            InfoBar.warning(
+                title=self._tr("common.error.title", "Ошибка"),
+                content=self._tr(
+                    "page.z2_user_presets.error.open_telegram",
+                    "Не удалось открыть Telegram: {error}",
+                    error=e,
+                ),
+                parent=self.window(),
+            )
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self._apply_mode_labels()
+
+        if self._back_btn is not None:
+            self._back_btn.setText(self._tr("page.z2_user_presets.back.control", "Управление"))
+
+        if self._configs_title_label is not None:
+            self._configs_title_label.setText(
+                self._tr(
+                    "page.z2_user_presets.configs.title",
+                    "Обменивайтесь категориями на нашем форуме-сайте через Telegram-бота: безопасно и анонимно",
+                )
+            )
+        if self._get_configs_btn is not None:
+            self._get_configs_btn.setText(self._tr("page.z2_user_presets.configs.button", "Получить конфиги"))
+
+        if self._restore_deleted_btn is not None:
+            self._restore_deleted_btn.setText(
+                self._tr("page.z2_user_presets.button.restore_deleted", "Восстановить удалённые пресеты")
+            )
+
+        if self.create_btn is not None:
+            set_tooltip(self.create_btn, self._tr("page.z2_user_presets.tooltip.create", "Создать новый пресет"))
+
+        if self.import_btn is not None:
+            self.import_btn.setText(self._tr("page.z2_user_presets.button.import", "Импорт"))
+            set_tooltip(self.import_btn, self._tr("page.z2_user_presets.tooltip.import", "Импорт пресета из файла"))
+
+        if self.reset_all_btn is not None:
+            current_text = self.reset_all_btn.text() or ""
+            if "/" not in current_text:
+                self.reset_all_btn.setText(self._tr("page.z2_user_presets.button.reset_all", "Вернуть заводские"))
+            set_tooltip(
+                self.reset_all_btn,
+                self._tr(
+                    "page.z2_user_presets.tooltip.reset_all",
+                    "Восстанавливает стандартные пресеты. Ваши изменения в стандартных пресетах будут потеряны.",
+                ),
+            )
+
+        if self.presets_info_btn is not None:
+            self.presets_info_btn.setText(self._tr("page.z2_user_presets.button.wiki", "Вики по пресетам"))
+        if self.info_btn is not None:
+            self.info_btn.setText(self._tr("page.z2_user_presets.button.what_is_this", "Что это такое?"))
+
+        if self._preset_search_input is not None:
+            self._preset_search_input.setPlaceholderText(
+                self._tr("page.z2_user_presets.search.placeholder", "Поиск пресетов по имени...")
+            )
+
+        if self._presets_delegate is not None:
+            self._presets_delegate.set_ui_language(self._ui_language)
+
+        self._update_toolbar_buttons_layout()
+        self._load_presets()

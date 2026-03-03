@@ -4,7 +4,7 @@
 import os
 import re
 from string import Template
-from PyQt6.QtCore import Qt, QThread, QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QObject, QTimer, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QFrame, QLayout, QCheckBox
@@ -13,6 +13,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard
+from ui.text_catalog import tr as tr_catalog
 
 from log import log
 from utils import get_system32_path
@@ -208,7 +209,13 @@ class HostsPage(BasePage):
     """Страница управления Hosts файлом"""
 
     def __init__(self, parent=None):
-        super().__init__("Hosts", "Управление разблокировкой сервисов через hosts файл", parent)
+        super().__init__(
+            "Hosts",
+            "Управление разблокировкой сервисов через hosts файл",
+            parent,
+            title_key="page.hosts.title",
+            subtitle_key="page.hosts.subtitle",
+        )
 
         self.hosts_manager = None
         self.service_combos = {}
@@ -221,11 +228,18 @@ class HostsPage(BasePage):
         self._service_group_chip_buttons = []
         self._open_hosts_button = None
         self._close_error_button = None
+        self._info_text_label = None
+        self._browser_warning_label = None
+        self._adobe_desc_label = None
+        self._adobe_title_label = None
+        self._restoring_permissions = False
 
         self._services_container = None
         self._services_layout = None
         self._catalog_sig = None
         self._catalog_watch_timer = None
+        self._main_window = None
+        self._app_parent = parent
         self._worker = None
         self._thread = None
         self._applying = False
@@ -241,11 +255,19 @@ class HostsPage(BasePage):
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
         qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
-        self._init_hosts_manager()
         self._build_ui()
 
         # Apply tokens to remaining custom inline-styled widgets.
         self._apply_theme()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     def _apply_theme(self) -> None:
         """Applies theme tokens to widgets that still use raw setStyleSheet."""
@@ -310,6 +332,7 @@ class HostsPage(BasePage):
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
+        self._install_main_window_event_filter()
         # Не запускаем тяжёлые операции при системном восстановлении окна (из трея/свёрнутого).
         if event.spontaneous():
             return
@@ -318,6 +341,8 @@ class HostsPage(BasePage):
 
         # Лениво инициализируем тяжёлые части страницы только при первом открытии вкладки.
         if not self._startup_initialized:
+            if self.hosts_manager is None:
+                self._init_hosts_manager()
             self._check_hosts_access()
             self._rebuild_services_selectors()
             self._startup_initialized = True
@@ -327,11 +352,133 @@ class HostsPage(BasePage):
             self._refresh_catalog_if_needed(trigger="ipv6")
         self._refresh_catalog_if_needed(trigger="tab")
 
+        # После инициализации/пересборки селекторов обновляем статус по реальному hosts.
+        self._invalidate_cache()
+        self._update_ui()
+
     def hideEvent(self, event):  # noqa: N802 (Qt naming)
+        self._close_service_combo_popups()
         self._stop_catalog_watcher()
         super().hideEvent(event)
 
+    def _install_main_window_event_filter(self) -> None:
+        try:
+            w = self.window()
+        except Exception:
+            w = None
+        if not w or w is self._main_window:
+            return
+
+        if self._main_window is not None:
+            try:
+                self._main_window.removeEventFilter(self)
+            except Exception:
+                pass
+
+        self._main_window = w
+        try:
+            w.installEventFilter(self)
+        except Exception:
+            pass
+
+    def _close_service_combo_popups(self) -> None:
+        """Close all service profile dropdown popups if they are open."""
+        for control in list(self.service_combos.values()):
+            if control is None:
+                continue
+            try:
+                if hasattr(control, "_closeComboMenu"):
+                    control._closeComboMenu()
+                elif hasattr(control, "hidePopup"):
+                    control.hidePopup()
+            except Exception:
+                pass
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt override)
+        try:
+            if obj is self._main_window and event is not None:
+                et = event.type()
+                if et in (
+                    QEvent.Type.Hide,
+                    QEvent.Type.Close,
+                    QEvent.Type.WindowDeactivate,
+                    QEvent.Type.WindowStateChange,
+                ):
+                    self._close_service_combo_popups()
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if hasattr(self, "restore_btn") and self.restore_btn is not None:
+            if self._restoring_permissions:
+                self.restore_btn.setText(
+                    self._tr("page.hosts.button.restoring_access", " Восстановление...")
+                )
+            else:
+                self.restore_btn.setText(
+                    self._tr("page.hosts.button.restore_access", " Восстановить права доступа")
+                )
+
+        if hasattr(self, "clear_btn") and self.clear_btn is not None:
+            self.clear_btn.setText(self._tr("page.hosts.button.clear", " Очистить"))
+
+        if self._open_hosts_button is not None:
+            self._open_hosts_button.setText(self._tr("page.hosts.button.open", " Открыть"))
+
+        if self._info_text_label is not None:
+            self._info_text_label.setText(
+                self._tr(
+                    "page.hosts.info.note",
+                    "Некоторые сервисы (ChatGPT, Spotify и др.) сами блокируют доступ из России — это не блокировка РКН. Решается не через Zapret, а через проксирование: домены направляются через отдельный прокси-сервер в файле hosts.",
+                )
+            )
+
+        if self._browser_warning_label is not None:
+            self._browser_warning_label.setText(
+                self._tr(
+                    "page.hosts.warning.browser_restart",
+                    "После добавления или удаления доменов необходимо перезапустить браузер, чтобы изменения вступили в силу.",
+                )
+            )
+
+        if self._adobe_desc_label is not None:
+            self._adobe_desc_label.setText(
+                self._tr(
+                    "page.hosts.adobe.description",
+                    "⚠️ Блокирует серверы проверки активации Adobe. Включите, если у вас установлена пиратская версия.",
+                )
+            )
+        if self._adobe_title_label is not None:
+            self._adobe_title_label.setText(self._tr("page.hosts.adobe.title", "Блокировка Adobe"))
+
+        if self._startup_initialized and not self._applying:
+            self._rebuild_services_selectors()
+            self._check_hosts_access()
+
+        self._update_ui()
+
     def _init_hosts_manager(self):
+        if self.hosts_manager is not None:
+            return
+
+        try:
+            app_hosts_manager = None
+            parent_app = getattr(self, "parent_app", None)
+            if parent_app is not None:
+                app_hosts_manager = getattr(parent_app, "hosts_manager", None)
+            if app_hosts_manager is None and self._app_parent is not None:
+                app_hosts_manager = getattr(self._app_parent, "hosts_manager", None)
+
+            if app_hosts_manager is not None:
+                self.hosts_manager = app_hosts_manager
+                log("HostsPage: используем общий HostsManager приложения", "DEBUG")
+                return
+        except Exception:
+            pass
+
         try:
             from hosts.hosts import HostsManager
             self.hosts_manager = HostsManager(status_callback=lambda m: log(f"Hosts: {m}", "INFO"))
@@ -490,9 +637,11 @@ class HostsPage(BasePage):
                 if not writable:
                     hosts_path = self._get_hosts_path_str()
                     self._show_error(
-                        "Нет доступа для изменения файла hosts.\n"
-                        "Если файл редактируется вручную, возможно защитник/антивирус блокирует запись.\n"
-                        f"Путь: {hosts_path}"
+                        self._tr(
+                            "page.hosts.error.no_access.long",
+                            "Нет доступа для изменения файла hosts.\nЕсли файл редактируется вручную, возможно защитник/антивирус блокирует запись.\nПуть: {path}",
+                            path=hosts_path,
+                        )
                     )
                 else:
                     self._hide_error()
@@ -501,7 +650,9 @@ class HostsPage(BasePage):
                 self._active_domains_cache = self.hosts_manager.get_active_domains()
                 return self._active_domains_cache
             except Exception as e:
-                self._show_error(f"Ошибка чтения hosts: {e}")
+                self._show_error(
+                    self._tr("page.hosts.error.read_hosts", "Ошибка чтения hosts: {error}", error=e)
+                )
                 return set()
         return set()
 
@@ -567,8 +718,11 @@ class HostsPage(BasePage):
                 if InfoBar is not None and not self._ipv6_infobar_shown:
                     self._ipv6_infobar_shown = True
                     InfoBar.success(
-                        title="IPv6",
-                        content="У провайдера обнаружен IPv6. В hosts.ini добавлены IPv6 разделы DNS-провайдеров.",
+                        title=self._tr("page.hosts.ipv6.infobar.title", "IPv6"),
+                        content=self._tr(
+                            "page.hosts.ipv6.infobar.content",
+                            "У провайдера обнаружен IPv6. В hosts.ini добавлены IPv6 разделы DNS-провайдеров.",
+                        ),
                         parent=self.window(),
                     )
             return (bool(changed), bool(ipv6_available))
@@ -691,7 +845,9 @@ class HostsPage(BasePage):
         btn_row.setContentsMargins(30, 0, 0, 0)  # Отступ слева под иконку
 
         self.restore_btn = PushButton()
-        self.restore_btn.setText(" Восстановить права доступа")
+        self.restore_btn.setText(
+            self._tr("page.hosts.button.restore_access", " Восстановить права доступа")
+        )
         self.restore_btn.setIcon(qta.icon('fa5s.wrench', color=tokens.fg))
         self.restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.restore_btn.setFixedHeight(32)
@@ -732,8 +888,11 @@ class HostsPage(BasePage):
 
     def _restore_hosts_permissions(self):
         """Восстанавливает права доступа к файлу hosts"""
+        self._restoring_permissions = True
         self.restore_btn.setEnabled(False)
-        self.restore_btn.setText(" Восстановление...")
+        self.restore_btn.setText(
+            self._tr("page.hosts.button.restoring_access", " Восстановление...")
+        )
 
         try:
             from hosts.hosts import restore_hosts_permissions
@@ -745,21 +904,35 @@ class HostsPage(BasePage):
                 self._update_ui()
                 self._sync_selections_from_hosts()
                 if InfoBar:
-                    InfoBar.success(title="Успех", content="Права доступа к файлу hosts успешно восстановлены!", parent=self.window())
+                    InfoBar.success(
+                        title=self._tr("page.hosts.permissions.restore.success.title", "Успех"),
+                        content=self._tr(
+                            "page.hosts.permissions.restore.success.content",
+                            "Права доступа к файлу hosts успешно восстановлены!",
+                        ),
+                        parent=self.window(),
+                    )
             else:
                 self._show_error(message)
                 if InfoBar:
                     InfoBar.warning(
-                        title="Ошибка",
-                        content=f"Не удалось восстановить права:\n{message}\n\nПопробуйте временно отключить защиту файла hosts в настройках антивируса (Kaspersky, Dr.Web и т.д.)",
+                        title=self._tr("page.hosts.permissions.restore.fail.title", "Ошибка"),
+                        content=self._tr(
+                            "page.hosts.permissions.restore.fail.content",
+                            "Не удалось восстановить права:\n{message}\n\nПопробуйте временно отключить защиту файла hosts в настройках антивируса (Kaspersky, Dr.Web и т.д.)",
+                            message=message,
+                        ),
                         parent=self.window(),
                     )
         except Exception as e:
             log(f"Ошибка при восстановлении прав: {e}", "ERROR")
-            self._show_error(f"Ошибка: {e}")
+            self._show_error(self._tr("page.hosts.error.generic", "Ошибка: {error}", error=e))
         finally:
+            self._restoring_permissions = False
             self.restore_btn.setEnabled(True)
-            self.restore_btn.setText(" Восстановить права доступа")
+            self.restore_btn.setText(
+                self._tr("page.hosts.button.restore_access", " Восстановить права доступа")
+            )
 
     def _check_hosts_access(self):
         """Проверяет доступ к hosts файлу при загрузке страницы"""
@@ -769,12 +942,14 @@ class HostsPage(BasePage):
             else:
                 hosts_path = self._get_hosts_path_str()
                 self._show_error(
-                    "Нет доступа для изменения файла hosts. "
-                    "Скорее всего защитник/антивирус заблокировал запись.\n"
-                    f"Путь: {hosts_path}"
+                    self._tr(
+                        "page.hosts.error.no_access.short",
+                        "Нет доступа для изменения файла hosts. Скорее всего защитник/антивирус заблокировал запись.\nПуть: {path}",
+                        path=hosts_path,
+                    )
                 )
         except Exception as e:
-            self._show_error(f"Ошибка чтения hosts: {e}")
+            self._show_error(self._tr("page.hosts.error.read_hosts", "Ошибка чтения hosts: {error}", error=e))
 
     def _build_info_note(self):
         """Информационная заметка о том, зачем нужен hosts"""
@@ -792,13 +967,14 @@ class HostsPage(BasePage):
         info_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
         # Текст пояснения
-        info_text = CaptionLabel(
-            "Некоторые сервисы (ChatGPT, Spotify и др.) сами блокируют доступ из России — "
-            "это не блокировка РКН. Решается не через Zapret, а через проксирование: "
-            "домены направляются через отдельный прокси-сервер в файле hosts."
+        self._info_text_label = CaptionLabel(
+            self._tr(
+                "page.hosts.info.note",
+                "Некоторые сервисы (ChatGPT, Spotify и др.) сами блокируют доступ из России — это не блокировка РКН. Решается не через Zapret, а через проксирование: домены направляются через отдельный прокси-сервер в файле hosts.",
+            )
         )
-        info_text.setWordWrap(True)
-        info_layout.addWidget(info_text, 1)
+        self._info_text_label.setWordWrap(True)
+        info_layout.addWidget(self._info_text_label, 1)
 
         info_card.add_layout(info_layout)
         self.add_widget(info_card)
@@ -816,13 +992,17 @@ class HostsPage(BasePage):
         warning_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Текст предупреждения
-        warning_text = CaptionLabel(
-            "После добавления или удаления доменов необходимо перезапустить браузер, "
-            "чтобы изменения вступили в силу."
+        self._browser_warning_label = CaptionLabel(
+            self._tr(
+                "page.hosts.warning.browser_restart",
+                "После добавления или удаления доменов необходимо перезапустить браузер, чтобы изменения вступили в силу.",
+            )
         )
-        warning_text.setWordWrap(True)
-        warning_text.setStyleSheet(f"color: {semantic.warning_soft}; font-size: 11px; background: transparent;")
-        warning_layout.addWidget(warning_text, 1)
+        self._browser_warning_label.setWordWrap(True)
+        self._browser_warning_label.setStyleSheet(
+            f"color: {semantic.warning_soft}; font-size: 11px; background: transparent;"
+        )
+        warning_layout.addWidget(self._browser_warning_label, 1)
 
         # Простой контейнер без фона
         warning_widget = QWidget()
@@ -847,13 +1027,17 @@ class HostsPage(BasePage):
         self.status_dot.setStyleSheet(f"color: {dot_color}; font-size: 12px;")
         status_layout.addWidget(self.status_dot)
 
-        self.status_label = BodyLabel(f"Активно {len(active)} доменов" if active else "Нет активных")
+        self.status_label = BodyLabel(
+            self._tr("page.hosts.status.active_domains", "Активно {count} доменов", count=len(active))
+            if active
+            else self._tr("page.hosts.status.none_active", "Нет активных")
+        )
         self.status_label.setProperty("tone", "primary")
         status_layout.addWidget(self.status_label, 1)
 
         self.clear_btn = PushButton()
         self.clear_btn.setIcon(qta.icon('fa5s.trash-alt', color=tokens.fg_muted))
-        self.clear_btn.setText(" Очистить")
+        self.clear_btn.setText(self._tr("page.hosts.button.clear", " Очистить"))
         self.clear_btn.setFixedHeight(32)
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.clicked.connect(self._on_clear_clicked)
@@ -861,7 +1045,7 @@ class HostsPage(BasePage):
 
         self._open_hosts_button = PushButton()
         self._open_hosts_button.setIcon(qta.icon('fa5s.external-link-alt', color=tokens.fg))
-        self._open_hosts_button.setText(" Открыть")
+        self._open_hosts_button.setText(self._tr("page.hosts.button.open", " Открыть"))
         self._open_hosts_button.setFixedHeight(32)
         self._open_hosts_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._open_hosts_button.clicked.connect(self._open_hosts_file)
@@ -959,8 +1143,7 @@ class HostsPage(BasePage):
         self._apply_current_selection()
 
     def _build_services_selectors(self):
-        OFF_LABEL = "Откл."
-        ON_LABEL = "Вкл."
+        OFF_LABEL = self._tr("page.hosts.services.off", "Откл.")
         all_dns_profiles = [p for p in (get_dns_profiles() or []) if isinstance(p, str) and p.strip()]
 
         # Карта иконок/цветов по сервису (если есть в QUICK_SERVICES)
@@ -1030,7 +1213,9 @@ class HostsPage(BasePage):
             # Сохраняем порядок как в общем списке [DNS].
             return [profile for profile in all_dns_profiles if profile in common]
 
-        self._services_add_section_title("Сервисы")
+        self._services_add_section_title(
+            tr_catalog("page.hosts.section.services", language=self._ui_language, default="Сервисы")
+        )
 
         self._building_services_ui = True
         selection_migrated = False
@@ -1269,9 +1454,9 @@ class HostsPage(BasePage):
 
                 self._services_add_widget(card)
 
-            add_group("Напрямую из hosts", no_geohide, direct_only=True)
-            add_group("ИИ", ai)
-            add_group("Остальные", other)
+            add_group(self._tr("page.hosts.group.direct", "Напрямую из hosts"), no_geohide, direct_only=True)
+            add_group(self._tr("page.hosts.group.ai", "ИИ"), ai)
+            add_group(self._tr("page.hosts.group.other", "Остальные"), other)
 
             if selection_migrated:
                 save_user_hosts_selection(self._service_dns_selection)
@@ -1327,13 +1512,18 @@ class HostsPage(BasePage):
         self._apply_current_selection()
 
     def _build_adobe_section(self):
-        self.add_section_title("Дополнительно")
+        self.add_section_title(text_key="page.hosts.section.additional")
 
         adobe_card = SettingsCard()
 
-        desc_label = CaptionLabel("⚠️ Блокирует серверы проверки активации Adobe. Включите, если у вас установлена пиратская версия.")
-        desc_label.setWordWrap(True)
-        adobe_card.add_widget(desc_label)
+        self._adobe_desc_label = CaptionLabel(
+            self._tr(
+                "page.hosts.adobe.description",
+                "⚠️ Блокирует серверы проверки активации Adobe. Включите, если у вас установлена пиратская версия.",
+            )
+        )
+        self._adobe_desc_label.setWordWrap(True)
+        adobe_card.add_widget(self._adobe_desc_label)
 
         adobe_layout = QHBoxLayout()
         adobe_layout.setContentsMargins(0, 0, 0, 0)
@@ -1343,8 +1533,8 @@ class HostsPage(BasePage):
         icon_label.setPixmap(qta.icon('fa5s.puzzle-piece', color='#ff0000').pixmap(20, 20))
         adobe_layout.addWidget(icon_label)
 
-        title = StrongBodyLabel("Блокировка Adobe")
-        adobe_layout.addWidget(title, 1)
+        self._adobe_title_label = StrongBodyLabel(self._tr("page.hosts.adobe.title", "Блокировка Adobe"))
+        adobe_layout.addWidget(self._adobe_title_label, 1)
 
         is_adobe_active = self.hosts_manager.is_adobe_domains_active() if self.hosts_manager else False
 
@@ -1384,7 +1574,6 @@ class HostsPage(BasePage):
         self._apply_current_selection()
 
     def _update_profile_row_visual(self, service_name: str):
-        OFF_LABEL = "Откл."
         combo = self.service_combos.get(service_name)
         icon_label = self.service_icon_labels.get(service_name)
         tokens = get_theme_tokens()
@@ -1396,8 +1585,7 @@ class HostsPage(BasePage):
 
         enabled = False
         if _is_fluent_combo(combo):
-            selected = combo.currentText().strip()
-            enabled = bool(selected) and selected != OFF_LABEL
+            enabled = combo.currentData() is not None
         elif isinstance(combo, QCheckBox):
             enabled = bool(combo.isChecked())
         color = base_color if enabled else tokens.fg_faint
@@ -1422,9 +1610,11 @@ class HostsPage(BasePage):
             return
         if MessageBox is not None:
             box = MessageBox(
-                "Очистить hosts?",
-                "Это полностью сбросит файл hosts к стандартному содержимому Windows "
-                "и удалит ВСЕ записи, включая добавленные вручную.",
+                self._tr("page.hosts.dialog.clear.title", "Очистить hosts?"),
+                self._tr(
+                    "page.hosts.dialog.clear.body",
+                    "Это полностью сбросит файл hosts к стандартному содержимому Windows и удалит ВСЕ записи, включая добавленные вручную.",
+                ),
                 self.window(),
             )
             if not box.exec():
@@ -1447,7 +1637,11 @@ class HostsPage(BasePage):
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", "notepad.exe", hosts_path, None, 1)
         except Exception as e:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.hosts.open.error.title", "Ошибка"),
+                    content=self._tr("page.hosts.open.error.content", "Не удалось открыть: {error}", error=e),
+                    parent=self.window(),
+                )
 
     def _toggle_adobe(self, checked: bool):
         if self._applying:
@@ -1494,7 +1688,9 @@ class HostsPage(BasePage):
             self._hide_error()
         else:
             hosts_path = self._get_hosts_path_str()
-            self._show_error(f"{message}\nПуть: {hosts_path}")
+            self._show_error(
+                self._tr("page.hosts.error.operation_with_path", "{message}\nПуть: {path}", message=message, path=hosts_path)
+            )
 
     def _reset_all_service_profiles(self) -> None:
         """Сбрасывает выбор профилей в UI и user_hosts.ini (после очистки hosts)."""
@@ -1526,10 +1722,12 @@ class HostsPage(BasePage):
         # Статус
         if active:
             self.status_dot.setStyleSheet(f"color: {semantic.success}; font-size: 12px;")
-            self.status_label.setText(f"Активно {len(active)} доменов")
+            self.status_label.setText(
+                self._tr("page.hosts.status.active_domains", "Активно {count} доменов", count=len(active))
+            )
         else:
             self.status_dot.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 12px;")
-            self.status_label.setText("Нет активных")
+            self.status_label.setText(self._tr("page.hosts.status.none_active", "Нет активных"))
 
         # Обновляем иконки под текущие выборы
         for name in list(self.service_combos.keys()):
@@ -1550,6 +1748,13 @@ class HostsPage(BasePage):
         """Очистка потоков при закрытии"""
         from log import log
         try:
+            if self._main_window is not None:
+                try:
+                    self._main_window.removeEventFilter(self)
+                except Exception:
+                    pass
+                self._main_window = None
+
             if self._thread and self._thread.isRunning():
                 log("Останавливаем hosts worker...", "DEBUG")
                 self._thread.quit()

@@ -8,7 +8,6 @@ and inference usable in non-GUI contexts and during development.
 from __future__ import annotations
 
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
@@ -24,8 +23,6 @@ class CatalogPaths:
 _CACHED_PATHS: Optional[CatalogPaths] = None
 _CACHED_CATEGORIES: Optional[Dict[str, Dict]] = None
 _CACHED_STRATEGIES: Dict[tuple[str, Optional[str]], Dict[str, Dict]] = {}
-_LAST_PATHS_MISS_AT: float = 0.0
-_PATHS_MISS_BACKOFF_SECONDS: float = 1.0
 
 
 _EXTERNAL_STRATEGY_BASENAME_MAP: Dict[str, Dict[str, str]] = {
@@ -172,31 +169,9 @@ def load_categories() -> Dict[str, Dict]:
 
     paths = get_catalog_paths()
     if paths is None:
-        # If external json/strategies is unavailable, fall back to embedded
-        # categories immediately instead of returning an empty catalog.
-        global _LAST_PATHS_MISS_AT
-        now = time.monotonic()
-        if _LAST_PATHS_MISS_AT and (now - _LAST_PATHS_MISS_AT) < _PATHS_MISS_BACKOFF_SECONDS:
-            try:
-                from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
-                return _load_one_text(DEFAULT_CATEGORIES_TXT)
-            except Exception:
-                return {}
-
-        _LAST_PATHS_MISS_AT = now
-        try:
-            from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
-            return _load_one_text(DEFAULT_CATEGORIES_TXT)
-        except Exception:
-            return {}
+        return {}
 
     builtin = _load_one(paths.builtin_dir / "categories.txt")
-    if not builtin:
-        try:
-            from builtin_categories_txt import DEFAULT_CATEGORIES_TXT
-            builtin = _load_one_text(DEFAULT_CATEGORIES_TXT)
-        except Exception:
-            builtin = {}
     merged = dict(builtin)
 
     # User categories are stored outside the install folder (updates may overwrite it).

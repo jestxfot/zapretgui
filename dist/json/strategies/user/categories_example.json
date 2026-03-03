@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "description": "Пример пользовательских категорий. Переименуйте в categories.json для использования.",
+  "_comment": "Пользовательские категории добавляются к встроенным. Если key совпадает - перезаписывает встроенную.",
+  "categories": [
+    {
+      "_comment": "Пример добавления нового сайта",
+      "key": "mysite_tcp",
+      "full_name": "Мой сайт",
+      "description": "Мой заблокированный сайт (порты 80, 443)",
+      "tooltip": "🌐 Мой заблокированный сайт\nОбходит блокировку mysite.com через TCP.",
+      "color": "#00ff00",
+      "default_strategy": "other_seqovl",
+      "ports": "80, 443",
+      "protocol": "TCP",
+      "order": 100,
+      "command_order": 100,
+      "needs_new_separator": true,
+      "command_group": "user",
+      "icon_name": "fa5s.globe",
+      "icon_color": "#00FF00",
+      "base_filter": "--filter-tcp=80,443 --hostlist=my-hostlist.txt",
+      "strategy_type": "tcp",
+      "requires_all_ports": false,
+      "strip_payload": false
+    },
+    {
+      "_comment": "Пример категории с IPset",
+      "key": "mygame_udp",
+      "full_name": "Моя игра UDP",
+      "description": "Игровые сервера (UDP порты)",
+      "tooltip": "🎮 Моя игра\nОбходит блокировку игровых серверов.",
+      "color": "#ff00ff",
+      "default_strategy": "fake_2_n2_test",
+      "ports": "7777-7780",
+      "protocol": "UDP",
+      "order": 101,
+      "command_order": 101,
+      "needs_new_separator": true,
+      "command_group": "user_games",
+      "icon_name": "fa5s.gamepad",
+      "icon_color": "#FF00FF",
+      "base_filter": "--filter-udp=7777-7780 --ipset=my-game-ipset.txt",
+      "strategy_type": "udp",
+      "requires_all_ports": true,
+      "strip_payload": false
+    }
+  ]
+}
+

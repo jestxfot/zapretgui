@@ -213,6 +213,7 @@
 
 --filter-tcp=80,443-65535
 --ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-cloudflare.txt
 --ipset=lists/ipset-all.txt
@@ -260,6 +261,7 @@
 --ipset=lists/ipset-all.txt
 --ipset=lists/ipset-base.txt
 --ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-cloudflare.txt
 --ipset-exclude=lists/ipset-dns.txt

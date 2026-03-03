@@ -22,7 +22,7 @@ if "%1"=="--elevated" shift
 rem ───── переменные путей ────────────────────────────────────────
 setlocal EnableDelayedExpansion
 set ROOT=%cd%
-set OUT=%ROOT%\..\zapret
+set OUT=%ROOT%\dist
 set WORK=%TEMP%\pyi_%RANDOM%
 
 rem ───── чистим старые кеши ──────────────────────────────────────
@@ -48,6 +48,7 @@ python -m PyInstaller ^
         --hidden-import=win32com ^
         --hidden-import=win32com.client ^
         --hidden-import=pythoncom ^
+        --hidden-import=ui.pages.strategy_scan_page ^
         --workpath "%WORK%" ^
         --distpath "%OUT%" ^
         "%ROOT%\main.py" || goto :failed

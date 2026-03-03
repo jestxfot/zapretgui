@@ -12,6 +12,7 @@ from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
 from ui.theme_semantic import get_semantic_palette
+from ui.text_catalog import tr as tr_catalog
 
 try:
     from qfluentwidgets import ProgressBar, IndeterminateProgressBar, InfoBar
@@ -54,7 +55,9 @@ class DNSCheckPage(BasePage):
         super().__init__(
             "Проверка DNS подмены",
             "Проверка резолвинга доменов YouTube и Discord через различные DNS серверы",
-            parent
+            parent,
+            title_key="page.dns_check.title",
+            subtitle_key="page.dns_check.subtitle",
         )
         self.worker = None
         self.thread = None
@@ -62,6 +65,11 @@ class DNSCheckPage(BasePage):
         self._status_bold = False
         self._info_icon_labels = []
         self._info_text_labels = []
+        self._info_item_keys = [
+            "page.dns_check.info.blocking",
+            "page.dns_check.info.servers",
+            "page.dns_check.info.recommended",
+        ]
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -74,17 +82,17 @@ class DNSCheckPage(BasePage):
         """Создаёт интерфейс страницы."""
         tokens = get_theme_tokens()
         # Информационная карточка
-        info_card = SettingsCard("Что проверяем")
+        self.info_card = SettingsCard(tr_catalog("page.dns_check.card.what_we_check", language=self._ui_language, default="Что проверяем"))
         info_layout = QVBoxLayout()
         info_layout.setSpacing(8)
         
         info_items = [
-            ("fa5s.search", "Блокирует ли провайдер сайты через DNS подмену"),
-            ("fa5s.server", "Какие DNS серверы возвращают корректные адреса"),
-            ("fa5s.check-circle", "Какой DNS сервер рекомендуется использовать"),
+            ("fa5s.search", self._info_item_keys[0], "Блокирует ли провайдер сайты через DNS подмену"),
+            ("fa5s.server", self._info_item_keys[1], "Какие DNS серверы возвращают корректные адреса"),
+            ("fa5s.check-circle", self._info_item_keys[2], "Какой DNS сервер рекомендуется использовать"),
         ]
         
-        for icon_name, text in info_items:
+        for icon_name, text_key, default_text in info_items:
             row = QHBoxLayout()
             row.setSpacing(10)
             
@@ -99,51 +107,53 @@ class DNSCheckPage(BasePage):
             except:
                 pass
             
-            text_label = BodyLabel(text)
+            text_label = BodyLabel(tr_catalog(text_key, language=self._ui_language, default=default_text))
             text_label.setStyleSheet(f"color: {tokens.fg_muted};")
+            text_label.setProperty("textKey", text_key)
+            text_label.setProperty("textDefault", default_text)
             self._info_text_labels.append(text_label)
             row.addWidget(text_label, 1)
             
             info_layout.addLayout(row)
         
-        info_card.add_layout(info_layout)
-        self.layout.addWidget(info_card)
+        self.info_card.add_layout(info_layout)
+        self.layout.addWidget(self.info_card)
         
         # Карточка с управлением
-        control_card = SettingsCard("Тестирование")
+        self.control_card = SettingsCard(tr_catalog("page.dns_check.card.testing", language=self._ui_language, default="Тестирование"))
         
         # Кнопки
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(12)
         
-        self.check_button = ActionButton("Начать проверку", "fa5s.play")
+        self.check_button = ActionButton(tr_catalog("page.dns_check.button.start", language=self._ui_language, default="Начать проверку"), "fa5s.play")
         self.check_button.clicked.connect(self.start_check)
         buttons_layout.addWidget(self.check_button, 1)
 
-        self.quick_check_button = ActionButton("Быстрая проверка", "fa5s.bolt")
+        self.quick_check_button = ActionButton(tr_catalog("page.dns_check.button.quick", language=self._ui_language, default="Быстрая проверка"), "fa5s.bolt")
         self.quick_check_button.clicked.connect(self.quick_dns_check)
         buttons_layout.addWidget(self.quick_check_button, 1)
 
-        self.save_button = ActionButton("Сохранить результаты", "fa5s.save")
+        self.save_button = ActionButton(tr_catalog("page.dns_check.button.save", language=self._ui_language, default="Сохранить результаты"), "fa5s.save")
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self.save_results)
         buttons_layout.addWidget(self.save_button, 1)
-        control_card.add_layout(buttons_layout)
+        self.control_card.add_layout(buttons_layout)
         
         # Прогресс бар
         self.progress_bar = IndeterminateProgressBar(self)
         self.progress_bar.setVisible(False)
-        control_card.add_widget(self.progress_bar)
+        self.control_card.add_widget(self.progress_bar)
         
         # Статус
-        self.status_label = CaptionLabel("Готово к проверке")
-        self._set_status("Готово к проверке", tone="muted", bold=False)
-        control_card.add_widget(self.status_label)
-        
-        self.layout.addWidget(control_card)
+        self.status_label = CaptionLabel(tr_catalog("page.dns_check.status.ready", language=self._ui_language, default="Готово к проверке"))
+        self._set_status(tr_catalog("page.dns_check.status.ready", language=self._ui_language, default="Готово к проверке"), tone="muted", bold=False)
+        self.control_card.add_widget(self.status_label)
+
+        self.layout.addWidget(self.control_card)
         
         # Результаты
-        results_card = SettingsCard("Результаты")
+        self.results_card = SettingsCard(tr_catalog("page.dns_check.card.results", language=self._ui_language, default="Результаты"))
         
         self.result_text = ScrollBlockingTextEdit()
         self.result_text.setReadOnly(True)
@@ -160,9 +170,9 @@ class DNSCheckPage(BasePage):
             }}
             """
         )
-        results_card.add_widget(self.result_text)
+        self.results_card.add_widget(self.result_text)
         
-        self.layout.addWidget(results_card)
+        self.layout.addWidget(self.results_card)
         
         # Stretch в конце
         self.layout.addStretch()
@@ -398,3 +408,31 @@ class DNSCheckPage(BasePage):
                         pass
         except Exception as e:
             log(f"Ошибка при очистке dns_check_page: {e}", "DEBUG")
+
+    def _set_card_title(self, card: SettingsCard, text: str) -> None:
+        try:
+            item = card.main_layout.itemAt(0)
+            widget = item.widget() if item else None
+            if widget is not None and hasattr(widget, "setText"):
+                widget.setText(text)
+        except Exception:
+            pass
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self._set_card_title(self.info_card, tr_catalog("page.dns_check.card.what_we_check", language=self._ui_language, default="Что проверяем"))
+        self._set_card_title(self.control_card, tr_catalog("page.dns_check.card.testing", language=self._ui_language, default="Тестирование"))
+        self._set_card_title(self.results_card, tr_catalog("page.dns_check.card.results", language=self._ui_language, default="Результаты"))
+
+        for label in list(self._info_text_labels):
+            try:
+                key = label.property("textKey")
+                default = label.property("textDefault")
+                label.setText(tr_catalog(str(key), language=self._ui_language, default=str(default or "")))
+            except Exception:
+                pass
+
+        self.check_button.setText(tr_catalog("page.dns_check.button.start", language=self._ui_language, default="Начать проверку"))
+        self.quick_check_button.setText(tr_catalog("page.dns_check.button.quick", language=self._ui_language, default="Быстрая проверка"))
+        self.save_button.setText(tr_catalog("page.dns_check.button.save", language=self._ui_language, default="Сохранить результаты"))

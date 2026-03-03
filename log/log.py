@@ -11,6 +11,8 @@ import glob
 
 from config import LOGS_FOLDER, MAX_LOG_FILES, MAX_DEBUG_LOG_FILES
 
+MAX_BLOCKCHECK_LOG_FILES = 200
+
 
 _VERBOSE_LOG_ENV = "ZAPRET_GUI_VERBOSE_LOGS"
 _VERBOSE_LOG_FLAGS = {"--verbose-log", "--debug-log", "--diag-log"}
@@ -76,6 +78,7 @@ def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
     - zapret_log_*.txt: max_files (по умолчанию 50)
     - zapret_winws2_debug_*.log: MAX_DEBUG_LOG_FILES (20)
     - zapret_[0-9]*.log: старый формат, включается в общий лимит
+    - blockcheck_run_*.log: отдельная история запусков BlockCheck
     """
     total_deleted = 0
     all_errors = []
@@ -95,6 +98,12 @@ def cleanup_old_logs(logs_folder, max_files=MAX_LOG_FILES):
 
     # 3. Старый формат логов (zapret_[0-9]*.log) - удаляем все старые
     d, e, t = _cleanup_files_by_pattern(logs_folder, "zapret_[0-9]*.log", 10)
+    total_deleted += d
+    all_errors.extend(e)
+    total_found += t
+
+    # 4. История запусков BlockCheck
+    d, e, t = _cleanup_files_by_pattern(logs_folder, "blockcheck_run_*.log", MAX_BLOCKCHECK_LOG_FILES)
     total_deleted += d
     all_errors.extend(e)
     total_found += t

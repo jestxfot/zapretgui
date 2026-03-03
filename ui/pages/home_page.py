@@ -20,6 +20,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, StatusIndicator, ActionButton, set_tooltip
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -98,11 +99,11 @@ class StatusCard(CardWidget if HAS_FLUENT else QFrame):
         top_layout.addWidget(self.icon_label)
 
         if HAS_FLUENT:
-            title_label = CaptionLabel(title)
+            self.title_label = CaptionLabel(title)
         else:
-            title_label = QLabel(title)
-            title_label.setStyleSheet("font-size: 12px; font-weight: 500;")
-        top_layout.addWidget(title_label)
+            self.title_label = QLabel(title)
+            self.title_label.setStyleSheet("font-size: 12px; font-weight: 500;")
+        top_layout.addWidget(self.title_label)
         top_layout.addStretch()
 
         layout.addLayout(top_layout)
@@ -125,6 +126,12 @@ class StatusCard(CardWidget if HAS_FLUENT else QFrame):
         layout.addWidget(self.info_label)
 
         layout.addStretch()
+
+    def set_title(self, title: str) -> None:
+        try:
+            self.title_label.setText(title)
+        except Exception:
+            pass
         
     def set_value(self, value: str, info: str = ""):
         """Устанавливает текстовое значение"""
@@ -260,14 +267,20 @@ class HomePage(BasePage):
     navigate_to_dpi_settings = pyqtSignal()
 
     _LAUNCH_METHOD_LABELS = {
-        "direct_zapret2": "Zapret 2",
-        "direct_zapret1": "Zapret 1 (прямой запуск)",
-        "orchestra": "Оркестратор",
-        "direct_zapret2_orchestra": "Оркестраторный Zapret 2",
+        "direct_zapret2": "page.home.launch_method.direct_z2",
+        "direct_zapret1": "page.home.launch_method.direct_z1",
+        "orchestra": "page.home.launch_method.orchestra",
+        "direct_zapret2_orchestra": "page.home.launch_method.orchestra_z2",
     }
 
     def __init__(self, parent=None):
-        super().__init__("Главная", "Обзор состояния Zapret", parent)
+        super().__init__(
+            "Главная",
+            "Обзор состояния Zapret",
+            parent,
+            title_key="page.home.title",
+            subtitle_key="page.home.subtitle",
+        )
 
         self._autostart_worker = None
         self._home_intro_checked = False
@@ -294,16 +307,17 @@ class HomePage(BasePage):
 
             method = (get_strategy_launch_method() or "").strip().lower()
             if method:
-                return self._LAUNCH_METHOD_LABELS.get(method, self._LAUNCH_METHOD_LABELS["direct_zapret2"])
+                label_key = self._LAUNCH_METHOD_LABELS.get(method, self._LAUNCH_METHOD_LABELS["direct_zapret2"])
+                return tr_catalog(label_key, language=self._ui_language, default="Zapret 2")
         except Exception:
             pass
-        return self._LAUNCH_METHOD_LABELS["direct_zapret2"]
+        return tr_catalog(self._LAUNCH_METHOD_LABELS["direct_zapret2"], language=self._ui_language, default="Zapret 2")
 
     def update_launch_method_card(self) -> None:
         """Обновляет карточку метода запуска на главной странице."""
         self.strategy_card.set_value(
             self._get_launch_method_display_name(),
-            "Текущий метод запуска",
+            tr_catalog("page.home.strategy.current_method", language=self._ui_language, default="Текущий метод запуска"),
         )
 
     def _refresh_strategy_card(self) -> None:
@@ -330,23 +344,35 @@ class HomePage(BasePage):
         cards_layout.setContentsMargins(0, 0, 0, 0)
         
         # Карточка статуса DPI
-        self.dpi_status_card = StatusCard("fa5s.shield-alt", "Статус Zapret")
-        self.dpi_status_card.set_value("Проверка...", "Определение состояния")
+        self.dpi_status_card = StatusCard("fa5s.shield-alt", tr_catalog("page.home.card.dpi.title", language=self._ui_language, default="Статус Zapret"))
+        self.dpi_status_card.set_value(
+            tr_catalog("page.home.status.checking", language=self._ui_language, default="Проверка..."),
+            tr_catalog("page.home.status.detecting", language=self._ui_language, default="Определение состояния"),
+        )
         cards_layout.addWidget(self.dpi_status_card, 0, 0)
         
         # Карточка стратегии
-        self.strategy_card = StatusCard("fa5s.cog", "Метод запуска")
-        self.strategy_card.set_value("Zapret 2", "Текущий метод запуска")
+        self.strategy_card = StatusCard("fa5s.cog", tr_catalog("page.home.card.method.title", language=self._ui_language, default="Метод запуска"))
+        self.strategy_card.set_value(
+            self._get_launch_method_display_name(),
+            tr_catalog("page.home.strategy.current_method", language=self._ui_language, default="Текущий метод запуска"),
+        )
         cards_layout.addWidget(self.strategy_card, 0, 1)
         
         # Карточка автозапуска
-        self.autostart_card = StatusCard("fa5s.rocket", "Автозапуск")
-        self.autostart_card.set_value("Отключён", "Запускайте вручную")
+        self.autostart_card = StatusCard("fa5s.rocket", tr_catalog("page.home.card.autostart.title", language=self._ui_language, default="Автозапуск"))
+        self.autostart_card.set_value(
+            tr_catalog("page.home.autostart.disabled", language=self._ui_language, default="Отключён"),
+            tr_catalog("page.home.autostart.manual", language=self._ui_language, default="Запускайте вручную"),
+        )
         cards_layout.addWidget(self.autostart_card, 1, 0)
         
         # Карточка подписки
-        self.subscription_card = StatusCard("fa5s.star", "Подписка")
-        self.subscription_card.set_value("Free", "Базовые функции")
+        self.subscription_card = StatusCard("fa5s.star", tr_catalog("page.home.card.subscription.title", language=self._ui_language, default="Подписка"))
+        self.subscription_card.set_value(
+            tr_catalog("page.home.subscription.free", language=self._ui_language, default="Free"),
+            tr_catalog("page.home.subscription.basic", language=self._ui_language, default="Базовые функции"),
+        )
         cards_layout.addWidget(self.subscription_card, 1, 1)
         
         self.cards_widget = QWidget(self.content)  # ✅ Явный родитель
@@ -356,31 +382,31 @@ class HomePage(BasePage):
         self.add_spacing(8)
         
         # Быстрые действия
-        self.add_section_title("Быстрые действия")
+        self.add_section_title(text_key="page.home.section.quick_actions")
         
         self.actions_card = SettingsCard()
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
         
         # Кнопка запуска
-        self.start_btn = ActionButton("Запустить", "fa5s.play", accent=True)
+        self.start_btn = ActionButton(tr_catalog("page.home.action.start", language=self._ui_language, default="Запустить"), "fa5s.play", accent=True)
         actions_layout.addWidget(self.start_btn)
         
         # Кнопка остановки
-        self.stop_btn = ActionButton("Остановить", "fa5s.stop")
+        self.stop_btn = ActionButton(tr_catalog("page.home.action.stop", language=self._ui_language, default="Остановить"), "fa5s.stop")
         self.stop_btn.setVisible(False)
         actions_layout.addWidget(self.stop_btn)
         
         # Кнопка теста
-        self.test_btn = ActionButton("Тест соединения", "fa5s.wifi")
+        self.test_btn = ActionButton(tr_catalog("page.home.action.connection_test", language=self._ui_language, default="Тест соединения"), "fa5s.wifi")
         actions_layout.addWidget(self.test_btn)
         
         # Кнопка папки
-        self.folder_btn = ActionButton("Открыть папку", "fa5s.folder-open")
+        self.folder_btn = ActionButton(tr_catalog("page.home.action.open_folder", language=self._ui_language, default="Открыть папку"), "fa5s.folder-open")
         actions_layout.addWidget(self.folder_btn)
 
         # Кнопка "Как использовать"
-        self.guide_btn = ActionButton("Как использовать", "fa5s.question-circle")
+        self.guide_btn = ActionButton(tr_catalog("page.home.action.how_to_use", language=self._ui_language, default="Как использовать"), "fa5s.question-circle")
         self.guide_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://publish.obsidian.md/zapret/Zapret/guide"))
         )
@@ -393,11 +419,11 @@ class HomePage(BasePage):
         self.add_spacing(8)
         
         # Статусная строка
-        self.add_section_title("Статус")
+        self.add_section_title(text_key="page.home.section.status")
         
         self.status_card = SettingsCard()
         self.status_indicator = StatusIndicator()
-        self.status_indicator.set_status("Готов к работе", "neutral")
+        self.status_indicator.set_status(tr_catalog("page.home.status.ready", language=self._ui_language, default="Готов к работе"), "neutral")
         self.status_card.add_widget(self.status_indicator)
         self.add_widget(self.status_card)
         
@@ -532,12 +558,18 @@ class HomePage(BasePage):
     def update_dpi_status(self, is_running: bool, strategy_name: str | None = None):
         """Обновляет отображение статуса DPI"""
         if is_running:
-            self.dpi_status_card.set_value("Запущен", "Обход блокировок активен")
+            self.dpi_status_card.set_value(
+                tr_catalog("page.home.status.running", language=self._ui_language, default="Запущен"),
+                tr_catalog("page.home.status.bypass_active", language=self._ui_language, default="Обход блокировок активен"),
+            )
             self.dpi_status_card.set_status_color('running')
             self.start_btn.setVisible(False)
             self.stop_btn.setVisible(True)
         else:
-            self.dpi_status_card.set_value("Остановлен", "Нажмите Запустить")
+            self.dpi_status_card.set_value(
+                tr_catalog("page.home.status.stopped", language=self._ui_language, default="Остановлен"),
+                tr_catalog("page.home.status.press_start", language=self._ui_language, default="Нажмите Запустить"),
+            )
             self.dpi_status_card.set_status_color('stopped')
             self.start_btn.setVisible(True)
             self.stop_btn.setVisible(False)
@@ -586,22 +618,37 @@ class HomePage(BasePage):
     def update_autostart_status(self, enabled: bool):
         """Обновляет отображение статуса автозапуска"""
         if enabled:
-            self.autostart_card.set_value("Включён", "Запускается с Windows")
+            self.autostart_card.set_value(
+                tr_catalog("page.home.autostart.enabled", language=self._ui_language, default="Включён"),
+                tr_catalog("page.home.autostart.with_windows", language=self._ui_language, default="Запускается с Windows"),
+            )
             self.autostart_card.set_status_color('running')
         else:
-            self.autostart_card.set_value("Отключён", "Запускайте вручную")
+            self.autostart_card.set_value(
+                tr_catalog("page.home.autostart.disabled", language=self._ui_language, default="Отключён"),
+                tr_catalog("page.home.autostart.manual", language=self._ui_language, default="Запускайте вручную"),
+            )
             self.autostart_card.set_status_color('neutral')
             
     def update_subscription_status(self, is_premium: bool, days: int | None = None):
         """Обновляет отображение статуса подписки"""
         if is_premium:
             if days:
-                self.subscription_card.set_value("Premium", f"Осталось {days} дней")
+                self.subscription_card.set_value(
+                    tr_catalog("page.home.subscription.premium", language=self._ui_language, default="Premium"),
+                    tr_catalog("page.home.subscription.days_left", language=self._ui_language, default="Осталось {days} дней").format(days=days),
+                )
             else:
-                self.subscription_card.set_value("Premium", "Все функции доступны")
+                self.subscription_card.set_value(
+                    tr_catalog("page.home.subscription.premium", language=self._ui_language, default="Premium"),
+                    tr_catalog("page.home.subscription.all_features", language=self._ui_language, default="Все функции доступны"),
+                )
             self.subscription_card.set_status_color('running')
         else:
-            self.subscription_card.set_value("Free", "Базовые функции")
+            self.subscription_card.set_value(
+                tr_catalog("page.home.subscription.free", language=self._ui_language, default="Free"),
+                tr_catalog("page.home.subscription.basic", language=self._ui_language, default="Базовые функции"),
+            )
             self.subscription_card.set_status_color('neutral')
             
     def set_status(self, text: str, status: str = "neutral"):
@@ -643,26 +690,55 @@ class HomePage(BasePage):
         text_layout.setSpacing(4)
         
         if HAS_FLUENT:
-            title = StrongBodyLabel("Zapret Premium")
+            title = StrongBodyLabel(tr_catalog("page.home.premium.title", language=self._ui_language, default="Zapret Premium"))
         else:
-            title = QLabel("Zapret Premium")
+            title = QLabel(tr_catalog("page.home.premium.title", language=self._ui_language, default="Zapret Premium"))
             title.setStyleSheet("font-size: 14px; font-weight: 600;")
+        self.premium_title_label = title
         text_layout.addWidget(title)
 
         if HAS_FLUENT:
-            desc = CaptionLabel("Дополнительные темы, приоритетная поддержка и VPN-сервис")
+            desc = CaptionLabel(tr_catalog("page.home.premium.desc", language=self._ui_language, default="Дополнительные темы, приоритетная поддержка и VPN-сервис"))
         else:
-            desc = QLabel("Дополнительные темы, приоритетная поддержка и VPN-сервис")
+            desc = QLabel(tr_catalog("page.home.premium.desc", language=self._ui_language, default="Дополнительные темы, приоритетная поддержка и VPN-сервис"))
             desc.setStyleSheet("font-size: 12px;")
+        self.premium_desc_label = desc
         desc.setWordWrap(True)
         text_layout.addWidget(desc)
         
         premium_layout.addLayout(text_layout, 1)
         
         # Кнопка Premium
-        self.premium_link_btn = ActionButton("Подробнее", "fa5s.arrow-right")
+        self.premium_link_btn = ActionButton(tr_catalog("page.home.premium.more", language=self._ui_language, default="Подробнее"), "fa5s.arrow-right")
         self.premium_link_btn.setFixedHeight(36)
         premium_layout.addWidget(self.premium_link_btn)
         
         self.premium_card.add_layout(premium_layout)
         self.add_widget(self.premium_card)
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.dpi_status_card.set_title(tr_catalog("page.home.card.dpi.title", language=self._ui_language, default="Статус Zapret"))
+        self.strategy_card.set_title(tr_catalog("page.home.card.method.title", language=self._ui_language, default="Метод запуска"))
+        self.autostart_card.set_title(tr_catalog("page.home.card.autostart.title", language=self._ui_language, default="Автозапуск"))
+        self.subscription_card.set_title(tr_catalog("page.home.card.subscription.title", language=self._ui_language, default="Подписка"))
+
+        self.start_btn.setText(tr_catalog("page.home.action.start", language=self._ui_language, default="Запустить"))
+        self.stop_btn.setText(tr_catalog("page.home.action.stop", language=self._ui_language, default="Остановить"))
+        self.test_btn.setText(tr_catalog("page.home.action.connection_test", language=self._ui_language, default="Тест соединения"))
+        self.folder_btn.setText(tr_catalog("page.home.action.open_folder", language=self._ui_language, default="Открыть папку"))
+        self.guide_btn.setText(tr_catalog("page.home.action.how_to_use", language=self._ui_language, default="Как использовать"))
+
+        try:
+            self.premium_title_label.setText(tr_catalog("page.home.premium.title", language=self._ui_language, default="Zapret Premium"))
+            self.premium_desc_label.setText(tr_catalog("page.home.premium.desc", language=self._ui_language, default="Дополнительные темы, приоритетная поддержка и VPN-сервис"))
+        except Exception:
+            pass
+        self.premium_link_btn.setText(tr_catalog("page.home.premium.more", language=self._ui_language, default="Подробнее"))
+
+        # Refresh runtime-dependent card texts using current state.
+        try:
+            self.update_launch_method_card()
+        except Exception:
+            pass

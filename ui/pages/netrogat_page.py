@@ -28,6 +28,7 @@ except ImportError:
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 from utils.netrogat_manager import (
     NETROGAT_USER_PATH,
@@ -91,35 +92,71 @@ class NetrogatPage(BasePage):
             "Исключения",
             "Управление пользовательским списком netrogat.user.txt. Итоговый netrogat.txt собирается автоматически.",
             parent,
+            title_key="page.netrogat.title",
+            subtitle_key="page.netrogat.subtitle",
         )
         self._base_domains_set_cache: set[str] | None = None
+        self._desc_label = None
+        self._add_card = None
+        self._actions_card = None
+        self._editor_card = None
+        self._hint_label = None
+        self._add_defaults_btn = None
+        self._open_btn = None
+        self._open_final_btn = None
+        self._clear_btn = None
+        self._status_state = {
+            "total": 0,
+            "base": 0,
+            "user": 0,
+            "saved": False,
+        }
         self._build_ui()
         QTimer.singleShot(100, self._load)
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     def _build_ui(self):
         tokens = get_theme_tokens()
         # Описание
         desc_card = SettingsCard()
         desc = CaptionLabel(
-            "Редактируйте только netrogat.user.txt.\n"
-            "Системная база хранится в netrogat.base.txt и автоматически объединяется в netrogat.txt."
+            self._tr(
+                "page.netrogat.description",
+                "Редактируйте только netrogat.user.txt.\n"
+                "Системная база хранится в netrogat.base.txt и автоматически объединяется в netrogat.txt.",
+            )
         )
+        self._desc_label = desc
         desc.setStyleSheet(f"color: {tokens.fg_muted};")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
 
         # Добавление домена
-        add_card = SettingsCard("Добавить домен")
+        add_card = SettingsCard(self._tr("page.netrogat.section.add", "Добавить домен"))
+        self._add_card = add_card
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
         self.input = LineEdit()
-        self.input.setPlaceholderText("Например: example.com, site.com или через пробел")
+        self.input.setPlaceholderText(
+            self._tr(
+                "page.netrogat.input.placeholder",
+                "Например: example.com, site.com или через пробел",
+            )
+        )
         self.input.returnPressed.connect(self._add)
         add_layout.addWidget(self.input, 1)
 
-        self.add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self.add_btn = ActionButton(self._tr("page.netrogat.button.add", "Добавить"), "fa5s.plus", accent=True)
         self.add_btn.setFixedHeight(38)
         self.add_btn.clicked.connect(self._add)
         add_layout.addWidget(self.add_btn)
@@ -128,45 +165,56 @@ class NetrogatPage(BasePage):
         self.layout.addWidget(add_card)
 
         # Действия
-        actions_card = SettingsCard("Действия")
+        actions_card = SettingsCard(self._tr("page.netrogat.section.actions", "Действия"))
+        self._actions_card = actions_card
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
 
-        add_defaults_btn = ActionButton("Добавить недостающие", "fa5s.plus-circle")
-        add_defaults_btn.setFixedHeight(36)
-        add_defaults_btn.clicked.connect(self._add_missing_defaults)
-        actions_layout.addWidget(add_defaults_btn)
+        self._add_defaults_btn = ActionButton(
+            self._tr("page.netrogat.button.add_missing", "Добавить недостающие"),
+            "fa5s.plus-circle",
+        )
+        self._add_defaults_btn.setFixedHeight(36)
+        self._add_defaults_btn.clicked.connect(self._add_missing_defaults)
+        actions_layout.addWidget(self._add_defaults_btn)
 
-        open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
-        open_btn.setFixedHeight(36)
-        open_btn.clicked.connect(self._open_file)
-        actions_layout.addWidget(open_btn)
+        self._open_btn = ActionButton(self._tr("page.netrogat.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
+        self._open_btn.setFixedHeight(36)
+        self._open_btn.clicked.connect(self._open_file)
+        actions_layout.addWidget(self._open_btn)
 
-        open_final_btn = ActionButton("Открыть итоговый", "fa5s.file-alt")
-        open_final_btn.setFixedHeight(36)
-        open_final_btn.clicked.connect(self._open_final_file)
-        actions_layout.addWidget(open_final_btn)
+        self._open_final_btn = ActionButton(
+            self._tr("page.netrogat.button.open_final", "Открыть итоговый"),
+            "fa5s.file-alt",
+        )
+        self._open_final_btn.setFixedHeight(36)
+        self._open_final_btn.clicked.connect(self._open_final_file)
+        actions_layout.addWidget(self._open_final_btn)
 
-        clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
-        clear_btn.setFixedHeight(36)
-        clear_btn.clicked.connect(self._clear_all)
-        actions_layout.addWidget(clear_btn)
+        self._clear_btn = ActionButton(self._tr("page.netrogat.button.clear_all", "Очистить всё"), "fa5s.trash-alt")
+        self._clear_btn.setFixedHeight(36)
+        self._clear_btn.clicked.connect(self._clear_all)
+        actions_layout.addWidget(self._clear_btn)
 
         actions_layout.addStretch()
         actions_card.add_layout(actions_layout)
         self.layout.addWidget(actions_card)
 
         # Текстовый редактор (вместо списка)
-        editor_card = SettingsCard("netrogat.user.txt (редактор)")
+        editor_card = SettingsCard(self._tr("page.netrogat.section.editor", "netrogat.user.txt (редактор)"))
+        self._editor_card = editor_card
         editor_layout = QVBoxLayout()
         editor_layout.setSpacing(8)
 
         self.text_edit = ScrollBlockingPlainTextEdit()
         self.text_edit.setPlaceholderText(
-            "Домены по одному на строку:\n"
-            "gosuslugi.ru\n"
-            "vk.com\n\n"
-            "Комментарии начинаются с #"
+            self._tr(
+                "page.netrogat.editor.placeholder",
+                "Домены по одному на строку:\n"
+                "gosuslugi.ru\n"
+                "vk.com\n\n"
+                "Комментарии начинаются с #",
+            )
         )
         self.text_edit.setStyleSheet(f"""
             QPlainTextEdit {{
@@ -192,9 +240,11 @@ class NetrogatPage(BasePage):
 
         editor_layout.addWidget(self.text_edit)
 
-        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet(f"color: {tokens.fg_faint};")
-        editor_layout.addWidget(hint)
+        self._hint_label = CaptionLabel(
+            self._tr("page.netrogat.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+        )
+        self._hint_label.setStyleSheet(f"color: {tokens.fg_faint};")
+        editor_layout.addWidget(self._hint_label)
 
         editor_card.add_layout(editor_layout)
         self.layout.addWidget(editor_card)
@@ -211,16 +261,81 @@ class NetrogatPage(BasePage):
         self.text_edit.blockSignals(True)
         self.text_edit.setPlainText('\n'.join(domains))
         self.text_edit.blockSignals(False)
+        self._status_state["saved"] = False
         self._update_status()
         log(f"Загружено {len(domains)} строк из netrogat.user.txt", "INFO")
 
+    def _render_status_label(self):
+        summary = self._tr(
+            "page.netrogat.status.summary",
+            "📊 Доменов: {total} (база: {base}, пользовательские: {user})",
+            total=self._status_state["total"],
+            base=self._status_state["base"],
+            user=self._status_state["user"],
+        )
+        if self._status_state.get("saved"):
+            summary += self._tr("page.netrogat.status.saved_suffix", " • ✅ Сохранено")
+        self.status_label.setText(summary)
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._desc_label is not None:
+            self._desc_label.setText(
+                self._tr(
+                    "page.netrogat.description",
+                    "Редактируйте только netrogat.user.txt.\n"
+                    "Системная база хранится в netrogat.base.txt и автоматически объединяется в netrogat.txt.",
+                )
+            )
+        if self._add_card is not None:
+            self._add_card.set_title(self._tr("page.netrogat.section.add", "Добавить домен"))
+        if self._actions_card is not None:
+            self._actions_card.set_title(self._tr("page.netrogat.section.actions", "Действия"))
+        if self._editor_card is not None:
+            self._editor_card.set_title(self._tr("page.netrogat.section.editor", "netrogat.user.txt (редактор)"))
+
+        self.input.setPlaceholderText(
+            self._tr(
+                "page.netrogat.input.placeholder",
+                "Например: example.com, site.com или через пробел",
+            )
+        )
+        self.add_btn.setText(self._tr("page.netrogat.button.add", "Добавить"))
+        if self._add_defaults_btn is not None:
+            self._add_defaults_btn.setText(self._tr("page.netrogat.button.add_missing", "Добавить недостающие"))
+        if self._open_btn is not None:
+            self._open_btn.setText(self._tr("page.netrogat.button.open_file", "Открыть файл"))
+        if self._open_final_btn is not None:
+            self._open_final_btn.setText(self._tr("page.netrogat.button.open_final", "Открыть итоговый"))
+        if self._clear_btn is not None:
+            self._clear_btn.setText(self._tr("page.netrogat.button.clear_all", "Очистить всё"))
+
+        self.text_edit.setPlaceholderText(
+            self._tr(
+                "page.netrogat.editor.placeholder",
+                "Домены по одному на строку:\n"
+                "gosuslugi.ru\n"
+                "vk.com\n\n"
+                "Комментарии начинаются с #",
+            )
+        )
+        if self._hint_label is not None:
+            self._hint_label.setText(
+                self._tr("page.netrogat.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+            )
+
+        self._render_status_label()
+
     def _on_text_changed(self):
         self._save_timer.start(500)
+        self._status_state["saved"] = False
         self._update_status()
 
     def _auto_save(self):
         self._save()
-        self.status_label.setText(self.status_label.text() + " • ✅ Сохранено")
+        self._status_state["saved"] = True
+        self._render_status_label()
 
     def _save(self):
         text = self.text_edit.toPlainText()
@@ -284,9 +399,10 @@ class NetrogatPage(BasePage):
         user_count = len({d for d in valid_entries if d not in base_set})
         base_count = len(base_set)
         total_count = len(base_set.union(valid_entries))
-        self.status_label.setText(
-            f"📊 Доменов: {total_count} (база: {base_count}, пользовательские: {user_count})"
-        )
+        self._status_state["total"] = total_count
+        self._status_state["base"] = base_count
+        self._status_state["user"] = user_count
+        self._render_status_label()
 
     def _get_base_domains_set(self) -> set[str]:
         if self._base_domains_set_cache is not None:
@@ -307,7 +423,11 @@ class NetrogatPage(BasePage):
         parts = split_domains(raw)
         if not parts:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content="Не удалось распознать домен.", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.netrogat.error.parse_domain", "Не удалось распознать домен."),
+                    parent=self.window(),
+                )
             return
 
         # Проверяем дубликаты
@@ -332,15 +452,35 @@ class NetrogatPage(BasePage):
 
         if not added and not skipped and invalid:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content="Не удалось распознать домены.", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.netrogat.error.parse_domains", "Не удалось распознать домены."),
+                    parent=self.window(),
+                )
             return
 
         if not added and skipped:
             if InfoBar:
                 if len(skipped) == 1:
-                    InfoBar.info(title="Информация", content=f"Домен уже есть: {skipped[0]}", parent=self.window())
+                    InfoBar.info(
+                        title=self._tr("page.netrogat.infobar.info_title", "Информация"),
+                        content=self._tr(
+                            "page.netrogat.info.already_exists_one",
+                            "Домен уже есть: {domain}",
+                            domain=skipped[0],
+                        ),
+                        parent=self.window(),
+                    )
                 else:
-                    InfoBar.info(title="Информация", content=f"Все домены уже есть ({len(skipped)})", parent=self.window())
+                    InfoBar.info(
+                        title=self._tr("page.netrogat.infobar.info_title", "Информация"),
+                        content=self._tr(
+                            "page.netrogat.info.already_exists_many",
+                            "Все домены уже есть ({count})",
+                            count=len(skipped),
+                        ),
+                        parent=self.window(),
+                    )
             return
 
         # Добавляем в конец
@@ -355,8 +495,12 @@ class NetrogatPage(BasePage):
         if skipped:
             if InfoBar:
                 InfoBar.success(
-                    title="Добавлено",
-                    content=f"Добавлено доменов. Пропущено уже существующих: {len(skipped)}",
+                    title=self._tr("page.netrogat.infobar.added_title", "Добавлено"),
+                    content=self._tr(
+                        "page.netrogat.info.added_with_skipped",
+                        "Добавлено доменов. Пропущено уже существующих: {count}",
+                        count=len(skipped),
+                    ),
                     parent=self.window(),
                 )
 
@@ -365,7 +509,11 @@ class NetrogatPage(BasePage):
         if not text:
             return
         if MessageBox:
-            box = MessageBox("Очистить всё", "Удалить все домены?", self.window())
+            box = MessageBox(
+                self._tr("page.netrogat.dialog.clear.title", "Очистить всё"),
+                self._tr("page.netrogat.dialog.clear.body", "Удалить все домены?"),
+                self.window(),
+            )
             if box.exec():
                 self.text_edit.clear()
                 log("Очистили netrogat.user.txt", "INFO")
@@ -389,7 +537,11 @@ class NetrogatPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия netrogat.user.txt: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть: {e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.netrogat.error.open_file", "Не удалось открыть: {error}", error=e),
+                    parent=self.window(),
+                )
 
     def _open_final_file(self):
         try:
@@ -409,8 +561,12 @@ class NetrogatPage(BasePage):
             log(f"Ошибка открытия итогового netrogat.txt: {e}", "ERROR")
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content=f"Не удалось открыть итоговый файл: {e}",
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.netrogat.error.open_final_file",
+                        "Не удалось открыть итоговый файл: {error}",
+                        error=e,
+                    ),
                     parent=self.window(),
                 )
 
@@ -421,8 +577,11 @@ class NetrogatPage(BasePage):
         if added == 0:
             if InfoBar:
                 InfoBar.success(
-                    title="Готово",
-                    content="Системная база уже содержит все домены по умолчанию.",
+                    title=self._tr("page.netrogat.infobar.done_title", "Готово"),
+                    content=self._tr(
+                        "page.netrogat.info.defaults_already_present",
+                        "Системная база уже содержит все домены по умолчанию.",
+                    ),
                     parent=self.window(),
                 )
             return
@@ -430,7 +589,11 @@ class NetrogatPage(BasePage):
         self._update_status()
         if InfoBar:
             InfoBar.success(
-                title="Готово",
-                content=f"Восстановлено доменов в системной базе: {added}",
+                title=self._tr("page.netrogat.infobar.done_title", "Готово"),
+                content=self._tr(
+                    "page.netrogat.info.defaults_restored",
+                    "Восстановлено доменов в системной базе: {count}",
+                    count=added,
+                ),
                 parent=self.window(),
             )

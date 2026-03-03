@@ -6,6 +6,7 @@ from pathlib import Path
 from .proxy_domains import (
     get_all_services,
     get_dns_profiles,
+    get_service_domain_ip_rows,
     get_service_domain_ip_map,
     get_service_domain_names,
     get_service_domains,
@@ -982,7 +983,42 @@ class HostsManager:
         """
         log("🟡 apply_service_dns_selections начат", "DEBUG")
 
-        selected: dict[str, str] = {}
+        # key = normalized domain; value = (display_domain, [ip1, ip2, ...]).
+        selected_by_domain: dict[str, tuple[str, list[str]]] = {}
+        domain_order: list[str] = []
+
+        def merge_rows(rows: list[tuple[str, str]]) -> None:
+            per_service: dict[str, tuple[str, list[str], set[str]]] = {}
+            per_service_order: list[str] = []
+
+            for domain, ip in rows:
+                domain_s = (domain or "").strip()
+                ip_s = (ip or "").strip()
+                if not domain_s or not ip_s:
+                    continue
+
+                domain_key = domain_s.casefold()
+                ip_key = ip_s.casefold()
+                item = per_service.get(domain_key)
+                if item is None:
+                    per_service[domain_key] = (domain_s, [ip_s], {ip_key})
+                    per_service_order.append(domain_key)
+                    continue
+
+                display_domain, ips, seen_ips = item
+                if ip_key in seen_ips:
+                    continue
+                ips.append(ip_s)
+                seen_ips.add(ip_key)
+                per_service[domain_key] = (display_domain, ips, seen_ips)
+
+            for domain_key in per_service_order:
+                display_domain, ips, _seen_ips = per_service[domain_key]
+                if domain_key not in selected_by_domain:
+                    domain_order.append(domain_key)
+                # Keep old override semantics between services: later service replaces domain mapping.
+                selected_by_domain[domain_key] = (display_domain, ips)
+
         for service_name, profile_name in (service_dns or {}).items():
             if not isinstance(service_name, str):
                 continue
@@ -993,24 +1029,39 @@ class HostsManager:
             if not normalized or normalized in ("off", "откл", "откл.", "0", "false"):
                 continue
 
-            domain_map = get_service_domain_ip_map(service_name, profile_name.strip())
-            if not domain_map:
+            rows = get_service_domain_ip_rows(service_name, profile_name.strip())
+            if not rows:
                 # Профиль недоступен для сервиса (не хватает IP) — просто пропускаем.
                 continue
-            selected.update(domain_map)
+            merge_rows(rows)
 
         if static_enabled:
             default_profile = (get_dns_profiles() or [None])[0]
             for service_name in static_enabled:
-                domain_map = get_service_domain_ip_map(service_name, default_profile) if default_profile else {}
-                if domain_map:
-                    selected.update(domain_map)
+                rows = get_service_domain_ip_rows(service_name, default_profile) if default_profile else []
+                if rows:
+                    merge_rows(rows)
 
-        return self.apply_domain_ip_map(selected)
+        selected_rows: list[tuple[str, str]] = []
+        for domain_key in domain_order:
+            display_domain, ips = selected_by_domain.get(domain_key, ("", []))
+            for ip in ips:
+                selected_rows.append((display_domain, ip))
+
+        return self.apply_domain_ip_rows(selected_rows)
 
     def apply_domain_ip_map(self, domain_ip_map: dict[str, str]) -> bool:
-        """Применяет домены в hosts: удаляет все управляемые и добавляет указанные."""
-        log(f"🟡 apply_domain_ip_map начат: {len(domain_ip_map)} записей", "DEBUG")
+        """Применяет домены в hosts из словаря {domain: ip}."""
+        rows: list[tuple[str, str]] = []
+        for domain, ip in (domain_ip_map or {}).items():
+            if not isinstance(domain, str) or not isinstance(ip, str):
+                continue
+            rows.append((domain, ip))
+        return self.apply_domain_ip_rows(rows)
+
+    def apply_domain_ip_rows(self, domain_ip_rows: list[tuple[str, str]]) -> bool:
+        """Применяет домены в hosts: удаляет все управляемые и добавляет указанные строки (domain, ip)."""
+        log(f"🟡 apply_domain_ip_rows начат: {len(domain_ip_rows)} записей", "DEBUG")
 
         if not self.is_hosts_file_accessible():
             self.set_status("Файл hosts недоступен для изменения")
@@ -1043,8 +1094,23 @@ class HostsManager:
             while new_lines and new_lines[-1].strip() == "":
                 new_lines.pop()
 
+            desired_rows: list[tuple[str, str]] = []
+            seen_rows: set[tuple[str, str]] = set()
+            for row in (domain_ip_rows or []):
+                if not isinstance(row, (tuple, list)) or len(row) < 2:
+                    continue
+                domain = str(row[0]).strip()
+                ip = str(row[1]).strip()
+                if not domain or not ip:
+                    continue
+                row_key = (domain.casefold(), ip.casefold())
+                if row_key in seen_rows:
+                    continue
+                seen_rows.add(row_key)
+                desired_rows.append((domain, ip))
+
             # Ничего не добавляем — просто очищаем управляемые домены
-            if not domain_ip_map:
+            if not desired_rows:
                 if new_lines and not new_lines[-1].endswith("\n"):
                     new_lines[-1] += "\n"
                 if not safe_write_hosts_file("".join(new_lines)):
@@ -1057,23 +1123,23 @@ class HostsManager:
                 new_lines.append("\n")
             new_lines.append("\n")  # Разделитель
 
-            for domain, ip in domain_ip_map.items():
+            for domain, ip in desired_rows:
                 new_lines.append(f"{ip} {domain}\n")
 
             if not safe_write_hosts_file("".join(new_lines)):
                 self.set_status("Не удалось записать файл hosts")
                 return False
 
-            self.set_status(f"Файл hosts обновлён: добавлено {len(domain_ip_map)} записей")
-            log(f"✅ apply_domain_ip_map: removed={removed_count}, added={len(domain_ip_map)}", "DEBUG")
+            self.set_status(f"Файл hosts обновлён: добавлено {len(desired_rows)} записей")
+            log(f"✅ apply_domain_ip_rows: removed={removed_count}, added={len(desired_rows)}", "DEBUG")
             return True
 
         except PermissionError:
-            log("Ошибка прав доступа в apply_domain_ip_map", "ERROR")
+            log("Ошибка прав доступа в apply_domain_ip_rows", "ERROR")
             self._no_perm()
             return False
         except Exception as e:
-            log(f"Ошибка в apply_domain_ip_map: {e}", "ERROR")
+            log(f"Ошибка в apply_domain_ip_rows: {e}", "ERROR")
             return False
 
     # НОВЫЕ МЕТОДЫ ДЛЯ ADOBE

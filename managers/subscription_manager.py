@@ -38,9 +38,9 @@ class SubscriptionManager:
                     
                     self.progress.emit("Проверка статуса подписки...")
                     
-                    # ✅ ИСПОЛЬЗУЕМ НОВЫЙ API - check_device_activation()
-                    # Этот метод автоматически делает первую проверку
-                    activation_info = donate_checker.check_device_activation(use_cache=False)
+                    # На старте используем кэш/оффлайн статус без сети,
+                    # а сетевую проверку выполняем позже отложенным фоновым таском.
+                    activation_info = donate_checker.check_device_activation(use_cache=True)
                     
                     log(f"Статус подписки: {activation_info.get('status', 'unknown')}", "INFO")
                     
@@ -256,7 +256,7 @@ class SubscriptionManager:
                 return
             
             if not self.donate_checker:
-                log("donate_checker не инициализирован", "⚠ WARNING")
+                log("donate_checker еще не готов, пропускаем обновление UI подписки", "DEBUG")
                 return
             
             ui_info: Dict[str, Any]
@@ -298,9 +298,10 @@ class SubscriptionManager:
         """Асинхронно проверяет подписку без блокировки UI."""
         try:
             if not self.donate_checker:
-                log("donate_checker не инициализирован", "⚠ WARNING")
+                log_level = "DEBUG" if silent else "⚠ WARNING"
+                log("donate_checker еще не готов, пропускаем проверку подписки", log_level)
                 if not silent:
-                    self.app.set_status("Ошибка: менеджер подписок не готов")
+                    self.app.set_status("Подписка еще инициализируется")
                 return False
 
             # Не запускаем повторную проверку пока текущая не завершилась

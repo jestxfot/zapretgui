@@ -385,6 +385,30 @@ def set_display_mode(mode: str) -> bool:
     return reg(REGISTRY_PATH, _DISPLAY_MODE_NAME, mode)
 
 
+# ───────────── Язык интерфейса ─────────────
+_UI_LANGUAGE_NAME = "UILanguage"  # REG_SZ: "ru" | "en"
+
+
+def get_ui_language() -> str:
+    """Возвращает язык интерфейса ('ru' или 'en'). По умолчанию 'ru'."""
+    from config import REGISTRY_PATH
+
+    val = reg(REGISTRY_PATH, _UI_LANGUAGE_NAME)
+    if val in ("ru", "en"):
+        return val
+    return "ru"
+
+
+def set_ui_language(language: str) -> bool:
+    """Сохраняет язык интерфейса ('ru' или 'en')."""
+    from config import REGISTRY_PATH
+
+    value = (language or "ru").strip().lower()
+    if value not in ("ru", "en"):
+        value = "ru"
+    return reg(REGISTRY_PATH, _UI_LANGUAGE_NAME, value)
+
+
 # ───────────── Mica эффект ─────────────
 _MICA_ENABLED_NAME = "MicaEnabled"  # REG_DWORD (0 | 1)
 
@@ -402,6 +426,7 @@ def set_mica_enabled(value: bool) -> bool:
 
 # ───────────── Фоновый пресет ─────────────
 _BACKGROUND_PRESET_NAME = "BackgroundPreset"  # REG_SZ: "standard" | "amoled" | "rkn_chan"
+_RKN_BACKGROUND_NAME = "RknBackground"        # REG_SZ: relative path in ./themes
 
 def get_background_preset() -> str:
     """Возвращает фоновый пресет: 'standard', 'amoled' или 'rkn_chan'. По умолчанию 'standard'."""
@@ -417,6 +442,27 @@ def set_background_preset(preset: str) -> bool:
     if preset not in ("standard", "amoled", "rkn_chan"):
         preset = "standard"
     return reg(REGISTRY_PATH, _BACKGROUND_PRESET_NAME, preset)
+
+
+def get_rkn_background() -> str | None:
+    """Возвращает выбранный фон РКН Тян (относительный путь внутри ./themes) или None."""
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _RKN_BACKGROUND_NAME)
+    if isinstance(val, str):
+        cleaned = val.strip().replace("\\", "/")
+        return cleaned or None
+    return None
+
+
+def set_rkn_background(value: str | None) -> bool:
+    """Сохраняет выбранный фон РКН Тян (относительный путь внутри ./themes)."""
+    from config import REGISTRY_PATH
+    if value is None:
+        return reg(REGISTRY_PATH, _RKN_BACKGROUND_NAME, None)
+    cleaned = str(value).strip().replace("\\", "/")
+    if not cleaned:
+        return reg(REGISTRY_PATH, _RKN_BACKGROUND_NAME, None)
+    return reg(REGISTRY_PATH, _RKN_BACKGROUND_NAME, cleaned)
 
 
 # ───────────── Анимации интерфейса ─────────────

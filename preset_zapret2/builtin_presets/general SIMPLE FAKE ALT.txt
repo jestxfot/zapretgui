@@ -1,6 +1,6 @@
 # Preset: general SIMPLE FAKE ALT
 # ActivePreset: general SIMPLE FAKE ALT
-# BuiltinVersion: 1.5
+# BuiltinVersion: 2.10
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

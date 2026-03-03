@@ -29,6 +29,7 @@ import os
 from .base_page import BasePage, ScrollBlockingPlainTextEdit
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 import re
 
@@ -49,8 +50,26 @@ class CustomIpSetPage(BasePage):
             "Кастомные (мои) IP и подсети для ipset-all",
             "Здесь Вы можете редактировать пользовательский список IP/подсетей (ipset-all.user.txt). Пишите только IP/CIDR, изменения сохраняются автоматически.",
             parent,
+            title_key="page.custom_ipset.title",
+            subtitle_key="page.custom_ipset.subtitle",
         )
         self._base_ipset_set_cache: set[str] | None = None
+        self._desc_label = None
+        self._add_card = None
+        self._actions_card = None
+        self._editor_card = None
+        self._hint_label = None
+        self._status_state = {
+            "total": 0,
+            "base": 0,
+            "user": 0,
+            "saved": False,
+            "error_text": "",
+            "error_key": None,
+            "error_default": "",
+            "error_kwargs": {},
+        }
+        self._invalid_line_items: list[tuple[int, str]] = []
         self._build_ui()
 
         self._status_timer = QTimer()
@@ -58,6 +77,15 @@ class CustomIpSetPage(BasePage):
         self._status_timer.timeout.connect(self._update_status)
 
         QTimer.singleShot(100, self._load_entries)
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     @staticmethod
     def normalize_ip_entry(text: str) -> str | None:
@@ -104,27 +132,34 @@ class CustomIpSetPage(BasePage):
         tokens = get_theme_tokens()
         desc_card = SettingsCard()
         desc = CaptionLabel(
-            "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
-            "• Одиночный IP: 1.2.3.4\n"
-            "• Подсеть: 10.0.0.0/8\n"
-            "Диапазоны (a-b) не поддерживаются.\n"
-            "Системная база хранится в ipset-all.base.txt и объединяется автоматически в ipset-all.txt."
+            self._tr(
+                "page.custom_ipset.description",
+                "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
+                "• Одиночный IP: 1.2.3.4\n"
+                "• Подсеть: 10.0.0.0/8\n"
+                "Диапазоны (a-b) не поддерживаются.\n"
+                "Системная база хранится в ipset-all.base.txt и объединяется автоматически в ipset-all.txt.",
+            )
         )
+        self._desc_label = desc
         desc.setStyleSheet(f"color: {tokens.fg_muted};")
         desc.setWordWrap(True)
         desc_card.add_widget(desc)
         self.layout.addWidget(desc_card)
 
-        add_card = SettingsCard("Добавить IP/подсеть")
+        add_card = SettingsCard(self._tr("page.custom_ipset.section.add", "Добавить IP/подсеть"))
+        self._add_card = add_card
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
         self.input = LineEdit()
-        self.input.setPlaceholderText("Например: 1.2.3.4 или 10.0.0.0/8")
+        self.input.setPlaceholderText(
+            self._tr("page.custom_ipset.input.placeholder", "Например: 1.2.3.4 или 10.0.0.0/8")
+        )
         self.input.returnPressed.connect(self._add_entry)
         add_layout.addWidget(self.input, 1)
 
-        self.add_btn = ActionButton("Добавить", "fa5s.plus", accent=True)
+        self.add_btn = ActionButton(self._tr("page.custom_ipset.button.add", "Добавить"), "fa5s.plus", accent=True)
         self.add_btn.setFixedHeight(38)
         self.add_btn.clicked.connect(self._add_entry)
         add_layout.addWidget(self.add_btn)
@@ -132,16 +167,17 @@ class CustomIpSetPage(BasePage):
         add_card.add_layout(add_layout)
         self.layout.addWidget(add_card)
 
-        actions_card = SettingsCard("Действия")
+        actions_card = SettingsCard(self._tr("page.custom_ipset.section.actions", "Действия"))
+        self._actions_card = actions_card
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(8)
 
-        self.open_btn = ActionButton("Открыть файл", "fa5s.external-link-alt")
+        self.open_btn = ActionButton(self._tr("page.custom_ipset.button.open_file", "Открыть файл"), "fa5s.external-link-alt")
         self.open_btn.setFixedHeight(36)
         self.open_btn.clicked.connect(self._open_file)
         actions_layout.addWidget(self.open_btn)
 
-        self.clear_btn = ActionButton("Очистить всё", "fa5s.trash-alt")
+        self.clear_btn = ActionButton(self._tr("page.custom_ipset.button.clear_all", "Очистить всё"), "fa5s.trash-alt")
         self.clear_btn.setFixedHeight(36)
         self.clear_btn.clicked.connect(self._clear_all)
         actions_layout.addWidget(self.clear_btn)
@@ -151,16 +187,20 @@ class CustomIpSetPage(BasePage):
         self.layout.addWidget(actions_card)
 
         # Текстовый редактор (вместо списка)
-        editor_card = SettingsCard("ipset-all.user.txt (редактор)")
+        editor_card = SettingsCard(self._tr("page.custom_ipset.section.editor", "ipset-all.user.txt (редактор)"))
+        self._editor_card = editor_card
         editor_layout = QVBoxLayout()
         editor_layout.setSpacing(8)
 
         self.text_edit = ScrollBlockingPlainTextEdit()
         self.text_edit.setPlaceholderText(
-            "IP/подсети по одному на строку:\n"
-            "192.168.0.1\n"
-            "10.0.0.0/8\n\n"
-            "Комментарии начинаются с #"
+            self._tr(
+                "page.custom_ipset.editor.placeholder",
+                "IP/подсети по одному на строку:\n"
+                "192.168.0.1\n"
+                "10.0.0.0/8\n\n"
+                "Комментарии начинаются с #",
+            )
         )
         base_editor_style = f"""
             QPlainTextEdit {{
@@ -187,9 +227,11 @@ class CustomIpSetPage(BasePage):
 
         editor_layout.addWidget(self.text_edit)
 
-        hint = CaptionLabel("💡 Изменения сохраняются автоматически через 500мс")
-        hint.setStyleSheet(f"color: {tokens.fg_faint};")
-        editor_layout.addWidget(hint)
+        self._hint_label = CaptionLabel(
+            self._tr("page.custom_ipset.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+        )
+        self._hint_label.setStyleSheet(f"color: {tokens.fg_faint};")
+        editor_layout.addWidget(self._hint_label)
 
         # Метка ошибок валидации
         self.error_label = CaptionLabel()
@@ -249,20 +291,119 @@ class CustomIpSetPage(BasePage):
             self.text_edit.blockSignals(True)
             self.text_edit.setPlainText('\n'.join(entries))
             self.text_edit.blockSignals(False)
-            
+            self._status_state["saved"] = False
             self._update_status()
             log(f"Загружено {len(entries)} строк из ipset-all.user.txt", "INFO")
         except Exception as e:
             log(f"Ошибка загрузки ipset-all.user.txt: {e}", "ERROR")
-            self.status_label.setText(f"❌ Ошибка: {e}")
+            self._status_state["error_key"] = "page.custom_ipset.status.error_load"
+            self._status_state["error_default"] = "❌ Ошибка загрузки: {error}"
+            self._status_state["error_kwargs"] = {"error": e}
+            self._status_state["error_text"] = ""
+            self._render_status_label()
+
+    def _render_status_label(self) -> None:
+        if self._status_state.get("error_key"):
+            self.status_label.setText(
+                self._tr(
+                    self._status_state["error_key"],
+                    self._status_state.get("error_default") or "",
+                    **(self._status_state.get("error_kwargs") or {}),
+                )
+            )
+            return
+        if self._status_state.get("error_text"):
+            self.status_label.setText(self._status_state["error_text"])
+            return
+
+        summary = self._tr(
+            "page.custom_ipset.status.summary",
+            "📊 Записей: {total} (база: {base}, пользовательские: {user})",
+            total=self._status_state["total"],
+            base=self._status_state["base"],
+            user=self._status_state["user"],
+        )
+        if self._status_state.get("saved"):
+            summary += self._tr("page.custom_ipset.status.saved_suffix", " • ✅ Сохранено")
+        self.status_label.setText(summary)
+
+    def _render_validation_error(self) -> None:
+        if not self._invalid_line_items:
+            self.error_label.clear()
+            self.error_label.hide()
+            return
+
+        lines = [
+            self._tr("page.custom_ipset.validation.line", "Строка {line}: {value}", line=line, value=value)
+            for line, value in self._invalid_line_items[:5]
+        ]
+        text = self._tr("page.custom_ipset.validation.invalid_prefix", "❌ Неверный формат:\n") + "\n".join(lines)
+        if len(self._invalid_line_items) > 5:
+            text += self._tr(
+                "page.custom_ipset.validation.more_suffix",
+                "\n... и ещё {count}",
+                count=len(self._invalid_line_items) - 5,
+            )
+        self.error_label.setText(text)
+        self.error_label.show()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._desc_label is not None:
+            self._desc_label.setText(
+                self._tr(
+                    "page.custom_ipset.description",
+                    "Добавляйте свои IP/подсети в ipset-all.user.txt.\n"
+                    "• Одиночный IP: 1.2.3.4\n"
+                    "• Подсеть: 10.0.0.0/8\n"
+                    "Диапазоны (a-b) не поддерживаются.\n"
+                    "Системная база хранится в ipset-all.base.txt и объединяется автоматически в ipset-all.txt.",
+                )
+            )
+        if self._add_card is not None:
+            self._add_card.set_title(self._tr("page.custom_ipset.section.add", "Добавить IP/подсеть"))
+        if self._actions_card is not None:
+            self._actions_card.set_title(self._tr("page.custom_ipset.section.actions", "Действия"))
+        if self._editor_card is not None:
+            self._editor_card.set_title(self._tr("page.custom_ipset.section.editor", "ipset-all.user.txt (редактор)"))
+
+        self.input.setPlaceholderText(
+            self._tr("page.custom_ipset.input.placeholder", "Например: 1.2.3.4 или 10.0.0.0/8")
+        )
+        self.add_btn.setText(self._tr("page.custom_ipset.button.add", "Добавить"))
+        self.open_btn.setText(self._tr("page.custom_ipset.button.open_file", "Открыть файл"))
+        self.clear_btn.setText(self._tr("page.custom_ipset.button.clear_all", "Очистить всё"))
+        self.text_edit.setPlaceholderText(
+            self._tr(
+                "page.custom_ipset.editor.placeholder",
+                "IP/подсети по одному на строку:\n"
+                "192.168.0.1\n"
+                "10.0.0.0/8\n\n"
+                "Комментарии начинаются с #",
+            )
+        )
+        if self._hint_label is not None:
+            self._hint_label.setText(
+                self._tr("page.custom_ipset.hint.autosave", "💡 Изменения сохраняются автоматически через 500мс")
+            )
+
+        self._render_validation_error()
+        self._render_status_label()
 
     def _on_text_changed(self):
         self._save_timer.start(500)
+        self._status_state["saved"] = False
+        self._status_state["error_key"] = None
+        self._status_state["error_default"] = ""
+        self._status_state["error_kwargs"] = {}
+        self._status_state["error_text"] = ""
         self._status_timer.start(120)
 
     def _auto_save(self):
         self._save_entries()
-        self.status_label.setText(self.status_label.text() + " • ✅ Сохранено")
+        self._status_state["saved"] = True
+        self._render_status_label()
 
     def _save_entries(self):
         """Сохраняет пользовательский список в ipset-all.user.txt."""
@@ -343,7 +484,7 @@ class CustomIpSetPage(BasePage):
         total_count = len(base_set.union(valid_entries))
         
         # Валидируем строки
-        invalid_lines = []
+        invalid_lines: list[tuple[int, str]] = []
         for i, line in enumerate(text.split('\n'), 1):
             line = line.strip()
             if not line or line.startswith('#'):
@@ -352,26 +493,30 @@ class CustomIpSetPage(BasePage):
             # Разделяем по пробелам
             for item in split_ip_entries(line):
                 if not self.normalize_ip_entry(item):
-                    invalid_lines.append(f"Строка {i}: {item}")
-        
+                    invalid_lines.append((i, item))
+
         # Обновляем UI
         if invalid_lines:
             if not self._has_validation_error:
                 self.text_edit.setStyleSheet(self._error_style)
                 self._has_validation_error = True
-            self.error_label.setText("❌ Неверный формат:\n" + "\n".join(invalid_lines[:5]))
-            if len(invalid_lines) > 5:
-                self.error_label.setText(self.error_label.text() + f"\n... и ещё {len(invalid_lines) - 5}")
-            self.error_label.show()
+            self._invalid_line_items = invalid_lines
+            self._render_validation_error()
         else:
             if self._has_validation_error:
                 self.text_edit.setStyleSheet(self._normal_style)
                 self._has_validation_error = False
-            self.error_label.hide()
-        
-        self.status_label.setText(
-            f"📊 Записей: {total_count} (база: {base_count}, пользовательские: {user_count})"
-        )
+            self._invalid_line_items = []
+            self._render_validation_error()
+
+        self._status_state["total"] = total_count
+        self._status_state["base"] = base_count
+        self._status_state["user"] = user_count
+        self._status_state["error_key"] = None
+        self._status_state["error_default"] = ""
+        self._status_state["error_kwargs"] = {}
+        self._status_state["error_text"] = ""
+        self._render_status_label()
 
     def _get_base_ips_set(self) -> set[str]:
         if self._base_ipset_set_cache is not None:
@@ -394,8 +539,11 @@ class CustomIpSetPage(BasePage):
         if not norm:
             if InfoBar:
                 InfoBar.warning(
-                    title="Ошибка",
-                    content="Не удалось распознать IP или подсеть.\nПримеры:\n- 1.2.3.4\n- 10.0.0.0/8\nДиапазоны a-b не поддерживаются.",
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.custom_ipset.error.parse_entry",
+                        "Не удалось распознать IP или подсеть.\nПримеры:\n- 1.2.3.4\n- 10.0.0.0/8\nДиапазоны a-b не поддерживаются.",
+                    ),
                     parent=self.window(),
                 )
             return
@@ -406,7 +554,11 @@ class CustomIpSetPage(BasePage):
 
         if norm.lower() in current_entries:
             if InfoBar:
-                InfoBar.info(title="Информация", content=f"Запись уже есть:\n{norm}", parent=self.window())
+                InfoBar.info(
+                    title=self._tr("page.custom_ipset.infobar.info_title", "Информация"),
+                    content=self._tr("page.custom_ipset.info.entry_exists", "Запись уже есть:\n{entry}", entry=norm),
+                    parent=self.window(),
+                )
             return
 
         # Добавляем в конец
@@ -422,7 +574,11 @@ class CustomIpSetPage(BasePage):
         if not text:
             return
         if MessageBox:
-            box = MessageBox("Очистить всё", "Удалить все записи?", self.window())
+            box = MessageBox(
+                self._tr("page.custom_ipset.dialog.clear.title", "Очистить всё"),
+                self._tr("page.custom_ipset.dialog.clear.body", "Удалить все записи?"),
+                self.window(),
+            )
             if box.exec():
                 self.text_edit.clear()
                 log("Пользовательские записи ipset-all.user.txt удалены", "INFO")
@@ -449,4 +605,8 @@ class CustomIpSetPage(BasePage):
         except Exception as e:
             log(f"Ошибка открытия ipset-all.user.txt: {e}", "ERROR")
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr("page.custom_ipset.error.open_file", "Не удалось открыть:\n{error}", error=e),
+                    parent=self.window(),
+                )

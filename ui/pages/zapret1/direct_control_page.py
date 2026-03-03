@@ -11,6 +11,7 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, PrimaryActionButton, PulsingDot, SettingsCard, SettingsRow, set_tooltip
+from ui.text_catalog import tr as tr_catalog
 
 try:
     from qfluentwidgets import (
@@ -52,6 +53,8 @@ class Zapret1DirectControlPage(BasePage):
             "Настройка и запуск Zapret 1 (winws.exe). Выберите стратегии для категорий "
             "или переключитесь на другой пресет.",
             parent,
+            title_key="page.z1_control.title",
+            subtitle_key="page.z1_control.subtitle",
         )
         self._build_ui()
 
@@ -68,7 +71,7 @@ class Zapret1DirectControlPage(BasePage):
 
     def _build_ui(self):
         # ── Статус работы ──────────────────────────────────────────────────
-        self.add_section_title("Статус работы")
+        self.add_section_title(text_key="page.z1_control.section.status")
 
         status_card = SettingsCard()
         status_layout = QHBoxLayout()
@@ -82,12 +85,20 @@ class Zapret1DirectControlPage(BasePage):
         status_text.setSpacing(2)
 
         if _HAS_FLUENT:
-            self.status_title = StrongBodyLabel("Проверка...")
-            self.status_desc = CaptionLabel("Определение состояния процесса")
+            self.status_title = StrongBodyLabel(
+                tr_catalog("page.z1_control.status.checking", language=self._ui_language, default="Проверка...")
+            )
+            self.status_desc = CaptionLabel(
+                tr_catalog("page.z1_control.status.detecting", language=self._ui_language, default="Определение состояния процесса")
+            )
         else:
             from PyQt6.QtWidgets import QLabel
-            self.status_title = QLabel("Проверка...")
-            self.status_desc = QLabel("Определение состояния процесса")
+            self.status_title = QLabel(
+                tr_catalog("page.z1_control.status.checking", language=self._ui_language, default="Проверка...")
+            )
+            self.status_desc = QLabel(
+                tr_catalog("page.z1_control.status.detecting", language=self._ui_language, default="Определение состояния процесса")
+            )
 
         status_text.addWidget(self.status_title)
         status_text.addWidget(self.status_desc)
@@ -98,7 +109,7 @@ class Zapret1DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # ── Управление ─────────────────────────────────────────────────────
-        self.add_section_title("Управление Zapret 1")
+        self.add_section_title(text_key="page.z1_control.section.management")
 
         control_card = SettingsCard()
 
@@ -117,14 +128,24 @@ class Zapret1DirectControlPage(BasePage):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(12)
 
-        self.start_btn = BigActionButton("Запустить Zapret", "fa5s.play", accent=True)
+        self.start_btn = BigActionButton(
+            tr_catalog("page.z1_control.button.start", language=self._ui_language, default="Запустить Zapret"),
+            "fa5s.play",
+            accent=True,
+        )
         buttons_layout.addWidget(self.start_btn)
 
-        self.stop_winws_btn = StopButton("Остановить winws.exe", "fa5s.stop")
+        self.stop_winws_btn = StopButton(
+            tr_catalog("page.z1_control.button.stop_winws", language=self._ui_language, default="Остановить winws.exe"),
+            "fa5s.stop",
+        )
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
 
-        self.stop_and_exit_btn = StopButton("Остановить и закрыть", "fa5s.power-off")
+        self.stop_and_exit_btn = StopButton(
+            tr_catalog("page.z1_control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть"),
+            "fa5s.power-off",
+        )
         self.stop_and_exit_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_and_exit_btn)
 
@@ -135,7 +156,7 @@ class Zapret1DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # ── Пресет / Стратегии ──────────────────────────────────────────────
-        self.add_section_title("Пресеты и стратегии")
+        self.add_section_title(text_key="page.z1_control.section.presets")
 
         # Card A — Активный пресет
         if _HAS_FLUENT:
@@ -156,22 +177,34 @@ class Zapret1DirectControlPage(BasePage):
         preset_col = QVBoxLayout()
         preset_col.setSpacing(2)
         if _HAS_FLUENT:
-            self.preset_name_label = StrongBodyLabel("Не выбран")
+            self.preset_name_label = StrongBodyLabel(
+                tr_catalog("page.z1_control.preset.not_selected", language=self._ui_language, default="Не выбран")
+            )
             preset_col.addWidget(self.preset_name_label)
-            preset_col.addWidget(CaptionLabel("Текущий активный пресет"))
+            self.preset_caption_label = CaptionLabel(
+                tr_catalog("page.z1_control.preset.current", language=self._ui_language, default="Текущий активный пресет")
+            )
+            preset_col.addWidget(self.preset_caption_label)
         else:
-            self.preset_name_label = QLabel("Не выбран")
+            self.preset_name_label = QLabel(
+                tr_catalog("page.z1_control.preset.not_selected", language=self._ui_language, default="Не выбран")
+            )
+            self.preset_caption_label = None
             preset_col.addWidget(self.preset_name_label)
         preset_row.addLayout(preset_col, 1)
 
         if _HAS_FLUENT and PushButton is not None:
             presets_btn = PushButton()
-            presets_btn.setText("Мои пресеты")
+            presets_btn.setText(tr_catalog("page.z1_control.button.my_presets", language=self._ui_language, default="Мои пресеты"))
             presets_btn.setIcon(FluentIcon.FOLDER)
             presets_btn.clicked.connect(self.navigate_to_presets.emit)
         else:
-            presets_btn = ActionButton("Мои пресеты", "fa5s.folder")
+            presets_btn = ActionButton(
+                tr_catalog("page.z1_control.button.my_presets", language=self._ui_language, default="Мои пресеты"),
+                "fa5s.folder",
+            )
             presets_btn.clicked.connect(self.navigate_to_presets.emit)
+        self.presets_btn = presets_btn
         preset_row.addWidget(presets_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.add_widget(preset_card)
 
@@ -195,27 +228,41 @@ class Zapret1DirectControlPage(BasePage):
         strat_col = QVBoxLayout()
         strat_col.setSpacing(2)
         if _HAS_FLUENT:
-            strat_col.addWidget(StrongBodyLabel("Стратегии по категориям"))
-            strat_col.addWidget(CaptionLabel("Выбор стратегии для YouTube, Discord и др."))
+            self.strategies_title_label = StrongBodyLabel(
+                tr_catalog("page.z1_control.strategies.title", language=self._ui_language, default="Стратегии по категориям")
+            )
+            self.strategies_desc_label = CaptionLabel(
+                tr_catalog("page.z1_control.strategies.desc", language=self._ui_language, default="Выбор стратегии для YouTube, Discord и др.")
+            )
+            strat_col.addWidget(self.strategies_title_label)
+            strat_col.addWidget(self.strategies_desc_label)
         else:
-            strat_col.addWidget(QLabel("Стратегии по категориям"))
+            self.strategies_title_label = QLabel(
+                tr_catalog("page.z1_control.strategies.title", language=self._ui_language, default="Стратегии по категориям")
+            )
+            self.strategies_desc_label = None
+            strat_col.addWidget(self.strategies_title_label)
         strat_row.addLayout(strat_col, 1)
 
         if _HAS_FLUENT and PushButton is not None:
             open_strat_btn = PushButton()
-            open_strat_btn.setText("Открыть")
+            open_strat_btn.setText(tr_catalog("page.z1_control.button.open", language=self._ui_language, default="Открыть"))
             open_strat_btn.setIcon(FluentIcon.PLAY)
             open_strat_btn.clicked.connect(self.navigate_to_strategies.emit)
         else:
-            open_strat_btn = ActionButton("Открыть", "fa5s.play")
+            open_strat_btn = ActionButton(
+                tr_catalog("page.z1_control.button.open", language=self._ui_language, default="Открыть"),
+                "fa5s.play",
+            )
             open_strat_btn.clicked.connect(self.navigate_to_strategies.emit)
+        self.open_strat_btn = open_strat_btn
         strat_row.addWidget(open_strat_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.add_widget(strat_card)
 
         self.add_spacing(16)
 
         # ── Настройки программы ─────────────────────────────────────────────
-        self.add_section_title("Настройки программы")
+        self.add_section_title(text_key="page.z1_control.section.program_settings")
         program_settings_card = SettingsCard()
 
         try:
@@ -225,10 +272,13 @@ class Zapret1DirectControlPage(BasePage):
 
         auto_row = SettingsRow(
             "fa5s.bolt",
-            "Автозагрузка DPI",
-            "Запускать Zapret автоматически при старте программы",
+            tr_catalog("page.z1_control.setting.autostart.title", language=self._ui_language, default="Автозагрузка DPI"),
+            tr_catalog("page.z1_control.setting.autostart.desc", language=self._ui_language, default="Запускать Zapret автоматически при старте программы"),
         )
-        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.auto_row = auto_row
+        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.auto_dpi_toggle.setProperty("noDrag", True)
         if hasattr(self.auto_dpi_toggle, "toggled"):
             self.auto_dpi_toggle.toggled.connect(self._on_auto_dpi_toggled)
@@ -290,7 +340,9 @@ class Zapret1DirectControlPage(BasePage):
                 self.preset_name_label.setText(active_name)
                 set_tooltip(self.preset_name_label, active_name)
             else:
-                self.preset_name_label.setText("Не выбран")
+                self.preset_name_label.setText(
+                    tr_catalog("page.z1_control.preset.not_selected", language=self._ui_language, default="Не выбран")
+                )
         except Exception:
             pass
 
@@ -309,16 +361,24 @@ class Zapret1DirectControlPage(BasePage):
 
     def update_status(self, is_running: bool):
         if is_running:
-            self.status_title.setText("Zapret 1 работает")
-            self.status_desc.setText("Обход блокировок активен")
+            self.status_title.setText(
+                tr_catalog("page.z1_control.status.running", language=self._ui_language, default="Zapret 1 работает")
+            )
+            self.status_desc.setText(
+                tr_catalog("page.z1_control.status.bypass_active", language=self._ui_language, default="Обход блокировок активен")
+            )
             self.status_dot.set_color("#6ccb5f")
             self.status_dot.start_pulse()
             self.start_btn.setVisible(False)
             self.stop_winws_btn.setVisible(True)
             self.stop_and_exit_btn.setVisible(True)
         else:
-            self.status_title.setText("Zapret 1 остановлен")
-            self.status_desc.setText("Нажмите «Запустить» для активации")
+            self.status_title.setText(
+                tr_catalog("page.z1_control.status.stopped", language=self._ui_language, default="Zapret 1 остановлен")
+            )
+            self.status_desc.setText(
+                tr_catalog("page.z1_control.status.press_start", language=self._ui_language, default="Нажмите «Запустить» для активации")
+            )
             self.status_dot.set_color("#ff6b6b")
             self.status_dot.stop_pulse()
             self.start_btn.setVisible(True)
@@ -330,3 +390,38 @@ class Zapret1DirectControlPage(BasePage):
 
     def update_current_strategy(self, name: str):
         self._refresh_preset_name()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.start_btn.setText(tr_catalog("page.z1_control.button.start", language=self._ui_language, default="Запустить Zapret"))
+        self.stop_winws_btn.setText(
+            tr_catalog("page.z1_control.button.stop_winws", language=self._ui_language, default="Остановить winws.exe")
+        )
+        self.stop_and_exit_btn.setText(
+            tr_catalog("page.z1_control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть")
+        )
+        self.presets_btn.setText(tr_catalog("page.z1_control.button.my_presets", language=self._ui_language, default="Мои пресеты"))
+        self.open_strat_btn.setText(tr_catalog("page.z1_control.button.open", language=self._ui_language, default="Открыть"))
+
+        if self.preset_caption_label is not None:
+            self.preset_caption_label.setText(
+                tr_catalog("page.z1_control.preset.current", language=self._ui_language, default="Текущий активный пресет")
+            )
+        self.strategies_title_label.setText(
+            tr_catalog("page.z1_control.strategies.title", language=self._ui_language, default="Стратегии по категориям")
+        )
+        if self.strategies_desc_label is not None:
+            self.strategies_desc_label.setText(
+                tr_catalog("page.z1_control.strategies.desc", language=self._ui_language, default="Выбор стратегии для YouTube, Discord и др.")
+            )
+
+        self.auto_row.set_title(
+            tr_catalog("page.z1_control.setting.autostart.title", language=self._ui_language, default="Автозагрузка DPI")
+        )
+        self.auto_row.set_description(
+            tr_catalog("page.z1_control.setting.autostart.desc", language=self._ui_language, default="Запускать Zapret автоматически при старте программы")
+        )
+
+        self._refresh_preset_name()
+        self.update_status(bool(self.stop_winws_btn.isVisible()))

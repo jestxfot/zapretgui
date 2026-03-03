@@ -28,6 +28,7 @@ from log import log
 from ui.compat_widgets import ActionButton, SettingsCard, SettingsRow
 from ui.theme_semantic import get_semantic_palette
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 
 
 class SupportPage(BasePage):
@@ -37,7 +38,13 @@ class SupportPage(BasePage):
     _POLL_TIMEOUT_S = 120
 
     def __init__(self, parent=None):
-        super().__init__("Поддержка", "ZapretHub и каналы связи", parent)
+        super().__init__(
+            "Поддержка",
+            "ZapretHub и каналы связи",
+            parent,
+            title_key="page.support.title",
+            subtitle_key="page.support.subtitle",
+        )
 
         self._zaphub_exe: str | None = None
         self._zaphub_installing: bool = False
@@ -49,11 +56,21 @@ class SupportPage(BasePage):
         self._zaphub_action_btn: ActionButton | None = None
         self._hub_icon_label: QLabel | None = None
 
+        self._hub_title_label: QLabel | None = None
+        self._hub_desc_label: QLabel | None = None
+        self._tg_row: SettingsRow | None = None
+        self._tg_btn: ActionButton | None = None
+        self._dc_row: SettingsRow | None = None
+        self._dc_btn: ActionButton | None = None
+
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
         qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
+
+    def _tr(self, key: str, default: str) -> str:
+        return tr_catalog(key, language=self._ui_language, default=default)
 
     # ---------------------------------------------------------------------
     # UI
@@ -61,7 +78,7 @@ class SupportPage(BasePage):
     def _build_ui(self) -> None:
         tokens = get_theme_tokens()
         # ZapretHub block
-        self.add_section_title("ZapretHub")
+        self.add_section_title(text_key="page.support.section.zaprethub")
 
         hub_card = SettingsCard()
 
@@ -77,22 +94,30 @@ class SupportPage(BasePage):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
 
-        title = StrongBodyLabel("ZapretHub")
-        title.setProperty("tone", "primary")
-        text_layout.addWidget(title)
+        self._hub_title_label = StrongBodyLabel(self._tr("page.support.zaphub.title", "ZapretHub"))
+        self._hub_title_label.setProperty("tone", "primary")
+        text_layout.addWidget(self._hub_title_label)
 
-        desc = CaptionLabel("Центр сообщества Zapret: стратегии, пресеты и форум.")
-        desc.setWordWrap(True)
-        desc.setProperty("tone", "muted")
-        text_layout.addWidget(desc)
+        self._hub_desc_label = CaptionLabel(
+            self._tr("page.support.zaphub.description", "Центр сообщества Zapret: стратегии, пресеты и форум.")
+        )
+        self._hub_desc_label.setWordWrap(True)
+        self._hub_desc_label.setProperty("tone", "muted")
+        text_layout.addWidget(self._hub_desc_label)
 
-        self._zaphub_status_label = CaptionLabel("Статус: проверяю…")
+        self._zaphub_status_label = CaptionLabel(
+            self._tr("page.support.zaphub.status.checking", "Статус: проверяю…")
+        )
         self._zaphub_status_label.setStyleSheet(f"color: {tokens.fg_muted};")
         text_layout.addWidget(self._zaphub_status_label)
 
         hub_layout.addLayout(text_layout, 1)
 
-        self._zaphub_action_btn = ActionButton("…", "fa5s.download", accent=True)
+        self._zaphub_action_btn = ActionButton(
+            self._tr("page.support.zaphub.action.placeholder", "…"),
+            "fa5s.download",
+            accent=True,
+        )
         self._zaphub_action_btn.setProperty("noDrag", True)
         self._zaphub_action_btn.setFixedHeight(36)
         self._zaphub_action_btn.clicked.connect(self._on_zaphub_action_clicked)
@@ -104,32 +129,40 @@ class SupportPage(BasePage):
         self.add_spacing(16)
 
         # Support channels
-        self.add_section_title("Каналы поддержки")
+        self.add_section_title(text_key="page.support.section.channels")
         channels_card = SettingsCard()
 
         # Telegram
-        tg_row = SettingsRow(
+        self._tg_row = SettingsRow(
             "fa5b.telegram",
-            "Telegram поддержка",
-            "Помощь и вопросы по использованию",
+            self._tr("page.support.channel.telegram.title", "Telegram поддержка"),
+            self._tr("page.support.channel.telegram.desc", "Помощь и вопросы по использованию"),
         )
-        tg_btn = ActionButton("Открыть", "fa5s.external-link-alt", accent=False)
-        tg_btn.setProperty("noDrag", True)
-        tg_btn.clicked.connect(self._open_telegram_support)
-        tg_row.set_control(tg_btn)
-        channels_card.add_widget(tg_row)
+        self._tg_btn = ActionButton(
+            self._tr("page.support.channel.open", "Открыть"),
+            "fa5s.external-link-alt",
+            accent=False,
+        )
+        self._tg_btn.setProperty("noDrag", True)
+        self._tg_btn.clicked.connect(self._open_telegram_support)
+        self._tg_row.set_control(self._tg_btn)
+        channels_card.add_widget(self._tg_row)
 
         # Discord
-        dc_row = SettingsRow(
+        self._dc_row = SettingsRow(
             "fa5b.discord",
-            "Discord сервер",
-            "Сообщество и живое общение",
+            self._tr("page.support.channel.discord.title", "Discord сервер"),
+            self._tr("page.support.channel.discord.desc", "Сообщество и живое общение"),
         )
-        dc_btn = ActionButton("Открыть", "fa5s.external-link-alt", accent=False)
-        dc_btn.setProperty("noDrag", True)
-        dc_btn.clicked.connect(self._open_discord)
-        dc_row.set_control(dc_btn)
-        channels_card.add_widget(dc_row)
+        self._dc_btn = ActionButton(
+            self._tr("page.support.channel.open", "Открыть"),
+            "fa5s.external-link-alt",
+            accent=False,
+        )
+        self._dc_btn.setProperty("noDrag", True)
+        self._dc_btn.clicked.connect(self._open_discord)
+        self._dc_row.set_control(self._dc_btn)
+        channels_card.add_widget(self._dc_row)
 
         self.add_widget(channels_card)
 
@@ -150,6 +183,32 @@ class SupportPage(BasePage):
             self._refresh_zaphub_state()
         except Exception:
             pass
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._hub_title_label is not None:
+            self._hub_title_label.setText(self._tr("page.support.zaphub.title", "ZapretHub"))
+        if self._hub_desc_label is not None:
+            self._hub_desc_label.setText(
+                self._tr("page.support.zaphub.description", "Центр сообщества Zapret: стратегии, пресеты и форум.")
+            )
+
+        if self._tg_row is not None:
+            self._tg_row.set_title(self._tr("page.support.channel.telegram.title", "Telegram поддержка"))
+            self._tg_row.set_description(
+                self._tr("page.support.channel.telegram.desc", "Помощь и вопросы по использованию")
+            )
+        if self._tg_btn is not None:
+            self._tg_btn.setText(self._tr("page.support.channel.open", "Открыть"))
+
+        if self._dc_row is not None:
+            self._dc_row.set_title(self._tr("page.support.channel.discord.title", "Discord сервер"))
+            self._dc_row.set_description(self._tr("page.support.channel.discord.desc", "Сообщество и живое общение"))
+        if self._dc_btn is not None:
+            self._dc_btn.setText(self._tr("page.support.channel.open", "Открыть"))
+
+        self._refresh_zaphub_state()
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
@@ -185,41 +244,51 @@ class SupportPage(BasePage):
 
         if exe and os.path.exists(exe):
             self._zaphub_installing = False
-            status_label.setText("Статус: установлен")
+            status_label.setText(self._tr("page.support.zaphub.status.installed", "Статус: установлен"))
             semantic = get_semantic_palette()
             status_label.setStyleSheet(f"color: {semantic.success};")
-            action_btn.setText("Открыть")
+            action_btn.setText(self._tr("page.support.zaphub.action.open", "Открыть"))
             action_btn.setIcon(qta.icon("fa5s.play", color=get_theme_tokens().fg))
             action_btn.setEnabled(True)
         elif self._zaphub_installing:
             # Do not override the in-progress UI state.
             action_btn.setEnabled(False)
         else:
-            status_label.setText("Статус: не установлен")
+            status_label.setText(self._tr("page.support.zaphub.status.not_installed", "Статус: не установлен"))
             tokens = get_theme_tokens()
             status_label.setStyleSheet(f"color: {tokens.fg_muted};")
-            action_btn.setText("Установить")
+            action_btn.setText(self._tr("page.support.zaphub.action.install", "Установить"))
             action_btn.setIcon(qta.icon("fa5s.download", color=tokens.fg))
             action_btn.setEnabled(True)
 
     def _open_zaphub(self) -> None:
         try:
             if not self._zaphub_exe:
-                raise FileNotFoundError("ZapretHub не найден")
+                raise FileNotFoundError(self._tr("page.support.zaphub.error.not_found", "ZapretHub не найден"))
 
             os.startfile(self._zaphub_exe)  # noqa: S606 - Windows only
             log(f"Открыт ZapretHub: {self._zaphub_exe}", "INFO")
         except Exception as e:
             if InfoBar:
-                InfoBar.warning(title="ZapretHub", content=f"Не удалось открыть ZapretHub:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.support.zaphub.title", "ZapretHub"),
+                    content=self._tr(
+                        "page.support.zaphub.error.open_failed",
+                        "Не удалось открыть ZapretHub:\n{error}",
+                    ).format(error=e),
+                    parent=self.window(),
+                )
 
     def _install_zaphub(self) -> None:
         installer = self._find_zaphub_installer()
         if not installer:
             if InfoBar:
                 InfoBar.warning(
-                    title="ZapretHub",
-                    content="Установщик ZapretHub не найден.\n\nПереустановите Zapret2 или установите ZapretHub через основной установщик.",
+                    title=self._tr("page.support.zaphub.title", "ZapretHub"),
+                    content=self._tr(
+                        "page.support.zaphub.error.installer_not_found",
+                        "Установщик ZapretHub не найден.\n\nПереустановите Zapret2 или установите ZapretHub через основной установщик.",
+                    ),
                     parent=self.window(),
                 )
             return
@@ -228,10 +297,12 @@ class SupportPage(BasePage):
         status_label = self._zaphub_status_label
         if action_btn is not None:
             action_btn.setEnabled(False)
-            action_btn.setText("Установка…")
+            action_btn.setText(self._tr("page.support.zaphub.action.installing", "Установка…"))
             action_btn.setIcon(qta.icon("fa5s.spinner", color=get_theme_tokens().fg))
         if status_label is not None:
-            status_label.setText("Статус: установка запущена…")
+            status_label.setText(
+                self._tr("page.support.zaphub.status.install_started", "Статус: установка запущена…")
+            )
             semantic = get_semantic_palette()
             status_label.setStyleSheet(f"color: {semantic.warning};")
 
@@ -270,7 +341,14 @@ class SupportPage(BasePage):
             if action_btn is not None:
                 action_btn.setEnabled(True)
             if InfoBar:
-                InfoBar.warning(title="ZapretHub", content=f"Не удалось запустить установку:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.support.zaphub.title", "ZapretHub"),
+                    content=self._tr(
+                        "page.support.zaphub.error.install_start_failed",
+                        "Не удалось запустить установку:\n{error}",
+                    ).format(error=e),
+                    parent=self.window(),
+                )
             try:
                 self._refresh_zaphub_state()
             except Exception:
@@ -505,7 +583,14 @@ class SupportPage(BasePage):
             log("Открыт Telegram: zaprethelp", "INFO")
         except Exception as e:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть Telegram:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.support.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.support.error.open_telegram",
+                        "Не удалось открыть Telegram:\n{error}",
+                    ).format(error=e),
+                    parent=self.window(),
+                )
 
     def _open_discord(self) -> None:
         try:
@@ -514,4 +599,11 @@ class SupportPage(BasePage):
             log(f"Открыт Discord: {url}", "INFO")
         except Exception as e:
             if InfoBar:
-                InfoBar.warning(title="Ошибка", content=f"Не удалось открыть Discord:\n{e}", parent=self.window())
+                InfoBar.warning(
+                    title=self._tr("page.support.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.support.error.open_discord",
+                        "Не удалось открыть Discord:\n{error}",
+                    ).format(error=e),
+                    parent=self.window(),
+                )

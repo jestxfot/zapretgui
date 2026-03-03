@@ -10,6 +10,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.theme import get_theme_tokens, get_card_gradient_qss, get_tinted_surface_gradient_qss, to_qcolor
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -144,6 +145,8 @@ class Win11ToggleRow(QWidget):
 
         self._icon_name = icon_name
         self._icon_color = icon_color
+        self._title_label = None
+        self._desc_label = None
         self._last_theme_refresh_key: tuple[str, str, str] | None = None
         self._theme_refresh_pending_when_hidden = False
 
@@ -163,11 +166,13 @@ class Win11ToggleRow(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = _BodyLabel(title)
+        self._title_label = title_label
         text_layout.addWidget(title_label)
 
         if description:
             desc_label = _CaptionLabel(description)
             desc_label.setWordWrap(True)
+            self._desc_label = desc_label
             text_layout.addWidget(desc_label)
 
         layout.addLayout(text_layout, 1)
@@ -233,14 +238,24 @@ class Win11ToggleRow(QWidget):
     def isChecked(self) -> bool:
         return self.toggle.isChecked()
 
+    def set_texts(self, title: str, description: str = "") -> None:
+        try:
+            if self._title_label is not None:
+                self._title_label.setText(title)
+            if self._desc_label is not None:
+                self._desc_label.setText(description)
+        except Exception:
+            pass
+
 
 class Win11RadioOption(QWidget):
     """Радио-опция в стиле Windows 11"""
     
     clicked = pyqtSignal()
     
-    def __init__(self, title: str, description: str, icon_name: str = None, 
-                 icon_color: str = "", recommended: bool = False, parent=None):
+    def __init__(self, title: str, description: str, icon_name: str = None,
+                 icon_color: str = "", recommended: bool = False,
+                 recommended_badge: str = "рекомендуется", parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -251,7 +266,9 @@ class Win11RadioOption(QWidget):
         self._icon_name = icon_name
         self._icon_color = icon_color
         self._icon_label: QLabel | None = None
-        self._badge_label: QLabel | None = None
+        self._badge_label = None
+        self._title_label = None
+        self._desc_label = None
         self._applying_theme_styles = False
         self._last_theme_refresh_key: tuple[str, str, str] | None = None
         self._theme_refresh_pending_when_hidden = False
@@ -284,13 +301,14 @@ class Win11RadioOption(QWidget):
         title_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = StrongBodyLabel(title)
+        self._title_label = title_label
         title_layout.addWidget(title_label)
         
         if recommended:
             if _HAS_INFO_BADGE:
-                self._badge_label = InfoBadge("рекомендуется", level=_InfoLevel.ATTENTION)
+                self._badge_label = InfoBadge(recommended_badge, level=_InfoLevel.ATTENTION)
             else:
-                self._badge_label = QLabel("рекомендуется")
+                self._badge_label = QLabel(recommended_badge)
                 self._badge_label.setStyleSheet(
                     "QLabel { background: #0078d4; color: #fff; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; }"
                 )
@@ -302,6 +320,7 @@ class Win11RadioOption(QWidget):
         # Описание
         desc_label = _CaptionLabel(description)
         desc_label.setWordWrap(True)
+        self._desc_label = desc_label
         text_layout.addWidget(desc_label)
         
         layout.addLayout(text_layout, 1)
@@ -365,6 +384,17 @@ class Win11RadioOption(QWidget):
         
     def isSelected(self) -> bool:
         return self._selected
+
+    def set_texts(self, title: str, description: str, recommended_badge: str | None = None) -> None:
+        try:
+            if self._title_label is not None:
+                self._title_label.setText(title)
+            if self._desc_label is not None:
+                self._desc_label.setText(description)
+            if recommended_badge is not None and self._badge_label is not None and hasattr(self._badge_label, "setText"):
+                self._badge_label.setText(recommended_badge)
+        except Exception:
+            pass
         
     def _update_style(self, tokens=None):
         if self._applying_theme_styles:
@@ -475,6 +505,8 @@ class Win11NumberRow(QWidget):
 
         self._icon_name = icon_name
         self._icon_color = icon_color
+        self._title_label = None
+        self._desc_label = None
         self._applying_theme_styles = False
         self._last_theme_refresh_key: tuple[str, str, str] | None = None
         self._theme_refresh_pending_when_hidden = False
@@ -496,11 +528,13 @@ class Win11NumberRow(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = _BodyLabel(title)
+        self._title_label = title_label
         text_layout.addWidget(title_label)
 
         if description:
             desc_label = _CaptionLabel(description)
             desc_label.setWordWrap(True)
+            self._desc_label = desc_label
             text_layout.addWidget(desc_label)
 
         layout.addLayout(text_layout, 1)
@@ -624,6 +658,15 @@ class Win11NumberRow(QWidget):
     def value(self) -> int:
         return self.spinbox.value()
 
+    def set_texts(self, title: str, description: str = "") -> None:
+        try:
+            if self._title_label is not None:
+                self._title_label.setText(title)
+            if self._desc_label is not None:
+                self._desc_label.setText(description)
+        except Exception:
+            pass
+
 
 class Win11ComboRow(QWidget):
     """Строка с выпадающим списком в стиле Windows 11"""
@@ -637,6 +680,8 @@ class Win11ComboRow(QWidget):
 
         self._icon_name = icon_name
         self._icon_color = icon_color
+        self._title_label = None
+        self._desc_label = None
         self._applying_theme_styles = False
         self._last_theme_refresh_key: tuple[str, str, str] | None = None
         self._theme_refresh_pending_when_hidden = False
@@ -658,11 +703,13 @@ class Win11ComboRow(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
 
         title_label = _BodyLabel(title)
+        self._title_label = title_label
         text_layout.addWidget(title_label)
 
         if description:
             desc_label = _CaptionLabel(description)
             desc_label.setWordWrap(True)
+            self._desc_label = desc_label
             text_layout.addWidget(desc_label)
 
         layout.addLayout(text_layout, 1)
@@ -830,6 +877,15 @@ class Win11ComboRow(QWidget):
     def currentIndex(self) -> int:
         return self.combo.currentIndex()
 
+    def set_texts(self, title: str, description: str = "") -> None:
+        try:
+            if self._title_label is not None:
+                self._title_label.setText(title)
+            if self._desc_label is not None:
+                self._desc_label.setText(description)
+        except Exception:
+            pass
+
 
 class DpiSettingsPage(BasePage):
     """Страница настроек DPI"""
@@ -838,12 +894,32 @@ class DpiSettingsPage(BasePage):
     filters_changed = pyqtSignal()  # Сигнал при изменении фильтров
     
     def __init__(self, parent=None):
-        super().__init__("Настройки DPI", "Параметры обхода блокировок", parent)
+        super().__init__(
+            "Настройки DPI",
+            "Параметры обхода блокировок",
+            parent,
+            title_key="page.dpi_settings.title",
+            subtitle_key="page.dpi_settings.subtitle",
+        )
+        self._method_card = None
+        self._method_desc_label = None
+        self._zapret1_header = None
+        self._orchestra_label = None
+        self._advanced_desc_label = None
         self._applying_theme_styles = False
         self._last_theme_refresh_key: tuple[str, str, str] | None = None
         self._theme_refresh_pending_when_hidden = False
         self._build_ui()
         self._load_settings()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     def _apply_theme_styles(self, tokens=None) -> None:
         theme_tokens = tokens or get_theme_tokens()
@@ -903,34 +979,52 @@ class DpiSettingsPage(BasePage):
         """Строит UI страницы"""
         
         # Метод запуска
-        method_card = SettingsCard("Метод запуска стратегий (режим работы программы)")
+        method_card = SettingsCard(
+            self._tr(
+                "page.dpi_settings.card.launch_method",
+                "Метод запуска стратегий (режим работы программы)",
+            )
+        )
+        self._method_card = method_card
         method_layout = QVBoxLayout()
         method_layout.setSpacing(10)
         
-        method_desc = _CaptionLabel("Выберите способ запуска обхода блокировок")
+        method_desc = _CaptionLabel(
+            self._tr("page.dpi_settings.launch_method.desc", "Выберите способ запуска обхода блокировок")
+        )
+        self._method_desc_label = method_desc
         method_layout.addWidget(method_desc)
 
         # ═══════════════════════════════════════
         # ZAPRET 2 (winws2.exe)
         # ═══════════════════════════════════════
-        self.zapret2_header = StrongBodyLabel("Zapret 2 (winws2.exe)")
+        self.zapret2_header = StrongBodyLabel(
+            self._tr("page.dpi_settings.section.z2", "Zapret 2 (winws2.exe)")
+        )
         self.zapret2_header.setContentsMargins(0, 8, 0, 4)
         method_layout.addWidget(self.zapret2_header)
 
         # Zapret 2 (direct) - рекомендуется
         self.method_direct = Win11RadioOption(
-            "Zapret 2",
-            "Режим со второй версией Zapret (winws2.exe) + готовые пресеты для быстрого запуска. Поддерживает кастомный lua-код чтобы писать свои стратегии.",
+            self._tr("page.dpi_settings.method.direct_z2.title", "Zapret 2"),
+            self._tr(
+                "page.dpi_settings.method.direct_z2.desc",
+                "Режим со второй версией Zapret (winws2.exe) + готовые пресеты для быстрого запуска. Поддерживает кастомный lua-код чтобы писать свои стратегии.",
+            ),
             icon_name="mdi.rocket-launch",
-            recommended=True
+            recommended=True,
+            recommended_badge=self._tr("page.dpi_settings.option.recommended", "рекомендуется"),
         )
         self.method_direct.clicked.connect(lambda: self._select_method("direct_zapret2"))
         method_layout.addWidget(self.method_direct)
 
         # Оркестратор Zapret 2 (direct с другим набором стратегий)
         self.method_direct_zapret2_orchestra = Win11RadioOption(
-            "Оркестраторный Zapret 2",
-            "Запуск Zapret 2 со стратегиями оркестратора внутри каждого профиля. Позволяет настроить для каждого сайта свой оркерстратор. Не сохраняет состояние для повышенной агрессии обхода.",
+            self._tr("page.dpi_settings.method.direct_z2_orchestra.title", "Оркестраторный Zapret 2"),
+            self._tr(
+                "page.dpi_settings.method.direct_z2_orchestra.desc",
+                "Запуск Zapret 2 со стратегиями оркестратора внутри каждого профиля. Позволяет настроить для каждого сайта свой оркерстратор. Не сохраняет состояние для повышенной агрессии обхода.",
+            ),
             icon_name="mdi.brain",
             icon_color="#9c27b0"
         )
@@ -939,8 +1033,11 @@ class DpiSettingsPage(BasePage):
 
         # Оркестр (auto-learning)
         self.method_orchestra = Win11RadioOption(
-            "Оркестратор v0.9.6 (Beta)",
-            "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками.",
+            self._tr("page.dpi_settings.method.orchestra.title", "Оркестратор v0.9.6 (Beta)"),
+            self._tr(
+                "page.dpi_settings.method.orchestra.desc",
+                "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками.",
+            ),
             icon_name="mdi.brain",
             icon_color="#9c27b0"
         )
@@ -950,15 +1047,21 @@ class DpiSettingsPage(BasePage):
         # ───────────────────────────────────────
         # ZAPRET 1 (winws.exe)
         # ───────────────────────────────────────
-        zapret1_header = StrongBodyLabel("Zapret 1 (winws.exe)")
+        zapret1_header = StrongBodyLabel(
+            self._tr("page.dpi_settings.section.z1", "Zapret 1 (winws.exe)")
+        )
+        self._zapret1_header = zapret1_header
         zapret1_header.setContentsMargins(0, 12, 0, 4)
         zapret1_header.setStyleSheet("color: #ff9800;")
         method_layout.addWidget(zapret1_header)
 
         # Zapret 1 Direct (прямой запуск winws.exe с JSON стратегиями)
         self.method_direct_zapret1 = Win11RadioOption(
-            "Zapret 1",
-            "Режим первой версии Zapret 1 (winws.exe) + готовые пресеты для быстрого запуска. Не использует Lua код, нет понятия блобов.",
+            self._tr("page.dpi_settings.method.direct_z1.title", "Zapret 1"),
+            self._tr(
+                "page.dpi_settings.method.direct_z1.desc",
+                "Режим первой версии Zapret 1 (winws.exe) + готовые пресеты для быстрого запуска. Не использует Lua код, нет понятия блобов.",
+            ),
             icon_name="mdi.rocket-launch-outline",
             icon_color="#ff9800"
         )
@@ -978,8 +1081,11 @@ class DpiSettingsPage(BasePage):
         discord_layout.setSpacing(0)
 
         self.discord_restart_toggle = Win11ToggleRow(
-            "mdi.discord", "Перезапуск Discord",
-            "Автоперезапуск при смене стратегии", "#7289da")
+            "mdi.discord",
+            self._tr("page.dpi_settings.discord_restart.title", "Перезапуск Discord"),
+            self._tr("page.dpi_settings.discord_restart.desc", "Автоперезапуск при смене стратегии"),
+            "#7289da",
+        )
         discord_layout.addWidget(self.discord_restart_toggle)
         method_layout.addWidget(self.discord_restart_container)
 
@@ -991,43 +1097,73 @@ class DpiSettingsPage(BasePage):
         orchestra_settings_layout.setContentsMargins(0, 0, 0, 0)
         orchestra_settings_layout.setSpacing(6)
 
-        orchestra_label = StrongBodyLabel("Настройки оркестратора")
+        orchestra_label = StrongBodyLabel(
+            self._tr("page.dpi_settings.section.orchestra_settings", "Настройки оркестратора")
+        )
+        self._orchestra_label = orchestra_label
         orchestra_label.setStyleSheet("color: #9c27b0;")
         orchestra_settings_layout.addWidget(orchestra_label)
 
         self.strict_detection_toggle = Win11ToggleRow(
-            "mdi.check-decagram", "Строгий режим детекции",
-            "HTTP 200 + проверка блок-страниц", "#4CAF50")
+            "mdi.check-decagram",
+            self._tr("page.dpi_settings.orchestra.strict_detection.title", "Строгий режим детекции"),
+            self._tr("page.dpi_settings.orchestra.strict_detection.desc", "HTTP 200 + проверка блок-страниц"),
+            "#4CAF50",
+        )
         orchestra_settings_layout.addWidget(self.strict_detection_toggle)
 
         self.debug_file_toggle = Win11ToggleRow(
-            "mdi.file-document-outline", "Сохранять debug файл",
-            "Сырой debug файл для отладки", "#8a2be2")
+            "mdi.file-document-outline",
+            self._tr("page.dpi_settings.orchestra.debug_file.title", "Сохранять debug файл"),
+            self._tr("page.dpi_settings.orchestra.debug_file.desc", "Сырой debug файл для отладки"),
+            "#8a2be2",
+        )
         orchestra_settings_layout.addWidget(self.debug_file_toggle)
 
         self.auto_restart_discord_toggle = Win11ToggleRow(
-            "mdi.discord", "Авторестарт Discord при FAIL",
-            "Перезапуск Discord при неудачном обходе", "#7289da")
+            "mdi.discord",
+            self._tr("page.dpi_settings.orchestra.auto_restart_discord.title", "Авторестарт Discord при FAIL"),
+            self._tr(
+                "page.dpi_settings.orchestra.auto_restart_discord.desc",
+                "Перезапуск Discord при неудачном обходе",
+            ),
+            "#7289da",
+        )
         orchestra_settings_layout.addWidget(self.auto_restart_discord_toggle)
 
         # Количество фейлов для рестарта Discord
         self.discord_fails_spin = Win11NumberRow(
-            "mdi.discord", "Фейлов для рестарта Discord",
-            "Сколько FAIL подряд для перезапуска Discord", "#7289da",
+            "mdi.discord",
+            self._tr("page.dpi_settings.orchestra.discord_fails.title", "Фейлов для рестарта Discord"),
+            self._tr(
+                "page.dpi_settings.orchestra.discord_fails.desc",
+                "Сколько FAIL подряд для перезапуска Discord",
+            ),
+            "#7289da",
             min_val=1, max_val=10, default_val=3)
         orchestra_settings_layout.addWidget(self.discord_fails_spin)
 
         # Успехов для LOCK (сколько успехов подряд для закрепления стратегии)
         self.lock_successes_spin = Win11NumberRow(
-            "mdi.lock", "Успехов для LOCK",
-            "Количество успешных обходов для закрепления стратегии", "#4CAF50",
+            "mdi.lock",
+            self._tr("page.dpi_settings.orchestra.lock_successes.title", "Успехов для LOCK"),
+            self._tr(
+                "page.dpi_settings.orchestra.lock_successes.desc",
+                "Количество успешных обходов для закрепления стратегии",
+            ),
+            "#4CAF50",
             min_val=1, max_val=10, default_val=3)
         orchestra_settings_layout.addWidget(self.lock_successes_spin)
 
         # Ошибок для AUTO-UNLOCK (сколько ошибок подряд для разблокировки)
         self.unlock_fails_spin = Win11NumberRow(
-            "mdi.lock-open", "Ошибок для AUTO-UNLOCK",
-            "Количество ошибок для автоматической разблокировки стратегии", "#FF5722",
+            "mdi.lock-open",
+            self._tr("page.dpi_settings.orchestra.unlock_fails.title", "Ошибок для AUTO-UNLOCK"),
+            self._tr(
+                "page.dpi_settings.orchestra.unlock_fails.desc",
+                "Количество ошибок для автоматической разблокировки стратегии",
+            ),
+            "#FF5722",
             min_val=1, max_val=10, default_val=3)
         orchestra_settings_layout.addWidget(self.unlock_fails_spin)
 
@@ -1039,26 +1175,37 @@ class DpiSettingsPage(BasePage):
         # ═══════════════════════════════════════════════════════════════════════
         # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ
         # ═══════════════════════════════════════════════════════════════════════
-        self.advanced_card = SettingsCard("ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
+        self.advanced_card = SettingsCard(
+            self._tr("page.dpi_settings.card.advanced", "ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
+        )
         advanced_layout = QVBoxLayout()
         advanced_layout.setSpacing(6)
         
         # Описание
-        advanced_desc = _CaptionLabel("⚠ Изменяйте только если знаете что делаете")
+        advanced_desc = _CaptionLabel(
+            self._tr("page.dpi_settings.advanced.warning", "⚠ Изменяйте только если знаете что делаете")
+        )
+        self._advanced_desc_label = advanced_desc
         advanced_desc.setContentsMargins(0, 0, 0, 8)
         advanced_desc.setStyleSheet("color: #ff9800;")
         advanced_layout.addWidget(advanced_desc)
         
         # WSSize
         self.wssize_toggle = Win11ToggleRow(
-            "fa5s.ruler-horizontal", "Включить --wssize", 
-            "Добавляет параметр размера окна TCP", "#9c27b0")
+            "fa5s.ruler-horizontal",
+            self._tr("page.dpi_settings.advanced.wssize.title", "Включить --wssize"),
+            self._tr("page.dpi_settings.advanced.wssize.desc", "Добавляет параметр размера окна TCP"),
+            "#9c27b0",
+        )
         advanced_layout.addWidget(self.wssize_toggle)
         
         # Debug лог
         self.debug_log_toggle = Win11ToggleRow(
-            "mdi.file-document-outline", "Включить лог-файл (--debug)", 
-            "Записывает логи winws в папку logs", "#00bcd4")
+            "mdi.file-document-outline",
+            self._tr("page.dpi_settings.advanced.debug_log.title", "Включить лог-файл (--debug)"),
+            self._tr("page.dpi_settings.advanced.debug_log.desc", "Записывает логи winws в папку logs"),
+            "#00bcd4",
+        )
         advanced_layout.addWidget(self.debug_log_toggle)
         
         self.advanced_card.add_layout(advanced_layout)
@@ -1535,3 +1682,116 @@ class DpiSettingsPage(BasePage):
 
         except:
             pass
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._method_card is not None:
+            self._method_card.set_title(
+                self._tr(
+                    "page.dpi_settings.card.launch_method",
+                    "Метод запуска стратегий (режим работы программы)",
+                )
+            )
+        if self._method_desc_label is not None:
+            self._method_desc_label.setText(
+                self._tr("page.dpi_settings.launch_method.desc", "Выберите способ запуска обхода блокировок")
+            )
+
+        if hasattr(self, "zapret2_header") and self.zapret2_header is not None:
+            self.zapret2_header.setText(self._tr("page.dpi_settings.section.z2", "Zapret 2 (winws2.exe)"))
+        if self._zapret1_header is not None:
+            self._zapret1_header.setText(self._tr("page.dpi_settings.section.z1", "Zapret 1 (winws.exe)"))
+        if self._orchestra_label is not None:
+            self._orchestra_label.setText(
+                self._tr("page.dpi_settings.section.orchestra_settings", "Настройки оркестратора")
+            )
+
+        self.method_direct.set_texts(
+            self._tr("page.dpi_settings.method.direct_z2.title", "Zapret 2"),
+            self._tr(
+                "page.dpi_settings.method.direct_z2.desc",
+                "Режим со второй версией Zapret (winws2.exe) + готовые пресеты для быстрого запуска. Поддерживает кастомный lua-код чтобы писать свои стратегии.",
+            ),
+            recommended_badge=self._tr("page.dpi_settings.option.recommended", "рекомендуется"),
+        )
+        self.method_direct_zapret2_orchestra.set_texts(
+            self._tr("page.dpi_settings.method.direct_z2_orchestra.title", "Оркестраторный Zapret 2"),
+            self._tr(
+                "page.dpi_settings.method.direct_z2_orchestra.desc",
+                "Запуск Zapret 2 со стратегиями оркестратора внутри каждого профиля. Позволяет настроить для каждого сайта свой оркерстратор. Не сохраняет состояние для повышенной агрессии обхода.",
+            ),
+        )
+        self.method_orchestra.set_texts(
+            self._tr("page.dpi_settings.method.orchestra.title", "Оркестратор v0.9.6 (Beta)"),
+            self._tr(
+                "page.dpi_settings.method.orchestra.desc",
+                "Автоматическое обучение. Система сама подбирает лучшие стратегии для каждого домена. Запоминает результаты между запусками.",
+            ),
+        )
+        self.method_direct_zapret1.set_texts(
+            self._tr("page.dpi_settings.method.direct_z1.title", "Zapret 1"),
+            self._tr(
+                "page.dpi_settings.method.direct_z1.desc",
+                "Режим первой версии Zapret 1 (winws.exe) + готовые пресеты для быстрого запуска. Не использует Lua код, нет понятия блобов.",
+            ),
+        )
+
+        self.discord_restart_toggle.set_texts(
+            self._tr("page.dpi_settings.discord_restart.title", "Перезапуск Discord"),
+            self._tr("page.dpi_settings.discord_restart.desc", "Автоперезапуск при смене стратегии"),
+        )
+
+        self.strict_detection_toggle.set_texts(
+            self._tr("page.dpi_settings.orchestra.strict_detection.title", "Строгий режим детекции"),
+            self._tr("page.dpi_settings.orchestra.strict_detection.desc", "HTTP 200 + проверка блок-страниц"),
+        )
+        self.debug_file_toggle.set_texts(
+            self._tr("page.dpi_settings.orchestra.debug_file.title", "Сохранять debug файл"),
+            self._tr("page.dpi_settings.orchestra.debug_file.desc", "Сырой debug файл для отладки"),
+        )
+        self.auto_restart_discord_toggle.set_texts(
+            self._tr("page.dpi_settings.orchestra.auto_restart_discord.title", "Авторестарт Discord при FAIL"),
+            self._tr(
+                "page.dpi_settings.orchestra.auto_restart_discord.desc",
+                "Перезапуск Discord при неудачном обходе",
+            ),
+        )
+        self.discord_fails_spin.set_texts(
+            self._tr("page.dpi_settings.orchestra.discord_fails.title", "Фейлов для рестарта Discord"),
+            self._tr(
+                "page.dpi_settings.orchestra.discord_fails.desc",
+                "Сколько FAIL подряд для перезапуска Discord",
+            ),
+        )
+        self.lock_successes_spin.set_texts(
+            self._tr("page.dpi_settings.orchestra.lock_successes.title", "Успехов для LOCK"),
+            self._tr(
+                "page.dpi_settings.orchestra.lock_successes.desc",
+                "Количество успешных обходов для закрепления стратегии",
+            ),
+        )
+        self.unlock_fails_spin.set_texts(
+            self._tr("page.dpi_settings.orchestra.unlock_fails.title", "Ошибок для AUTO-UNLOCK"),
+            self._tr(
+                "page.dpi_settings.orchestra.unlock_fails.desc",
+                "Количество ошибок для автоматической разблокировки стратегии",
+            ),
+        )
+
+        if hasattr(self, "advanced_card") and self.advanced_card is not None:
+            self.advanced_card.set_title(
+                self._tr("page.dpi_settings.card.advanced", "ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
+            )
+        if self._advanced_desc_label is not None:
+            self._advanced_desc_label.setText(
+                self._tr("page.dpi_settings.advanced.warning", "⚠ Изменяйте только если знаете что делаете")
+            )
+        self.wssize_toggle.set_texts(
+            self._tr("page.dpi_settings.advanced.wssize.title", "Включить --wssize"),
+            self._tr("page.dpi_settings.advanced.wssize.desc", "Добавляет параметр размера окна TCP"),
+        )
+        self.debug_log_toggle.set_texts(
+            self._tr("page.dpi_settings.advanced.debug_log.title", "Включить лог-файл (--debug)"),
+            self._tr("page.dpi_settings.advanced.debug_log.desc", "Записывает логи winws в папку logs"),
+        )

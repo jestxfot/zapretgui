@@ -46,6 +46,7 @@ except ImportError:
 
 from ui.widgets import NotificationBanner
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 from orchestra.locked_strategies_manager import ASKEY_ALL
 
@@ -53,10 +54,19 @@ from orchestra.locked_strategies_manager import ASKEY_ALL
 class LockedDomainRow(QFrame):
     """Виджет-ряд для одного залоченного домена с редактируемой стратегией"""
 
-    def __init__(self, domain: str, strategy: int, proto: str, parent=None):
+    def __init__(
+        self,
+        domain: str,
+        strategy: int,
+        proto: str,
+        parent=None,
+        *,
+        delete_tooltip: str = "",
+    ):
         super().__init__(parent)
         self.domain = domain
         self.proto = proto
+        self._delete_tooltip = delete_tooltip or "Разлочить"
         self._tokens = get_theme_tokens()
         self._current_qss = ""
 
@@ -96,7 +106,7 @@ class LockedDomainRow(QFrame):
         self._delete_btn = delete_btn
         delete_btn.setIconSize(QSize(16, 16))
         delete_btn.setFixedSize(28, 28)
-        set_tooltip(delete_btn, "Разлочить")
+        set_tooltip(delete_btn, self._delete_tooltip)
         delete_btn.clicked.connect(self._on_delete_clicked)
         layout.addWidget(delete_btn)
 
@@ -158,10 +168,14 @@ class OrchestraLockedPage(BasePage):
         super().__init__(
             "Залоченные стратегии",
             "Домены с фиксированной стратегией. Оркестратор не будет менять стратегию для этих доменов. Это значит что оркестратор нашёл для этих сайтов наилучшую стратегию. Вы можете зафиксировать свою стратегию для домена здесь.\nЕсли Вас не устраивает текущая стратегия - заблокируйте её здесь и оркестратор начнёт обучение заново при следующем посещении сайта.\nЕсли Вы просто хотите начать обучение заново - разлочьте стратегию.",
-            parent
+            parent,
+            title_key="page.orchestra.locked.title",
+            subtitle_key="page.orchestra.locked.subtitle",
         )
         self.setObjectName("orchestraLockedPage")
         self._hint_label = None
+        self._add_card = None
+        self._list_card = None
         self._all_locked_data = []  # Кэш данных для фильтрации
         # Инициализируем пустые данные (будут загружены при первом showEvent)
         self._direct_locked_by_askey = {askey: {} for askey in ASKEY_ALL}
@@ -176,6 +190,15 @@ class OrchestraLockedPage(BasePage):
 
         self._apply_theme()
 
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
     def _create_card(self, title: str):
         card = CardWidget(self)
         card_layout = QVBoxLayout(card)
@@ -186,6 +209,7 @@ class OrchestraLockedPage(BasePage):
         if not _HAS_FLUENT:
             title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
         card_layout.addWidget(title_label)
+        card._title_label = title_label
 
         return card, card_layout
 
@@ -193,6 +217,10 @@ class OrchestraLockedPage(BasePage):
         self._refresh_loading = loading
         if hasattr(self, "refresh_btn") and self.refresh_btn is not None:
             self.refresh_btn.setEnabled(not loading)
+            set_tooltip(
+                self.refresh_btn,
+                self._tr("page.orchestra.locked.button.refresh.tooltip", "Обновить"),
+            )
         self._apply_theme()
 
     def _setup_ui(self):
@@ -201,13 +229,18 @@ class OrchestraLockedPage(BasePage):
         self.layout.addWidget(self.notification_banner)
 
         # === Карточка добавления ===
-        add_card, add_card_layout = self._create_card("Залочить стратегию вручную")
+        add_card, add_card_layout = self._create_card(
+            self._tr("page.orchestra.locked.card.add", "Залочить стратегию вручную")
+        )
+        self._add_card = add_card
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
         # Домен
         self.domain_input = LineEdit()
-        self.domain_input.setPlaceholderText("example.com")
+        self.domain_input.setPlaceholderText(
+            self._tr("page.orchestra.locked.input.domain.placeholder", "example.com")
+        )
         add_layout.addWidget(self.domain_input, 1)
 
         # Протокол (askey)
@@ -228,7 +261,10 @@ class OrchestraLockedPage(BasePage):
         # Icon styled in _apply_theme()
         self.lock_btn.setIconSize(QSize(18, 18))
         self.lock_btn.setFixedSize(36, 36)
-        set_tooltip(self.lock_btn, "Залочить стратегию")
+        set_tooltip(
+            self.lock_btn,
+            self._tr("page.orchestra.locked.button.lock.tooltip", "Залочить стратегию"),
+        )
         self.lock_btn.clicked.connect(self._lock_strategy)
         add_layout.addWidget(self.lock_btn)
 
@@ -236,7 +272,10 @@ class OrchestraLockedPage(BasePage):
         self.layout.addWidget(add_card)
 
         # === Карточка списка ===
-        list_card, list_layout = self._create_card("Список залоченных")
+        list_card, list_layout = self._create_card(
+            self._tr("page.orchestra.locked.card.list", "Список залоченных")
+        )
+        self._list_card = list_card
         list_layout.setSpacing(8)
 
         # Кнопка и счётчик сверху
@@ -245,7 +284,9 @@ class OrchestraLockedPage(BasePage):
 
         # Поиск
         self.search_input = LineEdit()
-        self.search_input.setPlaceholderText("Поиск по доменам...")
+        self.search_input.setPlaceholderText(
+            self._tr("page.orchestra.locked.search.placeholder", "Поиск по доменам...")
+        )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._filter_list)
         top_row.addWidget(self.search_input)
@@ -253,11 +294,16 @@ class OrchestraLockedPage(BasePage):
         # Кнопка обновления списка из реестра
         self.refresh_btn = TransparentToolButton(self)
         self.refresh_btn.setFixedSize(32, 32)
-        set_tooltip(self.refresh_btn, "Обновить")
+        set_tooltip(
+            self.refresh_btn,
+            self._tr("page.orchestra.locked.button.refresh.tooltip", "Обновить"),
+        )
         self.refresh_btn.clicked.connect(self._reload_from_registry)
         top_row.addWidget(self.refresh_btn)
 
-        self.unlock_all_btn = PushButton("Разлочить все")
+        self.unlock_all_btn = PushButton(
+            self._tr("page.orchestra.locked.button.unlock_all", "Разлочить все")
+        )
         self.unlock_all_btn.setFixedHeight(32)
         self.unlock_all_btn.clicked.connect(self._unlock_all)
         top_row.addWidget(self.unlock_all_btn)
@@ -270,7 +316,12 @@ class OrchestraLockedPage(BasePage):
         list_layout.addWidget(self.count_label)
 
         # Подсказка
-        hint_label = CaptionLabel("Измените номер стратегии и она автоматически сохранится")
+        hint_label = CaptionLabel(
+            self._tr(
+                "page.orchestra.locked.hint",
+                "Измените номер стратегии и она автоматически сохранится",
+            )
+        )
         self._hint_label = hint_label
         list_layout.addWidget(hint_label)
 
@@ -308,6 +359,47 @@ class OrchestraLockedPage(BasePage):
         except Exception:
             pass
 
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        if self._add_card is not None and hasattr(self._add_card, "_title_label"):
+            self._add_card._title_label.setText(
+                self._tr("page.orchestra.locked.card.add", "Залочить стратегию вручную")
+            )
+        if self._list_card is not None and hasattr(self._list_card, "_title_label"):
+            self._list_card._title_label.setText(
+                self._tr("page.orchestra.locked.card.list", "Список залоченных")
+            )
+
+        self.domain_input.setPlaceholderText(
+            self._tr("page.orchestra.locked.input.domain.placeholder", "example.com")
+        )
+        self.search_input.setPlaceholderText(
+            self._tr("page.orchestra.locked.search.placeholder", "Поиск по доменам...")
+        )
+        self.unlock_all_btn.setText(
+            self._tr("page.orchestra.locked.button.unlock_all", "Разлочить все")
+        )
+
+        if self._hint_label is not None:
+            self._hint_label.setText(
+                self._tr(
+                    "page.orchestra.locked.hint",
+                    "Измените номер стратегии и она автоматически сохранится",
+                )
+            )
+
+        set_tooltip(
+            self.lock_btn,
+            self._tr("page.orchestra.locked.button.lock.tooltip", "Залочить стратегию"),
+        )
+        set_tooltip(
+            self.refresh_btn,
+            self._tr("page.orchestra.locked.button.refresh.tooltip", "Обновить"),
+        )
+
+        self._refresh_data()
+
     def showEvent(self, event):
         """При показе страницы загружаем данные один раз (без авто-обновления)"""
         super().showEvent(event)
@@ -342,9 +434,11 @@ class OrchestraLockedPage(BasePage):
             domain: Домен для которого заблокирована стратегия
             strategy: Номер заблокированной стратегии
         """
-        message = (
-            f"Стратегия #{strategy} заблокирована для {domain}. "
-            "Разблокируйте её на странице 'Заблокированные'."
+        message = self._tr(
+            "page.orchestra.locked.warning.blocked_strategy",
+            "Стратегия #{strategy} заблокирована для {domain}. Разблокируйте её на странице 'Заблокированные'.",
+            strategy=strategy,
+            domain=domain,
         )
         self.notification_banner.show_warning(message, auto_hide_ms=7000)
 
@@ -415,7 +509,12 @@ class OrchestraLockedPage(BasePage):
 
         # Создаём ряды для каждого домена
         for domain, strategy, proto in self._all_locked_data:
-            row = LockedDomainRow(domain, strategy, proto)
+            row = LockedDomainRow(
+                domain,
+                strategy,
+                proto,
+                delete_tooltip=self._tr("page.orchestra.locked.row.unlock.tooltip", "Разлочить"),
+            )
             key = f"{domain}:{proto}"
             self._domain_rows[key] = row
             self.rows_layout.addWidget(row)
@@ -492,8 +591,12 @@ class OrchestraLockedPage(BasePage):
                 runner.restart()
                 if InfoBar is not None:
                     InfoBar.success(
-                        title="Применено",
-                        content=f"Стратегия разлочена для {domain}. Оркестратор перезапускается.",
+                        title=self._tr("page.orchestra.locked.infobar.applied.title", "Применено"),
+                        content=self._tr(
+                            "page.orchestra.locked.infobar.unlocked",
+                            "Стратегия разлочена для {domain}. Оркестратор перезапускается.",
+                            domain=domain,
+                        ),
                         isClosable=True,
                         duration=3000,
                         parent=self.window()
@@ -518,7 +621,9 @@ class OrchestraLockedPage(BasePage):
         elif hasattr(self, '_direct_locked_by_askey'):
             locked_data = self._direct_locked_by_askey
         else:
-            self.count_label.setText("Нажмите 'Обновить' для загрузки данных")
+            self.count_label.setText(
+                self._tr("page.orchestra.locked.count.reload_hint", "Нажмите 'Обновить' для загрузки данных")
+            )
             return
 
         # Подсчёт по всем askey
@@ -530,7 +635,13 @@ class OrchestraLockedPage(BasePage):
         udp_count = sum(counts.get(k, 0) for k in ['quic', 'discord', 'wireguard', 'dns', 'stun', 'unknown'])
 
         self.count_label.setText(
-            f"Всего залочено: {total} (TCP: {tcp_count}, UDP: {udp_count})"
+            self._tr(
+                "page.orchestra.locked.count.total",
+                "Всего залочено: {total} (TCP: {tcp_count}, UDP: {udp_count})",
+                total=total,
+                tcp_count=tcp_count,
+                udp_count=udp_count,
+            )
         )
 
     def _lock_strategy(self):
@@ -586,8 +697,12 @@ class OrchestraLockedPage(BasePage):
 
         if MessageBox is not None:
             box = MessageBox(
-                "Подтверждение",
-                f"Разлочить все {total} стратегий?\nОркестратор начнёт обучение заново.",
+                self._tr("page.orchestra.locked.dialog.unlock_all.title", "Подтверждение"),
+                self._tr(
+                    "page.orchestra.locked.dialog.unlock_all.body",
+                    "Разлочить все {total} стратегий?\nОркестратор начнёт обучение заново.",
+                    total=total,
+                ),
                 self.window()
             )
             confirmed = box.exec()
@@ -606,8 +721,12 @@ class OrchestraLockedPage(BasePage):
                 runner.restart()
                 if InfoBar is not None:
                     InfoBar.success(
-                        title="Применено",
-                        content=f"Разлочены все {total} стратегий. Оркестратор перезапускается.",
+                        title=self._tr("page.orchestra.locked.infobar.applied.title", "Применено"),
+                        content=self._tr(
+                            "page.orchestra.locked.infobar.unlocked_all",
+                            "Разлочены все {total} стратегий. Оркестратор перезапускается.",
+                            total=total,
+                        ),
                         isClosable=True,
                         duration=3000,
                         parent=self.window()

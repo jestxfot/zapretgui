@@ -1,6 +1,6 @@
 # Preset: general ALT5 (game filter)
 # ActivePreset: general ALT5 (game filter)
-# BuiltinVersion: 1.5
+# BuiltinVersion: 2.10
 # IconColor: #b475f0ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -97,6 +97,8 @@
 --ipset=lists/ipset-base.txt
 --ipset=lists/ipset-discord.txt
 --ipset=lists/ipset-cloudflare.txt
+--ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-amazon.txt
 --ipset=lists/ipset-roblox.txt
@@ -105,8 +107,6 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
---ipset-exclude=lists/ipset-dns.txt
---ipset-exclude=lists/ipset-ru.txt
 --out-range=-d10
 --lua-desync=syndata
 --lua-desync=multidisorder:pos=2
@@ -118,6 +118,8 @@
 --ipset=lists/ipset-base.txt
 --ipset=lists/ipset-discord.txt
 --ipset=lists/ipset-cloudflare.txt
+--ipset=lists/cloudflare-ipset.txt
+--ipset=lists/cloudflare-ipset_v6.txt
 --ipset=lists/ipset-cloudflare1.txt
 --ipset=lists/ipset-amazon.txt
 --ipset=lists/ipset-roblox.txt
@@ -126,8 +128,6 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
---ipset-exclude=lists/ipset-dns.txt
---ipset-exclude=lists/ipset-ru.txt
 --out-range=-n3
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=10

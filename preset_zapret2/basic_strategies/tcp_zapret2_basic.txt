@@ -37,6 +37,46 @@ description = Моя стратегия с паттерном Max TLS ClientHell
 blobs = tls_max
 --lua-desync=fake:blob=tls_max:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:repeats=6:tcp_ack=-66000:seqovl=680:seqovl_pattern=tls_max
 
+[googlevideo_multidisorder]
+name = MultiDisorder Complex
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+[googlevideo_multidisorder_syndata]
+name = MultiDisorder Complex + syndata
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+[googlevideo_multisplit_pattern]
+name = MultiSplit Pattern 7
+blobs = tls7
+--lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
+
+[googlevideo_fakeddisorder]
+name = FakedDisorder AutoTTL
+blobs = tls7
+--lua-desync=fakeddisorder:pos=2,midsld-2:pattern=tls7:seqovl=1:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[tls_multisplit_sni]
+name = 🔀 TLS MultiSplit SNI
+author = Custom
+label = recommended
+description = Экстремальная нарезка вокруг SNI (17 позиций) + seqovl 211
+--lua-desync=tls_multisplit_sni:seqovl=211
+
+[tls_multisplit_sni_652]
+name = 🔀 TLS MultiSplit SNI seqovl 652
+author = Custom
+description = Экстремальная нарезка вокруг SNI + seqovl 652
+blobs = tls_google
+--lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
+
+[tls_multisplit_sni_syndata]
+name = 🔀 TLS MultiSplit SNI seqovl 652 + syndata
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
+
 [general_simplefake_alt2_191]
 name = general (simple fake alt2) 1.9.1
 author = hz
@@ -190,26 +230,6 @@ label = recommended
 [googlevideo_split]
 name = Split cutoff
 --lua-desync=multisplit:pos=1:tcp_ack=-66000:repeats=10:ip_ttl=4:ip6_ttl=4
-
-[googlevideo_multidisorder]
-name = MultiDisorder Complex
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
-[googlevideo_multidisorder_syndata]
-name = MultiDisorder Complex + syndata
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google
---lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
-
-[googlevideo_multisplit_pattern]
-name = MultiSplit Pattern 7
-blobs = tls7
---lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
-
-[googlevideo_fakeddisorder]
-name = FakedDisorder AutoTTL
-blobs = tls7
---lua-desync=fakeddisorder:pos=2,midsld-2:pattern=tls7:seqovl=1:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20
 
 [multisplit_tls_google_700]
 name = multisplit tls google seqovl 700
@@ -1342,26 +1362,6 @@ author = Custom
 label = recommended
 description = Агрессивный обход с md5sig fooling
 --lua-desync=tls_aggressive:fakes=6:ttl_start=1:md5sig:split_sni
-
-[tls_multisplit_sni]
-name = 🔀 TLS MultiSplit SNI
-author = Custom
-label = recommended
-description = Экстремальная нарезка вокруг SNI (17 позиций) + seqovl 211
---lua-desync=tls_multisplit_sni:seqovl=211
-
-[tls_multisplit_sni_652]
-name = 🔀 TLS MultiSplit SNI seqovl 652
-author = Custom
-description = Экстремальная нарезка вокруг SNI + seqovl 652
-blobs = tls_google
---lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
-
-[tls_multisplit_sni_syndata]
-name = 🔀 TLS MultiSplit SNI seqovl 652 + syndata
---lua-desync=send:repeats=2
---lua-desync=syndata:blob=tls_google
---lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
 
 [tls_fake_flood]
 name = 🌊 TLS Fake Flood x11

@@ -366,6 +366,42 @@ class PresetManagerV1:
             return True
         return False
 
+    def duplicate_preset(self, name: str, new_name: str) -> bool:
+        source_name = str(name or "").strip()
+        target_name = str(new_name or "").strip()
+
+        if not source_name or not target_name:
+            log("Cannot duplicate V1 preset: empty name", "WARNING")
+            return False
+
+        if not preset_exists_v1(source_name):
+            log(f"Cannot duplicate V1 preset: '{source_name}' not found", "WARNING")
+            return False
+
+        if preset_exists_v1(target_name):
+            log(f"Cannot duplicate V1 preset: '{target_name}' already exists", "WARNING")
+            return False
+
+        try:
+            preset = load_preset_v1(source_name)
+            if preset is None:
+                log(f"Cannot duplicate V1 preset: failed to load '{source_name}'", "WARNING")
+                return False
+
+            now = datetime.now().isoformat()
+            preset.name = target_name
+            preset.created = now
+            preset.modified = now
+
+            if not save_preset_v1(preset):
+                return False
+
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error duplicating V1 preset '{source_name}' -> '{target_name}': {e}", "ERROR")
+            return False
+
     def sync_preset_to_active_file(self, preset: PresetV1) -> bool:
         """Writes preset directly to preset-zapret1.txt."""
         import os as _os

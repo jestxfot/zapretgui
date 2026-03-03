@@ -82,6 +82,7 @@ class SettingsCard(CardWidget if HAS_FLUENT else QFrame):
         super().__init__(parent)
         self.setObjectName("settingsCard")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._title_label = None
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(16, 16, 16, 16)
@@ -91,6 +92,7 @@ class SettingsCard(CardWidget if HAS_FLUENT else QFrame):
             title_lbl = StrongBodyLabel(title, self) if HAS_FLUENT else QLabel(title)
             if not HAS_FLUENT:
                 title_lbl.setStyleSheet("font-size: 14px; font-weight: 600;")
+            self._title_label = title_lbl
             self.main_layout.addWidget(title_lbl)
 
     def add_widget(self, widget: QWidget):
@@ -98,6 +100,19 @@ class SettingsCard(CardWidget if HAS_FLUENT else QFrame):
 
     def add_layout(self, layout):
         self.main_layout.addLayout(layout)
+
+    def set_title(self, text: str) -> None:
+        try:
+            if self._title_label is None:
+                title_lbl = StrongBodyLabel(text, self) if HAS_FLUENT else QLabel(text)
+                if not HAS_FLUENT:
+                    title_lbl.setStyleSheet("font-size: 14px; font-weight: 600;")
+                self._title_label = title_lbl
+                self.main_layout.insertWidget(0, title_lbl)
+            else:
+                self._title_label.setText(text)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +283,8 @@ class SettingsRow(QWidget):
         self._icon_name = icon_name
         self._icon_label = None
         self._icon_update_scheduled = False
+        self._title_label = None
+        self._desc_label = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -289,6 +306,7 @@ class SettingsRow(QWidget):
         else:
             title_label = QLabel(title)
             title_label.setStyleSheet("font-size: 13px; font-weight: 500;")
+        self._title_label = title_label
         text_layout.addWidget(title_label)
 
         if description:
@@ -298,6 +316,7 @@ class SettingsRow(QWidget):
                 desc_label = QLabel(description)
                 desc_label.setStyleSheet("font-size: 11px;")
             desc_label.setWordWrap(True)
+            self._desc_label = desc_label
             text_layout.addWidget(desc_label)
 
         layout.addLayout(text_layout, 1)
@@ -334,6 +353,20 @@ class SettingsRow(QWidget):
     def set_control(self, widget: QWidget):
         """Adds a control widget on the right side."""
         self.control_container.addWidget(widget)
+
+    def set_title(self, text: str) -> None:
+        try:
+            if self._title_label is not None:
+                self._title_label.setText(text)
+        except Exception:
+            pass
+
+    def set_description(self, text: str) -> None:
+        try:
+            if self._desc_label is not None:
+                self._desc_label.setText(text)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

@@ -38,16 +38,26 @@ except ImportError:
 from ..base_page import BasePage
 from ui.compat_widgets import set_tooltip
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 
 class WhitelistDomainRow(QFrame):
     """Виджет-ряд для одного домена в белом списке"""
 
-    def __init__(self, domain: str, is_default: bool = False, parent=None):
+    def __init__(
+        self,
+        domain: str,
+        is_default: bool = False,
+        parent=None,
+        system_tooltip: str = "",
+        delete_tooltip: str = "",
+    ):
         super().__init__(parent)
         self.domain = domain
         self.is_default = is_default
+        self._system_tooltip = system_tooltip or "Системный домен (нельзя удалить)"
+        self._delete_tooltip = delete_tooltip or "Удалить из белого списка"
 
         self._tokens = get_theme_tokens()
         self._current_qss = ""
@@ -69,7 +79,7 @@ class WhitelistDomainRow(QFrame):
         if is_default:
             lock_icon = QLabel()
             self._lock_icon_label = lock_icon
-            set_tooltip(lock_icon, "Системный домен (нельзя удалить)")
+            set_tooltip(lock_icon, self._system_tooltip)
             layout.addWidget(lock_icon)
 
         # Домен
@@ -85,7 +95,7 @@ class WhitelistDomainRow(QFrame):
             self._delete_btn = delete_btn
             delete_btn.setIconSize(QSize(16, 16))
             delete_btn.setFixedSize(28, 28)
-            set_tooltip(delete_btn, "Удалить из белого списка")
+            set_tooltip(delete_btn, self._delete_tooltip)
             delete_btn.clicked.connect(self._on_delete_clicked)
             layout.addWidget(delete_btn)
 
@@ -152,11 +162,15 @@ class OrchestraWhitelistPage(BasePage):
         super().__init__(
             "Белый список",
             "Домены, которые НЕ обрабатываются оркестратором. Эти сайты работают без DPI bypass.",
-            parent
+            parent,
+            title_key="page.orchestra.whitelist.title",
+            subtitle_key="page.orchestra.whitelist.subtitle",
         )
         self.setObjectName("orchestraWhitelistPage")
         self._runner_cache = None  # Кэш для runner когда оркестратор не запущен
         self._all_whitelist_data = []  # Кэш данных для фильтрации
+        self._add_card = None
+        self._domains_card = None
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -165,6 +179,15 @@ class OrchestraWhitelistPage(BasePage):
         self._setup_ui()
 
         self._apply_theme()
+
+    def _tr(self, key: str, default: str, **kwargs) -> str:
+        text = tr_catalog(key, language=self._ui_language, default=default)
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 
     def _create_card(self, title: str):
         card = CardWidget(self)
@@ -176,25 +199,32 @@ class OrchestraWhitelistPage(BasePage):
         if not _HAS_FLUENT:
             title_label.setStyleSheet("font-size: 14px; font-weight: 600;")
         card_layout.addWidget(title_label)
+        card._title_label = title_label
 
         return card, card_layout
 
     def _setup_ui(self):
         # === Предупреждение о рестарте ===
         self.restart_warning = CaptionLabel(
-            "⚠️ Изменения применятся после перезапуска оркестратора"
+            self._tr(
+                "page.orchestra.whitelist.warning.restart_required",
+                "⚠️ Изменения применятся после перезапуска оркестратора",
+            )
         )
         self.restart_warning.hide()
         self.layout.addWidget(self.restart_warning)
 
         # === Карточка добавления ===
-        add_card, add_card_layout = self._create_card("Добавить домен")
+        add_card, add_card_layout = self._create_card(
+            self._tr("page.orchestra.whitelist.card.add", "Добавить домен")
+        )
+        self._add_card = add_card
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
 
         # Поле ввода
         self.domain_input = LineEdit()
-        self.domain_input.setPlaceholderText("example.com")
+        self.domain_input.setPlaceholderText(self._tr("page.orchestra.whitelist.input.placeholder", "example.com"))
         self.domain_input.returnPressed.connect(self._add_domain)
         add_layout.addWidget(self.domain_input, 1)
 
@@ -203,7 +233,10 @@ class OrchestraWhitelistPage(BasePage):
         # Icon styled in _apply_theme()
         self.add_btn.setIconSize(QSize(18, 18))
         self.add_btn.setFixedSize(36, 36)
-        set_tooltip(self.add_btn, "Добавить в белый список")
+        set_tooltip(
+            self.add_btn,
+            self._tr("page.orchestra.whitelist.tooltip.add", "Добавить в белый список"),
+        )
         self.add_btn.clicked.connect(self._add_domain)
         add_layout.addWidget(self.add_btn)
 
@@ -211,7 +244,10 @@ class OrchestraWhitelistPage(BasePage):
         self.layout.addWidget(add_card)
 
         # === Карточка списка доменов ===
-        domains_card, domains_layout = self._create_card("Белый список доменов")
+        domains_card, domains_layout = self._create_card(
+            self._tr("page.orchestra.whitelist.card.list", "Белый список доменов")
+        )
+        self._domains_card = domains_card
         domains_layout.setSpacing(8)
 
         # Строка с поиском и кнопками
@@ -220,15 +256,25 @@ class OrchestraWhitelistPage(BasePage):
 
         # Поиск
         self.search_input = LineEdit()
-        self.search_input.setPlaceholderText("Поиск по доменам...")
+        self.search_input.setPlaceholderText(
+            self._tr("page.orchestra.whitelist.search.placeholder", "Поиск по доменам...")
+        )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._filter_list)
         top_row.addWidget(self.search_input)
 
         # Кнопка очистки пользовательских
-        self.clear_user_btn = PushButton("Очистить пользовательские")
+        self.clear_user_btn = PushButton(
+            self._tr("page.orchestra.whitelist.button.clear_user", "Очистить пользовательские")
+        )
         self.clear_user_btn.setFixedHeight(32)
-        set_tooltip(self.clear_user_btn, "Удалить все пользовательские домены (системные останутся)")
+        set_tooltip(
+            self.clear_user_btn,
+            self._tr(
+                "page.orchestra.whitelist.tooltip.clear_user",
+                "Удалить все пользовательские домены (системные останутся)",
+            ),
+        )
         self.clear_user_btn.clicked.connect(self._clear_user_domains)
         top_row.addWidget(self.clear_user_btn)
         top_row.addStretch()
@@ -307,6 +353,45 @@ class OrchestraWhitelistPage(BasePage):
         except Exception:
             pass
 
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.restart_warning.setText(
+            self._tr(
+                "page.orchestra.whitelist.warning.restart_required",
+                "⚠️ Изменения применятся после перезапуска оркестратора",
+            )
+        )
+        if self._add_card is not None and hasattr(self._add_card, "_title_label"):
+            self._add_card._title_label.setText(
+                self._tr("page.orchestra.whitelist.card.add", "Добавить домен")
+            )
+        if self._domains_card is not None and hasattr(self._domains_card, "_title_label"):
+            self._domains_card._title_label.setText(
+                self._tr("page.orchestra.whitelist.card.list", "Белый список доменов")
+            )
+
+        self.domain_input.setPlaceholderText(self._tr("page.orchestra.whitelist.input.placeholder", "example.com"))
+        self.search_input.setPlaceholderText(
+            self._tr("page.orchestra.whitelist.search.placeholder", "Поиск по доменам...")
+        )
+        self.clear_user_btn.setText(
+            self._tr("page.orchestra.whitelist.button.clear_user", "Очистить пользовательские")
+        )
+        set_tooltip(
+            self.add_btn,
+            self._tr("page.orchestra.whitelist.tooltip.add", "Добавить в белый список"),
+        )
+        set_tooltip(
+            self.clear_user_btn,
+            self._tr(
+                "page.orchestra.whitelist.tooltip.clear_user",
+                "Удалить все пользовательские домены (системные останутся)",
+            ),
+        )
+
+        self._refresh_data()
+
     def showEvent(self, event):
         """При показе страницы обновляем данные"""
         super().showEvent(event)
@@ -349,7 +434,9 @@ class OrchestraWhitelistPage(BasePage):
 
         runner = self._get_runner()
         if not runner:
-            self.count_label.setText("Ошибка инициализации")
+            self.count_label.setText(
+                self._tr("page.orchestra.whitelist.status.init_error", "Ошибка инициализации")
+            )
             return
 
         # Получаем полный список с пометками о типе
@@ -380,12 +467,25 @@ class OrchestraWhitelistPage(BasePage):
 
         # Добавляем заголовок и ряды для пользовательских (если есть)
         if user_domains:
-            user_header = QLabel(f"Пользовательские ({user_count})")
+            user_header = QLabel(
+                self._tr(
+                    "page.orchestra.whitelist.section.user",
+                    "Пользовательские ({count})",
+                    count=user_count,
+                )
+            )
             user_header.setProperty("whitelistSection", "user")
             self.rows_layout.addWidget(user_header)
 
             for domain in user_domains:
-                row = WhitelistDomainRow(domain, is_default=False)
+                row = WhitelistDomainRow(
+                    domain,
+                    is_default=False,
+                    delete_tooltip=self._tr(
+                        "page.orchestra.whitelist.tooltip.delete",
+                        "Удалить из белого списка",
+                    ),
+                )
                 self.rows_layout.addWidget(row)
                 self._domain_rows.append(row)
 
@@ -397,16 +497,37 @@ class OrchestraWhitelistPage(BasePage):
 
         # Добавляем заголовок и ряды для системных (если есть)
         if system_domains:
-            system_header = QLabel(f"🔒 Системные ({system_count}) — нельзя удалить")
+            system_header = QLabel(
+                self._tr(
+                    "page.orchestra.whitelist.section.system",
+                    "🔒 Системные ({count}) — нельзя удалить",
+                    count=system_count,
+                )
+            )
             system_header.setProperty("whitelistSection", "system")
             self.rows_layout.addWidget(system_header)
 
             for domain in system_domains:
-                row = WhitelistDomainRow(domain, is_default=True)
+                row = WhitelistDomainRow(
+                    domain,
+                    is_default=True,
+                    system_tooltip=self._tr(
+                        "page.orchestra.whitelist.tooltip.system_domain",
+                        "Системный домен (нельзя удалить)",
+                    ),
+                )
                 self.rows_layout.addWidget(row)
                 self._domain_rows.append(row)
 
-        self.count_label.setText(f"Всего: {len(whitelist)} ({system_count} системных + {user_count} пользовательских)")
+        self.count_label.setText(
+            self._tr(
+                "page.orchestra.whitelist.count.total",
+                "Всего: {total} ({system} системных + {user} пользовательских)",
+                total=len(whitelist),
+                system=system_count,
+                user=user_count,
+            )
+        )
         self._apply_filter()
 
         self._apply_theme()
@@ -435,7 +556,15 @@ class OrchestraWhitelistPage(BasePage):
 
         runner = self._get_runner()
         if not runner:
-            InfoBar.error(title="Ошибка", content="Не удалось инициализировать оркестратор", parent=self.window())
+            if InfoBar:
+                InfoBar.error(
+                    title=self._tr("common.error.title", "Ошибка"),
+                    content=self._tr(
+                        "page.orchestra.whitelist.error.init_runner",
+                        "Не удалось инициализировать оркестратор",
+                    ),
+                    parent=self.window(),
+                )
             return
 
         if runner.add_to_whitelist(domain):
@@ -444,7 +573,16 @@ class OrchestraWhitelistPage(BasePage):
             self._show_restart_warning()
             log(f"Добавлен в белый список: {domain}", "INFO")
         else:
-            InfoBar.info(title="Информация", content=f"Домен {domain} уже в списке", parent=self.window())
+            if InfoBar:
+                InfoBar.info(
+                    title=self._tr("page.orchestra.whitelist.infobar.info_title", "Информация"),
+                    content=self._tr(
+                        "page.orchestra.whitelist.info.already_exists",
+                        "Домен {domain} уже в списке",
+                        domain=domain,
+                    ),
+                    parent=self.window(),
+                )
 
     def _on_row_delete_requested(self, domain: str):
         """Удаление при нажатии кнопки X в ряду"""
@@ -468,19 +606,30 @@ class OrchestraWhitelistPage(BasePage):
         user_domains = [entry['domain'] for entry in whitelist if not entry['is_default']]
 
         if not user_domains:
-            InfoBar.info(
-                title="Информация",
-                content="Нет пользовательских доменов для удаления. Системные домены не удаляются.",
-                parent=self.window(),
-            )
+            if InfoBar:
+                InfoBar.info(
+                    title=self._tr("page.orchestra.whitelist.infobar.info_title", "Информация"),
+                    content=self._tr(
+                        "page.orchestra.whitelist.info.no_user_domains",
+                        "Нет пользовательских доменов для удаления. Системные домены не удаляются.",
+                    ),
+                    parent=self.window(),
+                )
             return
 
-        box = MessageBox(
-            "Подтверждение",
-            f"Удалить все пользовательские домены ({len(user_domains)})?\n\nСистемные домены останутся.",
-            self.window(),
-        )
-        if box.exec():
+        confirmed = True
+        if MessageBox:
+            box = MessageBox(
+                self._tr("page.orchestra.whitelist.dialog.clear_user.title", "Подтверждение"),
+                self._tr(
+                    "page.orchestra.whitelist.dialog.clear_user.body",
+                    "Удалить все пользовательские домены ({count})?\n\nСистемные домены останутся.",
+                    count=len(user_domains),
+                ),
+                self.window(),
+            )
+            confirmed = bool(box.exec())
+        if confirmed:
             for domain in user_domains:
                 runner.remove_from_whitelist(domain)
             log(f"Очищены все пользовательские домены из белого списка ({len(user_domains)})", "INFO")

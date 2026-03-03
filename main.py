@@ -161,6 +161,9 @@ _set_attr_if_exists("AA_UseHighDpiPixmaps")
 # Create QApplication early — qfluentwidgets requires it at import time
 _app = QApplication.instance() or QApplication(sys.argv)
 
+from ui.combo_popup_guard import install_global_combo_popup_closer
+install_global_combo_popup_closer(_app)
+
 # ── Python 3.14 + PyQt6 6.10 compat ───────────────────────────────────────────
 # В Python 3.14 изменился протокол дескрипторов для C-extension slot'ов.
 # instance.method() больше не связывает self корректно для sip-wrapped Qt методов,
@@ -270,6 +273,7 @@ _install_qfluent_label_ctor_compat()
 
 from ui.main_window import MainWindowUI
 from ui.fluent_app_window import ZapretFluentWindow
+from ui.holiday_effects import HolidayEffectsManager
 
 
 from startup.admin_check import is_admin
@@ -388,6 +392,8 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 self.logs_page.cleanup()
             if hasattr(self, 'servers_page') and hasattr(self.servers_page, 'cleanup'):
                 self.servers_page.cleanup()
+            if hasattr(self, 'blockcheck_page') and hasattr(self.blockcheck_page, 'cleanup'):
+                self.blockcheck_page.cleanup()
             if hasattr(self, 'connection_page') and hasattr(self.connection_page, 'cleanup'):
                 self.connection_page.cleanup()
             if hasattr(self, 'dns_check_page') and hasattr(self.dns_check_page, 'cleanup'):
@@ -396,6 +402,15 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 self.hosts_page.cleanup()
         except Exception as e:
             log(f"Ошибка при очистке страниц: {e}", "DEBUG")
+
+        # Очищаем праздничные оверлеи
+        try:
+            effects = getattr(self, "_holiday_effects", None)
+            if effects is not None:
+                effects.cleanup()
+                self._holiday_effects = None
+        except Exception as e:
+            log(f"Ошибка очистки праздничных эффектов: {e}", "DEBUG")
         
         # ✅ Очищаем потоки через контроллер
         if hasattr(self, 'dpi_controller'):
@@ -981,6 +996,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         self.current_strategy_id = None
         self.current_strategy_name = None
+        self._holiday_effects = HolidayEffectsManager(self)
         self._startup_ttff_logged = False
         self._startup_ttff_ms = None
         self._startup_interactive_logged = False
@@ -1071,6 +1087,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                     self._center_icon_widget()
 
             splash = _StartupSplashScreen(self.windowIcon(), self)
+            splash.setGeometry(self.rect())
 
             splash.setIconSize(QSize(104, 104))
             splash.start_pulse()
@@ -1677,6 +1694,13 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 self._apply_window_zoom_visual_state(zoomed)
                 self._schedule_window_maximized_persist(zoomed)
 
+            try:
+                effects = getattr(self, "_holiday_effects", None)
+                if effects is not None:
+                    QTimer.singleShot(0, effects.sync_geometry)
+            except Exception:
+                pass
+
         super().changeEvent(event)
 
     def hideEvent(self, event):
@@ -1732,23 +1756,50 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
     def open_connection_test(self) -> None:
         """Переключает на вкладку диагностики соединений."""
         try:
-            if self.show_page(PageName.DIAGNOSTICS_TAB):
+            if self.show_page(PageName.BLOCKCHECK):
                 try:
-                    self.connection_page.start_btn.setFocus()
+                    blockcheck_page = getattr(self, "blockcheck_page", None)
+                    if blockcheck_page is not None:
+                        switch_tab = getattr(blockcheck_page, "switch_to_tab", None)
+                        if callable(switch_tab):
+                            switch_tab("diagnostics")
+
+                        self.connection_page = getattr(blockcheck_page, "connection_page", getattr(self, "connection_page", None))
+                        self.dns_check_page = getattr(blockcheck_page, "dns_check_page", getattr(self, "dns_check_page", None))
                 except Exception:
                     pass
-                log("Открыта вкладка диагностики соединения", "INFO")
+
+                try:
+                    if getattr(self, "connection_page", None) is not None:
+                        self.connection_page.start_btn.setFocus()
+                except Exception:
+                    pass
+                log("Открыта вкладка диагностики в BlockCheck", "INFO")
         except Exception as e:
             log(f"Ошибка при открытии вкладки тестирования: {e}", "❌ ERROR")
             self.set_status(f"Ошибка: {e}")
 
     def set_garland_enabled(self, enabled: bool) -> None:
-        """No-op: garland not available in FluentWindow shell (can be re-added later)."""
-        pass
+        """Enable/disable top garland overlay in FluentWindow shell."""
+        try:
+            effects = getattr(self, "_holiday_effects", None)
+            if effects is None:
+                effects = HolidayEffectsManager(self)
+                self._holiday_effects = effects
+            effects.set_garland_enabled(bool(enabled))
+        except Exception as e:
+            log(f"❌ Ошибка переключения гирлянды: {e}", "ERROR")
 
     def set_snowflakes_enabled(self, enabled: bool) -> None:
-        """No-op: snowflakes not available in FluentWindow shell (can be re-added later)."""
-        pass
+        """Enable/disable snow overlay in FluentWindow shell."""
+        try:
+            effects = getattr(self, "_holiday_effects", None)
+            if effects is None:
+                effects = HolidayEffectsManager(self)
+                self._holiday_effects = effects
+            effects.set_snowflakes_enabled(bool(enabled))
+        except Exception as e:
+            log(f"❌ Ошибка переключения снежинок: {e}", "ERROR")
 
     def set_window_opacity(self, value: int) -> None:
         """Устанавливает прозрачность фона окна (0–100%).
@@ -1772,7 +1823,17 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
     def resizeEvent(self, event):
         """Обновляем геометрию при изменении размера окна"""
         super().resizeEvent(event)
+        try:
+            self._update_titlebar_search_width()
+        except Exception:
+            pass
         self._on_window_geometry_changed()
+        try:
+            effects = getattr(self, "_holiday_effects", None)
+            if effects is not None:
+                effects.sync_geometry()
+        except Exception:
+            pass
     
     def showEvent(self, event):
         """Первый показ окна"""
@@ -1788,6 +1849,14 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # Включаем автосохранение геометрии (после первого show + небольшой паузы)
         QTimer.singleShot(350, self._enable_geometry_persistence)
+
+        try:
+            effects = getattr(self, "_holiday_effects", None)
+            if effects is not None:
+                effects.sync_geometry()
+                QTimer.singleShot(0, effects.sync_geometry)
+        except Exception:
+            pass
 
     def _init_garland_from_registry(self) -> None:
         """Загружает состояние гирлянды и снежинок из реестра при старте"""
@@ -2089,6 +2158,37 @@ def main():
 
     _startup_bridge.finished.connect(_on_startup_checks_finished)
 
+    def _run_after_startup_flag(
+        flag_attr: str,
+        callback,
+        *,
+        gate_name: str,
+        check_every_ms: int = 250,
+        timeout_ms: int = 20000,
+    ) -> None:
+        """Run callback when a startup flag becomes True (or after timeout)."""
+        started_at = time.perf_counter()
+
+        def _try_start() -> None:
+            try:
+                ready = bool(getattr(window, flag_attr, False))
+                elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+
+                if ready or elapsed_ms >= int(timeout_ms):
+                    if not ready:
+                        log(
+                            f"Startup gate timeout: {gate_name} ({flag_attr}) after {elapsed_ms}ms",
+                            "DEBUG",
+                        )
+                    callback()
+                    return
+
+                QTimer.singleShot(max(50, int(check_every_ms)), _try_start)
+            except Exception:
+                callback()
+
+        QTimer.singleShot(0, _try_start)
+
     def _startup_checks_worker():
         try:
             from startup.bfe_util import preload_service_status, ensure_bfe_running, cleanup as bfe_cleanup
@@ -2145,12 +2245,19 @@ def main():
                     pass
             _startup_bridge.finished.emit({"ok": True, "warnings": [], "fatal_error": None})
 
-    # Запускаем проверки через 100ms после показа окна (в фоне)
+    # Запускаем проверки только после interactive-фазы,
+    # чтобы не конкурировать с heavy build_ui на старте.
     def _start_startup_checks():
         import threading
         threading.Thread(target=_startup_checks_worker, daemon=True).start()
 
-    QTimer.singleShot(100, _start_startup_checks)
+    _run_after_startup_flag(
+        "_startup_interactive_logged",
+        _start_startup_checks,
+        gate_name="startup_checks",
+        check_every_ms=250,
+        timeout_ms=20000,
+    )
 
     # ─── Автопроверка обновлений при запуске ───────────────────────────────────
 
@@ -2236,7 +2343,18 @@ def main():
         import threading
         threading.Thread(target=_startup_update_worker, daemon=True).start()
 
-    QTimer.singleShot(4000, _schedule_startup_update_check)
+    def _schedule_startup_update_check_deferred() -> None:
+        delay_ms = 12000
+        log(f"Автопроверка обновлений отложена на {delay_ms}ms после готовности UI", "DEBUG")
+        QTimer.singleShot(delay_ms, _schedule_startup_update_check)
+
+    _run_after_startup_flag(
+        "_startup_post_init_ready",
+        _schedule_startup_update_check_deferred,
+        gate_name="startup_update_check",
+        check_every_ms=350,
+        timeout_ms=30000,
+    )
 
     # ─── CPU Diagnostic ────────────────────────────────────────────────────────
     # Logs per-process CPU breakdown to identify the 20% CPU source.

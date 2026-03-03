@@ -19,6 +19,7 @@ from ui.pages.base_page import BasePage
 from ui.pages.strategies_page_base import ResetActionButton
 from ui.compat_widgets import ActionButton, PrimaryActionButton, PulsingDot, SettingsCard, SettingsRow, set_tooltip
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 
 try:
     from qfluentwidgets import (
@@ -139,6 +140,8 @@ class Zapret2DirectControlPage(BasePage):
             "Настройка и запуск Zapret 2. Выберите готовые пресеты-конфиги (как раньше .bat), "
             "а при необходимости выполните тонкую настройку для каждой категории в разделе «Прямой запуск».",
             parent,
+            title_key="page.z2_control.title",
+            subtitle_key="page.z2_control.subtitle",
         )
 
         self._cert_install_thread: QThread | None = None
@@ -164,7 +167,10 @@ class Zapret2DirectControlPage(BasePage):
 
     def _build_ui(self):
         # Статус работы
-        self.status_section_label = self.add_section_title("Статус работы", return_widget=True)
+        self.status_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.status",
+        )
 
         status_card = SettingsCard()
         self.status_card = status_card
@@ -179,12 +185,12 @@ class Zapret2DirectControlPage(BasePage):
         status_text.setSpacing(2)
 
         if _HAS_FLUENT_LABELS:
-            self.status_title = StrongBodyLabel("Проверка...")
-            self.status_desc = CaptionLabel("Определение состояния процесса")
+            self.status_title = StrongBodyLabel(tr_catalog("page.z2_control.status.checking", language=self._ui_language, default="Проверка..."))
+            self.status_desc = CaptionLabel(tr_catalog("page.z2_control.status.detecting", language=self._ui_language, default="Определение состояния процесса"))
         else:
-            self.status_title = QLabel("Проверка...")
+            self.status_title = QLabel(tr_catalog("page.z2_control.status.checking", language=self._ui_language, default="Проверка..."))
             self.status_title.setStyleSheet("QLabel { font-size: 15px; font-weight: 600; }")
-            self.status_desc = QLabel("Определение состояния процесса")
+            self.status_desc = QLabel(tr_catalog("page.z2_control.status.detecting", language=self._ui_language, default="Определение состояния процесса"))
             self.status_desc.setStyleSheet("QLabel { font-size: 12px; }")
         status_text.addWidget(self.status_title)
         status_text.addWidget(self.status_desc)
@@ -196,7 +202,10 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # Управление
-        self.control_section_label = self.add_section_title("Управление Zapret 2", return_widget=True)
+        self.control_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.management",
+        )
 
         control_card = SettingsCard()
         self.control_card_card = control_card
@@ -217,14 +226,14 @@ class Zapret2DirectControlPage(BasePage):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(12)
 
-        self.start_btn = BigActionButton("Запустить Zapret", "fa5s.play", accent=True)
+        self.start_btn = BigActionButton(tr_catalog("page.z2_control.button.start", language=self._ui_language, default="Запустить Zapret"), "fa5s.play", accent=True)
         buttons_layout.addWidget(self.start_btn)
 
-        self.stop_winws_btn = StopButton("Остановить только winws.exe", "fa5s.stop")
+        self.stop_winws_btn = StopButton(tr_catalog("page.z2_control.button.stop_only_winws", language=self._ui_language, default="Остановить только winws.exe"), "fa5s.stop")
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
 
-        self.stop_and_exit_btn = StopButton("Остановить и закрыть программу", "fa5s.power-off")
+        self.stop_and_exit_btn = StopButton(tr_catalog("page.z2_control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть программу"), "fa5s.power-off")
         self.stop_and_exit_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_and_exit_btn)
 
@@ -235,7 +244,10 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
-        self.preset_section_label = self.add_section_title("Сменить пресет обхода блокировок", return_widget=True)
+        self.preset_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.preset_switch",
+        )
 
         # Card A — Активный пресет (single-row: icon | text | button)
         preset_card = CardWidget()
@@ -252,21 +264,22 @@ class Zapret2DirectControlPage(BasePage):
 
         preset_col = QVBoxLayout()
         preset_col.setSpacing(2)
-        self.preset_name_label = StrongBodyLabel("Не выбран")
+        self.preset_name_label = StrongBodyLabel(tr_catalog("page.z2_control.preset.not_selected", language=self._ui_language, default="Не выбран"))
         self.active_preset_label = self.preset_name_label  # backward-compat alias
         if _HAS_FLUENT_LABELS:
-            self.strategy_label = CaptionLabel("Нет активных листов")
+            self.strategy_label = CaptionLabel(tr_catalog("page.z2_control.preset.no_active_lists", language=self._ui_language, default="Нет активных листов"))
         else:
-            self.strategy_label = QLabel("Нет активных листов")
+            self.strategy_label = QLabel(tr_catalog("page.z2_control.preset.no_active_lists", language=self._ui_language, default="Нет активных листов"))
             self.strategy_label.setStyleSheet("QLabel { font-size: 11px; }")
         self.strategy_label.setWordWrap(True)
         self.strategy_label.setVisible(False)
         preset_col.addWidget(self.preset_name_label)
-        preset_col.addWidget(CaptionLabel("Текущий активный пресет"))
+        self.current_preset_caption = CaptionLabel(tr_catalog("page.z2_control.preset.current", language=self._ui_language, default="Текущий активный пресет"))
+        preset_col.addWidget(self.current_preset_caption)
         preset_row.addLayout(preset_col, 1)
 
         presets_btn = PushButton()
-        presets_btn.setText("Мои пресеты")
+        presets_btn.setText(tr_catalog("page.z2_control.button.my_presets", language=self._ui_language, default="Мои пресеты"))
         presets_btn.setIcon(FluentIcon.FOLDER)
         presets_btn.clicked.connect(self.navigate_to_presets.emit)
         preset_row.addWidget(presets_btn, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -276,7 +289,10 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(8)
 
         # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
-        self.direct_section_label = self.add_section_title("Настройте пресет более тонко через прямой запуск", return_widget=True)
+        self.direct_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.direct_tuning",
+        )
 
         # Card B — Прямой запуск (single-row: icon | text | buttons)
         direct_card = CardWidget()
@@ -293,20 +309,20 @@ class Zapret2DirectControlPage(BasePage):
 
         direct_col = QVBoxLayout()
         direct_col.setSpacing(2)
-        self.direct_mode_label = StrongBodyLabel("Basic")
+        self.direct_mode_label = StrongBodyLabel(tr_catalog("page.z2_control.mode.basic", language=self._ui_language, default="Basic"))
         direct_col.addWidget(self.direct_mode_label)
-        self.direct_mode_caption = CaptionLabel("Режим прямого запуска")
+        self.direct_mode_caption = CaptionLabel(tr_catalog("page.z2_control.direct_mode.caption", language=self._ui_language, default="Режим прямого запуска"))
         direct_col.addWidget(self.direct_mode_caption)
         direct_row.addLayout(direct_col, 1)
 
         direct_btns = QHBoxLayout()
         direct_btns.setSpacing(4)
         open_btn = PushButton()
-        open_btn.setText("Открыть")
+        open_btn.setText(tr_catalog("page.z2_control.button.open", language=self._ui_language, default="Открыть"))
         open_btn.setIcon(FluentIcon.PLAY)
         open_btn.clicked.connect(self.navigate_to_direct_launch.emit)
         mode_btn = TransparentPushButton()
-        mode_btn.setText("Изменить режим")
+        mode_btn.setText(tr_catalog("page.z2_control.button.change_mode", language=self._ui_language, default="Изменить режим"))
         mode_btn.clicked.connect(self._open_direct_mode_dialog)
         direct_btns.addWidget(open_btn)
         direct_btns.addWidget(mode_btn)
@@ -326,7 +342,10 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # Настройки программы
-        self.program_settings_section_label = self.add_section_title("Настройки программы", return_widget=True)
+        self.program_settings_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.program_settings",
+        )
         program_settings_card = SettingsCard()
         self.program_settings_card = program_settings_card
 
@@ -398,15 +417,18 @@ class Zapret2DirectControlPage(BasePage):
         self.add_spacing(16)
 
         # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ (direct_zapret2)
-        self.advanced_settings_section_label = self.add_section_title("Дополнительные настройки", return_widget=True)
+        self.advanced_settings_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.advanced_settings",
+        )
 
-        self.advanced_card = SettingsCard("ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ")
+        self.advanced_card = SettingsCard(tr_catalog("page.z2_control.card.advanced", language=self._ui_language, default="ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ"))
         advanced_layout = QVBoxLayout()
         advanced_layout.setSpacing(6)
 
-        advanced_desc = CaptionLabel("⚠ Изменяйте только если знаете что делаете") if _HAS_FLUENT_LABELS else QLabel("⚠ Изменяйте только если знаете что делаете")
-        advanced_desc.setStyleSheet("color: #ff9800; padding-bottom: 8px;")
-        advanced_layout.addWidget(advanced_desc)
+        self.advanced_desc = CaptionLabel(tr_catalog("page.z2_control.advanced.warning", language=self._ui_language, default="⚠ Изменяйте только если знаете что делаете")) if _HAS_FLUENT_LABELS else QLabel(tr_catalog("page.z2_control.advanced.warning", language=self._ui_language, default="⚠ Изменяйте только если знаете что делаете"))
+        self.advanced_desc.setStyleSheet("color: #ff9800; padding-bottom: 8px;")
+        advanced_layout.addWidget(self.advanced_desc)
 
         try:
             from ui.pages.dpi_settings_page import Win11ToggleRow
@@ -473,12 +495,14 @@ class Zapret2DirectControlPage(BasePage):
 
         blobs_col = QVBoxLayout()
         blobs_col.setSpacing(2)
-        blobs_col.addWidget(StrongBodyLabel("Блобы"))
-        blobs_col.addWidget(CaptionLabel("Бинарные данные (.bin / hex) для стратегий"))
+        self.blobs_title_label = StrongBodyLabel(tr_catalog("page.z2_control.blobs.title", language=self._ui_language, default="Блобы"))
+        self.blobs_desc_label = CaptionLabel(tr_catalog("page.z2_control.blobs.desc", language=self._ui_language, default="Бинарные данные (.bin / hex) для стратегий"))
+        blobs_col.addWidget(self.blobs_title_label)
+        blobs_col.addWidget(self.blobs_desc_label)
         blobs_row.addLayout(blobs_col, 1)
 
         blobs_open_btn = PushButton()
-        blobs_open_btn.setText("Открыть")
+        blobs_open_btn.setText(tr_catalog("page.z2_control.button.open", language=self._ui_language, default="Открыть"))
         blobs_open_btn.setIcon(FluentIcon.FOLDER)
         blobs_open_btn.clicked.connect(self.navigate_to_blobs.emit)
         self.blobs_open_btn = blobs_open_btn
@@ -486,16 +510,19 @@ class Zapret2DirectControlPage(BasePage):
         self.add_widget(blobs_card)
         
         # Дополнительные действия
-        self.extra_section_label = self.add_section_title("Дополнительно", return_widget=True)
+        self.extra_section_label = self.add_section_title(
+            return_widget=True,
+            text_key="page.z2_control.section.additional",
+        )
         extra_card = SettingsCard()
         self.extra_card = extra_card
         extra_layout = QHBoxLayout()
         extra_layout.setSpacing(8)
-        self.test_btn = ActionButton("Тест соединения", "fa5s.wifi")
+        self.test_btn = ActionButton(tr_catalog("page.z2_control.button.connection_test", language=self._ui_language, default="Тест соединения"), "fa5s.wifi")
         extra_layout.addWidget(self.test_btn)
-        self.folder_btn = ActionButton("Открыть папку", "fa5s.folder-open")
+        self.folder_btn = ActionButton(tr_catalog("page.z2_control.button.open_folder", language=self._ui_language, default="Открыть папку"), "fa5s.folder-open")
         extra_layout.addWidget(self.folder_btn)
-        self.docs_btn = ActionButton("Документация", "fa5s.book")
+        self.docs_btn = ActionButton(tr_catalog("page.z2_control.button.documentation", language=self._ui_language, default="Документация"), "fa5s.book")
         self.docs_btn.clicked.connect(self._open_docs)
         extra_layout.addWidget(self.docs_btn)
         extra_layout.addStretch()
@@ -677,7 +704,9 @@ class Zapret2DirectControlPage(BasePage):
         try:
             from strategy_menu import get_direct_zapret2_ui_mode
             mode = get_direct_zapret2_ui_mode()
-            self.direct_mode_label.setText("Basic" if mode == "basic" else "Advanced")
+            key = "page.z2_control.mode.basic" if mode == "basic" else "page.z2_control.mode.advanced"
+            default = "Basic" if mode == "basic" else "Advanced"
+            self.direct_mode_label.setText(tr_catalog(key, language=self._ui_language, default=default))
         except Exception:
             pass
 
@@ -945,9 +974,20 @@ class Zapret2DirectControlPage(BasePage):
 
             method = get_strategy_launch_method()
             exe_name = os.path.basename(get_winws_exe_for_method(method)) or "winws.exe"
-            self.stop_winws_btn.setText(f"Остановить только {exe_name}")
+            template = tr_catalog(
+                "page.z2_control.button.stop_only_template",
+                language=self._ui_language,
+                default="Остановить только {exe_name}",
+            )
+            self.stop_winws_btn.setText(template.format(exe_name=exe_name))
         except Exception:
-            self.stop_winws_btn.setText("Остановить только winws.exe")
+            self.stop_winws_btn.setText(
+                tr_catalog(
+                    "page.z2_control.button.stop_only_winws",
+                    language=self._ui_language,
+                    default="Остановить только winws.exe",
+                )
+            )
 
     def set_loading(self, loading: bool, text: str = ""):
         if _HAS_FLUENT_LABELS:
@@ -965,8 +1005,8 @@ class Zapret2DirectControlPage(BasePage):
 
     def update_status(self, is_running: bool):
         if is_running:
-            self.status_title.setText("Zapret работает")
-            self.status_desc.setText("Обход блокировок активен")
+            self.status_title.setText(tr_catalog("page.z2_control.status.running", language=self._ui_language, default="Zapret работает"))
+            self.status_desc.setText(tr_catalog("page.z2_control.status.bypass_active", language=self._ui_language, default="Обход блокировок активен"))
             self.status_dot.set_color("#6ccb5f")
             self.status_dot.start_pulse()
             self.start_btn.setVisible(False)
@@ -974,8 +1014,8 @@ class Zapret2DirectControlPage(BasePage):
             self.stop_winws_btn.setVisible(True)
             self.stop_and_exit_btn.setVisible(True)
         else:
-            self.status_title.setText("Zapret остановлен")
-            self.status_desc.setText("Нажмите «Запустить» для активации")
+            self.status_title.setText(tr_catalog("page.z2_control.status.stopped", language=self._ui_language, default="Zapret остановлен"))
+            self.status_desc.setText(tr_catalog("page.z2_control.status.press_start", language=self._ui_language, default="Нажмите «Запустить» для активации"))
             self.status_dot.set_color("#ff6b6b")
             self.status_dot.stop_pulse()
             self.start_btn.setVisible(True)
@@ -1047,13 +1087,35 @@ class Zapret2DirectControlPage(BasePage):
             self.preset_name_label.setText(active_preset_name)
             set_tooltip(self.preset_name_label, active_preset_name)
         else:
-            self.preset_name_label.setText("Не выбран")
+            self.preset_name_label.setText(tr_catalog("page.z2_control.preset.not_selected", language=self._ui_language, default="Не выбран"))
             set_tooltip(self.preset_name_label, "")
 
         if name and name != "Автостарт DPI отключен":
             self.strategy_label.setText(name)
         else:
-            self.strategy_label.setText("Нет активных листов")
+            self.strategy_label.setText(tr_catalog("page.z2_control.preset.no_active_lists", language=self._ui_language, default="Нет активных листов"))
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+
+        self.start_btn.setText(tr_catalog("page.z2_control.button.start", language=self._ui_language, default="Запустить Zapret"))
+        self.stop_and_exit_btn.setText(tr_catalog("page.z2_control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть программу"))
+        self.presets_btn.setText(tr_catalog("page.z2_control.button.my_presets", language=self._ui_language, default="Мои пресеты"))
+        self.direct_open_btn.setText(tr_catalog("page.z2_control.button.open", language=self._ui_language, default="Открыть"))
+        self.direct_mode_btn.setText(tr_catalog("page.z2_control.button.change_mode", language=self._ui_language, default="Изменить режим"))
+        self.blobs_open_btn.setText(tr_catalog("page.z2_control.button.open", language=self._ui_language, default="Открыть"))
+        self.test_btn.setText(tr_catalog("page.z2_control.button.connection_test", language=self._ui_language, default="Тест соединения"))
+        self.folder_btn.setText(tr_catalog("page.z2_control.button.open_folder", language=self._ui_language, default="Открыть папку"))
+        self.docs_btn.setText(tr_catalog("page.z2_control.button.documentation", language=self._ui_language, default="Документация"))
+
+        self.current_preset_caption.setText(tr_catalog("page.z2_control.preset.current", language=self._ui_language, default="Текущий активный пресет"))
+        self.direct_mode_caption.setText(tr_catalog("page.z2_control.direct_mode.caption", language=self._ui_language, default="Режим прямого запуска"))
+        self.advanced_desc.setText(tr_catalog("page.z2_control.advanced.warning", language=self._ui_language, default="⚠ Изменяйте только если знаете что делаете"))
+        self.blobs_title_label.setText(tr_catalog("page.z2_control.blobs.title", language=self._ui_language, default="Блобы"))
+        self.blobs_desc_label.setText(tr_catalog("page.z2_control.blobs.desc", language=self._ui_language, default="Бинарные данные (.bin / hex) для стратегий"))
+
+        self._update_stop_winws_button_text()
+        self._refresh_direct_mode_label()
 
     def _open_docs(self) -> None:
         try:

@@ -15,6 +15,7 @@ from ui.pages.base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton
 from ui.widgets import UnifiedStrategiesList
 from ui.theme import get_theme_tokens
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -39,20 +40,11 @@ class Zapret2StrategiesPageNew(BasePage):
     open_category_detail = pyqtSignal(str, str)  # category_key, current_strategy_id
     back_clicked = pyqtSignal()
 
-    _INFO_TEXT = (
-        "Здесь Вы можете ТОНКО изменить стратегию для каждой категории. "
-        "Всего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). "
-        "Последовательность сама определяется программой.\n\n"
-        "Вы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню. "
-        "Каждая стратегия — это всего лишь набор аргументов, то есть техник (дурения или фуллинга) для того "
-        "чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство. "
-        "Чтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент."
-    )
-
     def __init__(self, parent=None):
         super().__init__(
             title="Прямой запуск Zapret 2",
-            parent=parent
+            parent=parent,
+            title_key="page.z2_direct.title",
         )
         self.parent_app = parent
 
@@ -74,10 +66,13 @@ class Zapret2StrategiesPageNew(BasePage):
                 from ui.theme import get_theme_tokens as _get_tokens
                 _tokens = _get_tokens()
                 _back_btn = TransparentPushButton()
-                _back_btn.setText("Управление")
+                _back_btn.setText(
+                    tr_catalog("page.z2_direct.back.control", language=self._ui_language, default="Управление")
+                )
                 _back_btn.setIcon(_qta.icon("fa5s.chevron-left", color=_tokens.fg_muted))
                 _back_btn.setIconSize(_QSize(12, 12))
                 _back_btn.clicked.connect(self.back_clicked.emit)
+                self._back_btn = _back_btn
                 _back_layout = _QHBoxLayout()
                 _back_layout.setContentsMargins(0, 0, 0, 0)
                 _back_layout.setSpacing(0)
@@ -96,6 +91,10 @@ class Zapret2StrategiesPageNew(BasePage):
         self._strategy_set_snapshot = None
         self._telegram_hint_label = None
         self._telegram_btn = None
+        self._expand_btn = None
+        self._collapse_btn = None
+        self._info_btn = None
+        self._back_btn = None
 
         # Совместимость со старым кодом
         self.content_layout = self.layout
@@ -105,7 +104,9 @@ class Zapret2StrategiesPageNew(BasePage):
         self.select_strategy_btn = PushButton()
         self.select_strategy_btn.hide()
 
-        self.current_strategy_label = BodyLabel("Не выбрана")
+        self.current_strategy_label = BodyLabel(
+            tr_catalog("page.z2_direct.current.not_selected", language=self._ui_language, default="Не выбрана")
+        )
 
     def _rebuild_breadcrumb(self) -> None:
         """Restore full breadcrumb path (BreadcrumbBar deletes items on back-click)."""
@@ -114,8 +115,14 @@ class Zapret2StrategiesPageNew(BasePage):
         self._breadcrumb.blockSignals(True)
         try:
             self._breadcrumb.clear()
-            self._breadcrumb.addItem("control", "Управление")
-            self._breadcrumb.addItem("strategies", "Прямой запуск Zapret 2")
+            self._breadcrumb.addItem(
+                "control",
+                tr_catalog("page.z2_direct.back.control", language=self._ui_language, default="Управление"),
+            )
+            self._breadcrumb.addItem(
+                "strategies",
+                tr_catalog("page.z2_direct.title", language=self._ui_language, default="Прямой запуск Zapret 2"),
+            )
         finally:
             self._breadcrumb.blockSignals(False)
 
@@ -180,9 +187,13 @@ class Zapret2StrategiesPageNew(BasePage):
             telegram_layout.setSpacing(16)
 
             # Описательный текст слева
-            _hint_text = (
-                "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов "
-                "можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
+            _hint_text = tr_catalog(
+                "page.z2_direct.telegram.hint",
+                language=self._ui_language,
+                default=(
+                    "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов "
+                    "можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
+                ),
             )
             telegram_hint = CaptionLabel(_hint_text)
             self._telegram_hint_label = telegram_hint
@@ -193,7 +204,10 @@ class Zapret2StrategiesPageNew(BasePage):
             telegram_layout.addWidget(telegram_hint, 1)
 
             # Кнопка Telegram
-            telegram_btn = ActionButton("ОТКРЫТЬ TELEGRAM БОТА", "fa5b.telegram-plane")
+            telegram_btn = ActionButton(
+                tr_catalog("page.z2_direct.telegram.button", language=self._ui_language, default="ОТКРЫТЬ TELEGRAM БОТА"),
+                "fa5b.telegram-plane",
+            )
             self._telegram_btn = telegram_btn
             telegram_btn.setFixedHeight(36)
             telegram_btn.clicked.connect(self._open_custom_domains)
@@ -211,17 +225,30 @@ class Zapret2StrategiesPageNew(BasePage):
             self._reload_btn.clicked.connect(self._reload_strategies)
             actions_layout.addWidget(self._reload_btn)
 
-            expand_btn = ActionButton("Развернуть", "fa5s.expand-alt")
+            expand_btn = ActionButton(
+                tr_catalog("page.z2_direct.toolbar.expand", language=self._ui_language, default="Развернуть"),
+                "fa5s.expand-alt",
+            )
             expand_btn.clicked.connect(self._expand_all)
             actions_layout.addWidget(expand_btn)
+            self._expand_btn = expand_btn
 
-            collapse_btn = ActionButton("Свернуть", "fa5s.compress-alt")
+            collapse_btn = ActionButton(
+                tr_catalog("page.z2_direct.toolbar.collapse", language=self._ui_language, default="Свернуть"),
+                "fa5s.compress-alt",
+            )
             collapse_btn.clicked.connect(self._collapse_all)
             actions_layout.addWidget(collapse_btn)
+            self._collapse_btn = collapse_btn
 
-            info_btn = ActionButton("Что это такое?", "fa5s.question-circle", accent=False)
+            info_btn = ActionButton(
+                tr_catalog("page.z2_direct.toolbar.info", language=self._ui_language, default="Что это такое?"),
+                "fa5s.question-circle",
+                accent=False,
+            )
             info_btn.clicked.connect(self._show_info_popup)
             actions_layout.addWidget(info_btn)
+            self._info_btn = info_btn
 
             actions_layout.addStretch()
 
@@ -420,7 +447,9 @@ class Zapret2StrategiesPageNew(BasePage):
         if name and name != "Автостарт DPI отключен":
             self.current_strategy_label.setText(name)
         else:
-            self.current_strategy_label.setText("Не выбрана")
+            self.current_strategy_label.setText(
+                tr_catalog("page.z2_direct.current.not_selected", language=self._ui_language, default="Не выбрана")
+            )
 
     def show_loading(self):
         """Совместимость: показывает спиннер"""
@@ -440,9 +469,17 @@ class Zapret2StrategiesPageNew(BasePage):
             active_count = sum(1 for s in selections.values() if s and s != 'none')
 
             if active_count > 0:
-                self.current_strategy_label.setText(f"{active_count} активных")
+                self.current_strategy_label.setText(
+                    tr_catalog(
+                        "page.z2_direct.current.active_count",
+                        language=self._ui_language,
+                        default="{count} активных",
+                    ).format(count=active_count)
+                )
             else:
-                self.current_strategy_label.setText("Не выбрана")
+                self.current_strategy_label.setText(
+                    tr_catalog("page.z2_direct.current.not_selected", language=self._ui_language, default="Не выбрана")
+                )
         except Exception as e:
             log(f"Ошибка обновления отображения: {e}", "DEBUG")
 
@@ -471,12 +508,70 @@ class Zapret2StrategiesPageNew(BasePage):
         """Показывает информационный диалог о режиме прямого запуска."""
         try:
             from qfluentwidgets import MessageBox
-            box = MessageBox("Прямой запуск Zapret 2", self._INFO_TEXT, self.window())
+            box = MessageBox(
+                tr_catalog("page.z2_direct.info.title", language=self._ui_language, default="Прямой запуск Zapret 2"),
+                self._tr_info_text(),
+                self.window(),
+            )
             box.hideCancelButton()
-            box.yesButton.setText("Понятно")
+            box.yesButton.setText(tr_catalog("common.ok.got_it", language=self._ui_language, default="Понятно"))
             box.exec()
         except Exception:
             pass
+
+    def _tr_info_text(self) -> str:
+        return tr_catalog(
+            "page.z2_direct.info.body",
+            language=self._ui_language,
+            default=(
+                "Здесь Вы можете ТОНКО изменить стратегию для каждой категории. "
+                "Всего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). "
+                "Последовательность сама определяется программой.\n\n"
+                "Вы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню. "
+                "Каждая стратегия — это всего лишь набор аргументов, то есть техник (дурения или фуллинга) для того "
+                "чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство. "
+                "Чтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент."
+            ),
+        )
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+        self._rebuild_breadcrumb()
+
+        if self._back_btn is not None:
+            self._back_btn.setText(
+                tr_catalog("page.z2_direct.back.control", language=self._ui_language, default="Управление")
+            )
+
+        if self._telegram_hint_label is not None:
+            self._telegram_hint_label.setText(
+                tr_catalog(
+                    "page.z2_direct.telegram.hint",
+                    language=self._ui_language,
+                    default=(
+                        "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов "
+                        "можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI."
+                    ),
+                )
+            )
+        if self._telegram_btn is not None:
+            self._telegram_btn.setText(
+                tr_catalog("page.z2_direct.telegram.button", language=self._ui_language, default="ОТКРЫТЬ TELEGRAM БОТА")
+            )
+        if self._expand_btn is not None:
+            self._expand_btn.setText(
+                tr_catalog("page.z2_direct.toolbar.expand", language=self._ui_language, default="Развернуть")
+            )
+        if self._collapse_btn is not None:
+            self._collapse_btn.setText(
+                tr_catalog("page.z2_direct.toolbar.collapse", language=self._ui_language, default="Свернуть")
+            )
+        if self._info_btn is not None:
+            self._info_btn.setText(
+                tr_catalog("page.z2_direct.toolbar.info", language=self._ui_language, default="Что это такое?")
+            )
+
+        self._update_current_strategies_display()
 
     def _open_custom_domains(self):
         """Открывает Telegram-бота для запроса добавления сайтов"""

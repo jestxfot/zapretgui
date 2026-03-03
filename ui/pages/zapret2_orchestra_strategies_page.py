@@ -14,6 +14,7 @@ from ui.pages.strategies_page_base import StatusIndicator, ResetActionButton
 from ui.compat_widgets import ActionButton, RefreshButton, SettingsCard
 from ui.widgets import UnifiedStrategiesList
 from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
+from ui.text_catalog import tr as tr_catalog
 from log import log
 
 try:
@@ -63,8 +64,17 @@ class Zapret2OrchestraStrategiesPage(BasePage):
     )
 
     def __init__(self, parent=None):
-        super().__init__(title=self._ROOT_TITLE, subtitle=self._ROOT_SUBTITLE, parent=parent)
+        super().__init__(
+            title=self._ROOT_TITLE,
+            subtitle=self._ROOT_SUBTITLE,
+            parent=parent,
+            title_key="page.z2_orchestra_strategies.title",
+            subtitle_key="page.z2_orchestra_strategies.subtitle",
+        )
         self.parent_app = parent
+
+        self._ROOT_TITLE = tr_catalog("page.z2_orchestra_strategies.title", default=self._ROOT_TITLE)
+        self._ROOT_SUBTITLE = tr_catalog("page.z2_orchestra_strategies.subtitle", default=self._ROOT_SUBTITLE)
 
         self._breadcrumb = None
         self._view_mode = "list"  # list | detail
@@ -457,6 +467,38 @@ class Zapret2OrchestraStrategiesPage(BasePage):
     def _on_selections_changed(self, selections: dict) -> None:
         self.category_selections = dict(selections or {})
         self._update_current_strategies_display()
+
+    def set_ui_language(self, language: str) -> None:
+        super().set_ui_language(language)
+        self._ROOT_TITLE = tr_catalog(
+            "page.z2_orchestra_strategies.title",
+            language=language,
+            default=self._ROOT_TITLE,
+        )
+        self._ROOT_SUBTITLE = tr_catalog(
+            "page.z2_orchestra_strategies.subtitle",
+            language=language,
+            default=self._ROOT_SUBTITLE,
+        )
+
+        if self._view_mode == "detail" and self._selected_category_key:
+            cat = self._categories.get(self._selected_category_key)
+            if cat is not None:
+                try:
+                    full_name = getattr(cat, "full_name", self._selected_category_key)
+                    self.title_label.setText(str(full_name))
+                except Exception:
+                    pass
+        else:
+            try:
+                self.title_label.setText(self._ROOT_TITLE)
+                if self.subtitle_label:
+                    self.subtitle_label.setText(self._ROOT_SUBTITLE)
+                    self.subtitle_label.show()
+            except Exception:
+                pass
+
+        self._rebuild_breadcrumb()
 
     def _back_to_list(self) -> None:
         self._view_mode = "list"

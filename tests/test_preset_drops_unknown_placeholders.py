@@ -99,7 +99,15 @@ class PresetDropsUnknownPlaceholdersTests(unittest.TestCase):
         self.assertNotIn("ipset-unknown.txt", out_l)
         self.assertNotIn("bad_ipset_marker".lower(), out_l)
 
+    def test_versioned_ipset_filename_maps_to_canonical_category(self):
+        category, mode, filter_file = self.parser.extract_category_from_args(
+            "--ipset=lists/cloudflare-ipset_v6.txt"
+        )
+
+        self.assertEqual(category, "cloudflare")
+        self.assertEqual(mode, "ipset")
+        self.assertEqual(filter_file, "lists/cloudflare-ipset_v6.txt")
+
 
 if __name__ == "__main__":
     unittest.main()
-

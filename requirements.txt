@@ -69,6 +69,8 @@ tgcrypto  # Ускоритель шифрования для Pyrogram
 # - PyInstaller и Nuitka опциональны (нужны только для сборки exe)
 # - PyGithub, paramiko, pyrogram опциональны (нужны только для публикации)
 
+httpx>=0.28.1
+
 aiohttp
 telethon
 PySocks

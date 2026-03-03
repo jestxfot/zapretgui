@@ -150,8 +150,7 @@ def create_spec_file(channel: str, root_path: Path, log_queue: Optional[Any] = N
     possible_locations = [
         root_path / icon_file,  # В корне проекта
         root_path / 'ico' / icon_file,  # В папке ico
-        root_path.parent / 'zapret' / 'ico' / icon_file,  # В папке сборки
-        Path('H:/Privacy/zapret/ico') / icon_file,  # Абсолютный путь к папке сборки
+        root_path / 'dist' / 'ico' / icon_file,  # В dist/ico
     ]
     
     for location in possible_locations:
@@ -261,6 +260,7 @@ a = Analysis(
         'ui.pages.zapret1.user_presets_page',
         'ui.pages.zapret1.strategy_detail_page_v1',
         'ui.pages.blockcheck_page',
+        'ui.pages.strategy_scan_page',
         'ui.pages.dpi_settings_page',
         'ui.pages.blobs_page',
         'ui.pages.connection_page',
@@ -278,7 +278,6 @@ a = Analysis(
         'ui.pages.orchestra.locked_page',
         'ui.pages.orchestra.whitelist_page',
         'ui.pages.orchestra.ratings_page',
-        'ui.pages.diagnostics_tab_page',
         'ui.pages.preset_config_page',
         'ui.pages.servers_page',
         'ui.pages.support_page',
@@ -551,7 +550,7 @@ def run_pyinstaller(channel: str, root_path: Path, run_func: Any, log_queue: Opt
     spec_path = root_path / "zapret_build.spec"
     work = root_path / "build" / "pyinstaller_cache"
     work.mkdir(parents=True, exist_ok=True)
-    out = root_path.parent / "zapret"
+    out = root_path / "dist"
     exe_path = None  # Инициализируем до try блока
 
     # ✅ ОЧИСТКА ВСЕГО КЭША ПЕРЕД СБОРКОЙ
