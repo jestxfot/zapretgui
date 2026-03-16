@@ -967,18 +967,7 @@ class TelegramWSProxy:
         dc: int,
         is_media: bool,
     ) -> None:
-        """Fall back to direct TCP to the original DC IP.
-
-        Skip TCP fallback for DCs that have WSS relays (DC2/DC4) —
-        their IPs are blocked by ISP, so TCP will just timeout and
-        flood the network with useless connection attempts.
-        """
-        # Don't TCP-fallback to IPs that are known-blocked (WSS DCs)
-        if dc in WSS_DOMAINS:
-            self.stats.failed_connections += 1
-            self._log(f"[{label}] DC{dc} WSS failed, no TCP fallback (IP blocked by ISP)")
-            return
-
+        """Fall back to direct TCP to the original DC IP."""
         media_tag = " media" if is_media else ""
         self._log(f"[{label}] DC{dc}{media_tag} TCP fallback -> {target_host}:{target_port}")
         try:
