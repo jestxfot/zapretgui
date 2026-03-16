@@ -129,7 +129,7 @@ class TelegramProxyPage(BasePage):
 
         setup_desc = CaptionLabel(
             "Нажмите кнопку ниже - Telegram автоматически добавит прокси. "
-            "Настройка требуется один раз."
+            "Настройка требуется один раз.\nЕсли Telegram не открывается попробуйте скопировать ссылку и отправить в любой чат Telegram или кому-то в ЛС — после чего нажмите на отправленную ссылку и подтвердите добавление прокси в Telegram клиент."
         )
         setup_desc.setWordWrap(True)
         self._setup_card.add_widget(setup_desc)
@@ -374,16 +374,41 @@ class TelegramProxyPage(BasePage):
                 return f"{n} B"
             if n < 1024 * 1024:
                 return f"{n / 1024:.1f} KB"
-            return f"{n / (1024 * 1024):.1f} MB"
+            if n < 1024 * 1024 * 1024:
+                return f"{n / (1024 * 1024):.1f} MB"
+            return f"{n / (1024 * 1024 * 1024):.2f} GB"
 
-        uptime = int(stats.uptime_seconds)
-        mins, secs = divmod(uptime, 60)
+        def _fmt_speed(n: int, secs: float) -> str:
+            if secs <= 0:
+                return "0 B/s"
+            rate = n / secs
+            if rate < 1024:
+                return f"{rate:.0f} B/s"
+            if rate < 1024 * 1024:
+                return f"{rate / 1024:.1f} KB/s"
+            return f"{rate / (1024 * 1024):.1f} MB/s"
+
+        uptime = stats.uptime_seconds
+        mins, secs = divmod(int(uptime), 60)
         hrs, mins = divmod(mins, 60)
         uptime_str = f"{hrs}:{mins:02d}:{secs:02d}" if hrs else f"{mins}:{secs:02d}"
 
+        # Calculate speed based on delta from last update
+        now_sent = stats.bytes_sent
+        now_recv = stats.bytes_received
+        prev_sent = getattr(self, '_prev_bytes_sent', 0)
+        prev_recv = getattr(self, '_prev_bytes_received', 0)
+        delta_sent = now_sent - prev_sent
+        delta_recv = now_recv - prev_recv
+        self._prev_bytes_sent = now_sent
+        self._prev_bytes_received = now_recv
+        # Stats update interval is 2 seconds
+        interval = 2.0
+
         self._stats_label.setText(
             f"Подключения: {stats.active_connections} акт. / {stats.total_connections} всего  |  "
-            f"↑ {_fmt_bytes(stats.bytes_sent)}  ↓ {_fmt_bytes(stats.bytes_received)}  |  "
+            f"↑ {_fmt_bytes(now_sent)} ({_fmt_speed(delta_sent, interval)})  "
+            f"↓ {_fmt_bytes(now_recv)} ({_fmt_speed(delta_recv, interval)})  |  "
             f"Uptime: {uptime_str}"
         )
 

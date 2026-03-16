@@ -59,8 +59,20 @@ MAX_RETRIES = 1
 _WS_POOL_SIZE = 4        # connections per (dc, is_media) key
 _WS_POOL_MAX_AGE = 120.0  # seconds before evicting idle connections
 
-# DC fail cooldown (seconds) — short, because TCP fallback to blocked IPs is useless
+# DC fail cooldown (seconds)
 DC_FAIL_COOLDOWN = 10.0
+
+# Max concurrent WSS handshakes — prevents TLS flood that kills the network
+_MAX_CONCURRENT_WSS = 4
+_wss_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _get_wss_semaphore() -> asyncio.Semaphore:
+    """Lazy-init semaphore (must be created inside an event loop)."""
+    global _wss_semaphore
+    if _wss_semaphore is None:
+        _wss_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WSS)
+    return _wss_semaphore
 
 # SSL context: no hostname verification (we connect to IP, not hostname)
 _ssl_ctx = ssl.create_default_context()
@@ -588,18 +600,20 @@ class _WsPool:
         target_ip: str, domains: list[str],
     ) -> Optional[RawWebSocket]:
         """Try to open one WebSocket connection, cycling through domains."""
-        for domain in domains:
-            try:
-                ws = await RawWebSocket.connect(
-                    target_ip, domain, WSS_PATH, timeout=8.0,
-                )
-                return ws
-            except WsHandshakeError as exc:
-                if exc.is_redirect:
-                    continue
-                return None
-            except Exception:
-                return None
+        sem = _get_wss_semaphore()
+        async with sem:
+            for domain in domains:
+                try:
+                    ws = await RawWebSocket.connect(
+                        target_ip, domain, WSS_PATH, timeout=8.0,
+                    )
+                    return ws
+                except WsHandshakeError as exc:
+                    if exc.is_redirect:
+                        continue
+                    return None
+                except Exception:
+                    return None
         return None
 
     @staticmethod
@@ -679,6 +693,9 @@ class TelegramWSProxy:
         self._running = True
         self.stats = ProxyStats()
         self._ws_pool = _WsPool(self.stats)
+        # Reset semaphore for fresh event loop
+        global _wss_semaphore
+        _wss_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WSS)
 
         # NOTE: Transparent mode was removed. WinDivert cannot intercept
         # inbound loopback packets (kernel driver limitation), making Lua NAT
@@ -895,12 +912,14 @@ class TelegramWSProxy:
         all_redirects = True
         any_redirect = False
 
+        sem = _get_wss_semaphore()
         for domain in domains if ws is None else []:
             try:
                 self._log(f"[{label}] DC{dc}{media_tag} -> wss://{domain}{WSS_PATH}")
-                ws = await RawWebSocket.connect(
-                    WSS_RELAY_IP, domain, WSS_PATH, timeout=CONNECT_TIMEOUT,
-                )
+                async with sem:
+                    ws = await RawWebSocket.connect(
+                        WSS_RELAY_IP, domain, WSS_PATH, timeout=CONNECT_TIMEOUT,
+                    )
                 all_redirects = False
                 break
             except WsHandshakeError as exc:
