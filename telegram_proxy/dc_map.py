@@ -8,27 +8,30 @@ DC2/DC4 WSS relays which read the real DC id from the MTProto init packet.
 
 import socket as _socket
 import struct
-from ipaddress import IPv4Network, IPv4Address
+from ipaddress import IPv4Network, IPv4Address, IPv6Network, IPv6Address
 from typing import Optional
 
 
 # ---- WebSocket relay configuration ----
 
-# The IP that hosts the working WebSocket relays (DC2 and DC4).
-# All WSS connections go to this IP with different SNI hostnames.
+# The IP that hosts the proven working WebSocket relays.
+# Hardcoded by Flowseal reference implementation — do NOT change to DNS result.
 WSS_RELAY_IP = "149.154.167.220"
 
-# WSS domains that actually accept WebSocket upgrades (return 101).
-# DC1, DC3, DC5 domains always return 302 -- they are NOT usable.
-# The relay reads the DC id from the MTProto init packet and routes
-# internally, so connecting via kws2 can serve traffic for any DC.
+# Per-domain IP overrides (empty = all use WSS_RELAY_IP).
+# Only add entries here after manually verifying that a domain works at a
+# specific IP.  Unverified IPs from DNS can break media downloads.
+WSS_RELAY_IPS: dict[str, str] = {}
+
+# WSS domains that accept WebSocket upgrades (return 101).
+# Only DC2 and DC4 relays are proven to work.  All DCs are routed through
+# them — the relay reads the real DC from the MTProto init packet.
 WSS_DOMAINS = {
     2: ["kws2.web.telegram.org", "kws2-1.web.telegram.org"],
     4: ["kws4.web.telegram.org", "kws4-1.web.telegram.org"],
 }
 
-# Fallback ordering: if a DC's own relay doesn't work, try these.
-# DC2 and DC4 are the only working relays.
+# For DCs without their own relay, try these (cross-DC routing via init).
 WSS_FALLBACK_ORDER = [2, 4]
 
 WSS_PATH = "/apiws"
@@ -115,6 +118,29 @@ TELEGRAM_CIDRS: list[IPv4Network] = [
     IPv4Network("185.76.151.0/24"),
 ]
 
+# Telegram IPv6 CIDR ranges
+TELEGRAM_V6_CIDRS: list[IPv6Network] = [
+    IPv6Network("2001:67c:4e8::/48"),
+    IPv6Network("2001:b28:f23c::/46"),
+    IPv6Network("2a0a:f280::/32"),
+]
+
+# IPv6 DC mapping (prefix -> dc)
+_V6_SUBNET_TO_DC: list[tuple[IPv6Network, int]] = [
+    (IPv6Network("2001:67c:4e8:f002::/64"), 2),   # DC2
+    (IPv6Network("2001:67c:4e8:f003::/64"), 3),   # DC3
+    (IPv6Network("2001:67c:4e8:f004::/64"), 4),   # DC4
+    (IPv6Network("2001:67c:4e8:f001::/64"), 1),   # DC1
+    (IPv6Network("2001:67c:4e8:f005::/64"), 5),   # DC5
+    (IPv6Network("2001:b28:f23d:f003::/64"), 3),   # DC3 alt
+    (IPv6Network("2001:b28:f23f:f005::/64"), 5),   # DC5 alt
+    (IPv6Network("2a0a:f280:203::/48"), 203),       # CDN DC203
+    # Fallback for entire ranges
+    (IPv6Network("2001:67c:4e8::/48"), 2),
+    (IPv6Network("2001:b28:f23c::/46"), 2),
+    (IPv6Network("2a0a:f280::/32"), 2),
+]
+
 # Telegram IP ranges as integer tuples for fast lookup
 _TG_RANGES = [
     # 185.76.151.0/24
@@ -157,7 +183,17 @@ def ip_to_dc(ip: str) -> int:
     """Map a Telegram IP address to its datacenter number.
 
     Returns DC number (1-5). Falls back to DC2 (most common) if unknown.
+    Supports both IPv4 and IPv6.
     """
+    if ":" in ip:
+        try:
+            addr = IPv6Address(ip)
+            for net, dc in _V6_SUBNET_TO_DC:
+                if addr in net:
+                    return dc
+        except ValueError:
+            pass
+        return 2
     _compile()
     try:
         ip_int = int(IPv4Address(ip))
@@ -184,7 +220,15 @@ def is_telegram_ip(ip: str) -> bool:
     """Check if an IP address belongs to Telegram's known ranges.
 
     Uses fast integer comparison against precomputed ranges.
+    Supports both IPv4 and IPv6.
     """
+    if ":" in ip:
+        # IPv6
+        try:
+            addr = IPv6Address(ip)
+            return any(addr in net for net in TELEGRAM_V6_CIDRS)
+        except ValueError:
+            return False
     try:
         n = struct.unpack("!I", _socket.inet_aton(ip))[0]
         return any(lo <= n <= hi for lo, hi in _TG_RANGES)
@@ -195,12 +239,12 @@ def is_telegram_ip(ip: str) -> bool:
 def ws_domains_for_dc(dc: int, is_media: bool = False) -> list[str]:
     """Get WebSocket domain names to try for a datacenter.
 
-    Only DC2 and DC4 have working WSS relays. For other DCs,
-    returns DC2/DC4 domains (the relay routes based on MTProto init).
+    Only DC2 and DC4 have proven working WSS relays.  For other DCs,
+    returns DC2/DC4 domains — the relay routes based on the DC id in the
+    MTProto init packet (cross-DC routing).
 
     For media connections, tries the -1 variant first.
     """
-    # If this DC has its own working relay, use it
     if dc in WSS_DOMAINS:
         domains = WSS_DOMAINS[dc]
         if is_media:

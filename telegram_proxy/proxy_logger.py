@@ -17,8 +17,8 @@ from typing import Optional
 from config import LOGS_FOLDER
 
 _LOG_FILENAME = "tg_proxy.log"
-_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-_BACKUP_COUNT = 3
+_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_BACKUP_COUNT = 5
 _RING_BUFFER_SIZE = 100
 
 

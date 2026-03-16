@@ -39,6 +39,7 @@ from telegram_proxy.dc_map import (
     IP_TO_DC,
     WSS_DOMAINS,
     WSS_RELAY_IP,
+    WSS_RELAY_IPS,
     WSS_PATH,
     # TRANSPARENT_PORT_BASE,  # Transparent mode removed
 )
@@ -478,6 +479,11 @@ class _MsgSplitter:
         return parts
 
 
+def _relay_ip_for_domain(domain: str) -> str:
+    """Get the relay IP for a WSS domain, with fallback."""
+    return WSS_RELAY_IPS.get(domain, WSS_RELAY_IP)
+
+
 # ---- HTTP transport detection ----
 
 
@@ -603,9 +609,10 @@ class _WsPool:
         sem = _get_wss_semaphore()
         async with sem:
             for domain in domains:
+                relay_ip = _relay_ip_for_domain(domain)
                 try:
                     ws = await RawWebSocket.connect(
-                        target_ip, domain, WSS_PATH, timeout=8.0,
+                        relay_ip, domain, WSS_PATH, timeout=8.0,
                     )
                     return ws
                 except WsHandshakeError as exc:
@@ -762,9 +769,10 @@ class TelegramWSProxy:
 
             target_host, target_port = result
 
-            # Check if target is a Telegram IP
-            if not _is_domain(target_host) and not is_telegram_ip(target_host):
-                # Non-Telegram traffic: passthrough
+            # Non-Telegram traffic: passthrough (domains + non-Telegram IPs)
+            is_domain = _is_domain(target_host)
+            is_tg = not is_domain and is_telegram_ip(target_host)
+            if not is_tg:
                 self.stats.passthrough_connections += 1
                 log.debug("[%s] passthrough -> %s:%d", label, target_host, target_port)
                 try:
@@ -829,8 +837,8 @@ class TelegramWSProxy:
             media_tag = " media" if is_media else ""
             self._log(f"[{label}] DC{dc}{media_tag} ({target_host}:{target_port})")
 
-            # Only DC2 and DC4 have working WSS relays.
-            # DC1/DC3/DC5 go to TCP fallback (same as reference implementation).
+            # Only DC2 and DC4 have proven working WSS relays.
+            # Cross-DC routing via kws2 does NOT work (recv=0, server rejects).
             if dc not in WSS_DOMAINS:
                 self._log(f"[{label}] DC{dc} -> TCP (no WSS relay for this DC)")
                 await self._tcp_fallback(
@@ -844,7 +852,7 @@ class TelegramWSProxy:
                 target_host, target_port, label,
             )
 
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, ConnectionError, OSError):
             pass
         except Exception:
             self.stats.failed_connections += 1
@@ -914,11 +922,12 @@ class TelegramWSProxy:
 
         sem = _get_wss_semaphore()
         for domain in domains if ws is None else []:
+            relay_ip = _relay_ip_for_domain(domain)
             try:
                 self._log(f"[{label}] DC{dc}{media_tag} -> wss://{domain}{WSS_PATH}")
                 async with sem:
                     ws = await RawWebSocket.connect(
-                        WSS_RELAY_IP, domain, WSS_PATH, timeout=CONNECT_TIMEOUT,
+                        relay_ip, domain, WSS_PATH, timeout=CONNECT_TIMEOUT,
                     )
                 all_redirects = False
                 break
@@ -989,21 +998,25 @@ class TelegramWSProxy:
         """Fall back to direct TCP to the original DC IP."""
         media_tag = " media" if is_media else ""
         self._log(f"[{label}] DC{dc}{media_tag} TCP fallback -> {target_host}:{target_port}")
+        t_connect = time.monotonic()
         try:
             rr, rw = await asyncio.wait_for(
                 asyncio.open_connection(target_host, target_port),
                 timeout=CONNECT_TIMEOUT,
             )
         except Exception as exc:
+            elapsed = time.monotonic() - t_connect
             self.stats.failed_connections += 1
-            self._log(f"[{label}] TCP fallback failed: {type(exc).__name__}: {exc}")
+            self._log(f"[{label}] TCP fallback failed ({elapsed:.1f}s): {type(exc).__name__}")
             return
 
+        elapsed = time.monotonic() - t_connect
+        self._log(f"[{label}] DC{dc}{media_tag} TCP connected ({elapsed:.1f}s)")
         self.stats.tcp_fallback_connections += 1
         # Forward the buffered init packet
         rw.write(init)
         await rw.drain()
-        await self._relay_tcp(client_reader, client_writer, rr, rw)
+        await self._relay_tcp(client_reader, client_writer, rr, rw, label)
 
     async def _relay_wss(
         self,
@@ -1014,7 +1027,7 @@ class TelegramWSProxy:
         label: str,
     ) -> None:
         """Bidirectional relay between TCP client and WebSocket."""
-
+        t0 = time.monotonic()
         sent_total = 0
         recv_total = 0
 
@@ -1078,7 +1091,8 @@ class TelegramWSProxy:
                 await ws.close()
             except BaseException:
                 pass
-            self._log(f"[{label}] relay done: sent={sent_total} recv={recv_total}")
+            elapsed = time.monotonic() - t0
+            self._log(f"[{label}] relay done: sent={sent_total} recv={recv_total} ({elapsed:.1f}s)")
 
     async def _relay_tcp(
         self,
@@ -1086,10 +1100,15 @@ class TelegramWSProxy:
         client_writer: asyncio.StreamWriter,
         remote_reader: asyncio.StreamReader,
         remote_writer: asyncio.StreamWriter,
+        label: str = "",
     ) -> None:
         """Bidirectional TCP relay (fallback or passthrough)."""
+        t0 = time.monotonic()
+        sent_total = 0
+        recv_total = 0
 
         async def forward(src: asyncio.StreamReader, dst: asyncio.StreamWriter, is_upload: bool):
+            nonlocal sent_total, recv_total
             try:
                 while True:
                     data = await src.read(RELAY_BUFFER)
@@ -1098,8 +1117,10 @@ class TelegramWSProxy:
                     dst.write(data)
                     await dst.drain()
                     if is_upload:
+                        sent_total += len(data)
                         self.stats.bytes_sent += len(data)
                     else:
+                        recv_total += len(data)
                         self.stats.bytes_received += len(data)
             except (asyncio.CancelledError, ConnectionError, OSError):
                 pass
@@ -1124,8 +1145,13 @@ class TelegramWSProxy:
                 await remote_writer.wait_closed()
             except Exception:
                 pass
+            if label:
+                elapsed = time.monotonic() - t0
+                self._log(f"[{label}] tcp relay done: sent={sent_total} recv={recv_total} ({elapsed:.1f}s)")
 
 
 def _is_domain(host: str) -> bool:
-    """Check if host is a domain name (not an IP)."""
+    """Check if host is a domain name (not an IP address)."""
+    if ":" in host:
+        return False  # IPv6 address
     return not all(c.isdigit() or c == "." for c in host)

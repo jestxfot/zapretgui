@@ -94,9 +94,10 @@ async def _do_handshake(
         domain = await reader.readexactly(domain_len)
         target_host = domain.decode("ascii", errors="replace")
     elif atyp == ATYP_IPV6:
-        _send_reply(writer, REP_ATYP_NOT_SUPPORTED)
-        await writer.drain()
-        raise Socks5Error("IPv6 not supported")
+        raw_addr = await reader.readexactly(16)
+        # Format as standard IPv6 string
+        parts = struct.unpack("!8H", raw_addr)
+        target_host = ":".join(f"{p:x}" for p in parts)
     else:
         _send_reply(writer, REP_ATYP_NOT_SUPPORTED)
         await writer.drain()
