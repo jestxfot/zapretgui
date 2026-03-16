@@ -5350,6 +5350,674 @@ TEXTS: dict[str, dict[str, str]] = {
 }
 
 
+TEXTS_EXTRA: dict[str, dict[str, str]] = {
+    "page.blockcheck.domains_section": {
+        "ru": "Часть 1: Проверка доменов (TLS + HTTP injection)",
+        "en": "Part 1: Domain Checks (TLS + HTTP injection)",
+    },
+    "page.blockcheck.col_dns_isp": {
+        "ru": "DNS/ISP",
+        "en": "DNS/ISP",
+    },
+    "page.blockcheck.tcp_section": {
+        "ru": "Часть 2: Проверка TCP 16-20KB",
+        "en": "Part 2: TCP 16-20KB Checks",
+    },
+    "page.blockcheck.col_provider": {
+        "ru": "Провайдер",
+        "en": "Provider",
+    },
+    "page.blockcheck.col_status": {
+        "ru": "Статус",
+        "en": "Status",
+    },
+    "page.blockcheck.col_error_details": {
+        "ru": "Ошибка / Детали",
+        "en": "Error / Details",
+    },
+    "page.blockcheck.warning": {
+        "ru": "Предупреждение",
+        "en": "Warning",
+    },
+    "page.blockcheck.col_details": {
+        "ru": "Детали",
+        "en": "Details",
+    },
+    "page.control.button.stop_only_template": {
+        "ru": "Остановить только {exe_name}",
+        "en": "Stop only {exe_name}",
+    },
+    "page.control.strategy.more_template": {
+        "ru": "+{count} ещё",
+        "en": "+{count} more",
+    },
+    "page.strategy_scan.title": {
+        "ru": "Подбор стратегии",
+        "en": "Strategy Scanner",
+    },
+    "page.strategy_scan.subtitle": {
+        "ru": "Автоматический перебор стратегий обхода DPI",
+        "en": "Automatic scan of DPI bypass strategies",
+    },
+    "page.strategy_scan.back": {
+        "ru": "Назад",
+        "en": "Back",
+    },
+    "page.strategy_scan.control": {
+        "ru": "Управление сканированием",
+        "en": "Scan Controls",
+    },
+    "page.strategy_scan.protocol": {
+        "ru": "Протокол:",
+        "en": "Protocol:",
+    },
+    "page.strategy_scan.protocol_tcp": {
+        "ru": "TCP/HTTPS",
+        "en": "TCP/HTTPS",
+    },
+    "page.strategy_scan.protocol_stun": {
+        "ru": "STUN Voice (Discord/Telegram)",
+        "en": "STUN Voice (Discord/Telegram)",
+    },
+    "page.strategy_scan.protocol_games": {
+        "ru": "UDP Games (Roblox/Amazon/Steam)",
+        "en": "UDP Games (Roblox/Amazon/Steam)",
+    },
+    "page.strategy_scan.udp_scope": {
+        "ru": "Охват UDP:",
+        "en": "UDP Scope:",
+    },
+    "page.strategy_scan.udp_scope_all": {
+        "ru": "Все ipset (по умолчанию)",
+        "en": "All ipset (default)",
+    },
+    "page.strategy_scan.udp_scope_games_only": {
+        "ru": "Только игровые ipset",
+        "en": "Games-only ipset",
+    },
+    "page.strategy_scan.mode": {
+        "ru": "Режим:",
+        "en": "Mode:",
+    },
+    "page.strategy_scan.mode_quick": {
+        "ru": "Быстрый (30)",
+        "en": "Quick (30)",
+    },
+    "page.strategy_scan.mode_standard": {
+        "ru": "Стандартный (80)",
+        "en": "Standard (80)",
+    },
+    "page.strategy_scan.mode_full": {
+        "ru": "Полный (все)",
+        "en": "Full (all)",
+    },
+    "page.strategy_scan.target": {
+        "ru": "Цель:",
+        "en": "Target:",
+    },
+    "page.strategy_scan.target.default": {
+        "ru": "discord.com",
+        "en": "discord.com",
+    },
+    "page.strategy_scan.target.placeholder": {
+        "ru": "discord.com",
+        "en": "discord.com",
+    },
+    "page.strategy_scan.quick_domains": {
+        "ru": "Быстрый выбор",
+        "en": "Quick Pick",
+    },
+    "page.strategy_scan.quick_domains_hint": {
+        "ru": "Выберите домен из готового списка",
+        "en": "Choose a domain from the preset list",
+    },
+    "page.strategy_scan.start": {
+        "ru": "Начать сканирование",
+        "en": "Start Scan",
+    },
+    "page.strategy_scan.stop": {
+        "ru": "Остановить",
+        "en": "Stop",
+    },
+    "page.strategy_scan.ready": {
+        "ru": "Готово к сканированию",
+        "en": "Ready to scan",
+    },
+    "page.strategy_scan.warning_title": {
+        "ru": "Внимание",
+        "en": "Attention",
+    },
+    "page.strategy_scan.warning_text": {
+        "ru": "Во время сканирования текущий обход DPI будет остановлен. Каждая стратегия тестируется отдельно через winws2. После завершения можно перезапустить обход.",
+        "en": "During scanning, the current DPI bypass will be stopped. Each strategy is tested separately through winws2. You can restart bypass after the scan finishes.",
+    },
+    "page.strategy_scan.results": {
+        "ru": "Результаты",
+        "en": "Results",
+    },
+    "page.strategy_scan.col_strategy": {
+        "ru": "Стратегия",
+        "en": "Strategy",
+    },
+    "page.strategy_scan.col_status": {
+        "ru": "Статус",
+        "en": "Status",
+    },
+    "page.strategy_scan.col_time": {
+        "ru": "Время (мс)",
+        "en": "Time (ms)",
+    },
+    "page.strategy_scan.col_action": {
+        "ru": "Действие",
+        "en": "Action",
+    },
+    "page.strategy_scan.log": {
+        "ru": "Подробный лог",
+        "en": "Detailed Log",
+    },
+    "page.strategy_scan.starting": {
+        "ru": "Запуск сканирования...",
+        "en": "Starting scan...",
+    },
+    "page.strategy_scan.stopping": {
+        "ru": "Остановка...",
+        "en": "Stopping...",
+    },
+    "page.strategy_scan.apply": {
+        "ru": "Применить",
+        "en": "Apply",
+    },
+    "page.strategy_scan.error": {
+        "ru": "Ошибка сканирования",
+        "en": "Scan error",
+    },
+    "page.strategy_scan.baseline_ok_title_stun": {
+        "ru": "STUN/UDP уже доступен",
+        "en": "STUN/UDP already reachable",
+    },
+    "page.strategy_scan.baseline_ok_text_stun": {
+        "ru": "STUN/UDP уже доступен без обхода DPI — результаты могут быть ложноположительными",
+        "en": "STUN/UDP is already reachable without DPI bypass - results may be false positives",
+    },
+    "page.strategy_scan.baseline_ok_title": {
+        "ru": "Домен уже доступен",
+        "en": "Domain is already reachable",
+    },
+    "page.strategy_scan.baseline_ok_text": {
+        "ru": "Домен доступен без обхода DPI — результаты могут быть ложноположительными",
+        "en": "Domain is reachable without DPI bypass - results may be false positives",
+    },
+    "page.strategy_scan.found": {
+        "ru": "Найдены рабочие стратегии",
+        "en": "Working strategies found",
+    },
+    "page.strategy_scan.not_found": {
+        "ru": "Рабочих стратегий не найдено",
+        "en": "No working strategies found",
+    },
+    "page.strategy_scan.try_full": {
+        "ru": "Попробуйте полный режим сканирования",
+        "en": "Try full scan mode",
+    },
+    "page.strategy_scan.applied": {
+        "ru": "Стратегия добавлена",
+        "en": "Strategy added",
+    },
+    "page.z1_direct.empty.no_categories": {
+        "ru": "Категории не найдены. Проверьте наличие json/strategies/builtin/categories.txt",
+        "en": "No categories found. Check json/strategies/builtin/categories.txt",
+    },
+    "page.z2_direct.telegram.hint": {
+        "ru": "Хотите добавить свою категорию? Напишите нам! Запрос на добавление своих сайтов можно сделать во вкладке на сайте-форуме через категорию для Zapret GUI.",
+        "en": "Want to add your own category? Contact us! You can submit your site-add request in the forum tab category for Zapret GUI.",
+    },
+    "page.z2_direct.current.active_count": {
+        "ru": "{count} активных",
+        "en": "{count} active",
+    },
+    "page.z2_direct.info.body": {
+        "ru": "Здесь Вы можете ТОНКО изменить стратегию для каждой категории. Всего существует несколько фаз дурения (send, syndata, fake, multisplit и т.д.). Последовательность сама определяется программой.\n\nВы можете писать свои пресеты ручками через txt файл или выбирать готовые стратегии в этом меню. Каждая стратегия — это всего лишь набор аргументов, то есть техник (дурения или фуллинга) для того чтобы изменить содержимое пакетов по модели TCP/IP, которое отправляет Ваше устройство. Чтобы алгоритмы ТСПУ провайдера сбились и не заметили (или пропустили) запрещённый контент.",
+        "en": "Here you can finely tune the strategy for each category. There are several obfuscation phases (send, syndata, fake, multisplit, etc.). Their sequence is determined by the app.\n\nYou can write presets manually in a txt file or choose ready-made strategies in this menu. Each strategy is just a set of arguments, i.e. packet manipulation techniques used to alter TCP/IP traffic sent by your device. This helps confuse provider TSPU algorithms so they do not detect (or let through) restricted content.",
+    },
+}
+
+TEXTS.update(TEXTS_EXTRA)
+
+
+TEXTS_PAGES_FINAL: dict[str, dict[str, str]] = {
+    "page.about.app_name": {
+        "ru": "Zapret 2 GUI",
+        "en": "Zapret 2 GUI",
+    },
+    "common.badge.premium": {
+        "ru": "⭐ Premium",
+        "en": "⭐ Premium",
+    },
+    "common.toggle.on_off": {
+        "ru": "Вкл/Выкл",
+        "en": "On/Off",
+    },
+    "page.appearance.display_mode.description": {
+        "ru": "Выберите светлый или тёмный режим интерфейса.",
+        "en": "Choose light or dark interface mode.",
+    },
+    "page.appearance.display_mode.option.dark": {
+        "ru": "🌙 Тёмный",
+        "en": "🌙 Dark",
+    },
+    "page.appearance.display_mode.option.light": {
+        "ru": "☀️ Светлый",
+        "en": "☀️ Light",
+    },
+    "page.appearance.display_mode.option.system": {
+        "ru": "⚙ Авто",
+        "en": "⚙ Auto",
+    },
+    "page.appearance.background.description": {
+        "ru": "Стандартный фон соответствует режиму отображения. AMOLED и РКН Тян доступны подписчикам Premium. Для РКН Тян можно выбрать готовый фон из списка.",
+        "en": "The default background follows display mode. AMOLED and RKN Chan are available for Premium subscribers. For RKN Chan you can choose a ready background from the list.",
+    },
+    "page.appearance.background.option.standard": {
+        "ru": "Стандартный",
+        "en": "Standard",
+    },
+    "page.appearance.background.option.amoled": {
+        "ru": "AMOLED — чёрный",
+        "en": "AMOLED - black",
+    },
+    "page.appearance.background.option.rkn_chan": {
+        "ru": "РКН Тян",
+        "en": "RKN Chan",
+    },
+    "page.appearance.background.rkn.label": {
+        "ru": "Фон РКН Тян",
+        "en": "RKN Chan Background",
+    },
+    "page.appearance.background.rkn.none": {
+        "ru": "Фоны не найдены",
+        "en": "No backgrounds found",
+    },
+    "page.appearance.holiday.garland.description": {
+        "ru": "Праздничная гирлянда с мерцающими огоньками в верхней части окна. Доступно только для подписчиков Premium.",
+        "en": "Festive garland with blinking lights at the top of the window. Available only for Premium subscribers.",
+    },
+    "page.appearance.holiday.garland.title": {
+        "ru": "Новогодняя гирлянда",
+        "en": "Holiday Garland",
+    },
+    "page.appearance.holiday.snowflakes.description": {
+        "ru": "Мягко падающие снежинки по всему окну. Создаёт уютную зимнюю атмосферу.",
+        "en": "Soft falling snowflakes across the window. Creates a cozy winter atmosphere.",
+    },
+    "page.appearance.holiday.snowflakes.title": {
+        "ru": "Снежинки",
+        "en": "Snowflakes",
+    },
+    "page.appearance.opacity.win11.title": {
+        "ru": "Эффект акрилика окна",
+        "en": "Window Acrylic Effect",
+    },
+    "page.appearance.opacity.win11.description": {
+        "ru": "Настройка интенсивности акрилового эффекта всего окна приложения. При 0% эффект минимальный, при 100% — максимальный.",
+        "en": "Adjust acrylic effect intensity for the entire app window. At 0% the effect is minimal, at 100% maximal.",
+    },
+    "page.appearance.opacity.legacy.title": {
+        "ru": "Прозрачность окна",
+        "en": "Window Opacity",
+    },
+    "page.appearance.opacity.legacy.description": {
+        "ru": "Настройка прозрачности всего окна приложения. При 0% окно полностью прозрачное, при 100% — непрозрачное.",
+        "en": "Adjust opacity of the entire app window. At 0% the window is fully transparent, at 100% fully opaque.",
+    },
+    "page.appearance.accent.description": {
+        "ru": "Цвет акцентных элементов интерфейса: кнопок, иконок, индикаторов. Изменяет цвет нативных компонентов WinUI.",
+        "en": "Accent color for interface elements: buttons, icons, indicators. Changes native WinUI component color.",
+    },
+    "page.appearance.accent.color.title": {
+        "ru": "Цвет акцента",
+        "en": "Accent Color",
+    },
+    "page.appearance.accent.color.pick": {
+        "ru": "Выбрать цвет",
+        "en": "Pick Color",
+    },
+    "page.appearance.accent.windows.title": {
+        "ru": "Акцент из Windows",
+        "en": "Use Windows Accent",
+    },
+    "page.appearance.accent.windows.description": {
+        "ru": "Автоматически использовать системный акцентный цвет Windows",
+        "en": "Automatically use the system Windows accent color",
+    },
+    "page.appearance.accent.tint_background.title": {
+        "ru": "Тонировать фон акцентным цветом",
+        "en": "Tint Background with Accent",
+    },
+    "page.appearance.accent.tint_background.description": {
+        "ru": "Фон окна окрашивается в оттенок акцентного цвета",
+        "en": "Window background is tinted by accent color",
+    },
+    "page.appearance.accent.tint_intensity.label": {
+        "ru": "Интенсивность тонировки:",
+        "en": "Tint Intensity:",
+    },
+    "page.appearance.performance.animations.title": {
+        "ru": "Анимации интерфейса",
+        "en": "Interface Animations",
+    },
+    "page.appearance.performance.animations.description": {
+        "ru": "Анимации кнопок, переходов и элементов WinUI",
+        "en": "Animations for buttons, transitions, and WinUI elements",
+    },
+    "page.appearance.performance.scroll.title": {
+        "ru": "Плавная прокрутка",
+        "en": "Smooth Scrolling",
+    },
+    "page.appearance.performance.scroll.description": {
+        "ru": "Инерционная прокрутка страниц настроек",
+        "en": "Inertial scrolling on settings pages",
+    },
+    "page.autostart.recommended": {
+        "ru": "Рекомендуется",
+        "en": "Recommended",
+    },
+    "page.control.dialog.certificate_install.title": {
+        "ru": "Установка сертификата",
+        "en": "Certificate Installation",
+    },
+    "page.control.status.installing": {
+        "ru": "Установка...",
+        "en": "Installing...",
+    },
+    "page.control.dialog.defender_disable.title": {
+        "ru": "Отключение Windows Defender",
+        "en": "Disable Windows Defender",
+    },
+    "page.control.dialog.defender_enable.title": {
+        "ru": "Включение Windows Defender",
+        "en": "Enable Windows Defender",
+    },
+    "page.control.dialog.max_block_enable.title": {
+        "ru": "Блокировка MAX",
+        "en": "Enable MAX Blocking",
+    },
+    "page.control.dialog.max_block_disable.title": {
+        "ru": "Отключение блокировки MAX",
+        "en": "Disable MAX Blocking",
+    },
+    "page.logs.send.status.wait_auth": {
+        "ru": "🔐 Ожидание подтверждения кода...",
+        "en": "🔐 Waiting for code confirmation...",
+    },
+    "page.logs.send.status.auth_failed": {
+        "ru": "❌ Код не подтверждён",
+        "en": "❌ Code not confirmed",
+    },
+    "page.logs.send.status.sending_orchestra": {
+        "ru": "📤 Отправка 2 файлов (оркестратор)...",
+        "en": "📤 Sending 2 files (orchestrator)...",
+    },
+    "page.logs.send.status.sending_single": {
+        "ru": "📤 Отправка лога...",
+        "en": "📤 Sending log...",
+    },
+    "page.logs.send.status.error": {
+        "ru": "❌ Ошибка",
+        "en": "❌ Error",
+    },
+    "page.logs.send.status.sent_single": {
+        "ru": "✅ Лог отправлен!",
+        "en": "✅ Log sent!",
+    },
+    "page.logs.send.status.sent_orchestra": {
+        "ru": "✅ 2 файла отправлены!",
+        "en": "✅ 2 files sent!",
+    },
+    "page.logs.send.status.send_error": {
+        "ru": "❌ Ошибка отправки",
+        "en": "❌ Send error",
+    },
+    "page.logs.info.winws_cleared": {
+        "ru": "🧹 Вывод winws очищен",
+        "en": "🧹 winws output cleared",
+    },
+    "page.logs.info.copied": {
+        "ru": "✅ Скопировано в буфер обмена",
+        "en": "✅ Copied to clipboard",
+    },
+    "page.logs.info.empty": {
+        "ru": "⚠️ Лог пуст",
+        "en": "⚠️ Log is empty",
+    },
+    "page.logs.info.view_cleared": {
+        "ru": "🧹 Вид очищен",
+        "en": "🧹 View cleared",
+    },
+    "page.logs.info.errors_cleared": {
+        "ru": "🧹 Ошибки очищены",
+        "en": "🧹 Errors cleared",
+    },
+    "page.preset_config.button.open_notepad": {
+        "ru": "Открыть в блокноте",
+        "en": "Open in Notepad",
+    },
+    "page.strategies_base.title": {
+        "ru": "Выбор активных стратегий (и их настройка) Zapret 2",
+        "en": "Select Active Strategies (and tune them) for Zapret 2",
+    },
+    "page.strategies_base.subtitle": {
+        "ru": "Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) можно выбрать свою стратегию для обхода блокировок. Список всех статегий для каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). Некоторые типы дурения (например send или syndata) можно настроить более точечно чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ.",
+        "en": "For each category (domains in hostlist or IPs in ipset) you can select a separate bypass strategy. The list of strategies is the same for each category and differs only by traffic type (TCP, UDP, STUN). Some techniques (for example send or syndata) can be tuned more precisely to get more unique strategies based on your provider filtering behavior.",
+    },
+    "page.strategies_base.current_prefix": {
+        "ru": "Текущая:",
+        "en": "Current:",
+    },
+    "page.strategies_base.strategy.not_selected": {
+        "ru": "Не выбрана",
+        "en": "Not selected",
+    },
+    "page.strategies_base.loading": {
+        "ru": "Загрузка...",
+        "en": "Loading...",
+    },
+    "page.strategies_base.strategy.autostart_disabled": {
+        "ru": "Автостарт DPI отключен",
+        "en": "Autostart DPI is disabled",
+    },
+    "page.z2_orchestra_strategies.empty.no_categories": {
+        "ru": "Категории не найдены",
+        "en": "No categories found",
+    },
+    "page.z2_orchestra_strategies.current.prefix": {
+        "ru": "Текущая:",
+        "en": "Current:",
+    },
+    "page.z2_orchestra_strategies.current.not_selected": {
+        "ru": "Не выбрана",
+        "en": "Not selected",
+    },
+    "page.z2_orchestra_strategies.current.active_count": {
+        "ru": "{count} активных",
+        "en": "{count} active",
+    },
+    "page.z2_orchestra_strategies.button.folder": {
+        "ru": "Папка",
+        "en": "Folder",
+    },
+    "page.z2_orchestra_strategies.button.disable_category": {
+        "ru": "Отключить категорию",
+        "en": "Disable Category",
+    },
+    "page.z2_orchestra_strategies.confirm.disable_category": {
+        "ru": "Установить 'none' для категории?",
+        "en": "Set 'none' for this category?",
+    },
+    "page.z2_orchestra_strategies.button.back_categories": {
+        "ru": "← Категории",
+        "en": "← Categories",
+    },
+    "page.z2_orchestra_strategies.button.disable_all": {
+        "ru": "Выключить",
+        "en": "Disable All",
+    },
+    "page.z2_orchestra_strategies.confirm.disable_all": {
+        "ru": "Установить 'none' для всех категорий?",
+        "en": "Set 'none' for all categories?",
+    },
+    "page.z2_orchestra_strategies.button.reset": {
+        "ru": "Сбросить",
+        "en": "Reset",
+    },
+    "page.z2_orchestra_strategies.confirm.reset": {
+        "ru": "Сбросить к значениям по умолчанию?",
+        "en": "Reset to defaults?",
+    },
+    "page.z2_orchestra_strategies.search.placeholder": {
+        "ru": "Поиск по названию или аргументам",
+        "en": "Search by name or arguments",
+    },
+    "page.z2_orchestra_strategies.sort.recommended": {
+        "ru": "По рекомендации",
+        "en": "Recommended",
+    },
+    "page.z2_orchestra_strategies.sort.alpha_asc": {
+        "ru": "По алфавиту A-Z",
+        "en": "Alphabetical A-Z",
+    },
+    "page.z2_orchestra_strategies.sort.alpha_desc": {
+        "ru": "По алфавиту Z-A",
+        "en": "Alphabetical Z-A",
+    },
+    "page.z2_orchestra_strategies.section.strategies": {
+        "ru": "Стратегии",
+        "en": "Strategies",
+    },
+    "page.z2_orchestra_strategies.strategy.none": {
+        "ru": "Отключено",
+        "en": "Disabled",
+    },
+    "page.z2_orchestra_strategies.strategy.none.description": {
+        "ru": "Отключить стратегию для категории",
+        "en": "Disable strategy for this category",
+    },
+    "page.z2_orchestra_control.mode_label": {
+        "ru": "Orchestra Z2",
+        "en": "Orchestra Z2",
+    },
+    "page.z2_orchestra_control.strategy.no_active_categories": {
+        "ru": "Нет активных категорий",
+        "en": "No active categories",
+    },
+    "page.z2_control.mode.dialog.title": {
+        "ru": "Режим прямого запуска",
+        "en": "Direct Launch Mode",
+    },
+    "page.z2_control.mode.dialog.description": {
+        "ru": "Прямой запуск поддерживает несколько режимов: упрощенный и расширенный для профи. Настройки не сохраняются между режимами Вы можете выбрать любой. Рекомендуем начать с базового. Бывает что базовый из-за готовых стратегий плохо пробивает сайты, тогда рекомендуем попробовать продвинутый в котором можно более тонко настроить техники дурения.",
+        "en": "Direct launch supports multiple modes: simplified and advanced for power users. Settings are not shared across modes, so you can choose any mode. We recommend starting with Basic. If Basic does not bypass enough sites, try Advanced for finer technique tuning.",
+    },
+    "page.z2_control.mode.dialog.basic_description": {
+        "ru": "Basic (базовый) — готовая таблица стратегий без понятия фаз. Собирать свои стратегии нельзя.",
+        "en": "Basic mode is a ready strategy table without phase-level tuning. Custom strategy composition is not available.",
+    },
+    "page.z2_control.mode.dialog.advanced_description": {
+        "ru": "Advanced (продвинутый) — каждая функция настраивается индивидуально, можно выбирать несколько фаз и смешивать их друг с другом.",
+        "en": "Advanced mode allows per-function tuning, selecting multiple phases, and combining them.",
+    },
+    "page.z2_control.mode.dialog.button.apply": {
+        "ru": "Применить",
+        "en": "Apply",
+    },
+    "page.z2_control.mode.dialog.button.cancel": {
+        "ru": "Отмена",
+        "en": "Cancel",
+    },
+    "page.z2_control.setting.autostart.title": {
+        "ru": "Автозагрузка DPI",
+        "en": "DPI Autostart",
+    },
+    "page.z2_control.setting.autostart.desc": {
+        "ru": "Запускать Zapret автоматически при старте программы",
+        "en": "Start Zapret automatically on app launch",
+    },
+    "page.z2_control.setting.defender.title": {
+        "ru": "Отключить Windows Defender",
+        "en": "Disable Windows Defender",
+    },
+    "page.z2_control.setting.defender.desc": {
+        "ru": "Требуются права администратора",
+        "en": "Administrator rights required",
+    },
+    "page.z2_control.setting.max_block.title": {
+        "ru": "Блокировать установку MAX",
+        "en": "Block MAX Installation",
+    },
+    "page.z2_control.setting.max_block.desc": {
+        "ru": "Блокирует запуск/установку MAX и домены в hosts",
+        "en": "Blocks MAX launch/installation and hosts domains",
+    },
+    "page.z2_control.setting.reset.title": {
+        "ru": "Сбросить программу",
+        "en": "Reset Application",
+    },
+    "page.z2_control.setting.reset.desc": {
+        "ru": "Очистить кэш проверок запуска (без удаления пресетов/настроек)",
+        "en": "Clear launch checks cache (without deleting presets/settings)",
+    },
+    "page.z2_control.button.reset": {
+        "ru": "Сбросить",
+        "en": "Reset",
+    },
+    "page.z2_control.button.reset_confirm": {
+        "ru": "Сбросить?",
+        "en": "Reset?",
+    },
+    "page.z2_control.setting.certificate.title": {
+        "ru": "Установить сертификат",
+        "en": "Install Certificate",
+    },
+    "page.z2_control.setting.certificate.desc": {
+        "ru": "Необязательно. Добавляет корневой сертификат Zapret Developer в доверенные (текущий пользователь)",
+        "en": "Optional. Adds Zapret Developer root certificate to trusted certificates (current user)",
+    },
+    "page.z2_control.button.install": {
+        "ru": "Установить",
+        "en": "Install",
+    },
+    "page.z2_control.dialog.certificate_install.title": {
+        "ru": "Установка сертификата",
+        "en": "Certificate Installation",
+    },
+    "page.z2_control.status.installing": {
+        "ru": "Установка...",
+        "en": "Installing...",
+    },
+    "page.z2_control.dialog.defender_disable.title": {
+        "ru": "Отключение Windows Defender",
+        "en": "Disable Windows Defender",
+    },
+    "page.z2_control.dialog.defender_enable.title": {
+        "ru": "Включение Windows Defender",
+        "en": "Enable Windows Defender",
+    },
+    "page.z2_control.dialog.max_block_enable.title": {
+        "ru": "Блокировка MAX",
+        "en": "Enable MAX Blocking",
+    },
+    "page.z2_control.dialog.max_block_disable.title": {
+        "ru": "Отключение блокировки MAX",
+        "en": "Disable MAX Blocking",
+    },
+    "page.z2_control.strategy.autostart_disabled": {
+        "ru": "Автостарт DPI отключен",
+        "en": "Autostart DPI is disabled",
+    },
+}
+
+TEXTS.update(TEXTS_PAGES_FINAL)
+
+
 NAV_PAGE_TEXT_KEYS: dict[PageName, str] = {
     PageName.HOME: "nav.page.home",
     PageName.CONTROL: "nav.page.control",
@@ -5395,6 +6063,7 @@ class SearchEntry:
     section_key: str | None = None
     tab_key: str | None = None
     keywords: tuple[str, ...] = ()
+    text_prefixes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -5449,8 +6118,16 @@ SEARCH_ENTRIES: tuple[SearchEntry, ...] = (
     SearchEntry("network.dns", PageName.NETWORK, "page.network.dns", section_key="page.network.dns"),
     SearchEntry("network.adapters", PageName.NETWORK, "page.network.adapters", section_key="page.network.adapters"),
     SearchEntry("network.tools", PageName.NETWORK, "page.network.tools", section_key="page.network.tools"),
+    SearchEntry("blockcheck.tab.blockcheck", PageName.BLOCKCHECK, "page.blockcheck.tab.blockcheck", section_key="nav.page.blockcheck", tab_key="blockcheck", text_prefixes=("page.blockcheck.",)),
+    SearchEntry("blockcheck.tab.strategy_scan", PageName.BLOCKCHECK, "page.blockcheck.tab.strategy_scan", section_key="nav.page.blockcheck", tab_key="strategy_scan", text_prefixes=("page.strategy_scan.", "page.strategy_sort.")),
+    SearchEntry("blockcheck.tab.diagnostics", PageName.BLOCKCHECK, "page.blockcheck.tab.diagnostics", section_key="nav.page.blockcheck", tab_key="diagnostics", text_prefixes=("page.connection.",)),
+    SearchEntry("blockcheck.tab.dns_spoofing", PageName.BLOCKCHECK, "page.blockcheck.tab.dns_spoofing", section_key="nav.page.blockcheck", tab_key="dns_spoofing", text_prefixes=("page.dns_check.",)),
     SearchEntry("diag.tab.connection", PageName.BLOCKCHECK, "tab.diagnostics.connection", section_key="nav.page.blockcheck", tab_key="diagnostics"),
     SearchEntry("diag.tab.dns", PageName.BLOCKCHECK, "tab.diagnostics.dns", section_key="nav.page.blockcheck", tab_key="dns_spoofing"),
+    SearchEntry("blockcheck.connection.title", PageName.BLOCKCHECK, "page.connection.title", section_key="page.blockcheck.tab.diagnostics", tab_key="diagnostics"),
+    SearchEntry("blockcheck.dns_check.title", PageName.BLOCKCHECK, "page.dns_check.title", section_key="page.blockcheck.tab.dns_spoofing", tab_key="dns_spoofing"),
+    SearchEntry("blockcheck.strategy_scan.title", PageName.BLOCKCHECK, "page.strategy_scan.title", section_key="page.blockcheck.tab.strategy_scan", tab_key="strategy_scan"),
+    SearchEntry("blockcheck.strategy_sort.title", PageName.BLOCKCHECK, "page.strategy_sort.title", section_key="page.blockcheck.tab.strategy_scan", tab_key="strategy_scan"),
     SearchEntry("hosts.title", PageName.HOSTS, "page.hosts.title"),
     SearchEntry("hosts.services", PageName.HOSTS, "page.hosts.services", section_key="page.hosts.services"),
     SearchEntry("blockcheck.title", PageName.BLOCKCHECK, "page.blockcheck.title"),
@@ -5466,16 +6143,38 @@ SEARCH_ENTRIES: tuple[SearchEntry, ...] = (
     SearchEntry("about.title", PageName.ABOUT, "page.about.title"),
     SearchEntry("about.version", PageName.ABOUT, "page.about.version", section_key="page.about.version"),
     SearchEntry("about.support", PageName.ABOUT, "page.about.support", section_key="page.about.support"),
+    SearchEntry("about.tab.support", PageName.ABOUT, "page.about.tab.support", section_key="page.about.title", tab_key="support", text_prefixes=("page.about.support.",)),
+    SearchEntry("about.tab.help", PageName.ABOUT, "page.about.tab.help", section_key="page.about.title", tab_key="help", text_prefixes=("page.about.help.",)),
+    SearchEntry("about.support.zaphub", PageName.ABOUT, "page.about.support.zaphub.title", section_key="page.about.tab.support", tab_key="support"),
+    SearchEntry("about.support.telegram", PageName.ABOUT, "page.about.support.telegram.title", section_key="page.about.tab.support", tab_key="support"),
+    SearchEntry("about.support.discord", PageName.ABOUT, "page.about.support.discord.title", section_key="page.about.tab.support", tab_key="support"),
+    SearchEntry("about.help.docs.forum", PageName.ABOUT, "page.about.help.docs.forum.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.docs.info", PageName.ABOUT, "page.about.help.docs.info.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.docs.folder", PageName.ABOUT, "page.about.help.docs.folder.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.docs.android", PageName.ABOUT, "page.about.help.docs.android.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.news.telegram", PageName.ABOUT, "page.about.help.news.telegram.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.news.youtube", PageName.ABOUT, "page.about.help.news.youtube.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.news.mastodon", PageName.ABOUT, "page.about.help.news.mastodon.title", section_key="page.about.tab.help", tab_key="help"),
+    SearchEntry("about.help.news.bastyon", PageName.ABOUT, "page.about.help.news.bastyon.title", section_key="page.about.tab.help", tab_key="help"),
     SearchEntry("support.title", PageName.SUPPORT, "page.support.title"),
-    SearchEntry("orch.tab.locked", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.locked", section_key="nav.page.orchestra_settings", tab_key="locked"),
-    SearchEntry("orch.tab.blocked", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.blocked", section_key="nav.page.orchestra_settings", tab_key="blocked"),
-    SearchEntry("orch.tab.whitelist", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.whitelist", section_key="nav.page.orchestra_settings", tab_key="whitelist"),
-    SearchEntry("orch.tab.ratings", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.ratings", section_key="nav.page.orchestra_settings", tab_key="ratings"),
+    SearchEntry("orch.tab.locked", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.locked", section_key="nav.page.orchestra_settings", tab_key="locked", text_prefixes=("page.orchestra.locked.",)),
+    SearchEntry("orch.tab.blocked", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.blocked", section_key="nav.page.orchestra_settings", tab_key="blocked", text_prefixes=("page.orchestra.blocked.",)),
+    SearchEntry("orch.tab.whitelist", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.whitelist", section_key="nav.page.orchestra_settings", tab_key="whitelist", text_prefixes=("page.orchestra.whitelist.",)),
+    SearchEntry("orch.tab.ratings", PageName.ORCHESTRA_SETTINGS, "tab.orchestra.ratings", section_key="nav.page.orchestra_settings", tab_key="ratings", text_prefixes=("page.orchestra.ratings.",)),
 )
 
 
 _PAGE_SEARCH_EXTRA_PREFIXES: dict[PageName, tuple[str, ...]] = {
-    PageName.BLOCKCHECK: ("page.connection.", "page.dns_check."),
+    PageName.HOSTLIST: ("page.ipset.",),
+    PageName.ZAPRET2_DIRECT: ("page.strategies_base.",),
+    PageName.ZAPRET2_ORCHESTRA: ("page.strategies_base.",),
+    PageName.ZAPRET1_DIRECT: ("page.strategies_base.",),
+    PageName.BLOCKCHECK: (
+        "page.connection.",
+        "page.dns_check.",
+        "page.strategy_scan.",
+        "page.strategy_sort.",
+    ),
 }
 
 
@@ -5511,6 +6210,7 @@ def _build_page_search_prefixes() -> dict[PageName, tuple[str, ...]]:
 
 _PAGE_SEARCH_PREFIXES = _build_page_search_prefixes()
 _PAGE_SEARCH_TEXT_CACHE: dict[PageName, tuple[str, ...]] = {}
+_CUSTOM_PREFIX_TEXT_CACHE: dict[tuple[str, ...], tuple[str, ...]] = {}
 
 
 def _get_page_search_texts(page_name: PageName) -> tuple[str, ...]:
@@ -5531,6 +6231,34 @@ def _get_page_search_texts(page_name: PageName) -> tuple[str, ...]:
 
     unique_result = tuple(dict.fromkeys(result))
     _PAGE_SEARCH_TEXT_CACHE[page_name] = unique_result
+    return unique_result
+
+
+def _normalize_text_prefixes(prefixes: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for prefix in prefixes:
+        if isinstance(prefix, str) and prefix and prefix not in normalized:
+            normalized.append(prefix)
+    return tuple(normalized)
+
+
+def _get_prefixed_search_texts(prefixes: tuple[str, ...]) -> tuple[str, ...]:
+    normalized_prefixes = _normalize_text_prefixes(prefixes)
+    if not normalized_prefixes:
+        return ()
+
+    cached = _CUSTOM_PREFIX_TEXT_CACHE.get(normalized_prefixes)
+    if cached is not None:
+        return cached
+
+    result: list[str] = []
+    for text_key in TEXTS:
+        if text_key.startswith(normalized_prefixes):
+            for text in _text_variants(text_key):
+                result.append(text)
+
+    unique_result = tuple(dict.fromkeys(result))
+    _CUSTOM_PREFIX_TEXT_CACHE[normalized_prefixes] = unique_result
     return unique_result
 
 
@@ -5615,6 +6343,9 @@ def _iter_candidate_texts(entry: SearchEntry) -> Iterable[str]:
         if isinstance(keyword, str) and keyword:
             yield keyword
 
+    for text in _get_prefixed_search_texts(entry.text_prefixes):
+        yield text
+
     if _is_primary_page_entry(entry):
         for text in _get_page_search_texts(entry.page_name):
             yield text
@@ -5644,18 +6375,51 @@ def find_search_entries(
         if needle in localized_title:
             score = max(score, 120 if localized_title.startswith(needle) else 100)
 
+        for title_variant in _text_variants(entry.text_key):
+            title_variant_cf = title_variant.casefold()
+            if needle in title_variant_cf:
+                score = max(score, 115 if title_variant_cf.startswith(needle) else 95)
+                break
+
         localized_section = tr(entry.section_key, language=lang, default="") if entry.section_key else ""
         if localized_section and needle in localized_section.casefold():
             score = max(score, 85)
+
+        for section_variant in _text_variants(entry.section_key):
+            if needle in section_variant.casefold():
+                score = max(score, 82)
+                break
 
         localized_page = get_nav_page_label(entry.page_name, language=lang).casefold()
         if needle in localized_page:
             score = max(score, 70)
 
+        nav_key = NAV_PAGE_TEXT_KEYS.get(entry.page_name)
+        for page_variant in _text_variants(nav_key):
+            if needle in page_variant.casefold():
+                score = max(score, 68)
+                break
+
+        for prefixed_text in _get_prefixed_search_texts(entry.text_prefixes):
+            prefixed_cf = prefixed_text.casefold()
+            if needle in prefixed_cf:
+                score = max(score, 94 if prefixed_cf.startswith(needle) else 78)
+                break
+
+        if _is_primary_page_entry(entry):
+            for page_text in _get_page_search_texts(entry.page_name):
+                page_text_cf = page_text.casefold()
+                if needle in page_text_cf:
+                    score = max(score, 92 if page_text_cf.startswith(needle) else 76)
+                    break
+
         for candidate in _iter_candidate_texts(entry):
             if needle in candidate.casefold():
                 score = max(score, 60)
                 break
+
+        if _is_primary_page_entry(entry) and score >= 95:
+            score += 1
 
         if score > 0:
             matches.append(SearchMatch(entry=entry, score=score))

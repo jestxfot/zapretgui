@@ -213,7 +213,7 @@ class StrategyScanPage(BasePage):
 
         protocol_label = CaptionLabel(
             tr_catalog("page.strategy_scan.protocol", default="Протокол:")
-        ) if HAS_FLUENT else QLabel("Протокол:")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.strategy_scan.protocol", default="Протокол:"))
         settings_row.addWidget(protocol_label)
 
         self._protocol_combo = ComboBox()
@@ -236,7 +236,7 @@ class StrategyScanPage(BasePage):
 
         self._games_scope_label = CaptionLabel(
             tr_catalog("page.strategy_scan.udp_scope", default="Охват UDP:")
-        ) if HAS_FLUENT else QLabel("Охват UDP:")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.strategy_scan.udp_scope", default="Охват UDP:"))
         settings_row.addWidget(self._games_scope_label)
 
         self._games_scope_combo = ComboBox()
@@ -257,7 +257,7 @@ class StrategyScanPage(BasePage):
 
         mode_label = CaptionLabel(
             tr_catalog("page.strategy_scan.mode", default="Режим:")
-        ) if HAS_FLUENT else QLabel("Режим:")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.strategy_scan.mode", default="Режим:"))
         settings_row.addWidget(mode_label)
 
         self._mode_combo = ComboBox()
@@ -278,13 +278,17 @@ class StrategyScanPage(BasePage):
 
         target_label = CaptionLabel(
             tr_catalog("page.strategy_scan.target", default="Цель:")
-        ) if HAS_FLUENT else QLabel("Цель:")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.strategy_scan.target", default="Цель:"))
         self._target_label = target_label
         settings_row.addWidget(target_label)
 
         self._target_input = LineEdit()
-        self._target_input.setText("discord.com")
-        self._target_input.setPlaceholderText("discord.com")
+        self._target_input.setText(
+            tr_catalog("page.strategy_scan.target.default", default="discord.com")
+        )
+        self._target_input.setPlaceholderText(
+            tr_catalog("page.strategy_scan.target.placeholder", default="discord.com")
+        )
         self._target_input.setFixedWidth(200)
         self._target_input.setFixedHeight(33)
         settings_row.addWidget(self._target_input)
@@ -342,7 +346,7 @@ class StrategyScanPage(BasePage):
         # Status label
         self._status_label = CaptionLabel(
             tr_catalog("page.strategy_scan.ready", default="Готово к сканированию")
-        ) if HAS_FLUENT else QLabel("Готово к сканированию")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.strategy_scan.ready", default="Готово к сканированию"))
         self._control_card.add_widget(self._status_label)
 
         self.add_widget(self._control_card)

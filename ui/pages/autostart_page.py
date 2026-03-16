@@ -119,7 +119,7 @@ class AutostartOptionCard(SimpleCardWidget):
         self._rec_label = None
         if recommended:
             semantic = get_semantic_palette()
-            self._rec_label = QLabel("Рекомендуется")
+            self._rec_label = QLabel(tr_catalog("page.autostart.recommended", default="Рекомендуется"))
             self._rec_label.setStyleSheet(f"""
                 QLabel {{
                     background-color: {semantic.success_badge};

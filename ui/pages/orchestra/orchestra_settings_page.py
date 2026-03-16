@@ -78,7 +78,7 @@ class OrchestraSettingsPage(QWidget):
 
         main_layout.addWidget(self.stacked)
 
-        self.stacked.setCurrentIndex(0)
+        self._switch_tab(0)
 
     def _ensure_tab_page(self, index: int) -> QWidget | None:
         if not (0 <= index < len(self.TAB_KEYS)):

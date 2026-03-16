@@ -45,27 +45,61 @@ except ImportError:
 class DirectLaunchModeDialog(MessageBoxBase):
     """Диалог выбора Basic / Advanced режима прямого запуска."""
 
-    def __init__(self, current_mode: str, parent=None):
+    def __init__(self, current_mode: str, parent=None, language: str | None = None):
         super().__init__(parent)
-        self.titleLabel = SubtitleLabel("Режим прямого запуска", self.widget)
+        self.titleLabel = SubtitleLabel(
+            tr_catalog(
+                "page.z2_control.mode.dialog.title",
+                language=language,
+                default="Режим прямого запуска",
+            ),
+            self.widget,
+        )
         self.mode_seg = SegmentedWidget(self.widget)
-        self.mode_seg.addItem("basic", "Basic")
-        self.mode_seg.addItem("advanced", "Advanced")
+        self.mode_seg.addItem(
+            "basic",
+            tr_catalog("page.z2_control.mode.basic", language=language, default="Basic"),
+        )
+        self.mode_seg.addItem(
+            "advanced",
+            tr_catalog("page.z2_control.mode.advanced", language=language, default="Advanced"),
+        )
         self.mode_seg.setCurrentItem(
             current_mode if current_mode in ("basic", "advanced") else "basic"
         )
         self.basic_desc = BodyLabel(
-            "Прямой запуск поддерживает несколько режимов: упрощенный и расширенный для профи. Настройки не сохраняются между режимами Вы можете выбрать любой. Рекомендуем начать с базового. Бывает что базовый из-за готовых стратегий плохо пробивает сайты, тогда рекомендуем попробовать продвинутый в котором можно более тонко настроить техники дурения.",
+            tr_catalog(
+                "page.z2_control.mode.dialog.description",
+                language=language,
+                default=(
+                    "Прямой запуск поддерживает несколько режимов: упрощенный и расширенный для профи. "
+                    "Настройки не сохраняются между режимами Вы можете выбрать любой. Рекомендуем начать с базового. "
+                    "Бывает что базовый из-за готовых стратегий плохо пробивает сайты, тогда рекомендуем попробовать "
+                    "продвинутый в котором можно более тонко настроить техники дурения."
+                ),
+            ),
             self.widget,
         )
         self.basic_desc = BodyLabel(
-            "Basic (базовый) — готовая таблица стратегий без понятия фаз. "
-            "Собирать свои стратегии нельзя.",
+            tr_catalog(
+                "page.z2_control.mode.dialog.basic_description",
+                language=language,
+                default=(
+                    "Basic (базовый) — готовая таблица стратегий без понятия фаз. "
+                    "Собирать свои стратегии нельзя."
+                ),
+            ),
             self.widget,
         )
         self.adv_desc = BodyLabel(
-            "Advanced (продвинутый) — каждая функция настраивается индивидуально, "
-            "можно выбирать несколько фаз и смешивать их друг с другом.",
+            tr_catalog(
+                "page.z2_control.mode.dialog.advanced_description",
+                language=language,
+                default=(
+                    "Advanced (продвинутый) — каждая функция настраивается индивидуально, "
+                    "можно выбирать несколько фаз и смешивать их друг с другом."
+                ),
+            ),
             self.widget,
         )
         self.basic_desc.setWordWrap(True)
@@ -76,8 +110,8 @@ class DirectLaunchModeDialog(MessageBoxBase):
         self.viewLayout.addSpacing(8)
         self.viewLayout.addWidget(self.basic_desc)
         self.viewLayout.addWidget(self.adv_desc)
-        self.yesButton.setText("Применить")
-        self.cancelButton.setText("Отмена")
+        self.yesButton.setText(tr_catalog("page.z2_control.mode.dialog.button.apply", language=language, default="Применить"))
+        self.cancelButton.setText(tr_catalog("page.z2_control.mode.dialog.button.cancel", language=language, default="Отмена"))
         self.widget.setMinimumWidth(440)
 
     def get_mode(self) -> str:
@@ -356,10 +390,16 @@ class Zapret2DirectControlPage(BasePage):
 
         auto_row = SettingsRow(
             "fa5s.bolt",
-            "Автозагрузка DPI",
-            "Запускать Zapret автоматически при старте программы",
+            tr_catalog("page.z2_control.setting.autostart.title", language=self._ui_language, default="Автозагрузка DPI"),
+            tr_catalog(
+                "page.z2_control.setting.autostart.desc",
+                language=self._ui_language,
+                default="Запускать Zapret автоматически при старте программы",
+            ),
         )
-        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.auto_dpi_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.auto_dpi_toggle.setProperty("noDrag", True)
         if hasattr(self.auto_dpi_toggle, "toggled"):
             self.auto_dpi_toggle.toggled.connect(self._on_auto_dpi_toggled)
@@ -368,10 +408,20 @@ class Zapret2DirectControlPage(BasePage):
 
         defender_row = SettingsRow(
             "fa5s.shield-alt",
-            "Отключить Windows Defender",
-            "Требуются права администратора",
+            tr_catalog(
+                "page.z2_control.setting.defender.title",
+                language=self._ui_language,
+                default="Отключить Windows Defender",
+            ),
+            tr_catalog(
+                "page.z2_control.setting.defender.desc",
+                language=self._ui_language,
+                default="Требуются права администратора",
+            ),
         )
-        self.defender_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.defender_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.defender_toggle.setProperty("noDrag", True)
         if hasattr(self.defender_toggle, "toggled"):
             self.defender_toggle.toggled.connect(self._on_defender_toggled)
@@ -380,10 +430,20 @@ class Zapret2DirectControlPage(BasePage):
 
         max_row = SettingsRow(
             "fa5s.ban",
-            "Блокировать установку MAX",
-            "Блокирует запуск/установку MAX и домены в hosts",
+            tr_catalog(
+                "page.z2_control.setting.max_block.title",
+                language=self._ui_language,
+                default="Блокировать установку MAX",
+            ),
+            tr_catalog(
+                "page.z2_control.setting.max_block.desc",
+                language=self._ui_language,
+                default="Блокирует запуск/установку MAX и домены в hosts",
+            ),
         )
-        self.max_block_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton("Вкл/Выкл")
+        self.max_block_toggle = Win11ToggleSwitch() if Win11ToggleSwitch else ActionButton(
+            tr_catalog("common.toggle.on_off", language=self._ui_language, default="Вкл/Выкл")
+        )
         self.max_block_toggle.setProperty("noDrag", True)
         if hasattr(self.max_block_toggle, "toggled"):
             self.max_block_toggle.toggled.connect(self._on_max_blocker_toggled)
@@ -392,10 +452,17 @@ class Zapret2DirectControlPage(BasePage):
 
         reset_row = SettingsRow(
             "fa5s.undo",
-            "Сбросить программу",
-            "Очистить кэш проверок запуска (без удаления пресетов/настроек)",
+            tr_catalog("page.z2_control.setting.reset.title", language=self._ui_language, default="Сбросить программу"),
+            tr_catalog(
+                "page.z2_control.setting.reset.desc",
+                language=self._ui_language,
+                default="Очистить кэш проверок запуска (без удаления пресетов/настроек)",
+            ),
         )
-        self.reset_program_btn = ResetActionButton("Сбросить", confirm_text="Сбросить?")
+        self.reset_program_btn = ResetActionButton(
+            tr_catalog("page.z2_control.button.reset", language=self._ui_language, default="Сбросить"),
+            confirm_text=tr_catalog("page.z2_control.button.reset_confirm", language=self._ui_language, default="Сбросить?"),
+        )
         self.reset_program_btn.setProperty("noDrag", True)
         self.reset_program_btn.reset_confirmed.connect(self._on_reset_program_clicked)
         reset_row.set_control(self.reset_program_btn)
@@ -403,10 +470,20 @@ class Zapret2DirectControlPage(BasePage):
 
         cert_row = SettingsRow(
             "fa5s.certificate",
-            "Установить сертификат",
-            "Необязательно. Добавляет корневой сертификат Zapret Developer в доверенные (текущий пользователь)",
+            tr_catalog(
+                "page.z2_control.setting.certificate.title",
+                language=self._ui_language,
+                default="Установить сертификат",
+            ),
+            tr_catalog(
+                "page.z2_control.setting.certificate.desc",
+                language=self._ui_language,
+                default="Необязательно. Добавляет корневой сертификат Zapret Developer в доверенные (текущий пользователь)",
+            ),
         )
-        self.install_cert_btn = ActionButton("Установить")
+        self.install_cert_btn = ActionButton(
+            tr_catalog("page.z2_control.button.install", language=self._ui_language, default="Установить")
+        )
         self.install_cert_btn.setProperty("noDrag", True)
         self.install_cert_btn.clicked.connect(self._on_install_certificate_clicked)
         cert_row.set_control(self.install_cert_btn)
@@ -547,7 +624,11 @@ class Zapret2DirectControlPage(BasePage):
             return
 
         box = MessageBox(
-            "Установка сертификата",
+            tr_catalog(
+                "page.z2_control.dialog.certificate_install.title",
+                language=self._ui_language,
+                default="Установка сертификата",
+            ),
             "Установить корневой сертификат Zapret Developer?\n\n"
             "Это необязательно. После установки Windows будет доверять сертификатам, "
             "выпущенным этим центром сертификации, для текущего пользователя.\n\n"
@@ -562,7 +643,13 @@ class Zapret2DirectControlPage(BasePage):
 
         old_text = self.install_cert_btn.text()
         self.install_cert_btn.setEnabled(False)
-        self.install_cert_btn.setText("Установка...")
+        self.install_cert_btn.setText(
+            tr_catalog(
+                "page.z2_control.status.installing",
+                language=self._ui_language,
+                default="Установка...",
+            )
+        )
         self._set_status("Установка сертификата...")
 
         self._cert_install_thread = QThread()
@@ -693,7 +780,7 @@ class Zapret2DirectControlPage(BasePage):
         except ImportError:
             return
         current = get_direct_zapret2_ui_mode()
-        dlg = DirectLaunchModeDialog(current, self.window())
+        dlg = DirectLaunchModeDialog(current, self.window(), language=self._ui_language)
         if dlg.exec():
             new_mode = dlg.get_mode()
             if new_mode != current:
@@ -855,7 +942,11 @@ class Zapret2DirectControlPage(BasePage):
 
             if disable:
                 box = MessageBox(
-                    "Отключение Windows Defender",
+                    tr_catalog(
+                        "page.z2_control.dialog.defender_disable.title",
+                        language=self._ui_language,
+                        default="Отключение Windows Defender",
+                    ),
                     "Вы действительно хотите отключить Windows Defender?\n\n"
                     "Отключение Windows Defender:\n"
                     "• Отключит защиту в реальном времени\n"
@@ -879,7 +970,11 @@ class Zapret2DirectControlPage(BasePage):
                     self._set_toggle_checked(self.defender_toggle, False)
             else:
                 box = MessageBox(
-                    "Включение Windows Defender",
+                    tr_catalog(
+                        "page.z2_control.dialog.defender_enable.title",
+                        language=self._ui_language,
+                        default="Включение Windows Defender",
+                    ),
                     "Включить Windows Defender обратно?\n\n"
                     "Это восстановит защиту вашего компьютера.",
                     self.window(),
@@ -912,7 +1007,11 @@ class Zapret2DirectControlPage(BasePage):
 
             if enable:
                 box = MessageBox(
-                    "Блокировка MAX",
+                    tr_catalog(
+                        "page.z2_control.dialog.max_block_enable.title",
+                        language=self._ui_language,
+                        default="Блокировка MAX",
+                    ),
                     "Включить блокировку установки и работы программы MAX?\n\n"
                     "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
                     "• Добавит правила блокировки в Windows Firewall\n"
@@ -931,7 +1030,11 @@ class Zapret2DirectControlPage(BasePage):
                     self._set_toggle_checked(self.max_block_toggle, False)
             else:
                 box = MessageBox(
-                    "Отключение блокировки MAX",
+                    tr_catalog(
+                        "page.z2_control.dialog.max_block_disable.title",
+                        language=self._ui_language,
+                        default="Отключение блокировки MAX",
+                    ),
                     "Отключить блокировку программы MAX?\n\n"
                     "Это удалит все созданные блокировки и правила.",
                     self.window(),
@@ -1075,7 +1178,7 @@ class Zapret2DirectControlPage(BasePage):
                         active_lists.append(list_name)
 
                 if not active_lists:
-                    name = "Не выбрана"
+                    name = tr_catalog("page.z2_control.preset.not_selected", language=self._ui_language, default="Не выбрана")
                     set_tooltip(self.strategy_label, "")
                 else:
                     name = " • ".join(active_lists)
@@ -1090,7 +1193,18 @@ class Zapret2DirectControlPage(BasePage):
             self.preset_name_label.setText(tr_catalog("page.z2_control.preset.not_selected", language=self._ui_language, default="Не выбран"))
             set_tooltip(self.preset_name_label, "")
 
-        if name and name != "Автостарт DPI отключен":
+        autostart_disabled_ru = tr_catalog(
+            "page.z2_control.strategy.autostart_disabled",
+            language="ru",
+            default="Автостарт DPI отключен",
+        )
+        autostart_disabled_en = tr_catalog(
+            "page.z2_control.strategy.autostart_disabled",
+            language="en",
+            default="Autostart DPI is disabled",
+        )
+
+        if name and name not in {autostart_disabled_ru, autostart_disabled_en, "Автостарт DPI отключен"}:
             self.strategy_label.setText(name)
         else:
             self.strategy_label.setText(tr_catalog("page.z2_control.preset.no_active_lists", language=self._ui_language, default="Нет активных листов"))

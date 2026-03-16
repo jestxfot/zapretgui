@@ -1319,7 +1319,13 @@ class LogsPage(BasePage):
                     parent=self.window(), duration=8000)
 
                 self.send_log_btn.setEnabled(False)
-                self.send_status_label.setText("🔐 Ожидание подтверждения кода...")
+                self.send_status_label.setText(
+                    tr_catalog(
+                        "page.logs.send.status.wait_auth",
+                        language=self._ui_language,
+                        default="🔐 Ожидание подтверждения кода...",
+                    )
+                )
 
                 self._auth_thread = QThread(self)
                 self._auth_worker = SupportAuthWorker(code)
@@ -1334,7 +1340,13 @@ class LogsPage(BasePage):
 
                     if not auth_ok:
                         self.send_log_btn.setEnabled(True)
-                        self.send_status_label.setText("❌ Код не подтверждён")
+                        self.send_status_label.setText(
+                            tr_catalog(
+                                "page.logs.send.status.auth_failed",
+                                language=self._ui_language,
+                                default="❌ Код не подтверждён",
+                            )
+                        )
                         InfoBar.warning(title="Авторизация",
                             content=f"Не удалось подтвердить код. Причина: {err_msg or 'Неизвестная ошибка'}",
                             parent=self.window())
@@ -1342,10 +1354,22 @@ class LogsPage(BasePage):
 
                     # Continue sending with the existing prepared payload
                     if is_orchestra and orchestra_log_path:
-                        self.send_status_label.setText("📤 Отправка 2 файлов (оркестратор)...")
+                        self.send_status_label.setText(
+                            tr_catalog(
+                                "page.logs.send.status.sending_orchestra",
+                                language=self._ui_language,
+                                default="📤 Отправка 2 файлов (оркестратор)...",
+                            )
+                        )
                         self._send_orchestra_logs(LOG_PATH, orchestra_log_path, caption, problem, telegram, auth_code=code)
                     else:
-                        self.send_status_label.setText("📤 Отправка лога...")
+                        self.send_status_label.setText(
+                            tr_catalog(
+                                "page.logs.send.status.sending_single",
+                                language=self._ui_language,
+                                default="📤 Отправка лога...",
+                            )
+                        )
                         self._send_single_log(LOG_PATH, caption, auth_code=code)
 
                 self._auth_worker.finished.connect(_on_auth_done)
@@ -1365,7 +1389,13 @@ class LogsPage(BasePage):
         except Exception as e:
             log(f"Ошибка отправки лога: {e}", "ERROR")
             self.send_log_btn.setEnabled(True)
-            self.send_status_label.setText("❌ Ошибка")
+            self.send_status_label.setText(
+                tr_catalog(
+                    "page.logs.send.status.error",
+                    language=self._ui_language,
+                    default="❌ Ошибка",
+                )
+            )
             InfoBar.warning(title="Ошибка", content=f"Не удалось отправить лог: {e}",
                 parent=self.window())
 
@@ -1382,7 +1412,13 @@ class LogsPage(BasePage):
             self.send_log_btn.setEnabled(True)
 
             if ok:
-                self.send_status_label.setText("✅ Лог отправлен!")
+                self.send_status_label.setText(
+                    tr_catalog(
+                        "page.logs.send.status.sent_single",
+                        language=self._ui_language,
+                        default="✅ Лог отправлен!",
+                    )
+                )
                 self.send_status_label.setStyleSheet("color: #4ade80; font-size: 11px;")
                 self.problem_text.clear()
                 self.tg_contact.clear()
@@ -1432,7 +1468,13 @@ class LogsPage(BasePage):
                 self.send_log_btn.setEnabled(True)
 
                 if self._orchestra_send_success == self._orchestra_send_total:
-                    self.send_status_label.setText("✅ 2 файла отправлены!")
+                    self.send_status_label.setText(
+                        tr_catalog(
+                            "page.logs.send.status.sent_orchestra",
+                            language=self._ui_language,
+                            default="✅ 2 файла отправлены!",
+                        )
+                    )
                     self.send_status_label.setStyleSheet("color: #4ade80; font-size: 11px;")
                     self.problem_text.clear()
                     self.tg_contact.clear()
@@ -1440,7 +1482,13 @@ class LogsPage(BasePage):
                     self.send_status_label.setText(f"⚠️ Отправлено {self._orchestra_send_success} из 2")
                     self.send_status_label.setStyleSheet("color: #fbbf24; font-size: 11px;")
                 else:
-                    self.send_status_label.setText("❌ Ошибка отправки")
+                    self.send_status_label.setText(
+                        tr_catalog(
+                            "page.logs.send.status.send_error",
+                            language=self._ui_language,
+                            default="❌ Ошибка отправки",
+                        )
+                    )
                     self.send_status_label.setStyleSheet("color: #f87171; font-size: 11px;")
                     if self._orchestra_errors:
                         InfoBar.warning(title="Ошибка отправки",
@@ -1860,7 +1908,13 @@ class LogsPage(BasePage):
         """Очищает поле вывода winws"""
         self.winws_text.clear()
         self._winws_lines_count = 0
-        self.info_label.setText("🧹 Вывод winws очищен")
+        self.info_label.setText(
+            tr_catalog(
+                "page.logs.info.winws_cleared",
+                language=self._ui_language,
+                default="🧹 Вывод winws очищен",
+            )
+        )
 
     def _append_text(self, text: str):
         """Добавляет текст в лог"""
@@ -1909,14 +1963,32 @@ class LogsPage(BasePage):
         text = self.log_text.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
-            self.info_label.setText("✅ Скопировано в буфер обмена")
+            self.info_label.setText(
+                tr_catalog(
+                    "page.logs.info.copied",
+                    language=self._ui_language,
+                    default="✅ Скопировано в буфер обмена",
+                )
+            )
         else:
-            self.info_label.setText("⚠️ Лог пуст")
+            self.info_label.setText(
+                tr_catalog(
+                    "page.logs.info.empty",
+                    language=self._ui_language,
+                    default="⚠️ Лог пуст",
+                )
+            )
             
     def _clear_view(self):
         """Очищает вид (не файл)"""
         self.log_text.clear()
-        self.info_label.setText("🧹 Вид очищен")
+        self.info_label.setText(
+            tr_catalog(
+                "page.logs.info.view_cleared",
+                language=self._ui_language,
+                default="🧹 Вид очищен",
+            )
+        )
         
     def _open_folder(self):
         """Открывает папку с логами"""
@@ -2007,7 +2079,13 @@ class LogsPage(BasePage):
             tr_catalog("page.logs.errors.count", language=self._ui_language, default="Ошибок: {count}").format(count=0)
         )
         self._update_errors_text_height()
-        self.info_label.setText("🧹 Ошибки очищены")
+        self.info_label.setText(
+            tr_catalog(
+                "page.logs.info.errors_cleared",
+                language=self._ui_language,
+                default="🧹 Ошибки очищены",
+            )
+        )
             
     def cleanup(self):
         """Очистка при закрытии - блокирующий режим"""

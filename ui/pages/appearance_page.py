@@ -11,6 +11,7 @@ import qtawesome as qta
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, SettingsRow
 from ui.theme import get_theme_tokens, get_rkn_background_options
+from ui.text_catalog import tr as tr_catalog
 
 try:
     from qfluentwidgets import (
@@ -67,6 +68,9 @@ class AppearancePage(BasePage):
         )
 
         self._display_mode_seg = None    # SegmentedWidget
+        self._display_mode_section_title = None
+        self._display_mode_card = None
+        self._display_mode_spacer = None
         self._language_combo = None      # ComboBox
         self._language_desc_label = None
         self._language_name_label = None
@@ -120,21 +124,43 @@ class AppearancePage(BasePage):
         # ═══════════════════════════════════════════════════════════
         # РЕЖИМ ОТОБРАЖЕНИЯ
         # ═══════════════════════════════════════════════════════════
-        self.add_section_title(text_key="page.appearance.section.display_mode")
+        self._display_mode_section_title = self.add_section_title(
+            text_key="page.appearance.section.display_mode",
+            return_widget=True,
+        )
 
         display_card = SettingsCard()
+        self._display_mode_card = display_card
         display_layout = QVBoxLayout()
         display_layout.setSpacing(12)
 
-        display_desc = CaptionLabel("Выберите светлый или тёмный режим интерфейса.")
+        display_desc = CaptionLabel(
+            tr_catalog(
+                "page.appearance.display_mode.description",
+                language=self._ui_language,
+                default="Выберите светлый или тёмный режим интерфейса.",
+            )
+        )
         display_desc.setWordWrap(True)
         display_layout.addWidget(display_desc)
 
         try:
             self._display_mode_seg = SegmentedWidget()
-            self._display_mode_seg.addItem("dark", "🌙 Тёмный", lambda: self._on_display_mode_changed("dark"))
-            self._display_mode_seg.addItem("light", "☀️ Светлый", lambda: self._on_display_mode_changed("light"))
-            self._display_mode_seg.addItem("system", "⚙ Авто", lambda: self._on_display_mode_changed("system"))
+            self._display_mode_seg.addItem(
+                "dark",
+                tr_catalog("page.appearance.display_mode.option.dark", language=self._ui_language, default="🌙 Тёмный"),
+                lambda: self._on_display_mode_changed("dark"),
+            )
+            self._display_mode_seg.addItem(
+                "light",
+                tr_catalog("page.appearance.display_mode.option.light", language=self._ui_language, default="☀️ Светлый"),
+                lambda: self._on_display_mode_changed("light"),
+            )
+            self._display_mode_seg.addItem(
+                "system",
+                tr_catalog("page.appearance.display_mode.option.system", language=self._ui_language, default="⚙ Авто"),
+                lambda: self._on_display_mode_changed("system"),
+            )
             self._display_mode_seg.setCurrentItem("dark")
             display_layout.addWidget(self._display_mode_seg)
         except Exception:
@@ -143,12 +169,15 @@ class AppearancePage(BasePage):
         display_card.add_layout(display_layout)
         self.add_widget(display_card)
 
-        self.add_spacing(16)
+        self._display_mode_spacer = QWidget(self.content)
+        self._display_mode_spacer.setFixedHeight(16)
+        self._display_mode_spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.add_widget(self._display_mode_spacer)
 
         # ═══════════════════════════════════════════════════════════
         # ЯЗЫК ИНТЕРФЕЙСА
         # ═══════════════════════════════════════════════════════════
-        from ui.text_catalog import LANGUAGE_OPTIONS, normalize_language, tr as tr_catalog
+        from ui.text_catalog import LANGUAGE_OPTIONS, normalize_language
         try:
             from config.reg import get_ui_language
 
@@ -196,16 +225,24 @@ class AppearancePage(BasePage):
         bg_layout.setSpacing(12)
 
         bg_desc = CaptionLabel(
-            "Стандартный фон соответствует режиму отображения. "
-            "AMOLED и РКН Тян доступны подписчикам Premium. "
-            "Для РКН Тян можно выбрать готовый фон из списка."
+            tr_catalog(
+                "page.appearance.background.description",
+                language=self._ui_language,
+                default=(
+                    "Стандартный фон соответствует режиму отображения. "
+                    "AMOLED и РКН Тян доступны подписчикам Premium. "
+                    "Для РКН Тян можно выбрать готовый фон из списка."
+                ),
+            )
         )
         bg_desc.setWordWrap(True)
         bg_layout.addWidget(bg_desc)
 
         # Standard row
         self._bg_radio_standard = RadioButton()
-        self._bg_radio_standard.setText("Стандартный")
+        self._bg_radio_standard.setText(
+            tr_catalog("page.appearance.background.option.standard", language=self._ui_language, default="Стандартный")
+        )
         self._bg_radio_standard.setChecked(True)
         self._bg_radio_standard.toggled.connect(lambda checked: self._on_bg_preset_toggled("standard", checked))
         bg_layout.addWidget(self._bg_radio_standard)
@@ -213,11 +250,15 @@ class AppearancePage(BasePage):
         # AMOLED row
         amoled_row = QHBoxLayout()
         self._bg_radio_amoled = RadioButton()
-        self._bg_radio_amoled.setText("AMOLED — чёрный")
+        self._bg_radio_amoled.setText(
+            tr_catalog("page.appearance.background.option.amoled", language=self._ui_language, default="AMOLED — чёрный")
+        )
         self._bg_radio_amoled.setEnabled(False)
         self._bg_radio_amoled.toggled.connect(lambda checked: self._on_bg_preset_toggled("amoled", checked))
         amoled_row.addWidget(self._bg_radio_amoled)
-        amoled_badge = QLabel("⭐ Premium")
+        amoled_badge = QLabel(
+            tr_catalog("common.badge.premium", language=self._ui_language, default="⭐ Premium")
+        )
         amoled_badge.setStyleSheet("color: #b45309; font-size: 10px; font-weight: bold; background: rgba(255,193,7,0.15); padding: 2px 6px; border-radius: 4px;")
         amoled_row.addWidget(amoled_badge)
         amoled_row.addStretch()
@@ -226,11 +267,15 @@ class AppearancePage(BasePage):
         # РКН Тян row
         rkn_row = QHBoxLayout()
         self._bg_radio_rkn_chan = RadioButton()
-        self._bg_radio_rkn_chan.setText("РКН Тян")
+        self._bg_radio_rkn_chan.setText(
+            tr_catalog("page.appearance.background.option.rkn_chan", language=self._ui_language, default="РКН Тян")
+        )
         self._bg_radio_rkn_chan.setEnabled(False)
         self._bg_radio_rkn_chan.toggled.connect(lambda checked: self._on_bg_preset_toggled("rkn_chan", checked))
         rkn_row.addWidget(self._bg_radio_rkn_chan)
-        rkn_badge = QLabel("⭐ Premium")
+        rkn_badge = QLabel(
+            tr_catalog("common.badge.premium", language=self._ui_language, default="⭐ Premium")
+        )
         rkn_badge.setStyleSheet("color: #b45309; font-size: 10px; font-weight: bold; background: rgba(255,193,7,0.15); padding: 2px 6px; border-radius: 4px;")
         rkn_row.addWidget(rkn_badge)
         rkn_row.addStretch()
@@ -238,7 +283,9 @@ class AppearancePage(BasePage):
 
         rkn_bg_row = QHBoxLayout()
         rkn_bg_row.setSpacing(12)
-        rkn_bg_label = BodyLabel("Фон РКН Тян")
+        rkn_bg_label = BodyLabel(
+            tr_catalog("page.appearance.background.rkn.label", language=self._ui_language, default="Фон РКН Тян")
+        )
         rkn_bg_row.addWidget(rkn_bg_label)
         rkn_bg_row.addStretch()
 
@@ -266,8 +313,14 @@ class AppearancePage(BasePage):
         garland_layout.setSpacing(12)
 
         garland_desc = CaptionLabel(
-            "Праздничная гирлянда с мерцающими огоньками в верхней части окна. "
-            "Доступно только для подписчиков Premium."
+            tr_catalog(
+                "page.appearance.holiday.garland.description",
+                language=self._ui_language,
+                default=(
+                    "Праздничная гирлянда с мерцающими огоньками в верхней части окна. "
+                    "Доступно только для подписчиков Premium."
+                ),
+            )
         )
         garland_desc.setWordWrap(True)
         garland_layout.addWidget(garland_desc)
@@ -280,10 +333,14 @@ class AppearancePage(BasePage):
         garland_icon.setPixmap(qta.icon('fa5s.holly-berry', color=get_theme_tokens().accent_hex).pixmap(20, 20))
         garland_row.addWidget(garland_icon)
 
-        garland_label = BodyLabel("Новогодняя гирлянда")
+        garland_label = BodyLabel(
+            tr_catalog("page.appearance.holiday.garland.title", language=self._ui_language, default="Новогодняя гирлянда")
+        )
         garland_row.addWidget(garland_label)
 
-        premium_badge = QLabel("⭐ Premium")
+        premium_badge = QLabel(
+            tr_catalog("common.badge.premium", language=self._ui_language, default="⭐ Premium")
+        )
         premium_badge.setStyleSheet("color: #b45309; font-size: 10px; font-weight: bold; background-color: rgba(255, 193, 7, 0.15); padding: 2px 6px; border-radius: 4px;")
         garland_row.addWidget(premium_badge)
 
@@ -307,8 +364,14 @@ class AppearancePage(BasePage):
         snowflakes_layout.setSpacing(12)
 
         snowflakes_desc = CaptionLabel(
-            "Мягко падающие снежинки по всему окну. "
-            "Создаёт уютную зимнюю атмосферу."
+            tr_catalog(
+                "page.appearance.holiday.snowflakes.description",
+                language=self._ui_language,
+                default=(
+                    "Мягко падающие снежинки по всему окну. "
+                    "Создаёт уютную зимнюю атмосферу."
+                ),
+            )
         )
         snowflakes_desc.setWordWrap(True)
         snowflakes_layout.addWidget(snowflakes_desc)
@@ -321,10 +384,14 @@ class AppearancePage(BasePage):
         snowflakes_icon.setPixmap(qta.icon('fa5s.snowflake', color=get_theme_tokens().accent_hex).pixmap(20, 20))
         snowflakes_row.addWidget(snowflakes_icon)
 
-        snowflakes_label = BodyLabel("Снежинки")
+        snowflakes_label = BodyLabel(
+            tr_catalog("page.appearance.holiday.snowflakes.title", language=self._ui_language, default="Снежинки")
+        )
         snowflakes_row.addWidget(snowflakes_label)
 
-        snowflakes_badge = QLabel("⭐ Premium")
+        snowflakes_badge = QLabel(
+            tr_catalog("common.badge.premium", language=self._ui_language, default="⭐ Premium")
+        )
         snowflakes_badge.setStyleSheet("color: #b45309; font-size: 10px; font-weight: bold; background-color: rgba(255, 193, 7, 0.15); padding: 2px 6px; border-radius: 4px;")
         snowflakes_row.addWidget(snowflakes_badge)
 
@@ -351,16 +418,32 @@ class AppearancePage(BasePage):
 
         is_win11_plus = sys.platform == "win32" and sys.getwindowsversion().build >= 22000
         if is_win11_plus:
-            opacity_title_text = "Эффект акрилика окна"
-            opacity_desc_text = (
-                "Настройка интенсивности акрилового эффекта всего окна приложения. "
-                "При 0% эффект минимальный, при 100% — максимальный."
+            opacity_title_text = tr_catalog(
+                "page.appearance.opacity.win11.title",
+                language=self._ui_language,
+                default="Эффект акрилика окна",
+            )
+            opacity_desc_text = tr_catalog(
+                "page.appearance.opacity.win11.description",
+                language=self._ui_language,
+                default=(
+                    "Настройка интенсивности акрилового эффекта всего окна приложения. "
+                    "При 0% эффект минимальный, при 100% — максимальный."
+                ),
             )
         else:
-            opacity_title_text = "Прозрачность окна"
-            opacity_desc_text = (
-                "Настройка прозрачности всего окна приложения. "
-                "При 0% окно полностью прозрачное, при 100% — непрозрачное."
+            opacity_title_text = tr_catalog(
+                "page.appearance.opacity.legacy.title",
+                language=self._ui_language,
+                default="Прозрачность окна",
+            )
+            opacity_desc_text = tr_catalog(
+                "page.appearance.opacity.legacy.description",
+                language=self._ui_language,
+                default=(
+                    "Настройка прозрачности всего окна приложения. "
+                    "При 0% окно полностью прозрачное, при 100% — непрозрачное."
+                ),
             )
 
         opacity_desc = CaptionLabel(opacity_desc_text)
@@ -380,7 +463,13 @@ class AppearancePage(BasePage):
 
         opacity_row.addStretch()
 
-        self._opacity_label = CaptionLabel("100%")
+        try:
+            from config.reg import get_window_opacity
+            initial_opacity = get_window_opacity()
+        except Exception:
+            initial_opacity = 0 if is_win11_plus else 100
+
+        self._opacity_label = CaptionLabel(f"{initial_opacity}%")
         self._opacity_label.setMinimumWidth(40)
         self._opacity_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         opacity_row.addWidget(self._opacity_label)
@@ -390,7 +479,7 @@ class AppearancePage(BasePage):
         self._opacity_slider = Slider(Qt.Orientation.Horizontal)
         self._opacity_slider.setMinimum(0)
         self._opacity_slider.setMaximum(100)
-        self._opacity_slider.setValue(100)
+        self._opacity_slider.setValue(initial_opacity)
         self._opacity_slider.setSingleStep(1)
         self._opacity_slider.setPageStep(5)
         self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
@@ -412,27 +501,58 @@ class AppearancePage(BasePage):
             accent_layout.setSpacing(12)
 
             accent_desc = CaptionLabel(
-                "Цвет акцентных элементов интерфейса: кнопок, иконок, индикаторов. "
-                "Изменяет цвет нативных компонентов WinUI."
+                tr_catalog(
+                    "page.appearance.accent.description",
+                    language=self._ui_language,
+                    default=(
+                        "Цвет акцентных элементов интерфейса: кнопок, иконок, индикаторов. "
+                        "Изменяет цвет нативных компонентов WinUI."
+                    ),
+                )
             )
             accent_desc.setWordWrap(True)
             accent_layout.addWidget(accent_desc)
 
-            accent_row = SettingsRow("fa5s.palette", "Цвет акцента", "")
-            self._color_picker_btn = ColorPickerButton(QColor("#0078d4"), "Выбрать цвет")
+            accent_row = SettingsRow(
+                "fa5s.palette",
+                tr_catalog("page.appearance.accent.color.title", language=self._ui_language, default="Цвет акцента"),
+                "",
+            )
+            self._color_picker_btn = ColorPickerButton(
+                QColor("#0078d4"),
+                tr_catalog("page.appearance.accent.color.pick", language=self._ui_language, default="Выбрать цвет"),
+            )
             self._color_picker_btn.colorChanged.connect(self._on_accent_color_changed)
             accent_row.set_control(self._color_picker_btn)
             accent_layout.addWidget(accent_row)
 
-            win_accent_row = SettingsRow("fa5s.windows", "Акцент из Windows",
-                "Автоматически использовать системный акцентный цвет Windows")
+            win_accent_row = SettingsRow(
+                "fa5s.windows",
+                tr_catalog("page.appearance.accent.windows.title", language=self._ui_language, default="Акцент из Windows"),
+                tr_catalog(
+                    "page.appearance.accent.windows.description",
+                    language=self._ui_language,
+                    default="Автоматически использовать системный акцентный цвет Windows",
+                ),
+            )
             self._follow_windows_accent_cb = CheckBox()
             self._follow_windows_accent_cb.stateChanged.connect(self._on_follow_windows_accent_changed)
             win_accent_row.set_control(self._follow_windows_accent_cb)
             accent_layout.addWidget(win_accent_row)
 
-            tinted_bg_row = SettingsRow("fa5s.fill-drip", "Тонировать фон акцентным цветом",
-                "Фон окна окрашивается в оттенок акцентного цвета")
+            tinted_bg_row = SettingsRow(
+                "fa5s.fill-drip",
+                tr_catalog(
+                    "page.appearance.accent.tint_background.title",
+                    language=self._ui_language,
+                    default="Тонировать фон акцентным цветом",
+                ),
+                tr_catalog(
+                    "page.appearance.accent.tint_background.description",
+                    language=self._ui_language,
+                    default="Фон окна окрашивается в оттенок акцентного цвета",
+                ),
+            )
             self._tinted_bg_cb = CheckBox()
             self._tinted_bg_cb.stateChanged.connect(self._on_tinted_bg_changed)
             tinted_bg_row.set_control(self._tinted_bg_cb)
@@ -442,7 +562,13 @@ class AppearancePage(BasePage):
             intensity_row_layout = QHBoxLayout(self._tinted_intensity_container)
             intensity_row_layout.setContentsMargins(8, 0, 8, 0)
             intensity_row_layout.setSpacing(8)
-            intensity_label = CaptionLabel("Интенсивность тонировки:")
+            intensity_label = CaptionLabel(
+                tr_catalog(
+                    "page.appearance.accent.tint_intensity.label",
+                    language=self._ui_language,
+                    default="Интенсивность тонировки:",
+                )
+            )
             self._tinted_intensity_slider = Slider(Qt.Orientation.Horizontal)
             self._tinted_intensity_slider.setRange(0, 30)
             self._tinted_intensity_slider.setValue(15)
@@ -472,15 +598,29 @@ class AppearancePage(BasePage):
         try:
             from qfluentwidgets import SwitchButton
 
-            anim_row = SettingsRow("fa5s.film", "Анимации интерфейса",
-                "Анимации кнопок, переходов и элементов WinUI")
+            anim_row = SettingsRow(
+                "fa5s.film",
+                tr_catalog("page.appearance.performance.animations.title", language=self._ui_language, default="Анимации интерфейса"),
+                tr_catalog(
+                    "page.appearance.performance.animations.description",
+                    language=self._ui_language,
+                    default="Анимации кнопок, переходов и элементов WinUI",
+                ),
+            )
             self._animations_switch = SwitchButton()
             self._animations_switch.checkedChanged.connect(self._on_animations_changed)
             anim_row.set_control(self._animations_switch)
             perf_layout.addWidget(anim_row)
 
-            scroll_row = SettingsRow("fa5s.mouse", "Плавная прокрутка",
-                "Инерционная прокрутка страниц настроек")
+            scroll_row = SettingsRow(
+                "fa5s.mouse",
+                tr_catalog("page.appearance.performance.scroll.title", language=self._ui_language, default="Плавная прокрутка"),
+                tr_catalog(
+                    "page.appearance.performance.scroll.description",
+                    language=self._ui_language,
+                    default="Инерционная прокрутка страниц настроек",
+                ),
+            )
             self._smooth_scroll_switch = SwitchButton()
             self._smooth_scroll_switch.checkedChanged.connect(self._on_smooth_scroll_changed)
             scroll_row.set_control(self._smooth_scroll_switch)
@@ -515,18 +655,29 @@ class AppearancePage(BasePage):
 
     def _on_display_mode_changed(self, mode: str):
         """Handle display mode toggle."""
+        effective_mode = mode
         try:
-            from config.reg import set_display_mode
+            from config.reg import set_display_mode, get_display_mode
             set_display_mode(mode)
+            effective_mode = get_display_mode()
         except Exception:
             pass
+
+        if self._display_mode_seg is not None and effective_mode != mode:
+            self._display_mode_seg.blockSignals(True)
+            try:
+                self._display_mode_seg.setCurrentItem(effective_mode)
+            except Exception:
+                pass
+            self._display_mode_seg.blockSignals(False)
+
         try:
             from qfluentwidgets import setTheme, Theme
-            if mode == "light":
+            if effective_mode == "light":
                 setTheme(Theme.LIGHT)
-            elif mode == "dark":
+            elif effective_mode == "dark":
                 setTheme(Theme.DARK)
-            elif mode == "system":
+            elif effective_mode == "system":
                 setTheme(Theme.AUTO)
         except Exception:
             pass
@@ -538,7 +689,7 @@ class AppearancePage(BasePage):
                 apply_window_background(win)
         except Exception:
             pass
-        self.display_mode_changed.emit(mode)
+        self.display_mode_changed.emit(effective_mode)
 
     def _load_ui_language(self):
         if self._language_combo is None:
@@ -647,6 +798,34 @@ class AppearancePage(BasePage):
                 radio.setChecked(key == preset)
                 radio.blockSignals(False)
         self._update_rkn_background_control_state()
+        self._update_display_mode_section_state(preset)
+
+    @staticmethod
+    def _should_show_display_mode_for_preset(preset: str | None) -> bool:
+        preset_name = str(preset or "").strip().lower()
+        return preset_name not in ("amoled", "rkn_chan")
+
+    def _update_display_mode_section_state(self, preset: str | None = None) -> None:
+        if preset is None:
+            try:
+                from config.reg import get_background_preset
+
+                preset = get_background_preset()
+            except Exception:
+                preset = "standard"
+
+        show_section = self._should_show_display_mode_for_preset(preset)
+
+        for widget in (
+            self._display_mode_section_title,
+            self._display_mode_card,
+            self._display_mode_spacer,
+        ):
+            if widget is not None:
+                widget.setVisible(show_section)
+
+        if self._display_mode_seg is not None:
+            self._display_mode_seg.setEnabled(show_section)
 
     def _reload_rkn_background_options(self):
         if self._rkn_background_combo is None:
@@ -689,7 +868,10 @@ class AppearancePage(BasePage):
             except Exception:
                 pass
         else:
-            self._rkn_background_combo.addItem("Фоны не найдены", userData="")
+            self._rkn_background_combo.addItem(
+                tr_catalog("page.appearance.background.rkn.none", language=self._ui_language, default="Фоны не найдены"),
+                userData="",
+            )
             self._rkn_background_combo.setCurrentIndex(0)
 
         self._rkn_background_combo.blockSignals(False)
@@ -753,6 +935,7 @@ class AppearancePage(BasePage):
         if preset == "rkn_chan":
             self._reload_rkn_background_options()
         self._update_rkn_background_control_state()
+        self._update_display_mode_section_state(preset)
         self.background_preset_changed.emit(preset)
 
     def _on_mica_changed(self, checked: bool):
@@ -1039,6 +1222,8 @@ class AppearancePage(BasePage):
             from config.reg import set_snowflakes_enabled
             set_snowflakes_enabled(False)
             self.snowflakes_changed.emit(False)
+
+        self._update_display_mode_section_state()
 
     def set_garland_state(self, enabled: bool):
         """Устанавливает состояние чекбокса гирлянды (без эмита сигнала)"""

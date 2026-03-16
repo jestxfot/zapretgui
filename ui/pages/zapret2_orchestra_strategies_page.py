@@ -212,7 +212,15 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         self._build_actions_card(for_detail=False)
 
         if not self._categories:
-            self.add_widget(BodyLabel("Категории не найдены"))
+            self.add_widget(
+                BodyLabel(
+                    tr_catalog(
+                        "page.z2_orchestra_strategies.empty.no_categories",
+                        language=self._ui_language,
+                        default="Категории не найдены",
+                    )
+                )
+            )
             return
 
         self._unified_list = UnifiedStrategiesList(self)
@@ -273,9 +281,19 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         self._status_indicator = StatusIndicator()
         row.addWidget(self._status_indicator)
 
-        row.addWidget(BodyLabel("Текущая:"))
+        row.addWidget(
+            BodyLabel(
+                tr_catalog("page.z2_orchestra_strategies.current.prefix", language=self._ui_language, default="Текущая:")
+            )
+        )
 
-        self.current_strategy_label = BodyLabel("Не выбрана")
+        self.current_strategy_label = BodyLabel(
+            tr_catalog(
+                "page.z2_orchestra_strategies.current.not_selected",
+                language=self._ui_language,
+                default="Не выбрана",
+            )
+        )
         row.addWidget(self.current_strategy_label, 1)
 
         row.addStretch()
@@ -292,24 +310,59 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         self._reload_btn.clicked.connect(self._reload_strategies)
         row.addWidget(self._reload_btn)
 
-        folder_btn = ActionButton("Папка", "fa5s.folder-open")
+        folder_btn = ActionButton(
+            tr_catalog("page.z2_orchestra_strategies.button.folder", language=self._ui_language, default="Папка"),
+            "fa5s.folder-open",
+        )
         folder_btn.clicked.connect(self._open_folder)
         row.addWidget(folder_btn)
 
         if for_detail:
-            disable_btn = ResetActionButton("Отключить категорию", confirm_text="Установить 'none' для категории?")
+            disable_btn = ResetActionButton(
+                tr_catalog(
+                    "page.z2_orchestra_strategies.button.disable_category",
+                    language=self._ui_language,
+                    default="Отключить категорию",
+                ),
+                confirm_text=tr_catalog(
+                    "page.z2_orchestra_strategies.confirm.disable_category",
+                    language=self._ui_language,
+                    default="Установить 'none' для категории?",
+                ),
+            )
             disable_btn.reset_confirmed.connect(lambda: self._disable_selected_category())
             row.addWidget(disable_btn)
 
-            back_btn = ActionButton("← Категории", "fa5s.arrow-left")
+            back_btn = ActionButton(
+                tr_catalog(
+                    "page.z2_orchestra_strategies.button.back_categories",
+                    language=self._ui_language,
+                    default="← Категории",
+                ),
+                "fa5s.arrow-left",
+            )
             back_btn.clicked.connect(self._back_to_list)
             row.addWidget(back_btn)
         else:
-            clear_btn = ResetActionButton("Выключить", confirm_text="Установить 'none' для всех категорий?")
+            clear_btn = ResetActionButton(
+                tr_catalog("page.z2_orchestra_strategies.button.disable_all", language=self._ui_language, default="Выключить"),
+                confirm_text=tr_catalog(
+                    "page.z2_orchestra_strategies.confirm.disable_all",
+                    language=self._ui_language,
+                    default="Установить 'none' для всех категорий?",
+                ),
+            )
             clear_btn.reset_confirmed.connect(self._clear_all)
             row.addWidget(clear_btn)
 
-            reset_btn = ResetActionButton("Сбросить", confirm_text="Сбросить к значениям по умолчанию?")
+            reset_btn = ResetActionButton(
+                tr_catalog("page.z2_orchestra_strategies.button.reset", language=self._ui_language, default="Сбросить"),
+                confirm_text=tr_catalog(
+                    "page.z2_orchestra_strategies.confirm.reset",
+                    language=self._ui_language,
+                    default="Сбросить к значениям по умолчанию?",
+                ),
+            )
             reset_btn.reset_confirmed.connect(self._reset_to_defaults)
             row.addWidget(reset_btn)
 
@@ -324,14 +377,29 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         row.setSpacing(8)
 
         self._detail_search = LineEdit()
-        self._detail_search.setPlaceholderText("Поиск по названию или аргументам")
+        self._detail_search.setPlaceholderText(
+            tr_catalog(
+                "page.z2_orchestra_strategies.search.placeholder",
+                language=self._ui_language,
+                default="Поиск по названию или аргументам",
+            )
+        )
         self._detail_search.textChanged.connect(self._on_search_changed)
         row.addWidget(self._detail_search, 1)
 
         self._detail_sort = ComboBox()
-        self._detail_sort.addItem("По рекомендации", userData="recommended")
-        self._detail_sort.addItem("По алфавиту A-Z", userData="alpha_asc")
-        self._detail_sort.addItem("По алфавиту Z-A", userData="alpha_desc")
+        self._detail_sort.addItem(
+            tr_catalog("page.z2_orchestra_strategies.sort.recommended", language=self._ui_language, default="По рекомендации"),
+            userData="recommended",
+        )
+        self._detail_sort.addItem(
+            tr_catalog("page.z2_orchestra_strategies.sort.alpha_asc", language=self._ui_language, default="По алфавиту A-Z"),
+            userData="alpha_asc",
+        )
+        self._detail_sort.addItem(
+            tr_catalog("page.z2_orchestra_strategies.sort.alpha_desc", language=self._ui_language, default="По алфавиту Z-A"),
+            userData="alpha_desc",
+        )
         self._detail_sort.currentIndexChanged.connect(self._on_sort_changed)
         row.addWidget(self._detail_sort)
 
@@ -339,7 +407,9 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         self.add_widget(card)
 
     def _build_detail_tree(self, category_key: str) -> None:
-        card = SettingsCard("Стратегии")
+        card = SettingsCard(
+            tr_catalog("page.z2_orchestra_strategies.section.strategies", language=self._ui_language, default="Стратегии")
+        )
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -499,6 +569,11 @@ class Zapret2OrchestraStrategiesPage(BasePage):
                 pass
 
         self._rebuild_breadcrumb()
+        try:
+            if self._built:
+                self._rebuild_current_view()
+        except Exception:
+            pass
 
     def _back_to_list(self) -> None:
         self._view_mode = "list"
@@ -541,8 +616,18 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         self._detail_tree.add_strategy(
             StrategyTreeRow(
                 strategy_id="none",
-                name="Отключено",
-                args=["Отключить стратегию для категории"],
+                name=tr_catalog(
+                    "page.z2_orchestra_strategies.strategy.none",
+                    language=self._ui_language,
+                    default="Отключено",
+                ),
+                args=[
+                    tr_catalog(
+                        "page.z2_orchestra_strategies.strategy.none.description",
+                        language=self._ui_language,
+                        default="Отключить стратегию для категории",
+                    )
+                ],
             )
         )
 
@@ -864,9 +949,21 @@ class Zapret2OrchestraStrategiesPage(BasePage):
 
         active = sum(1 for sid in (self.category_selections or {}).values() if sid and sid != "none")
         if active > 0:
-            self.current_strategy_label.setText(f"{active} активных")
+            self.current_strategy_label.setText(
+                tr_catalog(
+                    "page.z2_orchestra_strategies.current.active_count",
+                    language=self._ui_language,
+                    default="{count} активных",
+                ).format(count=active)
+            )
         else:
-            self.current_strategy_label.setText("Не выбрана")
+            self.current_strategy_label.setText(
+                tr_catalog(
+                    "page.z2_orchestra_strategies.current.not_selected",
+                    language=self._ui_language,
+                    default="Не выбрана",
+                )
+            )
 
     def update_current_strategy(self, name: str) -> None:
         _ = name

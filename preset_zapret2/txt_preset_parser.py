@@ -325,6 +325,91 @@ def extract_categories_from_args(args: str) -> List[Tuple[str, str, str]]:
     return out
 
 
+def _extract_selector_context_tokens(args: str, *, filter_mode: str) -> List[str]:
+    """
+    Extracts context tokens for canonical category inference of one selector.
+
+    For multi-selector blocks we resolve each `--hostlist=` / `--ipset=` entry
+    separately. Keep transport filters and matching *-exclude selectors so
+    infer_category_key_from_args() can map aliases (e.g. twitch -> twitch_tcp).
+    """
+    selector_mode = (filter_mode or "hostlist").strip().lower() or "hostlist"
+    wanted_exclude = "--hostlist-exclude=" if selector_mode == "hostlist" else "--ipset-exclude="
+
+    tokens: List[str] = []
+    seen: Set[str] = set()
+    for token in re.findall(r"--[^\s]+", args or ""):
+        token = token.strip()
+        if not token:
+            continue
+
+        token_l = token.lower()
+        keep = (
+            token_l.startswith("--filter-tcp=")
+            or token_l.startswith("--filter-udp=")
+            or token_l.startswith("--filter-l7=")
+            or token_l.startswith("--payload=")
+            or token_l.startswith(wanted_exclude)
+        )
+
+        if not keep or token in seen:
+            continue
+
+        seen.add(token)
+        tokens.append(token)
+
+    return tokens
+
+
+def _canonicalize_list_category_key(
+    *,
+    category_key: str,
+    filter_mode: str,
+    filter_file: str,
+    protocol_hint: str,
+    block_args: str,
+) -> str:
+    """
+    Resolves list-derived category aliases to canonical keys from categories.txt.
+
+    Examples:
+      - twitch -> twitch_tcp
+      - discord -> discord_tcp
+      - roblox + udp filter -> roblox_udp
+    """
+    normalized_key = _normalize_category_key(category_key)
+    if not normalized_key:
+        return "unknown"
+
+    categories_info = _load_category_info() or {}
+
+    # Already canonical.
+    if normalized_key in categories_info:
+        return normalized_key
+
+    # Fast path for common `<name>_<protocol>` category keys.
+    protocol_n = str(protocol_hint or "").strip().lower()
+    if protocol_n in ("tcp", "udp"):
+        protocol_candidate = f"{normalized_key}_{protocol_n}"
+        if protocol_candidate in categories_info:
+            return protocol_candidate
+
+    # Fallback: infer by block transport context + this exact selector.
+    selector_mode = (filter_mode or "hostlist").strip().lower() or "hostlist"
+    selector_value = str(filter_file or "").strip()
+
+    synthetic_tokens = _extract_selector_context_tokens(block_args, filter_mode=selector_mode)
+    if selector_value:
+        synthetic_tokens.append(f"--{selector_mode}={selector_value}")
+
+    if synthetic_tokens:
+        inferred_key, _inferred_mode = infer_category_key_from_args("\n".join(synthetic_tokens))
+        if inferred_key != "unknown":
+            return inferred_key
+
+    return normalized_key
+
+
 _WINDOWS_ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)")
 
 
@@ -1066,6 +1151,9 @@ def parse_preset_content(content: str) -> PresetData:
     for block_lines_list in blocks_raw:
         block_args = '\n'.join(block_lines_list)
 
+        base_protocol, base_port = extract_protocol_and_port(block_args)
+        has_port_filter = bool(re.search(r'--filter-(tcp|udp)=', block_args))
+
         # Extract category info
         categories_from_lists = extract_categories_from_args(block_args)
         category, filter_mode, filter_file = extract_category_from_args(block_args)
@@ -1073,7 +1161,16 @@ def parse_preset_content(content: str) -> PresetData:
         category_entries: List[Tuple[str, str, str]] = []
 
         if categories_from_lists:
-            category_entries.extend(categories_from_lists)
+            for list_category, list_mode, list_file in categories_from_lists:
+                mode = (list_mode or "hostlist").strip().lower() or "hostlist"
+                canonical_key = _canonicalize_list_category_key(
+                    category_key=list_category,
+                    filter_mode=mode,
+                    filter_file=list_file,
+                    protocol_hint=base_protocol,
+                    block_args=block_args,
+                )
+                category_entries.append((canonical_key, mode, list_file))
         else:
             if inferred_category != "unknown":
                 category = inferred_category
@@ -1082,9 +1179,6 @@ def parse_preset_content(content: str) -> PresetData:
             if not filter_mode:
                 filter_mode = "hostlist"
             category_entries.append((category, filter_mode, filter_file))
-
-        base_protocol, base_port = extract_protocol_and_port(block_args)
-        has_port_filter = bool(re.search(r'--filter-(tcp|udp)=', block_args))
 
         for category_key, category_mode, category_file in category_entries:
             if not category_mode:

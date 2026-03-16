@@ -107,7 +107,13 @@ class OrchestraZapret2DirectControlPage(Zapret2DirectControlPage):
 
     def _refresh_direct_mode_label(self) -> None:
         try:
-            self.direct_mode_label.setText("Orchestra Z2")
+            self.direct_mode_label.setText(
+                tr_catalog(
+                    "page.z2_orchestra_control.mode_label",
+                    language=self._ui_language,
+                    default="Orchestra Z2",
+                )
+            )
         except Exception:
             pass
 
@@ -136,7 +142,13 @@ class OrchestraZapret2DirectControlPage(Zapret2DirectControlPage):
 
         try:
             if getattr(self, "strategy_label", None) is not None and self.strategy_label.text() == "Нет активных листов":
-                self.strategy_label.setText("Нет активных категорий")
+                self.strategy_label.setText(
+                    tr_catalog(
+                        "page.z2_orchestra_control.strategy.no_active_categories",
+                        language=self._ui_language,
+                        default="Нет активных категорий",
+                    )
+                )
         except Exception:
             pass
 

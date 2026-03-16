@@ -31,3 +31,4 @@ build_zapret/*
 !build_zapret/PROXMOX_UBUNTU_VM_GUIDE.md
 config/tokens.py
 nul
+/dist

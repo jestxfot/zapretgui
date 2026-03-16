@@ -169,6 +169,12 @@ class AboutPage(BasePage):
             except Exception:
                 pass
 
+    def switch_to_tab(self, key: str) -> None:
+        """External API: switch to About/Support/Help tab by key."""
+        normalized = str(key or "").strip().lower()
+        if normalized in {"about", "support", "help"}:
+            self._switch_tab({"about": 0, "support": 1, "help": 2}[normalized])
+
     def set_ui_language(self, language: str) -> None:
         super().set_ui_language(language)
 
@@ -212,6 +218,9 @@ class AboutPage(BasePage):
 
             self.about_section_version_label.setText(
                 tr_catalog("page.about.section.version", language=self._ui_language, default="Версия")
+            )
+            self.about_app_name_label.setText(
+                tr_catalog("page.about.app_name", language=self._ui_language, default="Zapret 2 GUI")
             )
             self.about_version_value_label.setText(
                 tr_catalog(
@@ -289,7 +298,9 @@ class AboutPage(BasePage):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
         if _HAS_FLUENT:
-            name_label = SubtitleLabel("Zapret 2 GUI")
+            name_label = SubtitleLabel(
+                tr_catalog("page.about.app_name", language=self._ui_language, default="Zapret 2 GUI")
+            )
             version_label = CaptionLabel(
                 tr_catalog(
                     "page.about.version.value_template",
@@ -298,7 +309,9 @@ class AboutPage(BasePage):
                 ).format(version=APP_VERSION)
             )
         else:
-            name_label = QLabel("Zapret 2 GUI")
+            name_label = QLabel(
+                tr_catalog("page.about.app_name", language=self._ui_language, default="Zapret 2 GUI")
+            )
             name_label.setStyleSheet(f"color: {tokens.fg}; font-size: 16px; font-weight: 600;")
             version_label = QLabel(
                 tr_catalog(
@@ -308,6 +321,7 @@ class AboutPage(BasePage):
                 ).format(version=APP_VERSION)
             )
             version_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 12px;")
+        self.about_app_name_label = name_label
         text_layout.addWidget(name_label)
         self.about_version_value_label = version_label
         text_layout.addWidget(self.about_version_value_label)

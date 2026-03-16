@@ -100,8 +100,8 @@ class PresetParserCustomStrategyDetectionTests(unittest.TestCase):
 
         cats = {block.category for block in data.categories}
         self.assertIn("youtube", cats)
-        self.assertIn("discord", cats)
-        self.assertIn("twitter", cats)
+        self.assertTrue(any(key in cats for key in ("discord_tcp", "discord")))
+        self.assertTrue(any(key in cats for key in ("twitter_tcp", "twitter")))
         for block in data.categories:
             self.assertIn("--lua-desync=multisplit:pos=2", block.strategy_args)
 

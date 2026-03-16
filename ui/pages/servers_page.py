@@ -1310,9 +1310,15 @@ class ServersPage(BasePage):
 
     def _build_ui(self):
         # ── Custom header (back link + title) ───────────────────────────
+        # Hide base title/subtitle and prevent _retranslate_base_texts
+        # from re-showing them (it calls setVisible(bool(text))).
         if self.title_label is not None:
+            self._title_key = None
+            self.title_label.setText("")
             self.title_label.hide()
         if self.subtitle_label is not None:
+            self._subtitle_key = None
+            self.subtitle_label.setText("")
             self.subtitle_label.hide()
 
         header = QWidget()
@@ -1326,14 +1332,8 @@ class ServersPage(BasePage):
 
         self._back_btn = TransparentPushButton(parent=self)
         self._back_btn.setText(self._tr("page.servers.back.about", "О программе"))
-        try:
-            if _HAS_FLUENT and FluentIcon is not None:
-                self._back_btn.setIcon(FluentIcon.BACK)
-            else:
-                self._back_btn.setIcon(qta.icon('fa5s.chevron-left', color=self._tokens.fg_muted))
-        except Exception:
-            pass
-        self._back_btn.setIconSize(QSize(16, 16))
+        self._back_btn.setIcon(qta.icon("fa5s.chevron-left", color="#888"))
+        self._back_btn.setIconSize(QSize(12, 12))
         self._back_btn.clicked.connect(self._on_back_to_about)
         back_row.addWidget(self._back_btn)
         back_row.addStretch()

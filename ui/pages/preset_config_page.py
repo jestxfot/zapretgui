@@ -140,6 +140,14 @@ class PresetConfigPage(BasePage):
                         ),
                     ).format(preset_name=self._preset_display_name)
                 )
+            if getattr(self, "notepad_btn", None) is not None:
+                self.notepad_btn.setText(
+                    tr_catalog(
+                        "page.preset_config.button.open_notepad",
+                        language=language,
+                        default="Открыть в блокноте",
+                    )
+                )
         except Exception:
             pass
 
@@ -154,7 +162,15 @@ class PresetConfigPage(BasePage):
         buttons_layout.setSpacing(8)
 
         # Кнопка "Открыть в блокноте"
-        self.notepad_btn = ActionButton("Открыть в блокноте", "mdi.open-in-new", accent=False)
+        self.notepad_btn = ActionButton(
+            tr_catalog(
+                "page.preset_config.button.open_notepad",
+                language=self._ui_language,
+                default="Открыть в блокноте",
+            ),
+            "mdi.open-in-new",
+            accent=False,
+        )
         self.notepad_btn.setProperty("uiVariant", "compact")
         self.notepad_btn.setFixedHeight(32)
         self.notepad_btn.clicked.connect(self._open_in_notepad)

@@ -33,6 +33,7 @@ from typing import List
 from .base_page import BasePage, ScrollBlockingTextEdit
 from ui.compat_widgets import SettingsCard, ActionButton
 from ui.widgets import StrategySearchBar
+from ui.text_catalog import tr as tr_catalog
 from strategy_menu.filter_engine import StrategyFilterEngine, SearchQuery
 from PyQt6.QtGui import QTextOption
 from strategy_menu.strategy_info import StrategyInfo
@@ -251,11 +252,27 @@ class StrategiesPageBase(QWidget):
         self.main_layout.setSpacing(12)
 
         # Заголовок страницы (фиксированный, не прокручивается)
-        self.title_label = TitleLabel("Выбор активных стратегий (и их настройка) Zapret 2")
+        self.title_label = TitleLabel(
+            tr_catalog(
+                "page.strategies_base.title",
+                default="Выбор активных стратегий (и их настройка) Zapret 2",
+            )
+        )
         self.main_layout.addWidget(self.title_label)
 
         # Описание страницы
-        self.subtitle_label = BodyLabel("Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) можно выбрать свою стратегию для обхода блокировок. Список всех статегий для каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). Некоторые типы дурения (например send или syndata) можно настроить более точечно чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ.")
+        self.subtitle_label = BodyLabel(
+            tr_catalog(
+                "page.strategies_base.subtitle",
+                default=(
+                    "Для каждой категории (доменов внутри хостлиста или айпишников внутри айпсета) "
+                    "можно выбрать свою стратегию для обхода блокировок. Список всех статегий для "
+                    "каждой категории одинаковый, отличается только по типу трафика (TCP, UDP, stun). "
+                    "Некоторые типы дурения (например send или syndata) можно настроить более точечно "
+                    "чтобы получить больше уникальных стратегий, исходя из того как работает ваше ТСПУ."
+                ),
+            )
+        )
         self.subtitle_label.setWordWrap(True)
         self.main_layout.addWidget(self.subtitle_label)
 
@@ -268,7 +285,9 @@ class StrategiesPageBase(QWidget):
         self.status_indicator = StatusIndicator()
         current_layout.addWidget(self.status_indicator)
 
-        current_prefix = BodyLabel("Текущая:")
+        current_prefix = BodyLabel(
+            tr_catalog("page.strategies_base.current_prefix", default="Текущая:")
+        )
         self._current_prefix_label = current_prefix
         current_layout.addWidget(current_prefix)
 
@@ -288,7 +307,9 @@ class StrategiesPageBase(QWidget):
         # current_widget будет вставлен в content_layout при загрузке контента
 
         # Текстовый лейбл (fallback)
-        self.current_strategy_label = BodyLabel("Не выбрана")
+        self.current_strategy_label = BodyLabel(
+            tr_catalog("page.strategies_base.strategy.not_selected", default="Не выбрана")
+        )
         current_layout.addWidget(self.current_strategy_label)
 
         current_layout.addStretch()
@@ -324,7 +345,9 @@ class StrategiesPageBase(QWidget):
         self.content_layout.setSpacing(12)
 
         # Плейсхолдер загрузки
-        self.loading_label = QLabel("Загрузка...")
+        self.loading_label = QLabel(
+            tr_catalog("page.strategies_base.loading", default="Загрузка...")
+        )
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.loading_label)
 
@@ -587,10 +610,23 @@ class StrategiesPageBase(QWidget):
 
     def update_current_strategy(self, name: str):
         """Обновляет отображение текущей стратегии - ПЕРЕОПРЕДЕЛЯЕТСЯ В НАСЛЕДНИКАХ"""
-        if name and name != "Автостарт DPI отключен":
+        autostart_disabled_ru = tr_catalog(
+            "page.strategies_base.strategy.autostart_disabled",
+            default="Автостарт DPI отключен",
+            language="ru",
+        )
+        autostart_disabled_en = tr_catalog(
+            "page.strategies_base.strategy.autostart_disabled",
+            default="Autostart DPI is disabled",
+            language="en",
+        )
+
+        if name and name not in {autostart_disabled_ru, autostart_disabled_en, "Автостарт DPI отключен"}:
             self.current_strategy_label.setText(name)
         else:
-            self.current_strategy_label.setText("Не выбрана")
+            self.current_strategy_label.setText(
+                tr_catalog("page.strategies_base.strategy.not_selected", default="Не выбрана")
+            )
 
     # ==================== Внешние фильтры (от StrategySortPage) ====================
 

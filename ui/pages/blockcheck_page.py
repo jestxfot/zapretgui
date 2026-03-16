@@ -351,7 +351,7 @@ class BlockcheckPage(BasePage):
         # Mode combo
         mode_label = CaptionLabel(
             tr_catalog("page.blockcheck.mode", default="Режим:")
-        ) if HAS_FLUENT else QLabel("Режим:")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.blockcheck.mode", default="Режим:"))
         ctrl_row.addWidget(mode_label)
 
         self._mode_combo = ComboBox()
@@ -397,7 +397,7 @@ class BlockcheckPage(BasePage):
         # Status label
         self._status_label = CaptionLabel(
             tr_catalog("page.blockcheck.ready", default="Готово")
-        ) if HAS_FLUENT else QLabel("Готово")
+        ) if HAS_FLUENT else QLabel(tr_catalog("page.blockcheck.ready", default="Готово"))
         self._control_card.add_widget(self._status_label)
         self._add_tab_widget(self._control_card)
 

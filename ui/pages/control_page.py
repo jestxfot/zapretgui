@@ -375,7 +375,11 @@ class ControlPage(BasePage):
             return
 
         box = MessageBox(
-            "Установка сертификата",
+            tr_catalog(
+                "page.control.dialog.certificate_install.title",
+                language=self._ui_language,
+                default="Установка сертификата",
+            ),
             "Установить корневой сертификат Zapret Developer?\n\n"
             "Это необязательно. После установки Windows будет доверять сертификатам, "
             "выпущенным этим центром сертификации, для текущего пользователя.\n\n"
@@ -390,7 +394,13 @@ class ControlPage(BasePage):
 
         old_text = self.install_cert_btn.text()
         self.install_cert_btn.setEnabled(False)
-        self.install_cert_btn.setText("Установка...")
+        self.install_cert_btn.setText(
+            tr_catalog(
+                "page.control.status.installing",
+                language=self._ui_language,
+                default="Установка...",
+            )
+        )
         self._set_status("Установка сертификата...")
 
         self._cert_install_thread = QThread()
@@ -528,7 +538,11 @@ class ControlPage(BasePage):
 
             if disable:
                 box = MessageBox(
-                    "Отключение Windows Defender",
+                    tr_catalog(
+                        "page.control.dialog.defender_disable.title",
+                        language=self._ui_language,
+                        default="Отключение Windows Defender",
+                    ),
                     "Вы действительно хотите отключить Windows Defender?\n\n"
                     "Отключение Windows Defender:\n"
                     "• Отключит защиту в реальном времени\n"
@@ -560,7 +574,11 @@ class ControlPage(BasePage):
                     self._set_toggle_checked(self.defender_toggle, False)
             else:
                 box = MessageBox(
-                    "Включение Windows Defender",
+                    tr_catalog(
+                        "page.control.dialog.defender_enable.title",
+                        language=self._ui_language,
+                        default="Включение Windows Defender",
+                    ),
                     "Включить Windows Defender обратно?\n\n"
                     "Это восстановит защиту вашего компьютера.",
                     self.window(),
@@ -605,7 +623,11 @@ class ControlPage(BasePage):
 
             if enable:
                 box = MessageBox(
-                    "Блокировка MAX",
+                    tr_catalog(
+                        "page.control.dialog.max_block_enable.title",
+                        language=self._ui_language,
+                        default="Блокировка MAX",
+                    ),
                     "Включить блокировку установки и работы программы MAX?\n\n"
                     "• Заблокирует запуск max.exe, max.msi и других файлов MAX\n"
                     "• Добавит правила блокировки в Windows Firewall\n"
@@ -625,7 +647,11 @@ class ControlPage(BasePage):
                     self._set_toggle_checked(self.max_block_toggle, False)
             else:
                 box = MessageBox(
-                    "Отключение блокировки MAX",
+                    tr_catalog(
+                        "page.control.dialog.max_block_disable.title",
+                        language=self._ui_language,
+                        default="Отключение блокировки MAX",
+                    ),
                     "Отключить блокировку программы MAX?\n\n"
                     "Это удалит все созданные блокировки и правила.",
                     self.window(),

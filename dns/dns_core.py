@@ -637,6 +637,17 @@ class DNSManager:
             success = set_dns_via_registry(guid, dns_list, is_ipv6)
             
             if success:
+                if not is_ipv6:
+                    normalized_primary = (primary_dns or "").strip()
+                    if normalized_primary:
+                        template = get_doh_template_for_dns(normalized_primary)
+                        if template:
+                            doh_ok = set_doh_for_adapter(guid, normalized_primary, enable=True)
+                            if not doh_ok:
+                                log(f"DoH enable failed for {adapter_name}: {normalized_primary}", "WARNING")
+                        else:
+                            clear_doh_for_adapter(guid)
+                            log(f"DoH skipped (no template) for {adapter_name}: {normalized_primary}", "DEBUG")
                 notify_dns_change()
                 return True, "OK"
             else:
@@ -657,6 +668,9 @@ class DNSManager:
             for family in families:
                 is_ipv6 = (family.lower() == "ipv6")
                 set_dns_via_registry(guid, [], is_ipv6)
+
+            if address_family is None or address_family.lower() == "ipv4":
+                clear_doh_for_adapter(guid)
             
             notify_dns_change()
             return True, "OK"
