@@ -87,9 +87,15 @@ class TelegramProxyManager(QThread):
 
     def cleanup(self) -> None:
         """Called on app exit."""
-        self._stop_stats_polling()
-        if self._controller:
-            self._controller.stop()
+        try:
+            self._stop_stats_polling()
+        except Exception:
+            pass
+        try:
+            if self._controller:
+                self._controller.stop()
+        except Exception:
+            pass
             self._controller = None
 
     def _on_log(self, msg: str) -> None:

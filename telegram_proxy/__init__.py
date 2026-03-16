@@ -89,22 +89,32 @@ class ProxyController:
 
     def stop(self) -> None:
         """Stop the proxy. Non-blocking with short timeout."""
-        if not self._loop or not self._proxy:
-            return
+        loop = self._loop
+        proxy = self._proxy
+        thread = self._thread
 
-        future = asyncio.run_coroutine_threadsafe(self._proxy.stop(), self._loop)
-        try:
-            future.result(timeout=2.0)
-        except Exception:
-            pass
-
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.0)
-
+        # Clear refs first to prevent re-entrant calls
         self._loop = None
         self._proxy = None
         self._thread = None
+
+        if not loop or not proxy:
+            return
+
+        try:
+            if loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(proxy.stop(), loop)
+                try:
+                    future.result(timeout=2.0)
+                except Exception:
+                    pass
+                loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            # Loop already closed
+            pass
+
+        if thread and thread.is_alive():
+            thread.join(timeout=1.0)
 
     def update_config(self, port: int = None, mode: str = None) -> None:
         """Update config. Requires restart to take effect."""
@@ -120,26 +130,36 @@ class ProxyController:
 
     def _run_loop(self) -> None:
         """Run the asyncio event loop in a dedicated thread."""
-        asyncio.set_event_loop(self._loop)
-        try:
-            self._loop.run_until_complete(self._proxy.start())
+        loop = self._loop
+        if loop is None:
             self._started.set()
-            self._loop.run_forever()
+            return
+        asyncio.set_event_loop(loop)
+        try:
+            proxy = self._proxy
+            if proxy is not None:
+                loop.run_until_complete(proxy.start())
+            self._started.set()
+            loop.run_forever()
         except Exception:
-            log.exception("Proxy event loop error")
+            pass  # Suppress — GUI is closing
         finally:
-            # Cleanup remaining tasks
             try:
-                pending = asyncio.all_tasks(self._loop)
+                pending = asyncio.all_tasks(loop)
                 for task in pending:
                     task.cancel()
                 if pending:
-                    self._loop.run_until_complete(
+                    loop.run_until_complete(
                         asyncio.gather(*pending, return_exceptions=True)
                     )
-                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
             except Exception:
                 pass
-            finally:
-                self._loop.close()
-                self._started.set()  # Unblock start() even on failure
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            try:
+                loop.close()
+            except Exception:
+                pass
+            self._started.set()
