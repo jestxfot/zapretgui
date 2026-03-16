@@ -1,4 +1,5 @@
 # reg.py ─ универсальный helper для работы с реестром
+import sys
 import winreg
 
 HKCU = winreg.HKEY_CURRENT_USER
@@ -278,14 +279,29 @@ def set_tray_hint_shown(shown: bool = True) -> bool:
 # ───────────── Прозрачность окна ─────────────
 _WINDOW_OPACITY_NAME = "WindowOpacity"  # REG_DWORD (0-100)
 
+
+def _is_win11_plus() -> bool:
+    try:
+        return sys.platform == "win32" and sys.getwindowsversion().build >= 22000
+    except Exception:
+        return False
+
 def get_window_opacity() -> int:
-    """Возвращает прозрачность окна (0-100%). По умолчанию 100 (непрозрачное)."""
+    """Возвращает прозрачность окна (0-100%).
+
+    По умолчанию:
+    - Win11+: 0 (минимальная тонировка Mica)
+    - Win10 и ниже: 100 (полностью непрозрачный fallback)
+    """
     from config import REGISTRY_PATH
     val = reg(REGISTRY_PATH, _WINDOW_OPACITY_NAME)
     if val is None:
-        return 100  # По умолчанию 100% (непрозрачное)
-    # Ограничиваем значение диапазоном 0-100
-    return max(0, min(100, int(val)))
+        return 0 if _is_win11_plus() else 100
+    try:
+        # Ограничиваем значение диапазоном 0-100
+        return max(0, min(100, int(val)))
+    except (TypeError, ValueError):
+        return 0 if _is_win11_plus() else 100
 
 def set_window_opacity(opacity: int) -> bool:
     """Устанавливает прозрачность окна (0-100%)."""
@@ -369,19 +385,44 @@ def set_tinted_background_intensity(value: int) -> bool:
 # ───────────── Режим отображения (тёмный/светлый/авто) ─────────────
 _DISPLAY_MODE_NAME = "DisplayMode"  # REG_SZ: "dark" | "light" | "system"
 
+
+def _coerce_display_mode(mode: str | None) -> str:
+    """Normalizes mode and enforces dark mode for AMOLED/RKN presets."""
+    normalized = str(mode or "").strip().lower()
+    if normalized not in ("dark", "light", "system"):
+        normalized = "dark"
+
+    # AMOLED and RKN presets are designed for dark mode only.
+    try:
+        from config import REGISTRY_PATH
+        preset = reg(REGISTRY_PATH, "BackgroundPreset")
+        preset_name = str(preset or "").strip().lower()
+        if preset_name in ("amoled", "rkn_chan"):
+            return "dark"
+    except Exception:
+        pass
+
+    return normalized
+
 def get_display_mode() -> str:
     """Возвращает режим отображения: 'dark', 'light' или 'system'. По умолчанию 'dark'."""
     from config import REGISTRY_PATH
     val = reg(REGISTRY_PATH, _DISPLAY_MODE_NAME)
-    if val in ("dark", "light", "system"):
-        return val
-    return "dark"
+    coerced = _coerce_display_mode(val)
+
+    # Self-heal incompatible/legacy values so UI and startup stay consistent.
+    if val != coerced:
+        try:
+            reg(REGISTRY_PATH, _DISPLAY_MODE_NAME, coerced)
+        except Exception:
+            pass
+
+    return coerced
 
 def set_display_mode(mode: str) -> bool:
     """Сохраняет режим отображения ('dark', 'light' или 'system')."""
     from config import REGISTRY_PATH
-    if mode not in ("dark", "light", "system"):
-        mode = "dark"
+    mode = _coerce_display_mode(mode)
     return reg(REGISTRY_PATH, _DISPLAY_MODE_NAME, mode)
 
 
@@ -493,6 +534,49 @@ def set_smooth_scroll_enabled(value: bool) -> bool:
     """Сохраняет флаг плавной прокрутки."""
     from config import REGISTRY_PATH
     return reg(REGISTRY_PATH, _SMOOTH_SCROLL_ENABLED_NAME, int(value))
+
+
+# ───────────── Telegram WebSocket Proxy ─────────────
+_TG_PROXY_ENABLED_NAME = "TgProxyEnabled"          # REG_DWORD (0/1)
+_TG_PROXY_AUTOSTART_NAME = "TgProxyAutoStart"      # REG_DWORD (0/1)
+_TG_PROXY_PORT_NAME = "TgProxyPort"                # REG_DWORD
+_TG_PROXY_MODE_NAME = "TgProxyMode"                # REG_SZ ("socks5"|"transparent"|"both")
+
+def get_tg_proxy_enabled() -> bool:
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TG_PROXY_ENABLED_NAME)
+    return bool(val) if val is not None else False
+
+def set_tg_proxy_enabled(enabled: bool) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TG_PROXY_ENABLED_NAME, 1 if enabled else 0)
+
+def get_tg_proxy_autostart() -> bool:
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TG_PROXY_AUTOSTART_NAME)
+    return bool(val) if val is not None else True  # Default: auto-start ON
+
+def set_tg_proxy_autostart(autostart: bool) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TG_PROXY_AUTOSTART_NAME, 1 if autostart else 0)
+
+def get_tg_proxy_port() -> int:
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TG_PROXY_PORT_NAME)
+    return int(val) if val is not None else 1353
+
+def set_tg_proxy_port(port: int) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TG_PROXY_PORT_NAME, int(port))
+
+def get_tg_proxy_mode() -> str:
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TG_PROXY_MODE_NAME)
+    return str(val) if val else "socks5"
+
+def set_tg_proxy_mode(mode: str) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TG_PROXY_MODE_NAME, str(mode))
 
 
 # ───────────── Registry Subkey Helpers ─────────────

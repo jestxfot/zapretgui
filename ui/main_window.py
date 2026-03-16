@@ -126,6 +126,11 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.orchestra",
         "OrchestraSettingsPage",
     ),
+    PageName.TELEGRAM_PROXY: (
+        "telegram_proxy_page",
+        "ui.pages.telegram_proxy_page",
+        "TelegramProxyPage",
+    ),
 }
 
 _PAGE_ALIASES: dict[PageName, PageName] = {
@@ -187,6 +192,7 @@ _NAV_ICONS = {
     PageName.ZAPRET1_DIRECT_CONTROL: FluentIcon.GAME if HAS_FLUENT else None,
     PageName.ZAPRET1_DIRECT: FluentIcon.PLAY if HAS_FLUENT else None,
     PageName.ZAPRET1_USER_PRESETS: FluentIcon.FOLDER if HAS_FLUENT else None,
+    PageName.TELEGRAM_PROXY: FluentIcon.SEND if HAS_FLUENT else None,
 }
 
 # Russian labels for navigation
@@ -221,6 +227,7 @@ _NAV_LABELS = {
     PageName.ZAPRET1_DIRECT_CONTROL: "Управление Zapret 1",
     PageName.ZAPRET1_DIRECT: "Стратегии Z1",
     PageName.ZAPRET1_USER_PRESETS: "Мои пресеты Z1",
+    PageName.TELEGRAM_PROXY: "Telegram Proxy",
 }
 
 
@@ -488,7 +495,7 @@ class MainWindowUI:
         # ── Система ───────────────────────────────────────────────────────────
         system_header_key = "nav.header.system"
         system_header = nav.addItemHeader(tr_catalog(system_header_key, language=self._ui_language), POS_SCROLL)
-        system_pages = (PageName.AUTOSTART, PageName.NETWORK)
+        system_pages = (PageName.AUTOSTART, PageName.NETWORK, PageName.TELEGRAM_PROXY)
         for page_name in system_pages:
             _add(page_name)
         self._nav_headers.append((system_header, system_pages, system_header_key))

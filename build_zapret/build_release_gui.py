@@ -13,6 +13,10 @@ import re
 ROOT_HINT = Path(__file__).resolve().parents[1]
 if str(ROOT_HINT) not in sys.path:
     sys.path.insert(0, str(ROOT_HINT))
+# build_zapret/ contains local modules (ssh_deploy, keyboard_manager, etc.)
+_BUILD_DIR = Path(__file__).resolve().parent
+if str(_BUILD_DIR) not in sys.path:
+    sys.path.insert(0, str(_BUILD_DIR))
 
 try:
     from utils.dotenv import load_dotenv
@@ -215,7 +219,7 @@ def setup_github_imports():
         root_path = Path(__file__).parent.parent
         if str(root_path) not in sys.path:
             sys.path.insert(0, str(root_path))
-        
+    
         from build_zapret import (
             create_github_release, 
             is_github_enabled, 
@@ -264,6 +268,12 @@ def setup_ssh_imports():
     """Настройка импорта SSH модуля"""
     try:
         from ssh_deploy import deploy_to_all_servers, is_ssh_configured, get_ssh_config_info
+        return deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, True
+    except ImportError:
+        pass
+    # Retry with explicit build_zapret package path
+    try:
+        from build_zapret.ssh_deploy import deploy_to_all_servers, is_ssh_configured, get_ssh_config_info
         return deploy_to_all_servers, is_ssh_configured, get_ssh_config_info, True
     except ImportError:
         # Заглушки

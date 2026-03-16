@@ -20,7 +20,7 @@ _pyqt6_qt6_bin = os.path.join(_pyqt6_dir, 'Qt6', 'bin')
 
 a = Analysis(
     ['main.py'],
-    pathex=[r'H:\Privacy\zapretgui'],  # ВАЖНО: путь к проекту!
+    pathex=[r'G:\Privacy\zapretgui'],  # ВАЖНО: путь к проекту!
     binaries=[
         (os.path.join(_pyqt6_dir, 'QtXml.pyd'), 'PyQt6'),
         (os.path.join(_pyqt6_qt6_bin, 'Qt6Xml.dll'), 'PyQt6/Qt6/bin'),
@@ -89,7 +89,6 @@ a = Analysis(
         'ui.pages.orchestra.locked_page',
         'ui.pages.orchestra.whitelist_page',
         'ui.pages.orchestra.ratings_page',
-        'ui.pages.diagnostics_tab_page',
         'ui.pages.preset_config_page',
         'ui.pages.servers_page',
         'ui.pages.support_page',
@@ -320,7 +319,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon=r'H:\Privacy\zapretgui\ZapretDevLogo4.ico',
+    icon=r'G:\Privacy\zapretgui\ZapretDevLogo4.ico',
 )
 
 # ✅ ДОБАВЛЕНО: COLLECT создает папку со всеми файлами

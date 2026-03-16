@@ -403,6 +403,13 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         except Exception as e:
             log(f"Ошибка при очистке страниц: {e}", "DEBUG")
 
+        # Cleanup Telegram proxy
+        try:
+            from ui.pages.telegram_proxy_page import _get_proxy_manager
+            _get_proxy_manager().cleanup()
+        except Exception:
+            pass
+
         # Очищаем праздничные оверлеи
         try:
             effects = getattr(self, "_holiday_effects", None)

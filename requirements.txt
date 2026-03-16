@@ -59,7 +59,6 @@ paramiko
 # Telegram Integration (для публикации в канал и обновлений)
 # ════════════════════════════════════════════════════════════
 pyrogram
-tgcrypto  # Ускоритель шифрования для Pyrogram
 
 # ════════════════════════════════════════════════════════════
 # Примечания:
@@ -80,3 +79,5 @@ qtawesome
 pytz
 PyQt6-Fluent-Widgets
 wmi
+websockets
+tgcrypto  # Ускоритель шифрования для Pyrogram

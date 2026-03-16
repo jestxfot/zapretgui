@@ -83,7 +83,7 @@ class SystemTrayManager:
         try:
             from log import log
 
-            menu.aboutToShow.connect(lambda: log("Tray menu: aboutToShow", "DEBUG"))  # type: ignore[attr-defined]
+            menu.aboutToShow.connect(lambda: (log("Tray menu: aboutToShow", "DEBUG"), self._update_tg_proxy_tray_status()))  # type: ignore[attr-defined]
             menu.aboutToHide.connect(lambda: log("Tray menu: aboutToHide", "DEBUG"))  # type: ignore[attr-defined]
             log(f"Tray menu initialized (hasContextMenu=True)", "DEBUG")
         except Exception:
@@ -151,6 +151,15 @@ class SystemTrayManager:
 
         menu.addSeparator()
 
+        # Telegram Proxy toggle
+        self._tg_proxy_act = QAction("Telegram Proxy: выкл", self.parent)
+        if HAS_QTAWESOME:
+            self._tg_proxy_act.setIcon(qta.icon('fa5s.paper-plane', color='#60cdff'))
+        self._tg_proxy_act.triggered.connect(self._toggle_tg_proxy)
+        menu.addAction(self._tg_proxy_act)
+
+        menu.addSeparator()
+
         # консоль
         console_act = QAction("Консоль", self.parent)
         if HAS_QTAWESOME:
@@ -175,6 +184,49 @@ class SystemTrayManager:
         # ───────────────────────────────────────────────────
 
         self.tray_icon.setContextMenu(menu)
+
+    def _toggle_tg_proxy(self):
+        """Toggle Telegram proxy from tray menu."""
+        try:
+            from ui.pages.telegram_proxy_page import _get_proxy_manager
+            mgr = _get_proxy_manager()
+            if mgr.is_running:
+                mgr.stop_proxy()
+                self._tg_proxy_act.setText("Telegram Proxy: выкл")
+                try:
+                    from config.reg import set_tg_proxy_enabled
+                    set_tg_proxy_enabled(False)
+                except Exception:
+                    pass
+            else:
+                from config.reg import get_tg_proxy_port, get_tg_proxy_mode
+                port = get_tg_proxy_port()
+                mode = get_tg_proxy_mode()
+                mgr.start_proxy(port=port, mode=mode)
+                self._tg_proxy_act.setText(f"Telegram Proxy: вкл ({port})")
+                try:
+                    from config.reg import set_tg_proxy_enabled
+                    set_tg_proxy_enabled(True)
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                from log import log
+                log(f"Tray TG proxy toggle error: {e}", "WARNING")
+            except Exception:
+                pass
+
+    def _update_tg_proxy_tray_status(self):
+        """Update tray menu text to reflect proxy state."""
+        try:
+            from ui.pages.telegram_proxy_page import _get_proxy_manager
+            mgr = _get_proxy_manager()
+            if mgr.is_running:
+                self._tg_proxy_act.setText(f"Telegram Proxy: вкл ({mgr.port})")
+            else:
+                self._tg_proxy_act.setText("Telegram Proxy: выкл")
+        except Exception:
+            pass
 
     def _apply_menu_style(self, menu: QMenu):
         """Применяет стиль к меню трея"""

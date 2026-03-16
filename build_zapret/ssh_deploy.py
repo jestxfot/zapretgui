@@ -312,9 +312,11 @@ def _key_password_env_name(server_config: Dict[str, Any]) -> str:
 
 def _resolve_key_path(server_config: Dict[str, Any]) -> Optional[str]:
     key_path = server_config.get("key_path")
+    if not key_path:
+        key_path = os.environ.get(_key_path_env_name(server_config)) or os.environ.get("ZAPRET_SSH_KEY_PATH") or None
     if key_path:
-        return str(key_path)
-    return os.environ.get(_key_path_env_name(server_config)) or os.environ.get("ZAPRET_SSH_KEY_PATH") or None
+        return str(Path(os.path.expanduser(key_path)).resolve())
+    return None
 
 
 def _resolve_key_password(server_config: Dict[str, Any]) -> Optional[str]:

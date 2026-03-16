@@ -67,6 +67,9 @@ class PageName(Enum):
     # === Сканер стратегий ===
     STRATEGY_SCAN = auto()           # Legacy id: standalone route removed, now embedded in BlockCheck tabs
 
+    # === Telegram Proxy ===
+    TELEGRAM_PROXY = auto()          # Telegram WebSocket Proxy
+
     # === Оркестратор (автообучение) ===
     ORCHESTRA = auto()               # Оркестр - главная
     ORCHESTRA_SETTINGS = auto()      # Настройки оркестратора (вкладки: залоченные, заблокированные, белый список, рейтинги)
@@ -104,6 +107,7 @@ class SectionName(Enum):
     # === Основные пункты ===
     AUTOSTART = auto()               # Автозапуск
     NETWORK = auto()                 # Сеть
+    TELEGRAM_PROXY = auto()          # Telegram Proxy
 
     # === Диагностика (collapsible группа) ===
     DIAGNOSTICS = auto()             # Заголовок группы (collapsible)
@@ -139,6 +143,7 @@ SECTION_TO_PAGE: dict[SectionName, Optional[PageName]] = {
     SectionName.CUSTOM_IPSET: PageName.CUSTOM_IPSET,
     SectionName.AUTOSTART: PageName.AUTOSTART,
     SectionName.NETWORK: PageName.NETWORK,
+    SectionName.TELEGRAM_PROXY: PageName.TELEGRAM_PROXY,
     SectionName.DIAGNOSTICS: PageName.BLOCKCHECK,
     SectionName.DNS_CHECK: PageName.BLOCKCHECK,
     SectionName.HOSTS: PageName.HOSTS,
