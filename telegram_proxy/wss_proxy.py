@@ -59,8 +59,8 @@ MAX_RETRIES = 1
 _WS_POOL_SIZE = 4        # connections per (dc, is_media) key
 _WS_POOL_MAX_AGE = 120.0  # seconds before evicting idle connections
 
-# DC fail cooldown (seconds)
-DC_FAIL_COOLDOWN = 60.0
+# DC fail cooldown (seconds) — short, because TCP fallback to blocked IPs is useless
+DC_FAIL_COOLDOWN = 10.0
 
 # SSL context: no hostname verification (we connect to IP, not hostname)
 _ssl_ctx = ssl.create_default_context()
@@ -967,7 +967,18 @@ class TelegramWSProxy:
         dc: int,
         is_media: bool,
     ) -> None:
-        """Fall back to direct TCP to the original DC IP."""
+        """Fall back to direct TCP to the original DC IP.
+
+        Skip TCP fallback for DCs that have WSS relays (DC2/DC4) —
+        their IPs are blocked by ISP, so TCP will just timeout and
+        flood the network with useless connection attempts.
+        """
+        # Don't TCP-fallback to IPs that are known-blocked (WSS DCs)
+        if dc in WSS_DOMAINS:
+            self.stats.failed_connections += 1
+            self._log(f"[{label}] DC{dc} WSS failed, no TCP fallback (IP blocked by ISP)")
+            return
+
         media_tag = " media" if is_media else ""
         self._log(f"[{label}] DC{dc}{media_tag} TCP fallback -> {target_host}:{target_port}")
         try:

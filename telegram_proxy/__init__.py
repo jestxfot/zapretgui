@@ -142,24 +142,26 @@ class ProxyController:
             self._started.set()
             loop.run_forever()
         except Exception:
-            pass  # Suppress — GUI is closing
+            pass
         finally:
-            try:
-                pending = asyncio.all_tasks(loop)
-                for task in pending:
-                    task.cancel()
-                if pending:
-                    loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
-            except Exception:
-                pass
-            try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception:
-                pass
-            try:
-                loop.close()
-            except Exception:
-                pass
+            # All cleanup in individual try/except to never crash
+            if loop is not None and not loop.is_closed():
+                try:
+                    pending = asyncio.all_tasks(loop)
+                    for task in pending:
+                        task.cancel()
+                    if pending:
+                        loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                except Exception:
+                    pass
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                try:
+                    loop.close()
+                except Exception:
+                    pass
             self._started.set()
