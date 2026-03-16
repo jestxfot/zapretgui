@@ -37,6 +37,7 @@ from telegram_proxy.dc_map import (
     ws_domains_for_dc,
     # transparent_port_to_dc,  # Transparent mode removed (WinDivert loopback limitation)
     IP_TO_DC,
+    WSS_DOMAINS,
     WSS_RELAY_IP,
     WSS_PATH,
     # TRANSPARENT_PORT_BASE,  # Transparent mode removed
@@ -53,6 +54,10 @@ CONNECT_TIMEOUT = 10.0
 
 # Max retry attempts for WSS connection per domain
 MAX_RETRIES = 1
+
+# WebSocket connection pool settings
+_WS_POOL_SIZE = 4        # connections per (dc, is_media) key
+_WS_POOL_MAX_AGE = 120.0  # seconds before evicting idle connections
 
 # DC fail cooldown (seconds)
 DC_FAIL_COOLDOWN = 60.0
@@ -483,6 +488,8 @@ class ProxyStats:
     wss_connections: int = 0
     tcp_fallback_connections: int = 0
     failed_connections: int = 0
+    pool_hits: int = 0
+    pool_misses: int = 0
     passthrough_connections: int = 0
     http_rejected: int = 0
     start_time: float = field(default_factory=time.monotonic)
@@ -490,6 +497,134 @@ class ProxyStats:
     @property
     def uptime_seconds(self) -> float:
         return time.monotonic() - self.start_time
+
+
+# ---- WebSocket connection pool ----
+
+
+class _WsPool:
+    """Pre-opened WebSocket connection pool.
+
+    Maintains up to _WS_POOL_SIZE idle connections per (dc, is_media) key.
+    When a connection is taken, a background refill task replenishes the pool.
+    Stale (older than _WS_POOL_MAX_AGE) or closed connections are evicted on get().
+    """
+
+    def __init__(self, stats: ProxyStats):
+        # {(dc, is_media): [(RawWebSocket, created_timestamp), ...]}
+        self._idle: dict[tuple[int, bool], list[tuple[RawWebSocket, float]]] = {}
+        self._refilling: set[tuple[int, bool]] = set()
+        self._stats = stats
+
+    async def get(
+        self, dc: int, is_media: bool,
+        target_ip: str, domains: list[str],
+    ) -> Optional[RawWebSocket]:
+        """Return a pooled WebSocket or None if pool is empty.
+
+        Evicts stale/closed entries. Triggers background refill.
+        """
+        key = (dc, is_media)
+        now = time.monotonic()
+
+        bucket = self._idle.get(key, [])
+        while bucket:
+            ws, created = bucket.pop(0)
+            age = now - created
+            if age > _WS_POOL_MAX_AGE or ws._closed:
+                asyncio.create_task(self._quiet_close(ws))
+                continue
+            self._stats.pool_hits += 1
+            media_tag = "m" if is_media else ""
+            log.debug("WS pool hit for DC%d%s (age=%.1fs, left=%d)",
+                      dc, media_tag, age, len(bucket))
+            self._schedule_refill(key, target_ip, domains)
+            return ws
+
+        self._stats.pool_misses += 1
+        self._schedule_refill(key, target_ip, domains)
+        return None
+
+    def _schedule_refill(
+        self, key: tuple[int, bool],
+        target_ip: str, domains: list[str],
+    ) -> None:
+        """Start a background refill if one isn't already running for this key."""
+        if key in self._refilling:
+            return
+        self._refilling.add(key)
+        asyncio.create_task(self._refill(key, target_ip, domains))
+
+    async def _refill(
+        self, key: tuple[int, bool],
+        target_ip: str, domains: list[str],
+    ) -> None:
+        """Open new WebSocket connections until the bucket is full."""
+        dc, is_media = key
+        try:
+            bucket = self._idle.setdefault(key, [])
+            needed = _WS_POOL_SIZE - len(bucket)
+            if needed <= 0:
+                return
+            tasks = [
+                asyncio.create_task(self._connect_one(target_ip, domains))
+                for _ in range(needed)
+            ]
+            for t in tasks:
+                try:
+                    ws = await t
+                    if ws is not None:
+                        bucket.append((ws, time.monotonic()))
+                except Exception:
+                    pass
+            media_tag = "m" if is_media else ""
+            log.debug("WS pool refilled DC%d%s: %d ready",
+                      dc, media_tag, len(bucket))
+        finally:
+            self._refilling.discard(key)
+
+    @staticmethod
+    async def _connect_one(
+        target_ip: str, domains: list[str],
+    ) -> Optional[RawWebSocket]:
+        """Try to open one WebSocket connection, cycling through domains."""
+        for domain in domains:
+            try:
+                ws = await RawWebSocket.connect(
+                    target_ip, domain, WSS_PATH, timeout=8.0,
+                )
+                return ws
+            except WsHandshakeError as exc:
+                if exc.is_redirect:
+                    continue
+                return None
+            except Exception:
+                return None
+        return None
+
+    @staticmethod
+    async def _quiet_close(ws: RawWebSocket) -> None:
+        """Close a WebSocket without raising."""
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    async def warmup(self) -> None:
+        """Pre-fill pool for all DCs that have working WSS relays."""
+        for dc, domain_list in WSS_DOMAINS.items():
+            for is_media in (False, True):
+                key = (dc, is_media)
+                domains = ws_domains_for_dc(dc, is_media)
+                self._schedule_refill(key, WSS_RELAY_IP, domains)
+        log.info("WS pool warmup started for %d DC(s)", len(WSS_DOMAINS))
+
+    async def close_all(self) -> None:
+        """Close all idle pooled connections (for shutdown)."""
+        for bucket in self._idle.values():
+            for ws, _ in bucket:
+                asyncio.create_task(self._quiet_close(ws))
+        self._idle.clear()
 
 
 # ---- Main proxy class ----
@@ -518,6 +653,7 @@ class TelegramWSProxy:
         self._tasks: set[asyncio.Task] = set()
         self._running = False
         self.stats = ProxyStats()
+        self._ws_pool = _WsPool(self.stats)
         # WS blacklist: set of (dc, is_media) where ALL domains returned 302
         self._ws_blacklist: set[tuple[int, bool]] = set()
         # Cooldown for failed DCs: {(dc, is_media): fail_until_timestamp}
@@ -542,6 +678,7 @@ class TelegramWSProxy:
 
         self._running = True
         self.stats = ProxyStats()
+        self._ws_pool = _WsPool(self.stats)
 
         # NOTE: Transparent mode was removed. WinDivert cannot intercept
         # inbound loopback packets (kernel driver limitation), making Lua NAT
@@ -557,6 +694,9 @@ class TelegramWSProxy:
         for srv in self._servers:
             await srv.start_serving()
 
+        # Pre-fill WebSocket connection pool (non-blocking)
+        asyncio.create_task(self._ws_pool.warmup())
+
     async def stop(self) -> None:
         """Graceful shutdown."""
         if not self._running:
@@ -564,6 +704,9 @@ class TelegramWSProxy:
 
         self._running = False
         self._log("Stopping proxy...")
+
+        # Close all pooled WebSocket connections
+        await self._ws_pool.close_all()
 
         for srv in self._servers:
             srv.close()
@@ -671,7 +814,6 @@ class TelegramWSProxy:
 
             # Only DC2 and DC4 have working WSS relays.
             # DC1/DC3/DC5 go to TCP fallback (same as reference implementation).
-            from telegram_proxy.dc_map import WSS_DOMAINS
             if dc not in WSS_DOMAINS:
                 self._log(f"[{label}] DC{dc} -> TCP (no WSS relay for this DC)")
                 await self._tcp_fallback(
@@ -743,10 +885,17 @@ class TelegramWSProxy:
         # Try WebSocket connection
         domains = ws_domains_for_dc(dc, is_media)
         ws = None
+
+        # Try the connection pool first
+        ws = await self._ws_pool.get(dc, is_media, WSS_RELAY_IP, domains)
+        if ws is not None:
+            self._log(f"[{label}] DC{dc}{media_tag} WSS from pool")
+
+        # If pool miss, try fresh WebSocket connection
         all_redirects = True
         any_redirect = False
 
-        for domain in domains:
+        for domain in domains if ws is None else []:
             try:
                 self._log(f"[{label}] DC{dc}{media_tag} -> wss://{domain}{WSS_PATH}")
                 ws = await RawWebSocket.connect(

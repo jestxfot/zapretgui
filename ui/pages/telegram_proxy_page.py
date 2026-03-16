@@ -51,6 +51,12 @@ def _get_proxy_manager():
     return _proxy_manager
 
 
+# Maximum lines kept in the PlainTextEdit widget
+_MAX_DISPLAY_LINES = 200
+# How often (ms) the GUI reads new log lines from the ring buffer
+_LOG_REFRESH_MS = 500
+
+
 class _StatusDot(QWidget):
     """Small colored circle indicator."""
 
@@ -80,20 +86,24 @@ class TelegramProxyPage(BasePage):
     def __init__(self, parent=None):
         super().__init__(
             "Telegram Proxy",
-            "Маршрутизация трафика Telegram через WebSocket для обхода блокировки по IP",
+            "Маршрутизация трафика Telegram через WebSocket для обхода ЗАМЕДЛЕНИЯ (не поддерживает полный блок) по IP",
             parent,
         )
         self.parent_app = parent
-        self._log_lines: list[str] = []
-        self._max_log_lines = 200
+        self._display_line_count = 0
         self._setup_ui()
         self._connect_signals()
-        self._load_settings()
+        # Load settings AFTER range is set (see _setup_ui)
+        QTimer.singleShot(0, self._load_settings)
+        # Log refresh timer — drains ring buffer every 500ms
+        self._log_timer = QTimer(self)
+        self._log_timer.timeout.connect(self._flush_log_buffer)
+        self._log_timer.start(_LOG_REFRESH_MS)
         # Auto-start if enabled
         QTimer.singleShot(500, self._auto_start_check)
 
     def _setup_ui(self):
-        # ── Status card ──
+        # -- Status card --
         self._status_card = SettingsCard()
 
         status_header = QHBoxLayout()
@@ -113,7 +123,7 @@ class TelegramProxyPage(BasePage):
         self._status_card.add_widget(self._stats_label)
         self.add_widget(self._status_card)
 
-        # ── Quick setup card ──
+        # -- Quick setup card --
         self.add_section_title("Быстрая настройка Telegram")
         self._setup_card = SettingsCard()
 
@@ -141,11 +151,11 @@ class TelegramProxyPage(BasePage):
 
         self.add_widget(self._setup_card)
 
-        # ── Settings card ──
+        # -- Settings card --
         self.add_section_title("Настройки")
         self._settings_card = SettingsCard()
 
-        # Port setting
+        # Port setting — setRange BEFORE setValue to avoid SpinBox clamping issues
         port_row = QHBoxLayout()
         port_label = BodyLabel("Порт:")
         port_row.addWidget(port_label)
@@ -178,7 +188,7 @@ class TelegramProxyPage(BasePage):
 
         self.add_widget(self._settings_card)
 
-        # ── Instructions card ──
+        # -- Instructions card --
         self.add_section_title("Ручная настройка")
         self._instructions_card = SettingsCard()
 
@@ -194,7 +204,7 @@ class TelegramProxyPage(BasePage):
 
         self.add_widget(self._instructions_card)
 
-        # ── Log card ──
+        # -- Log card --
         self.add_section_title("Лог подключений")
         self._log_edit = ScrollBlockingPlainTextEdit()
         self._log_edit.setReadOnly(True)
@@ -205,7 +215,8 @@ class TelegramProxyPage(BasePage):
     def _connect_signals(self):
         mgr = _get_proxy_manager()
         mgr.status_changed.connect(self._on_status_changed)
-        mgr.log_message.connect(self._on_log_message)
+        # NOTE: We no longer connect log_message directly to _on_log_message.
+        # Instead, the QTimer-based _flush_log_buffer drains from ProxyLogger.
         mgr.stats_updated.connect(self._on_stats_updated)
 
         self._autostart_toggle.toggled.connect(self._on_autostart_changed)
@@ -216,13 +227,18 @@ class TelegramProxyPage(BasePage):
         try:
             from config.reg import get_tg_proxy_port, get_tg_proxy_autostart
             port = get_tg_proxy_port()
-            if port < 1024 or port > 65535:
+            if port is None or port < 1024 or port > 65535:
                 port = 1353
+            # Block valueChanged signal during programmatic set
+            self._port_spin.blockSignals(True)
             self._port_spin.setValue(port)
+            self._port_spin.blockSignals(False)
             self._autostart_toggle.toggle.setChecked(get_tg_proxy_autostart())
         except Exception as e:
             log(f"TelegramProxyPage: load settings error: {e}", "WARNING")
+            self._port_spin.blockSignals(True)
             self._port_spin.setValue(1353)
+            self._port_spin.blockSignals(False)
 
     def _auto_start_check(self):
         """Auto-start proxy if autostart is enabled."""
@@ -247,11 +263,66 @@ class TelegramProxyPage(BasePage):
             reg(REGISTRY_PATH, "TgProxyDeeplinkDone", 1)
             # Open deep link after short delay (proxy needs to be ready)
             QTimer.singleShot(2000, self._on_open_in_telegram)
-            self._on_log_message("Auto-opening Telegram proxy setup link...")
+            self._append_log_line("Auto-opening Telegram proxy setup link...")
         except Exception:
             pass
 
-    # ── Handlers ──
+    # -- Log display (throttled via QTimer) --
+
+    def _flush_log_buffer(self):
+        """Called every 500ms by QTimer. Drains new lines from ProxyLogger."""
+        mgr = _get_proxy_manager()
+        new_lines = mgr.proxy_logger.drain()
+        if not new_lines:
+            return
+
+        # Batch-update the text widget
+        self._log_edit.setUpdatesEnabled(False)
+        try:
+            for line in new_lines:
+                self._log_edit.appendPlainText(line)
+                self._display_line_count += 1
+
+            # Trim old lines if over limit
+            if self._display_line_count > _MAX_DISPLAY_LINES:
+                self._trim_log_display()
+        finally:
+            self._log_edit.setUpdatesEnabled(True)
+
+        # Auto-scroll to bottom
+        sb = self._log_edit.verticalScrollBar()
+        if sb:
+            sb.setValue(sb.maximum())
+
+    def _trim_log_display(self):
+        """Remove oldest lines from the PlainTextEdit to keep it bounded."""
+        doc = self._log_edit.document()
+        if doc is None:
+            return
+        block_count = doc.blockCount()
+        if block_count <= _MAX_DISPLAY_LINES:
+            self._display_line_count = block_count
+            return
+
+        excess = block_count - _MAX_DISPLAY_LINES
+        cursor = self._log_edit.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        for _ in range(excess):
+            cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor)
+        # Select to start of the next line
+        cursor.movePosition(cursor.MoveOperation.StartOfBlock, cursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        # Remove the leftover empty line at the top
+        if cursor.atStart():
+            cursor.deleteChar()
+        self._display_line_count = doc.blockCount()
+
+    def _append_log_line(self, msg: str):
+        """Append a single line to the log (for local UI messages that bypass proxy)."""
+        mgr = _get_proxy_manager()
+        mgr.proxy_logger.log(msg)
+
+    # -- Handlers --
 
     def _on_toggle_proxy(self):
         mgr = _get_proxy_manager()
@@ -293,16 +364,6 @@ class TelegramProxyPage(BasePage):
 
         # Disable port while running
         self._port_spin.setEnabled(not running)
-
-    def _on_log_message(self, msg: str):
-        self._log_lines.append(msg)
-        if len(self._log_lines) > self._max_log_lines:
-            self._log_lines = self._log_lines[-self._max_log_lines:]
-        self._log_edit.setPlainText("\n".join(self._log_lines))
-        # Auto-scroll to bottom
-        sb = self._log_edit.verticalScrollBar()
-        if sb:
-            sb.setValue(sb.maximum())
 
     def _on_stats_updated(self, stats):
         if stats is None:
@@ -346,9 +407,9 @@ class TelegramProxyPage(BasePage):
         url = f"tg://socks?server=127.0.0.1&port={port}"
         try:
             webbrowser.open(url)
-            self._on_log_message(f"Opened deep link: {url}")
+            self._append_log_line(f"Opened deep link: {url}")
         except Exception as e:
-            self._on_log_message(f"Failed to open link: {e}")
+            self._append_log_line(f"Failed to open link: {e}")
 
     def _on_copy_link(self):
         """Copy proxy deep link to clipboard."""
@@ -357,7 +418,7 @@ class TelegramProxyPage(BasePage):
         clipboard = QGuiApplication.clipboard()
         if clipboard:
             clipboard.setText(url)
-            self._on_log_message(f"Copied to clipboard: {url}")
+            self._append_log_line(f"Copied to clipboard: {url}")
             if _HAS_FLUENT and InfoBar is not None:
                 try:
                     InfoBar.success(
@@ -372,5 +433,6 @@ class TelegramProxyPage(BasePage):
 
     def cleanup(self):
         """Called on app exit."""
+        self._log_timer.stop()
         mgr = _get_proxy_manager()
         mgr.cleanup()

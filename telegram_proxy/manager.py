@@ -10,6 +10,7 @@ from typing import Optional, Callable
 
 from telegram_proxy import ProxyController
 from telegram_proxy.wss_proxy import ProxyStats
+from telegram_proxy.proxy_logger import get_proxy_logger
 
 
 class TelegramProxyManager(QThread):
@@ -29,6 +30,7 @@ class TelegramProxyManager(QThread):
         super().__init__(parent)
         self._controller: Optional[ProxyController] = None
         self._stats_timer: Optional[QTimer] = None
+        self._proxy_logger = get_proxy_logger()
 
     @property
     def is_running(self) -> bool:
@@ -45,6 +47,10 @@ class TelegramProxyManager(QThread):
     @property
     def mode(self) -> str:
         return self._controller.mode if self._controller else "socks5"
+
+    @property
+    def proxy_logger(self):
+        return self._proxy_logger
 
     def start_proxy(self, port: int = 1353, mode: str = "socks5") -> bool:
         """Start the proxy. Thread-safe, non-blocking."""
@@ -87,6 +93,9 @@ class TelegramProxyManager(QThread):
             self._controller = None
 
     def _on_log(self, msg: str) -> None:
+        # Write to file logger + ring buffer (thread-safe)
+        self._proxy_logger.log(msg)
+        # Emit signal for backward compat (UI now uses drain() instead)
         self.log_message.emit(msg)
 
     def _start_stats_polling(self) -> None:
