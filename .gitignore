@@ -1,4 +1,6 @@
 __pycache__
+*.pyc
+*.pyo
 .env
 .env.*
 !.env.example
@@ -18,34 +20,43 @@ build_zapret/
 version_info.txt
 
 # Generated at build time
-config/build_info.py
-config/tokens.py
-config/_build_secrets.py
+src/config/build_info.py
+src/config/tokens.py
+src/config/_build_secrets.py
 
 # Logs
 logs/
+*.log
 
-# Claude Code internals
+# IDE / tools
 .claude/
-
-# Misc
-bin/
-.research_*/
+.vscode/
 .pytest_cache/
+.research_*/
+
+# Private scripts (not for public)
+_private/
+
+# Tests (local only)
+tests/
+test_*.py
+conftest.py
+
+# Misc files (local only)
 *.pptx
 *.bat
 *.ico
-ZapretLogo*.png
-alt*.txt
-help*.txt
-*tmp_pip*
+*.png
+*.gv
+vs_block*
 AGENTS.md
 CLAUDE.md
 **/CLAUDE.md
-.vscode/
-*.log
-*.gv
-vs_block*
 .github/
 zapretbuild.py
 zapret_log.txt
+old_str*.py
+build.json
+package*.json
+lists/
+*tmp_pip*
