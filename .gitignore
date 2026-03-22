@@ -32,3 +32,12 @@ logs/
 bin/
 .research_*/
 .pytest_cache/
+*.pptx
+*.bat
+*.ico
+ZapretLogo*.png
+alt*.txt
+help*.txt
+*tmp_pip*
+AGENTS.md
+CLAUDE.md

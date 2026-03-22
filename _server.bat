@@ -1,1 +1,0 @@
-D:\bin\cmder_mini\Cmder.exe /task ssh-root

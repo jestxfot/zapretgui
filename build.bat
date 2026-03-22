@@ -1,1 +1,0 @@
-auto-py-to-exe --config build.json
