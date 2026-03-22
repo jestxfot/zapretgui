@@ -608,3 +608,14 @@ description = Потом опишу подробнее
 blobs = quic_google,quic_initial
 --lua-desync=fake:blob=quic_google:repeats=11
 --lua-desync=udplen:increment=15
+[fake_tls_max_dv]
+name = Fake TLS Max (discord voice)
+author = community
+blobs = tls_max
+--lua-desync=fake:blob=tls_max
+
+[fake_quic_google_2_dv]
+name = Fake QUIC Google x2 (discord voice)
+author = community
+blobs = quic_google
+--lua-desync=fake:blob=quic_google:repeats=2

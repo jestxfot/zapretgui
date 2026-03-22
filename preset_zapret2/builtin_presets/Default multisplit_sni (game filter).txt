@@ -1,6 +1,6 @@
 # Preset: Default multisplit sni (game filter)
 # ActivePreset: Default multisplit sni (game filter)
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # Created: 2026-02-03T17:52:52.760817
 # Modified: 2026-02-03T17:52:52.760985
 # Description: 
@@ -170,6 +170,17 @@
 
 --new
 
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
+--ipset-ip=93.115.203.112
+--ipset-ip=84.54.31.114
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+
+--new
+
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-all.txt
 --ipset=lists/ipset-base.txt
@@ -185,6 +196,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
@@ -207,6 +220,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --payload=all
 --lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

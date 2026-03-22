@@ -1,5 +1,5 @@
 # Preset: Preset XY (game filter)
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # Created: 2026-02-12T21:07:19.651846
 # Modified: 2026-02-12T21:07:19.655680
 # IconColor: #ff6666
@@ -138,7 +138,6 @@
 --ipset=lists/ipset-all.txt
 --ipset=lists/ipset-base.txt
 --ipset=lists/ipset-discord.txt
---ipset-exclude=lists/ipset-dns.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google

@@ -740,16 +740,23 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 except:
                     pass
 
-                # Store last error for UI (single line).
-                first_line = ""
-                try:
-                    first_line = (stderr_output or "").strip().splitlines()[0].strip()
-                except Exception:
-                    first_line = ""
-                if first_line:
-                    self._set_last_error(f"winws2 завершился сразу (код {exit_code}): {first_line[:200]}")
+                # Diagnose the exit code + stderr for a human-readable error
+                from dpi.process_health_check import diagnose_winws_exit
+                diag = diagnose_winws_exit(exit_code, stderr_output)
+                if diag:
+                    prefix = f"[AUTOFIX:{diag.auto_fix}]" if diag.auto_fix else ""
+                    self._set_last_error(f"{prefix}{diag.cause}. {diag.solution}")
+                    log(f"Diagnosis: {diag.cause} | Fix: {diag.solution} | auto_fix={diag.auto_fix}", "INFO")
                 else:
-                    self._set_last_error(f"winws2 завершился сразу (код {exit_code})")
+                    first_line = ""
+                    try:
+                        first_line = (stderr_output or "").strip().splitlines()[0].strip()
+                    except Exception:
+                        first_line = ""
+                    if first_line:
+                        self._set_last_error(f"winws2 завершился сразу (код {exit_code}): {first_line[:200]}")
+                    else:
+                        self._set_last_error(f"winws2 завершился сразу (код {exit_code})")
 
                 self.running_process = None
                 self.current_strategy_name = None
@@ -757,8 +764,13 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 self._preset_file_path = None
                 self._runtime_preset_file_path = None
 
-                # Если быстрый старт упал из-за конфликта WinDivert,
-                # делаем один повтор с полной очисткой.
+                # System-level WinDivert errors (Secure Boot, service disabled, etc.)
+                # are not fixable by cleanup/retry — skip retry.
+                if self._is_windivert_system_error(stderr_output, exit_code):
+                    log("WinDivert system error detected — retry will not help", "WARNING")
+                    return False
+
+                # Retryable WinDivert conflict (GUID collision, stale state)
                 if (
                     (not cleanup_required)
                     and _retry_count == 0
@@ -975,21 +987,35 @@ class StrategyRunnerV2(StrategyRunnerBase):
                 except:
                     pass
 
+                # Diagnose the exit code + stderr
+                from dpi.process_health_check import diagnose_winws_exit
+                diag = diagnose_winws_exit(exit_code, stderr_output)
+                if diag:
+                    prefix = f"[AUTOFIX:{diag.auto_fix}]" if diag.auto_fix else ""
+                    self._set_last_error(f"{prefix}{diag.cause}. {diag.solution}")
+                    log(f"Diagnosis: {diag.cause} | Fix: {diag.solution} | auto_fix={diag.auto_fix}", "INFO")
+
                 self.running_process = None
                 self.current_strategy_name = None
                 self.current_strategy_args = None
                 self._preset_file_path = None
 
-                # Auto retry on WinDivert error
+                # System-level errors — don't retry
+                if self._is_windivert_system_error(stderr_output, exit_code):
+                    log("WinDivert system error — retry will not help", "WARNING")
+                    return False
+
+                # Retryable conflict — auto retry
                 if self._is_windivert_conflict_error(stderr_output, exit_code) and _retry_count < MAX_RETRIES:
                     log(f"Detected WinDivert conflict, automatic retry ({_retry_count + 1}/{MAX_RETRIES})...", "INFO")
                     return self.start_strategy_custom(custom_args, strategy_name, _retry_count + 1)
 
-                causes = check_common_crash_causes()
-                if causes:
-                    log("Possible causes:", "INFO")
-                    for line in causes.split('\n')[:5]:
-                        log(f"  {line}", "INFO")
+                if not diag:
+                    causes = check_common_crash_causes()
+                    if causes:
+                        log("Possible causes:", "INFO")
+                        for line in causes.split('\n')[:5]:
+                            log(f"  {line}", "INFO")
 
                 return False
 

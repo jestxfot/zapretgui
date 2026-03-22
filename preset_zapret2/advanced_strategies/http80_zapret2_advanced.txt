@@ -929,3 +929,7 @@ name = 📤 Fake Continuation
 author = Custom
 description = Отправляет фейковый chunked continuation
 --lua-desync=http_fake_continuation
+[multidisorder_legacy_1]
+name = MultiDisorder legacy pos=1,midsld
+author = community
+--lua-desync=multidisorder_legacy:pos=1,midsld

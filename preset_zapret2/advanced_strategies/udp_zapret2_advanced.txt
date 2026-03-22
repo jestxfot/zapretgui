@@ -445,3 +445,136 @@ blobs = quic_google
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=11
 --lua-desync=udplen:increment=15
+
+[fake_quic_google_6_quic_initial]
+name = Fake QUIC Google x6 quic_initial
+author = community
+blobs = quic_google
+--payload=quic_initial
+--lua-desync=fake:blob=quic_google:repeats=6
+
+[fake_quic_google_10]
+name = Fake QUIC Google x10
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=10
+
+[fake_quic_google_11]
+name = Fake QUIC Google x11
+author = community
+blobs = quic_google
+--lua-desync=fake:blob=quic_google:repeats=11
+
+[fake_quic_google_12]
+name = Fake QUIC Google x12
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=12
+
+[fake_quic_google_6]
+name = Fake QUIC Google x6
+author = community
+blobs = quic_google
+--lua-desync=fake:blob=quic_google:repeats=6
+
+[fake_tls_max]
+name = Fake TLS Max
+author = community
+blobs = tls_max
+--lua-desync=fake:blob=tls_max
+
+[fake_quic_google_11_quic_initial]
+name = Fake QUIC Google x11 quic_initial
+author = community
+blobs = quic_google
+--payload=quic_initial
+--lua-desync=fake:blob=quic_google:repeats=11
+
+[fake_quic_google_2]
+name = Fake QUIC Google x2
+author = community
+blobs = quic_google
+--lua-desync=fake:blob=quic_google:repeats=2
+
+[fake_6_fake_default_udp]
+name = Fake x6 fake_default_udp
+author = community
+--payload=all
+--lua-desync=fake:repeats=6:blob=fake_default_udp
+
+[pass]
+name = pass
+--payload=all
+--lua-desync=pass
+
+[fake_quic_google_2_all]
+name = Fake QUIC Google x2 payload=all (in args)
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=2:payload=all
+
+[fake_quic6_autottl_udplen]
+name = Fake QUIC6 AutoTTL + UDPLen out_range
+author = community
+blobs = quic6
+--payload=all
+--lua-desync=fake:blob=quic6:repeats=2:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:payload=all:out_range=-n3
+--lua-desync=udplen:increment=8:pattern=0x0F0F0E0F
+
+[fake_tls_max_udp]
+name = Fake TLS Max (UDP)
+author = community
+blobs = tls_max
+--lua-desync=fake:blob=tls_max
+
+[fake_quic_google_10_all]
+name = Fake QUIC Google x10 payload=all
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=10
+
+[fake_quic_google_12_all]
+name = Fake QUIC Google x12 payload=all
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=12
+
+[fake_quic_google_10_autottl_payload]
+name = Fake QUIC Google x10 AutoTTL payload=all in args
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
+
+[fake_quic_google_12_autottl_payload]
+name = Fake QUIC Google x12 AutoTTL payload=all in args
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=12:ip_autottl=2,3-20:ip6_autottl=2,3-20:payload=all
+
+[fake_quic_google_2_udp]
+name = Fake QUIC Google x2 UDP no payload
+author = community
+blobs = quic_google
+--lua-desync=fake:blob=quic_google:repeats=2
+
+[fake_quic_google_2_all_payload]
+name = Fake QUIC Google x2 payload=all
+author = community
+blobs = quic_google
+--payload=all
+--lua-desync=fake:blob=quic_google:repeats=2
+
+[fake_quic2_udplen_deadbeef]
+name = Fake quic2 x7 + UDPLen deadbeef
+author = community
+blobs = quic2
+--payload=all
+--lua-desync=fake:blob=quic2:repeats=7
+--lua-desync=udplen:increment=5:pattern=0xDEADBEEF

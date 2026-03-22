@@ -1,6 +1,6 @@
 # Preset: general ALT4 (game filter)
 # ActivePreset: general ALT4 (game filter)
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # IconColor: #67d1e4ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -83,6 +83,8 @@
 
 --filter-udp=443
 --ipset-exclude=lists/ipset-dns.txt
+--ipset-exclude=lists/ipset-exclude.txt
+--ipset-exclude=lists/ipset-ru.txt
 --payload=quic_initial
 --lua-desync=fake:blob=quic_google:repeats=6
 
@@ -150,6 +152,10 @@
 --ipset=lists/ipset-all.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-exclude.txt
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
+--ipset-exclude=lists/ipset-exclude.txt
+--ipset-exclude=lists/ipset-ru.txt
 --payload=quic_initial
 --lua-desync=fake:blob=quic_google:repeats=6
 
@@ -170,6 +176,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=1000
 --lua-desync=multisplit:pos=2
@@ -191,6 +199,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n2
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=10

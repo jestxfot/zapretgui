@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QStackedWidget,
+    QFrame, QStackedWidget, QLineEdit,
 )
 from PyQt6.QtGui import QGuiApplication
 
@@ -208,17 +208,30 @@ class TelegramProxyPage(BasePage):
         layout.addWidget(StrongBodyLabel("Настройки"))
         self._settings_card = SettingsCard()
 
-        # Port setting
-        port_row = QHBoxLayout()
+        # Host + Port setting
+        host_port_row = QHBoxLayout()
+        host_label = BodyLabel("Адрес:")
+        host_port_row.addWidget(host_label)
+        self._host_edit = QLineEdit("127.0.0.1")
+        self._host_edit.setFixedWidth(150)
+        self._host_edit.setPlaceholderText("127.0.0.1")
+        self._host_edit.setToolTip(
+            "IP-адрес для прослушивания. 127.0.0.1 — только локально, "
+            "0.0.0.0 или IP вашей сети — доступ с других устройств (телефон и т.д.)"
+        )
+        host_port_row.addWidget(self._host_edit)
+
+        host_port_row.addSpacing(16)
+
         port_label = BodyLabel("Порт:")
-        port_row.addWidget(port_label)
+        host_port_row.addWidget(port_label)
         self._port_spin = SpinBox()
         self._port_spin.setRange(1024, 65535)
         self._port_spin.setValue(1353)
         self._port_spin.setFixedWidth(100)
-        port_row.addWidget(self._port_spin)
-        port_row.addStretch()
-        self._settings_card.add_layout(port_row)
+        host_port_row.addWidget(self._port_spin)
+        host_port_row.addStretch()
+        self._settings_card.add_layout(host_port_row)
 
         # Auto-start toggle
         from ui.pages.dpi_settings_page import Win11ToggleRow
@@ -245,15 +258,17 @@ class TelegramProxyPage(BasePage):
         layout.addWidget(StrongBodyLabel("Ручная настройка"))
         self._instructions_card = SettingsCard()
 
-        instructions = [
-            "Если автоматическая настройка не сработала:",
-            "  Telegram -> Настройки -> Продвинутые -> Тип соединения -> Прокси",
-            "  Тип: SOCKS5  |  Хост: 127.0.0.1  |  Порт: 1353",
-        ]
-        for line in instructions:
-            lbl = CaptionLabel(line)
-            lbl.setWordWrap(True)
-            self._instructions_card.add_widget(lbl)
+        instr1 = CaptionLabel("Если автоматическая настройка не сработала:")
+        instr1.setWordWrap(True)
+        self._instructions_card.add_widget(instr1)
+
+        instr2 = CaptionLabel("  Telegram -> Настройки -> Продвинутые -> Тип соединения -> Прокси")
+        instr2.setWordWrap(True)
+        self._instructions_card.add_widget(instr2)
+
+        self._manual_host_port_label = CaptionLabel("  Тип: SOCKS5  |  Хост: 127.0.0.1  |  Порт: 1353")
+        self._manual_host_port_label.setWordWrap(True)
+        self._instructions_card.add_widget(self._manual_host_port_label)
 
         layout.addWidget(self._instructions_card)
         layout.addStretch()
@@ -286,8 +301,8 @@ class TelegramProxyPage(BasePage):
 
     def _build_diag_panel(self, layout: QVBoxLayout):
         desc = CaptionLabel(
-            "Проверка соединений к Telegram DC — TCP connect, TLS handshake, "
-            "определение типа блокировки (по IP или SNI)."
+            "Проверка соединений к Telegram DC, WSS relay эндпоинтов (kws1-kws5), "
+            "SOCKS5 прокси и определение типа блокировки."
         )
         desc.setWordWrap(True)
         layout.addWidget(desc)
@@ -320,6 +335,8 @@ class TelegramProxyPage(BasePage):
 
         self._diag_result = None  # shared with thread
         self._diag_thread_done = False
+        # Capture proxy port from UI before spawning thread
+        self._diag_proxy_port = self._port_spin.value()
 
         import threading
         t = threading.Thread(target=self._run_diag_tests, daemon=True)
@@ -341,57 +358,326 @@ class TelegramProxyPage(BasePage):
             self._diag_poll_timer.stop()
             self._diag_finished()
 
+    # ── Direct DC test targets (including media IPs) ──
+    _DC_TARGETS = [
+        ("149.154.167.220", "WSS relay",    "—"),
+        ("149.154.167.50",  "DC2",          "kws2"),
+        ("149.154.167.41",  "DC2",          "kws2"),
+        ("149.154.167.91",  "DC4",          "kws4"),
+        ("149.154.175.53",  "DC1",          "—"),
+        ("149.154.175.55",  "DC1",          "—"),
+        ("149.154.175.100", "DC3 (->DC1)",  "—"),
+        ("91.108.56.134",   "DC5",          "—"),
+        ("91.108.56.149",   "DC5",          "—"),
+        ("91.105.192.100",  "DC203 CDN",    "—"),
+        # Media DCs
+        ("149.154.167.151", "DC2 media",    "—"),
+        ("149.154.167.222", "DC2 media",    "—"),
+        ("149.154.175.52",  "DC1 media",    "—"),
+        ("91.108.56.102",   "DC5 media",    "—"),
+    ]
+
+    # ── WSS relay probe targets: kws (Web K) + zws (Web Z) ──
+    _WSS_PROBE_TARGETS = [
+        ("149.154.167.220", "kws1.web.telegram.org", 1),
+        ("149.154.167.220", "kws2.web.telegram.org", 2),
+        ("149.154.167.220", "kws3.web.telegram.org", 3),
+        ("149.154.167.220", "kws4.web.telegram.org", 4),
+        ("149.154.167.220", "kws5.web.telegram.org", 5),
+        ("149.154.167.220", "zws2.web.telegram.org", 2),
+        ("149.154.167.220", "zws4.web.telegram.org", 4),
+    ]
+
     def _run_diag_tests(self):
-        """Background thread: test all Telegram DCs in parallel."""
+        """Background thread: test all Telegram DCs, WSS relay, and proxy in parallel."""
         import concurrent.futures
         import time
 
-        targets = [
-            ("149.154.167.220", "WSS relay",  "—"),
-            ("149.154.167.50",  "DC2",        "kws2"),
-            ("149.154.167.41",  "DC2",        "kws2"),
-            ("149.154.167.91",  "DC4",        "kws4"),
-            ("149.154.175.53",  "DC1",        "—"),
-            ("149.154.175.55",  "DC1",        "—"),
-            ("91.108.56.134",   "DC5",        "—"),
-            ("91.108.56.149",   "DC5",        "—"),
-            ("91.105.192.100",  "DC203 CDN",  "—"),
-        ]
-
-        header = [
-            f"{'IP':<20} {'DC':<12} {'TCP':>8}  {'TLS':>8}  {'Статус'}",
-            "=" * 72,
-        ]
-        results = list(header)
-
         t0 = time.time()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as ex:
-            futures = {
-                ex.submit(self._test_single_ip, ip, dc, wss): (ip, dc)
-                for ip, dc, wss in targets
-            }
-            for f in concurrent.futures.as_completed(futures):
-                results.append(f.result())
-                self._diag_result = "\n".join(results)
+        results: list[str] = []
 
-        results.append("")
-        results.append("── Определение типа блокировки ──")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        # Read proxy port from UI (set before thread start via _on_run_diagnostics)
+        proxy_port = getattr(self, "_diag_proxy_port", 1353)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=25) as ex:
+            # ── Phase 1: Direct DC tests ──
+            dc_futures = {
+                ex.submit(self._test_single_ip, ip, dc, wss): (ip, dc)
+                for ip, dc, wss in self._DC_TARGETS
+            }
+
+            # ── Phase 2: WSS relay probe (parallel with Phase 1) ──
+            wss_futures = [
+                ex.submit(self._test_wss_relay, ip, domain, dc)
+                for ip, domain, dc in self._WSS_PROBE_TARGETS
+            ]
+
+            # ── Phase 3: SNI + HTTP + proxy + winws2 (parallel) ──
             sni_f = ex.submit(self._test_sni_vs_ip)
             http_f = ex.submit(self._test_http_port80)
-            results.append(sni_f.result())
+            proxy_f = ex.submit(self._test_proxy_liveness, "127.0.0.1", proxy_port)
+            winws2_f = ex.submit(self._check_winws2_running)
+
+            # Collect DC results with live update
+            results.append("=" * 76)
+            results.append("  ПРЯМЫЕ ПОДКЛЮЧЕНИЯ К TELEGRAM DC")
+            results.append("=" * 76)
+            results.append(f"{'IP':<20} {'DC':<12} {'TCP':>8}  {'TLS':>8}  {'Статус'}")
+            results.append("-" * 76)
+
+            dc_lines: list[str] = []
+            for f in concurrent.futures.as_completed(dc_futures):
+                line = f.result()
+                dc_lines.append(line)
+                self._diag_result = "\n".join(results + dc_lines)
+
+            results.extend(dc_lines)
+
+            # SNI + HTTP
             results.append("")
-            results.append("── HTTP порт 80 (без TLS) ──")
-            results.append(http_f.result())
+            results.append("  Определение типа блокировки:")
+            results.append(f"  {sni_f.result()}")
+            results.append(f"  {http_f.result()}")
+            self._diag_result = "\n".join(results)
+
+            # Collect WSS results
+            wss_results = [f.result() for f in wss_futures]
+
+            results.append("")
+            results.append("=" * 76)
+            results.append("  WSS RELAY — ДОСТУПНОСТЬ ЭНДПОИНТОВ (149.154.167.220)")
+            results.append("=" * 76)
+            results.append(f"{'DC':<6} {'Endpoint':<32} {'TCP':>6}  {'TLS':>6}  {'WS':>6}  {'Результат'}")
+            results.append("-" * 76)
+
+            for r in sorted(wss_results, key=lambda x: x["dc"]):
+                tcp = f"{r['tcp_ms']:.0f}ms" if r["tcp_ms"] is not None else "—"
+                tls = f"{r['tls_ms']:.0f}ms" if r["tls_ms"] is not None else "—"
+                ws = f"{r['ws_ms']:.0f}ms" if r["ws_ms"] is not None else "—"
+                if r["status"] == "OK":
+                    status = "OK (101)"
+                elif r["status"] == "WS_REDIRECT":
+                    status = f"{r['http_code']} (редирект)"
+                elif r["status"] == "TLS_FAIL":
+                    status = "TLS FAIL"
+                elif r["status"] == "TCP_FAIL":
+                    status = "TCP FAIL"
+                elif r["status"] == "TIMEOUT":
+                    status = "TIMEOUT"
+                else:
+                    status = r.get("error", r["status"])[:30]
+                results.append(
+                    f"DC{r['dc']:<4} {r['domain']:<32} {tcp:>6}  {tls:>6}  {ws:>6}  {status}"
+                )
+            self._diag_result = "\n".join(results)
+
+            # Collect proxy + winws2
+            proxy_result = proxy_f.result()
+            winws2_running = winws2_f.result()
+
+            results.append("")
+            results.append("=" * 76)
+            results.append(f"  ПРОКСИ (127.0.0.1:{proxy_port})")
+            results.append("=" * 76)
+            if proxy_result["status"] == "OK":
+                results.append(
+                    f"  SOCKS5: OK (tcp {proxy_result['tcp_ms']:.0f}ms, "
+                    f"socks {proxy_result['socks_ms']:.0f}ms)"
+                )
+            elif proxy_result["status"] == "NOT_RUNNING":
+                results.append("  SOCKS5: НЕ ЗАПУЩЕН (порт закрыт)")
+            else:
+                results.append(f"  SOCKS5: {proxy_result['status']} — {proxy_result.get('error', '')}")
 
         elapsed = time.time() - t0
+
+        # ── Summary ──
         results.append("")
-        results.append("=" * 72)
-        results.append(self._build_summary(results))
+        results.append("=" * 76)
+        results.append("  ИТОГ")
+        results.append("=" * 76)
+        summary = self._build_summary(dc_lines, wss_results, proxy_result, winws2_running)
+        results.append(summary)
         results.append(f"\nВремя тестирования: {elapsed:.1f}s")
 
         self._diag_result = "\n".join(results)
         self._diag_thread_done = True
+
+    def _test_wss_relay(self, ip: str, domain: str, dc: int) -> dict:
+        """Probe WSS endpoint: TCP -> TLS -> HTTP Upgrade -> check 101/302."""
+        import socket, ssl, base64, os, time
+
+        result = {
+            "ip": ip, "domain": domain, "dc": dc,
+            "tcp_ms": None, "tls_ms": None, "ws_ms": None,
+            "status": "UNKNOWN", "http_code": None,
+            "redirect_to": None, "error": None,
+        }
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(4)
+        t0 = time.time()
+        try:
+            s.connect((ip, 443))
+            result["tcp_ms"] = (time.time() - t0) * 1000
+        except Exception as e:
+            s.close()
+            result["status"] = "TCP_FAIL"
+            result["error"] = str(e)
+            return result
+
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        t1 = time.time()
+        try:
+            ss = ctx.wrap_socket(s, server_hostname=domain)
+            result["tls_ms"] = (time.time() - t1) * 1000
+        except Exception as e:
+            s.close()
+            result["status"] = "TLS_FAIL"
+            result["error"] = str(e)
+            return result
+
+        ws_key = base64.b64encode(os.urandom(16)).decode()
+        request = (
+            f"GET /apiws HTTP/1.1\r\n"
+            f"Host: {domain}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {ws_key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n"
+            f"Sec-WebSocket-Protocol: binary\r\n"
+            f"Origin: https://web.telegram.org\r\n"
+            f"\r\n"
+        )
+        ss.settimeout(5)
+        t2 = time.time()
+        try:
+            ss.sendall(request.encode())
+            response = b""
+            while b"\r\n\r\n" not in response:
+                chunk = ss.recv(512)
+                if not chunk:
+                    break
+                response += chunk
+                if len(response) > 4096:
+                    break
+            result["ws_ms"] = (time.time() - t2) * 1000
+            ss.close()
+
+            lines = response.split(b"\r\n")
+            status_line = lines[0].decode("utf-8", errors="replace")
+            parts = status_line.split(" ", 2)
+            http_code = int(parts[1]) if len(parts) >= 2 else 0
+            result["http_code"] = http_code
+
+            # Parse Location header for redirects
+            for line in lines[1:]:
+                decoded = line.decode("utf-8", errors="replace")
+                if decoded.lower().startswith("location:"):
+                    result["redirect_to"] = decoded.split(":", 1)[1].strip()
+                    break
+
+            if http_code == 101:
+                result["status"] = "OK"
+            elif http_code in (301, 302, 303, 307, 308):
+                result["status"] = "WS_REDIRECT"
+                result["error"] = status_line
+            else:
+                result["status"] = "WS_FAIL"
+                result["error"] = status_line
+            return result
+
+        except socket.timeout:
+            ss.close()
+            result["status"] = "TIMEOUT"
+            result["error"] = "WS upgrade timeout"
+            return result
+        except Exception as e:
+            try:
+                ss.close()
+            except Exception:
+                pass
+            result["status"] = "WS_FAIL"
+            result["error"] = str(e)
+            return result
+
+    @staticmethod
+    def _test_proxy_liveness(host: str, port: int) -> dict:
+        """Verify SOCKS5 proxy accepts connections and can CONNECT to relay."""
+        import socket, struct, time
+
+        result = {
+            "status": "UNKNOWN", "tcp_ms": None,
+            "socks_ms": None, "error": None,
+        }
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3)
+        t0 = time.time()
+        try:
+            s.connect((host, port))
+            result["tcp_ms"] = (time.time() - t0) * 1000
+        except ConnectionRefusedError:
+            s.close()
+            result["status"] = "NOT_RUNNING"
+            result["error"] = "порт закрыт (прокси не запущен)"
+            return result
+        except socket.timeout:
+            s.close()
+            result["status"] = "TIMEOUT"
+            result["error"] = "TCP timeout"
+            return result
+        except Exception as e:
+            s.close()
+            result["status"] = "REFUSED"
+            result["error"] = str(e)
+            return result
+
+        t1 = time.time()
+        try:
+            # SOCKS5 greeting: version=5, nmethods=1, no-auth
+            s.sendall(b"\x05\x01\x00")
+            reply = s.recv(2)
+            if len(reply) < 2 or reply[0] != 5 or reply[1] != 0:
+                s.close()
+                result["status"] = "SOCKS_ERROR"
+                result["error"] = f"unexpected greeting: {reply.hex()}"
+                return result
+
+            # SOCKS5 CONNECT to relay IP 149.154.167.220:443
+            ip_bytes = bytes([149, 154, 167, 220])
+            port_bytes = struct.pack(">H", 443)
+            s.sendall(b"\x05\x01\x00\x01" + ip_bytes + port_bytes)
+
+            reply = s.recv(10)
+            result["socks_ms"] = (time.time() - t1) * 1000
+            s.close()
+
+            if len(reply) >= 2 and reply[0] == 5 and reply[1] == 0:
+                result["status"] = "OK"
+            else:
+                code = reply[1] if len(reply) >= 2 else -1
+                errors = {
+                    1: "general failure", 2: "not allowed",
+                    3: "network unreachable", 4: "host unreachable",
+                    5: "connection refused (relay unreachable)",
+                }
+                result["status"] = "SOCKS_ERROR"
+                result["error"] = errors.get(code, f"code={code}")
+            return result
+
+        except socket.timeout:
+            s.close()
+            result["status"] = "TIMEOUT"
+            result["error"] = "SOCKS5 timeout"
+            return result
+        except Exception as e:
+            s.close()
+            result["status"] = "SOCKS_ERROR"
+            result["error"] = str(e)
+            return result
 
     def _test_single_ip(self, ip: str, dc: str, wss: str) -> str:
         import socket, ssl, time
@@ -478,24 +764,182 @@ class TelegramProxyPage(BasePage):
             s.close()
             return f"HTTP {ip}:80 → {type(e).__name__}"
 
-    def _build_summary(self, lines: list[str]) -> str:
-        blocked = sum(1 for l in lines if "BLOCKED" in l or "TIMEOUT" in l)
-        ok = sum(1 for l in lines if l.strip().endswith("OK"))
-        sni_block = any("блокировка по SNI" in l for l in lines)
-        ip_block = any("блокировка по IP" in l for l in lines)
-        http_ok = any("НЕ блокируется" in l for l in lines)
+    def _build_summary(
+        self,
+        dc_lines: list[str],
+        wss_results: list[dict],
+        proxy_result: dict,
+        winws2_running: bool,
+    ) -> str:
+        """Build honest summary from all test phases."""
 
-        summary = ["Итог:"]
-        summary.append(f"  Доступно: {ok}  |  Заблокировано: {blocked}")
-        if sni_block:
-            summary.append("  Тип: блокировка по SNI → winws2 фрагментация ClientHello поможет")
-        elif ip_block:
-            if http_ok:
-                summary.append("  Тип: блокировка TLS к IP (HTTP работает) → winws2 может помочь")
+        # ── Parse direct DC test results ──
+        dc_status: dict[str, str] = {}
+        # Check longest names first to avoid "DC2" matching "DC203 CDN" or "DC2 media"
+        dc_names_ordered = ("DC203 CDN", "DC5 media", "DC5", "DC4", "DC3 (->DC1)", "DC2 media", "DC2", "DC1 media", "DC1")
+        for line in dc_lines:
+            for dc_name in dc_names_ordered:
+                if dc_name in line:
+                    if line.strip().endswith("OK"):
+                        dc_status.setdefault(dc_name, "OK")
+                    elif "BLOCKED" in line or "TIMEOUT" in line or "FAIL" in line:
+                        dc_status[dc_name] = "BLOCKED"
+                    break  # one DC per line, stop after first match
+
+        blocked = sum(1 for v in dc_status.values() if v == "BLOCKED")
+        ok_count = sum(1 for v in dc_status.values() if v == "OK")
+
+        # ── WSS relay results ──
+        wss_ok_dcs = {r["dc"] for r in wss_results if r["status"] == "OK"}
+        wss_redirect_dcs = {r["dc"] for r in wss_results if r["status"] == "WS_REDIRECT"}
+        relay_ok = len(wss_ok_dcs) > 0
+
+        # ── Proxy status ──
+        proxy_running = proxy_result["status"] == "OK"
+        proxy_not_running = proxy_result["status"] == "NOT_RUNNING"
+
+        summary: list[str] = []
+
+        # Section 1: Blocking type
+        summary.append("── Тип блокировки ──")
+        summary.append(f"  Доступно: {ok_count}  |  Заблокировано: {blocked}")
+        if blocked == 0 and ok_count > 0:
+            summary.append("  Блокировки не обнаружено")
+        elif blocked > 0:
+            summary.append("  Тип: блокировка TLS к IP Telegram (DPI)")
+            summary.append("  (подробности в секции 'Определение типа блокировки' выше)")
+
+        # Section 2: Per-DC status with WSS info
+        summary.append("")
+        summary.append("── Статус дата-центров ──")
+        for dc_name in ("DC1", "DC1 media", "DC2", "DC2 media", "DC3 (->DC1)", "DC4", "DC5", "DC5 media", "DC203 CDN"):
+            direct = dc_status.get(dc_name, "—")
+            # Extract DC number for WSS matching
+            dc_num = None
+            # Match DC1, DC2, etc. but also "DC2 media", "DC3 (->DC1)"
+            dc_digits = ""
+            for ch in dc_name[2:]:
+                if ch.isdigit():
+                    dc_digits += ch
+                else:
+                    break
+            if dc_digits and len(dc_digits) <= 2:  # DC1-DC5, not DC203
+                dc_num = int(dc_digits)
+
+            if dc_num and dc_num in wss_ok_dcs:
+                wss_info = "WSS relay"
+            elif dc_num and dc_num in wss_redirect_dcs:
+                wss_info = "нет relay"
+            elif dc_name == "DC203 CDN":
+                wss_info = "TCP (CDN)"
             else:
-                summary.append("  Тип: полная блокировка по IP → только VPN или WSS прокси")
-        summary.append(f"  WSS relay (149.154.167.220): {'доступен' if any('WSS relay' in l and 'OK' in l for l in lines) else 'недоступен'}")
+                wss_info = "—"
+
+            if direct == "OK":
+                icon = "+"
+            elif direct == "BLOCKED" and dc_num in wss_ok_dcs:
+                icon = "~"  # blocked but WSS bypasses
+            else:
+                icon = "x"
+
+            summary.append(f"  [{icon}] {dc_name:<10} напрямую: {direct:<10} прокси: {wss_info}")
+
+        # Section 3: WSS relay
+        summary.append("")
+        summary.append("── WSS relay (149.154.167.220) ──")
+        if relay_ok:
+            ok_list = ", ".join(f"kws{dc}" for dc in sorted(wss_ok_dcs))
+            summary.append(f"  Доступен: {ok_list}")
+        else:
+            summary.append("  Недоступен")
+        if wss_redirect_dcs:
+            redir_list = ", ".join(f"kws{dc}" for dc in sorted(wss_redirect_dcs))
+            summary.append(f"  Редирект (нет relay): {redir_list}")
+
+        # Section 4: Proxy + winws2
+        summary.append("")
+        summary.append("── Сервисы ──")
+        if proxy_running:
+            summary.append("  Прокси: запущен")
+        elif proxy_not_running:
+            summary.append("  Прокси: не запущен")
+        else:
+            summary.append(f"  Прокси: ошибка ({proxy_result.get('error', '?')})")
+        summary.append(f"  winws2: {'запущен' if winws2_running else 'не запущен'}")
+
+        # Section 5: Honest recommendations
+        summary.append("")
+        summary.append("── Рекомендации ──")
+
+        if blocked == 0 and ok_count > 0:
+            summary.append("  Telegram доступен напрямую, прокси не требуется.")
+            return "\n".join(summary)
+
+        # WSS-capable DCs
+        bypassed_dcs = {
+            dc_name for dc_name, status in dc_status.items()
+            if status == "BLOCKED"
+            and dc_name.startswith("DC") and dc_name[2:].isdigit()
+            and int(dc_name[2:]) in wss_ok_dcs
+        }
+        blocked_no_wss = {
+            dc_name for dc_name, status in dc_status.items()
+            if status == "BLOCKED"
+            and dc_name not in bypassed_dcs
+        }
+
+        if bypassed_dcs and relay_ok:
+            if proxy_running:
+                summary.append(
+                    f"  [+] {', '.join(sorted(bypassed_dcs))}: "
+                    f"заблокированы напрямую, обходятся через WSS прокси"
+                )
+            else:
+                summary.append(
+                    f"  [~] {', '.join(sorted(bypassed_dcs))}: "
+                    f"WSS relay доступен, но прокси не запущен"
+                )
+
+        if blocked_no_wss:
+            no_wss_names = ", ".join(sorted(blocked_no_wss))
+            summary.append(
+                f"  [!] {no_wss_names}: заблокированы, WSS relay нет — "
+                f"часть контента (эмодзи, стикеры) может не загружаться"
+            )
+            if winws2_running:
+                summary.append(
+                    f"  [~] winws2 запущен — {no_wss_names} могут работать через zapret"
+                )
+            else:
+                summary.append(
+                    f"  [!] Для {no_wss_names} запустите winws2/zapret на главной странице"
+                )
+
+        if proxy_not_running:
+            summary.append("  [!] Прокси не запущен — запустите его на этой странице")
+
+        if not relay_ok and blocked > 0:
+            summary.append("  [x] WSS relay недоступен — прокси не будет работать")
+            if not winws2_running:
+                summary.append("  [!] Запустите winws2/zapret или используйте VPN")
+
         return "\n".join(summary)
+
+    @staticmethod
+    def _check_winws2_running() -> bool:
+        """Check if winws2.exe or winws.exe process is running."""
+        try:
+            import subprocess
+            for exe in ("winws2.exe", "winws.exe"):
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"IMAGENAME eq {exe}", "/NH"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if exe in result.stdout.lower():
+                    return True
+            return False
+        except Exception:
+            return False
 
     def _update_diag(self, text: str):
         self._diag_edit.setPlainText(text)
@@ -531,23 +975,34 @@ class TelegramProxyPage(BasePage):
 
         self._autostart_toggle.toggled.connect(self._on_autostart_changed)
         self._port_spin.valueChanged.connect(self._on_port_changed)
+        self._host_edit.editingFinished.connect(self._on_host_changed)
 
     def _load_settings(self):
         """Load settings from registry."""
         try:
-            from config.reg import get_tg_proxy_port, get_tg_proxy_autostart
+            from config.reg import get_tg_proxy_port, get_tg_proxy_autostart, get_tg_proxy_host
             port = get_tg_proxy_port()
             if port is None or port < 1024 or port > 65535:
                 port = 1353
             self._port_spin.blockSignals(True)
             self._port_spin.setValue(port)
             self._port_spin.blockSignals(False)
+
+            host = get_tg_proxy_host()
+            self._host_edit.blockSignals(True)
+            self._host_edit.setText(host)
+            self._host_edit.blockSignals(False)
+
             self._autostart_toggle.toggle.setChecked(get_tg_proxy_autostart())
+            self._update_manual_instructions()
         except Exception as e:
             log(f"TelegramProxyPage: load settings error: {e}", "WARNING")
             self._port_spin.blockSignals(True)
             self._port_spin.setValue(1353)
             self._port_spin.blockSignals(False)
+            self._host_edit.blockSignals(True)
+            self._host_edit.setText("127.0.0.1")
+            self._host_edit.blockSignals(False)
 
     def _auto_start_check(self):
         """Auto-start proxy if autostart is enabled."""
@@ -642,7 +1097,8 @@ class TelegramProxyPage(BasePage):
     def _start_proxy(self):
         mgr = _get_proxy_manager()
         port = self._port_spin.value()
-        ok = mgr.start_proxy(port=port, mode="socks5")
+        host = self._host_edit.text().strip() or "127.0.0.1"
+        ok = mgr.start_proxy(port=port, mode="socks5", host=host)
         if ok:
             try:
                 from config.reg import set_tg_proxy_enabled
@@ -662,8 +1118,8 @@ class TelegramProxyPage(BasePage):
     def _on_status_changed(self, running: bool):
         self._status_dot.set_active(running)
         if running:
-            port = _get_proxy_manager().port
-            self._status_label.setText(f"Работает на 127.0.0.1:{port}")
+            mgr = _get_proxy_manager()
+            self._status_label.setText(f"Работает на {mgr.host}:{mgr.port}")
             self._btn_toggle.setText("Остановить")
         else:
             self._status_label.setText("Остановлен")
@@ -671,6 +1127,7 @@ class TelegramProxyPage(BasePage):
             self._stats_label.setText("")
 
         self._port_spin.setEnabled(not running)
+        self._host_edit.setEnabled(not running)
 
     def _on_stats_updated(self, stats):
         if stats is None:
@@ -710,11 +1167,14 @@ class TelegramProxyPage(BasePage):
         self._prev_bytes_received = now_recv
         interval = 2.0
 
+        recv_zero = getattr(stats, 'recv_zero_count', 0)
+        recv_zero_str = f"  |  recv=0: {recv_zero}" if recv_zero > 0 else ""
+
         self._stats_label.setText(
             f"Подключения: {stats.active_connections} акт. / {stats.total_connections} всего  |  "
             f"↑ {_fmt_bytes(now_sent)} ({_fmt_speed(delta_sent, interval)})  "
             f"↓ {_fmt_bytes(now_recv)} ({_fmt_speed(delta_recv, interval)})  |  "
-            f"Uptime: {uptime_str}"
+            f"Uptime: {uptime_str}{recv_zero_str}"
         )
 
     def _on_autostart_changed(self, checked: bool):
@@ -730,11 +1190,50 @@ class TelegramProxyPage(BasePage):
             set_tg_proxy_port(port)
         except Exception:
             pass
+        self._update_manual_instructions()
+
+    def _on_host_changed(self):
+        host = self._host_edit.text().strip()
+        if not self._validate_host(host):
+            self._host_edit.setText("127.0.0.1")
+            host = "127.0.0.1"
+        try:
+            from config.reg import set_tg_proxy_host
+            set_tg_proxy_host(host)
+        except Exception:
+            pass
+        self._update_manual_instructions()
+
+    @staticmethod
+    def _validate_host(host: str) -> bool:
+        """Accept valid IPv4 address or 0.0.0.0."""
+        if not host:
+            return False
+        parts = host.split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            return all(0 <= int(p) <= 255 for p in parts)
+        except ValueError:
+            return False
+
+    def _update_manual_instructions(self):
+        """Update manual instructions label with current host/port."""
+        host = self._host_edit.text().strip() or "127.0.0.1"
+        port = self._port_spin.value()
+        self._manual_host_port_label.setText(
+            f"  Тип: SOCKS5  |  Хост: {host}  |  Порт: {port}"
+        )
+
+    def _get_proxy_url(self) -> str:
+        """Build tg://socks deep link with current host and port."""
+        host = self._host_edit.text().strip() or "127.0.0.1"
+        port = self._port_spin.value()
+        return f"tg://socks?server={host}&port={port}"
 
     def _on_open_in_telegram(self):
         """Open tg://socks deep link to auto-configure Telegram."""
-        port = self._port_spin.value()
-        url = f"tg://socks?server=127.0.0.1&port={port}"
+        url = self._get_proxy_url()
         try:
             webbrowser.open(url)
             self._append_log_line(f"Opened deep link: {url}")
@@ -743,8 +1242,7 @@ class TelegramProxyPage(BasePage):
 
     def _on_copy_link(self):
         """Copy proxy deep link to clipboard."""
-        port = self._port_spin.value()
-        url = f"tg://socks?server=127.0.0.1&port={port}"
+        url = self._get_proxy_url()
         clipboard = QGuiApplication.clipboard()
         if clipboard:
             clipboard.setText(url)
@@ -760,6 +1258,28 @@ class TelegramProxyPage(BasePage):
                     )
                 except Exception:
                     pass
+
+    # -- Hosts auto-management on tab show --
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._ensure_telegram_hosts()
+
+    def _ensure_telegram_hosts(self):
+        """Check/add Telegram entries in Windows hosts file (background thread)."""
+        import threading
+        threading.Thread(
+            target=self._ensure_telegram_hosts_worker,
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _ensure_telegram_hosts_worker():
+        try:
+            from telegram_proxy.telegram_hosts import ensure_telegram_hosts
+            ensure_telegram_hosts()
+        except Exception as e:
+            log(f"Telegram hosts check error: {e}", "WARNING")
 
     def cleanup(self):
         """Called on app exit."""

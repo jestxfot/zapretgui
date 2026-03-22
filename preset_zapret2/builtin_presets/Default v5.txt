@@ -1,6 +1,6 @@
 # Preset: CrazyMaxs
 # Preset: CrazyMaxs
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # Created: 2026-02-07T07:20:56.595477
 # Modified: 2026-02-07T07:20:56.597914
 # Description: 
@@ -185,6 +185,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google
@@ -207,6 +209,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --payload=all
 --lua-desync=fake:blob=quic2:repeats=7

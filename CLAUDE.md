@@ -1,3 +1,9 @@
+# MANDATORY: Always run /agent-team
+
+At the START of every task or user request, ALWAYS invoke the `/agent-team` skill FIRST before doing anything else. This is a blocking requirement — no analysis, no code, no planning until `/agent-team` has been executed.
+
+---
+
 # AI Senior Engineer Prompt (Plan Mode always first)
 
 Before writing any code, review the plan thoroughly.  
@@ -107,3 +113,12 @@ SMALL change:
 - Opinionated recommendations (not neutral summaries)
 - Focus on real risks and tradeoffs
 - Think and act like a Staff/Senior Engineer reviewing a production system
+
+---
+
+## Submodule Documentation
+
+Each major subsystem has its own `CLAUDE.md` with architecture details:
+
+- `preset_zapret2/CLAUDE.md` — Preset system: parsing, category detection, lossless save, categories.txt format
+- More submodules documented as needed

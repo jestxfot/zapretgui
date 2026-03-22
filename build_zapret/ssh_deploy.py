@@ -9,6 +9,8 @@ import paramiko
 import os
 import subprocess
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional, Any, List, Dict, Tuple
 import json
@@ -254,7 +256,7 @@ VPS_SERVERS = [
         'id': 'vps2',
         'name': 'VPS Server 2 (Резервный)',
         'host': '185.68.247.42',
-        'port': 2089,
+        'port': 10222,
         'user': 'root',
         'password': None,
         'key_path': None,
@@ -475,6 +477,86 @@ def get_ssh_config_info() -> str:
 # ФУНКЦИЯ SSH ПОДКЛЮЧЕНИЯ (НОВАЯ)
 # ═══════════════════════════════════════════════════════════════
 
+def _scp_upload(
+    local_path: str,
+    remote_path: str,
+    server_config: Dict[str, Any],
+    log_func,
+    max_attempts: int = 3,
+) -> bool:
+    """Загрузка файла через subprocess scp (в 5-10x быстрее paramiko SFTP).
+
+    Возвращает True при успехе. При неудаче — False (caller может fallback на SFTP).
+    """
+    host = server_config['host']
+    port = server_config['port']
+    user = server_config['user']
+    key_path = _resolve_key_path(server_config)
+    password = _resolve_password(server_config)
+
+    # scp с паролем не поддерживаем (нужен sshpass), только ключ
+    if not key_path or not Path(key_path).exists():
+        return False
+
+    file_size = Path(local_path).stat().st_size
+    file_size_mb = file_size / (1024 * 1024)
+
+    for attempt in range(max_attempts):
+        cmd = [
+            "scp",
+            "-P", str(port),
+            "-i", str(key_path),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-C",  # сжатие
+            str(local_path),
+            f"{user}@{host}:{remote_path}",
+        ]
+
+        upload_start = time.time()
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, stderr_data = proc.communicate(timeout=600)
+            elapsed = time.time() - upload_start
+            avg_speed = file_size / elapsed if elapsed > 0 else 0
+
+            if proc.returncode == 0:
+                log_func(f"   ✅ SCP: {file_size_mb:.1f} МБ за {elapsed:.0f}с — {avg_speed / (1024*1024):.1f} МБ/с")
+                return True
+
+            err = stderr_data.decode("utf-8", errors="ignore").strip()
+            log_func(f"   ⚠️ SCP ошибка (попытка {attempt + 1}/{max_attempts}): {err}")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            log_func(f"   ⚠️ SCP таймаут (попытка {attempt + 1}/{max_attempts})")
+        except FileNotFoundError:
+            log_func("   ⚠️ scp не найден в PATH, fallback на SFTP")
+            return False
+        except Exception as e:
+            log_func(f"   ⚠️ SCP исключение: {e}")
+            return False
+
+    return False
+
+
+def _tune_ssh_transport(ssh: paramiko.SSHClient, log_func) -> None:
+    """Оптимизация SSH Transport для быстрого SFTP.
+
+    Дефолты paramiko: window_size=64KB, max_packet_size=32KB — слишком малы
+    для международных серверов с высоким RTT. Увеличиваем до уровня OpenSSH.
+    """
+    transport = ssh.get_transport()
+    if transport:
+        transport.default_window_size = 4 * 1024 * 1024      # 4MB (OpenSSH ~2MB)
+        transport.default_max_packet_size = 256 * 1024         # 256KB
+        transport.set_keepalive(30)
+
+
 def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[paramiko.SSHClient], Optional[str], str]:
     """
     Универсальная функция подключения по SSH
@@ -513,22 +595,23 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
                 banner_timeout=30,
                 auth_timeout=30
             )
+            _tune_ssh_transport(ssh, log_func)
             log_func("✅ Подключено по паролю")
             return ssh, None, ""
-        
+
         else:
             # ═══ ВХОД ПО SSH КЛЮЧУ ═══
             key_path_obj = Path(key_path) if key_path else None
-            
+
             if not key_path_obj or not key_path_obj.exists():
                 return None, None, f"SSH ключ не найден: {key_path}"
-            
+
             log_func(f"🔑 Загрузка SSH ключа: {key_path_obj.name}")
 
             key, load_err = _load_paramiko_pkey(key_path_obj, key_password, log_func)
             if not key:
                 return None, None, (load_err or "Не удалось загрузить SSH ключ")
-            
+
             log_func(f"🔌 Подключение к {user}@{host}:{port}...")
             ssh.connect(
                 hostname=host,
@@ -541,6 +624,7 @@ def _ssh_connect(server_config: Dict[str, Any], log_func) -> tuple[Optional[para
                 banner_timeout=30,
                 auth_timeout=30
             )
+            _tune_ssh_transport(ssh, log_func)
             log_func("✅ Подключено по SSH ключу")
             return ssh, None, ""
             
@@ -577,18 +661,19 @@ def deploy_to_all_servers(
         return False, "Нет серверов в конфигурации"
     
     servers = sorted(VPS_SERVERS, key=lambda s: s['priority'])
-    
+
     log(f"\n{'='*60}")
-    log(f"📤 ДЕПЛОЙ НА {len(servers)} {'СЕРВЕР' if len(servers) == 1 else 'СЕРВЕРОВ'}")
+    total_tasks = len(servers) + (1 if publish_telegram else 0)
+    log(f"🚀 ПАРАЛЛЕЛЬНЫЙ ДЕПЛОЙ: {len(servers)} VPS" + (" + Telegram" if publish_telegram else ""))
     log(f"{'='*60}")
-    
+
     results = []
-    
-    for i, server in enumerate(servers, 1):
-        log(f"\n{'─'*60}")
-        log(f"📍 Сервер {i}/{len(servers)}: {server['name']}")
-        log(f"{'─'*60}")
-        
+    telegram_success = False
+    telegram_message = ""
+
+    def _deploy_worker(server, idx):
+        """Worker для параллельного деплоя на один VPS."""
+        log(f"\n📍 [{server['name']}] Начинаю деплой...")
         success, message = _deploy_to_single_server(
             file_path=file_path,
             channel=channel,
@@ -597,47 +682,23 @@ def deploy_to_all_servers(
             server_config=server,
             log_queue=log_queue
         )
-        
-        results.append({
+        status = "✅" if success else "❌"
+        log(f"{status} [{server['name']}] {'деплой успешен' if success else message}")
+        return {
             'server': server['name'],
             'server_id': server['id'],
             'success': success,
             'message': message,
-            'config': server
-        })
-        
-        if success:
-            log(f"✅ {server['name']}: деплой успешен")
-        else:
-            log(f"❌ {server['name']}: {message}")
-    
-    log(f"\n{'='*60}")
-    log(f"📊 ИТОГИ ДЕПЛОЯ")
-    log(f"{'='*60}")
-    
-    successful = sum(1 for r in results if r['success'])
-    failed = len(results) - successful
-    
-    log(f"✅ Успешно: {successful}/{len(results)}")
-    
-    if failed > 0:
-        log(f"❌ Ошибки: {failed}/{len(results)}")
-        for r in results:
-            if not r['success']:
-                log(f"  • {r['server']}: {r['message']}")
-    
-    if successful == 0:
-        return False, "Деплой не удался ни на одном сервере"
-    
-    # Публикация в Telegram
-    if publish_telegram:
+            'config': server,
+            'type': 'vps',
+        }
+
+    def _telegram_worker():
+        """Worker для параллельной публикации в Telegram."""
         tg_cfg = _tg_ssh_config_from_env()
         if tg_cfg and not tg_cfg.get("error"):
-            log(f"\n{'='*60}")
-            log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM (SSH, Pyrogram)")
-            log(f"{'='*60}")
-
-            telegram_success, telegram_message = _publish_to_telegram_via_ssh_pyrogram(
+            log(f"\n📢 [Telegram] Публикация через SSH (Pyrogram)...")
+            success, message = _publish_to_telegram_via_ssh_pyrogram(
                 file_path=file_path,
                 channel=channel,
                 version=version,
@@ -647,25 +708,78 @@ def deploy_to_all_servers(
             )
         else:
             if tg_cfg and tg_cfg.get("error"):
-                log(f"⚠️ Telegram SSH: {tg_cfg['error']}")
-
-            log(f"\n{'='*60}")
-            log(f"📢 ПУБЛИКАЦИЯ В TELEGRAM (ЛОКАЛЬНО, SOCKS5)")
-            log(f"{'='*60}")
-
-            telegram_success, telegram_message = _publish_to_telegram_local(
+                log(f"⚠️ [Telegram] SSH: {tg_cfg['error']}")
+            log(f"\n📢 [Telegram] Публикация локально (SOCKS5)...")
+            success, message = _publish_to_telegram_local(
                 file_path=file_path,
                 channel=channel,
                 version=version,
                 notes=notes,
                 log_queue=log_queue,
             )
+        status = "✅" if success else "⚠️"
+        log(f"{status} [Telegram] {'публикация успешна' if success else message}")
+        return {
+            'type': 'telegram',
+            'success': success,
+            'message': message,
+        }
 
-        if telegram_success:
-            log("✅ Telegram публикация успешна")
-        else:
-            log(f"⚠️ Telegram: {telegram_message}")
-    
+    deploy_start = time.time()
+
+    with ThreadPoolExecutor(max_workers=len(servers) + 1) as pool:
+        futures = {}
+
+        # Запускаем деплой на все VPS параллельно
+        for i, server in enumerate(servers):
+            f = pool.submit(_deploy_worker, server, i)
+            futures[f] = ('vps', server['name'])
+
+        # Telegram тоже параллельно
+        if publish_telegram:
+            f = pool.submit(_telegram_worker)
+            futures[f] = ('telegram', 'Telegram')
+
+        # Собираем результаты по мере завершения
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result['type'] == 'vps':
+                    results.append(result)
+                else:
+                    telegram_success = result['success']
+                    telegram_message = result['message']
+            except Exception as e:
+                kind, name = futures[future]
+                log(f"❌ [{name}] Исключение: {e}")
+                if kind == 'vps':
+                    results.append({
+                        'server': name, 'server_id': '', 'success': False,
+                        'message': str(e), 'config': {}, 'type': 'vps',
+                    })
+
+    deploy_elapsed = time.time() - deploy_start
+
+    log(f"\n{'='*60}")
+    log(f"📊 ИТОГИ ДЕПЛОЯ ({deploy_elapsed:.0f}с)")
+    log(f"{'='*60}")
+
+    successful = sum(1 for r in results if r['success'])
+    failed = len(results) - successful
+
+    log(f"✅ VPS: {successful}/{len(results)}")
+    if publish_telegram:
+        log(f"{'✅' if telegram_success else '⚠️'} Telegram: {'OK' if telegram_success else telegram_message}")
+
+    if failed > 0:
+        log(f"❌ Ошибки: {failed}/{len(results)}")
+        for r in results:
+            if not r['success']:
+                log(f"  • {r['server']}: {r['message']}")
+
+    if successful == 0:
+        return False, "Деплой не удался ни на одном сервере"
+
     if successful < len(results):
         return True, f"Деплой завершён частично ({successful}/{len(results)})"
     else:
@@ -796,10 +910,39 @@ def _publish_to_telegram_via_ssh_pyrogram(
         remote_installer = f"{upload_dir}/{remote_filename}"
 
         log(f"📤 Upload to Telegram host: {file_path.name} → {remote_installer}")
-        sftp = ssh.open_sftp()
-        sftp.put(str(file_path), remote_installer)
 
-        # Upload publisher scripts (keep them in scripts_dir)
+        # Пробуем SCP (быстрее paramiko SFTP)
+        scp_ok = _scp_upload(str(file_path), remote_installer, server_config, log)
+
+        if not scp_ok:
+            log("   📦 Fallback: SFTP upload...")
+            sftp = ssh.open_sftp()
+
+            tg_upload_start = time.time()
+            tg_last_pct = -1
+            tg_last_t = tg_upload_start
+            tg_last_b = 0
+
+            def tg_progress(transferred, total):
+                nonlocal tg_last_pct, tg_last_t, tg_last_b
+                if not total:
+                    return
+                pct = int((transferred / total) * 100)
+                if pct >= tg_last_pct + 10:
+                    tg_last_pct = pct - (pct % 10)
+                    now = time.time()
+                    dt = now - tg_last_t
+                    s = f" {(transferred - tg_last_b) / dt / (1024*1024):.1f} МБ/с" if dt > 0.5 else ""
+                    tg_last_t, tg_last_b = now, transferred
+                    log(f"   📊 {tg_last_pct}% ({transferred/1024/1024:.1f}/{total/1024/1024:.1f} МБ){s}")
+
+            sftp.put(str(file_path), remote_installer, callback=tg_progress)
+            elapsed = time.time() - tg_upload_start
+            avg = file_path.stat().st_size / elapsed if elapsed > 0 else 0
+            log(f"   ✅ SFTP done ({elapsed:.0f}с, {avg/(1024*1024):.1f} МБ/с)")
+            sftp.close()
+
+        # Upload publisher scripts (мелкие файлы — через SFTP)
         local_dir = Path(__file__).resolve().parent
         local_uploader = local_dir / "telegram_uploader_pyrogram.py"
         local_auth = local_dir / "telegram_auth_pyrogram.py"
@@ -810,6 +953,7 @@ def _publish_to_telegram_via_ssh_pyrogram(
         remote_uploader = f"{scripts_dir}/telegram_uploader_pyrogram.py"
         remote_auth = f"{scripts_dir}/telegram_auth_pyrogram.py"
 
+        sftp = ssh.open_sftp()
         sftp.put(str(local_uploader), remote_uploader)
         if local_auth.exists():
             sftp.put(str(local_auth), remote_auth)
@@ -1065,32 +1209,76 @@ def _deploy_to_single_server(
         remote_path = f"{upload_dir}/{remote_filename}"
         
         log(f"📤 Загрузка {file_path.name} → {remote_path}")
-        
-        sftp = ssh.open_sftp()
-        
-        try:
-            sftp.stat(upload_dir)
-        except:
-            stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {upload_dir}")
-            stdout.channel.recv_exit_status()
-            log(f"✅ Создана директория: {upload_dir}")
-        
+
+        # Убедимся что директория существует
+        stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {upload_dir}")
+        stdout.channel.recv_exit_status()
+
         file_size = file_path.stat().st_size
         file_size_mb = file_size / (1024 * 1024)
-        
-        last_percent = -1
-        def progress_callback(transferred, total):
-            nonlocal last_percent
-            if not total:
-                return
-            percent = int((transferred / total) * 100)
-            if percent >= last_percent + 10:
-                last_percent = percent - (percent % 10)
-                log(f"   📊 {last_percent}% ({transferred/1024/1024:.1f}/{total/1024/1024:.1f} МБ)")
-        
-        sftp.put(str(file_path), remote_path, callback=progress_callback)
-        
+
+        # Пробуем SCP (в 5-10x быстрее paramiko SFTP)
+        scp_ok = _scp_upload(str(file_path), remote_path, server_config, log)
+
+        if not scp_ok:
+            # Fallback на paramiko SFTP
+            log("   📦 Fallback: SFTP upload...")
+            sftp = ssh.open_sftp()
+
+            upload_start = time.time()
+            last_percent = -1
+            last_cb_time = upload_start
+            last_cb_bytes = 0
+
+            def progress_callback(transferred, total):
+                nonlocal last_percent, last_cb_time, last_cb_bytes
+                if not total:
+                    return
+                percent = int((transferred / total) * 100)
+                if percent >= last_percent + 5:
+                    last_percent = percent - (percent % 5)
+                    now = time.time()
+                    dt = now - last_cb_time
+                    speed_str = ""
+                    if dt > 0.5:
+                        speed = (transferred - last_cb_bytes) / dt
+                        speed_str = f" {speed / (1024 * 1024):.1f} МБ/с"
+                        last_cb_time = now
+                        last_cb_bytes = transferred
+                    log(f"   📊 {last_percent}% ({transferred/1024/1024:.1f}/{total/1024/1024:.1f} МБ){speed_str}")
+
+            max_upload_attempts = 3
+            for attempt in range(max_upload_attempts):
+                try:
+                    sftp.put(str(file_path), remote_path, callback=progress_callback)
+                    break
+                except (OSError, EOFError, paramiko.SSHException) as e:
+                    if attempt + 1 >= max_upload_attempts:
+                        raise
+                    log(f"   ⚠️ Обрыв при загрузке (попытка {attempt + 1}/{max_upload_attempts}): {e}")
+                    log(f"   🔄 Переподключение...")
+                    try:
+                        sftp.close()
+                    except Exception:
+                        pass
+                    try:
+                        ssh.close()
+                    except Exception:
+                        pass
+                    ssh, pem_key_path, error = _ssh_connect(server_config, log)
+                    if not ssh:
+                        raise RuntimeError(f"Переподключение не удалось: {error}")
+                    sftp = ssh.open_sftp()
+                    last_percent = -1
+
+            elapsed = time.time() - upload_start
+            avg_speed = file_size / elapsed if elapsed > 0 else 0
+            log(f"   ✅ SFTP: {file_size_mb:.1f} МБ за {elapsed:.0f}с — {avg_speed / (1024 * 1024):.1f} МБ/с")
+
         log(f"✅ Файл загружен ({file_size_mb:.1f} МБ)")
+
+        # SFTP для операций после загрузки (symlink, cleanup, JSON)
+        sftp = ssh.open_sftp()
 
         # Create/refresh a stable link name for backward compatibility.
         # This does not duplicate the large file (symlink).
@@ -1151,8 +1339,12 @@ def _deploy_to_single_server(
         except Exception as e:
             log(f"   ⚠️ Ошибка чтения JSON: {e}")
         
-        import pytz
-        moscow_tz = pytz.timezone('Europe/Moscow')
+        try:
+            from zoneinfo import ZoneInfo
+            moscow_tz = ZoneInfo('Europe/Moscow')
+        except Exception:
+            from datetime import timezone, timedelta
+            moscow_tz = timezone(timedelta(hours=3))
         modified_dt = datetime.fromtimestamp(file_mtime, tz=moscow_tz)
         
         st_size = file_stat.st_size

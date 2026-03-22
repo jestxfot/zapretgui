@@ -1,6 +1,6 @@
 # Preset: complex multidisorder (game filter)
 # ActivePreset: complex multidisorder (game filter)
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # Created: 2026-01-30T00:20:29.599857
 # Modified: 2026-01-30T00:21:12.569186
 # Description: 
@@ -153,6 +153,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google
@@ -175,6 +177,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n4
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=12:ip_autottl=2,3-20:ip6_autottl=2,3-20:payload=all

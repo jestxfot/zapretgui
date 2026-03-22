@@ -1,6 +1,6 @@
 # Preset: Ultimate Main YT Discord ValFix
 # ActivePreset: Ultimate Main YT Discord ValFix
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # Description: YouTube + Discord (as MAIN) + Valorant/Riot
 # Created: 2026-02-10
 # IconColor: #60cdff
@@ -169,6 +169,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-d5
 --lua-desync=send
 --lua-desync=multidisorder:pos=1
@@ -179,7 +181,10 @@
 # GLOBAL UDP
 ################################################################################
 
---filter-udp=*
+--filter-udp=80,443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
+--ipset-exclude=lists/ipset-exclude.txt
 --out-range=-d10
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=4

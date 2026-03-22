@@ -6,6 +6,7 @@
 import time
 import subprocess
 import psutil  # ✅ ДОБАВИТЬ: pip install psutil
+from dataclasses import dataclass, field
 from typing import Tuple, Optional, List, Dict
 from log import log
 
@@ -785,3 +786,486 @@ def _check_winws_already_running() -> Optional[int]:
     except:
         pass
     return None
+
+
+# ---------------------------------------------------------------------------
+#  WinDivert exit-code diagnostics
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WinDivertDiagnosis:
+    """Structured result of WinDivert error diagnosis."""
+    cause: str                        # Human-readable cause
+    solution: str                     # What the user should do
+    auto_fix: Optional[str] = None   # Action ID: "enable_adapters", "enable_bfe", "enable_driver", None
+    severity: str = "critical"        # "critical" | "warning"
+    exit_code: int = 0                # Original exit code
+    win32_error: Optional[int] = None # Mapped Win32 error (may differ from exit_code)
+
+
+# --- Win32 error code constants ---
+_ERROR_ACCESS_DENIED = 5
+_ERROR_NOT_ENOUGH_MEMORY = 8
+_ERROR_GEN_FAILURE = 31
+_ERROR_INVALID_PARAMETER = 87
+_ERROR_BAD_PATHNAME = 161
+_ERROR_INVALID_IMAGE_HASH = 577
+_ERROR_DRIVER_FAILED_PRIOR_UNLOAD = 654
+_ERROR_SERVICE_DISABLED = 1058
+_ERROR_SERVICE_DOES_NOT_EXIST = 1060
+_ERROR_PROCESS_ABORTED = 1067
+_ERROR_SERVICE_DEPENDENCY_FAIL = 1068
+_ERROR_DRIVER_BLOCKED = 1275
+
+# stderr patterns → Win32 error mapping (for when exit code is truncated)
+_STDERR_TO_WIN32: List[Tuple[str, int]] = [
+    ("the service cannot be started", _ERROR_SERVICE_DISABLED),
+    ("service is disabled", _ERROR_SERVICE_DISABLED),
+    ("no enabled devices", _ERROR_SERVICE_DISABLED),
+    ("access is denied", _ERROR_ACCESS_DENIED),
+    ("access denied", _ERROR_ACCESS_DENIED),
+    ("hash for file is not valid", _ERROR_INVALID_IMAGE_HASH),
+    ("invalid image hash", _ERROR_INVALID_IMAGE_HASH),
+    ("disable secure boot", _ERROR_INVALID_IMAGE_HASH),
+    ("driver blocked", _ERROR_DRIVER_BLOCKED),
+    ("blocked from loading", _ERROR_DRIVER_BLOCKED),
+    ("driver failed prior unload", _ERROR_DRIVER_FAILED_PRIOR_UNLOAD),
+    ("bad pathname", _ERROR_BAD_PATHNAME),
+    ("service does not exist", _ERROR_SERVICE_DOES_NOT_EXIST),
+    ("dependency service", _ERROR_SERVICE_DEPENDENCY_FAIL),
+    ("process terminated unexpectedly", _ERROR_PROCESS_ABORTED),
+    ("not enough memory", _ERROR_NOT_ENOUGH_MEMORY),
+    ("insufficient resources", _ERROR_NOT_ENOUGH_MEMORY),
+    ("parameter is incorrect", _ERROR_INVALID_PARAMETER),
+    ("a device attached to the system is not functioning", _ERROR_GEN_FAILURE),
+]
+
+
+def diagnose_winws_exit(exit_code: int, stderr: str = "") -> Optional[WinDivertDiagnosis]:
+    """Diagnose winws2 exit code + stderr and return structured result.
+
+    The exit code of winws2 equals the raw Win32 GetLastError() value after
+    WinDivertOpen() fails.  However, the exit code may be truncated to 8 bits
+    in some scenarios (e.g. 1058 → 34).  Therefore stderr text is parsed first
+    as the primary signal, and exit_code is used as fallback.
+
+    Returns None if exit_code is 0 (success) or diagnosis is not applicable.
+    """
+    if exit_code == 0:
+        return None
+
+    stderr_lower = (stderr or "").lower()
+
+    # 1. Resolve the real Win32 error from stderr text (more reliable)
+    win32_error = exit_code
+    for pattern, code in _STDERR_TO_WIN32:
+        if pattern in stderr_lower:
+            win32_error = code
+            break
+
+    # 2. Dispatch to specific handlers
+    handler = _EXIT_CODE_HANDLERS.get(win32_error)
+    if handler:
+        diag = handler(exit_code, stderr)
+        diag.exit_code = exit_code
+        diag.win32_error = win32_error
+        return diag
+
+    # 3. Fallback: generic WinDivert error
+    if "windivert" in stderr_lower or "error opening filter" in stderr_lower:
+        first_line = ""
+        try:
+            first_line = stderr.strip().splitlines()[0].strip()[:200]
+        except Exception:
+            first_line = stderr[:200]
+        return WinDivertDiagnosis(
+            cause=f"Ошибка WinDivert (код {exit_code})",
+            solution=first_line or "Перезагрузите компьютер и попробуйте снова",
+            severity="critical",
+            exit_code=exit_code,
+            win32_error=win32_error,
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+#  Per-error-code handlers
+# ---------------------------------------------------------------------------
+
+def _handle_service_disabled(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    """ERROR_SERVICE_DISABLED (1058) — the most common WinDivert error."""
+    # Run sub-checks to narrow down the cause
+    cause, solution, auto_fix = _probe_service_disabled_cause()
+    return WinDivertDiagnosis(
+        cause=cause, solution=solution, auto_fix=auto_fix, severity="critical",
+    )
+
+
+def _handle_invalid_image_hash(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    secure_boot = _check_secure_boot()
+    if secure_boot:
+        return WinDivertDiagnosis(
+            cause="Secure Boot блокирует загрузку драйвера WinDivert",
+            solution="Отключите Secure Boot в BIOS/UEFI настройках",
+            severity="critical",
+        )
+    return WinDivertDiagnosis(
+        cause="Подпись драйвера WinDivert не прошла проверку",
+        solution="Отключите Secure Boot или включите тестовый режим: bcdedit /set testsigning on",
+        severity="critical",
+    )
+
+
+def _handle_access_denied(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    try:
+        import ctypes
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            return WinDivertDiagnosis(
+                cause="Программа запущена без прав администратора",
+                solution="Запустите программу от имени администратора",
+                severity="critical",
+            )
+    except Exception:
+        pass
+    return WinDivertDiagnosis(
+        cause="Отказано в доступе к WinDivert",
+        solution="Проверьте антивирус и запустите от имени администратора",
+        severity="critical",
+    )
+
+
+def _handle_driver_blocked(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    return WinDivertDiagnosis(
+        cause="Политика безопасности Windows блокирует загрузку драйвера",
+        solution="Проверьте настройки Device Guard / WDAC или отключите Secure Boot",
+        severity="critical",
+    )
+
+
+def _handle_driver_prior_unload(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    return WinDivertDiagnosis(
+        cause="Старая версия драйвера WinDivert всё ещё загружена в память",
+        solution="Перезагрузите компьютер для выгрузки старого драйвера",
+        severity="critical",
+    )
+
+
+def _handle_service_not_exist(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    # Check if WinDivert files exist
+    missing = _check_windivert_files()
+    if missing:
+        return WinDivertDiagnosis(
+            cause=f"Отсутствуют файлы WinDivert: {', '.join(missing)}",
+            solution="Переустановите программу или восстановите файлы из архива",
+            severity="critical",
+        )
+    return WinDivertDiagnosis(
+        cause="Служба WinDivert не найдена в системе",
+        solution="Переустановите программу",
+        severity="critical",
+    )
+
+
+def _handle_dependency_fail(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    bfe_ok = _check_bfe_service()
+    if not bfe_ok:
+        return WinDivertDiagnosis(
+            cause="Служба Base Filtering Engine (BFE) не запущена",
+            solution="Включите BFE: sc config BFE start= auto && net start BFE",
+            auto_fix="enable_bfe",
+            severity="critical",
+        )
+    return WinDivertDiagnosis(
+        cause="Зависимая служба Windows Filtering Platform не запущена",
+        solution="Перезагрузите компьютер",
+        severity="critical",
+    )
+
+
+def _handle_not_enough_memory(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    return WinDivertDiagnosis(
+        cause="Недостаточно системной памяти для WinDivert",
+        solution="Закройте лишние программы и перезагрузите компьютер",
+        severity="warning",
+    )
+
+
+def _handle_gen_failure(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    adapters_ok = _check_network_adapters()
+    if not adapters_ok:
+        return WinDivertDiagnosis(
+            cause="Все сетевые адаптеры отключены",
+            solution="Включите хотя бы один сетевой адаптер",
+            auto_fix="enable_adapters",
+            severity="critical",
+        )
+    return WinDivertDiagnosis(
+        cause="Общая ошибка устройства",
+        solution="Перезагрузите компьютер и проверьте сетевые адаптеры",
+        severity="critical",
+    )
+
+
+def _handle_invalid_parameter(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    return WinDivertDiagnosis(
+        cause="Ошибка в параметрах фильтра или Lua-скрипта",
+        solution="Проверьте настройки стратегии — возможно повреждён пресет",
+        severity="warning",
+    )
+
+
+def _handle_bad_pathname(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    missing = _check_windivert_files()
+    cause = "Не найден файл драйвера WinDivert"
+    if missing:
+        cause += f": {', '.join(missing)}"
+    return WinDivertDiagnosis(
+        cause=cause,
+        solution="Переустановите программу или проверьте антивирус",
+        severity="critical",
+    )
+
+
+def _handle_process_aborted(exit_code: int, stderr: str) -> WinDivertDiagnosis:
+    return WinDivertDiagnosis(
+        cause="Драйвер WinDivert аварийно завершился при запуске",
+        solution="Переустановите программу и перезагрузите компьютер",
+        severity="critical",
+    )
+
+
+# Handler dispatch table
+_EXIT_CODE_HANDLERS = {
+    _ERROR_SERVICE_DISABLED: _handle_service_disabled,
+    _ERROR_INVALID_IMAGE_HASH: _handle_invalid_image_hash,
+    _ERROR_ACCESS_DENIED: _handle_access_denied,
+    _ERROR_DRIVER_BLOCKED: _handle_driver_blocked,
+    _ERROR_DRIVER_FAILED_PRIOR_UNLOAD: _handle_driver_prior_unload,
+    _ERROR_SERVICE_DOES_NOT_EXIST: _handle_service_not_exist,
+    _ERROR_SERVICE_DEPENDENCY_FAIL: _handle_dependency_fail,
+    _ERROR_NOT_ENOUGH_MEMORY: _handle_not_enough_memory,
+    _ERROR_GEN_FAILURE: _handle_gen_failure,
+    _ERROR_INVALID_PARAMETER: _handle_invalid_parameter,
+    _ERROR_BAD_PATHNAME: _handle_bad_pathname,
+    _ERROR_PROCESS_ABORTED: _handle_process_aborted,
+}
+
+
+# ---------------------------------------------------------------------------
+#  System probe helpers
+# ---------------------------------------------------------------------------
+
+def _probe_service_disabled_cause() -> Tuple[str, str, Optional[str]]:
+    """Narrow down why 'service cannot be started' (1058).
+
+    Returns (cause, solution, auto_fix_action).
+    """
+    # Check 1: Network adapters
+    if not _check_network_adapters():
+        return (
+            "Все сетевые адаптеры отключены — WinDivert не может привязаться к устройству",
+            "Включите хотя бы один сетевой адаптер в Диспетчере устройств",
+            "enable_adapters",
+        )
+
+    # Check 2: WinDivert files missing (AV quarantine)
+    missing = _check_windivert_files()
+    if missing:
+        return (
+            f"Файлы WinDivert отсутствуют (возможно удалены антивирусом): {', '.join(missing)}",
+            "Добавьте папку программы в исключения антивируса и переустановите",
+            None,
+        )
+
+    # Check 3: BFE service
+    if not _check_bfe_service():
+        return (
+            "Служба Base Filtering Engine (BFE) отключена — WinDivert зависит от неё",
+            "Включите BFE: sc config BFE start= auto && net start BFE",
+            "enable_bfe",
+        )
+
+    # Check 4: Secure Boot
+    if _check_secure_boot():
+        return (
+            "Secure Boot блокирует загрузку неподписанного драйвера WinDivert",
+            "Отключите Secure Boot в BIOS/UEFI",
+            None,
+        )
+
+    # Check 5: WinDivert service explicitly disabled
+    driver_disabled = _check_windivert_driver_disabled()
+    if driver_disabled:
+        return (
+            "Служба WinDivert отключена в системе",
+            "Переключите тип запуска: sc config WinDivert start= demand",
+            "enable_driver",
+        )
+
+    # Check 6: Antivirus
+    av = _detect_active_antivirus()
+    if av:
+        return (
+            f"Антивирус ({av}) может блокировать загрузку драйвера WinDivert",
+            "Добавьте папку программы в исключения антивируса",
+            None,
+        )
+
+    # Fallback
+    return (
+        "WinDivert не может запустить службу драйвера",
+        "Перезагрузите компьютер. Если не помогает — проверьте Secure Boot и антивирус",
+        None,
+    )
+
+
+def _check_network_adapters() -> bool:
+    """Return True if at least one network adapter is enabled/up."""
+    try:
+        stats = psutil.net_if_stats()
+        for name, nic in stats.items():
+            if name.lower() == "loopback pseudo-interface 1":
+                continue
+            if nic.isup:
+                return True
+        return False
+    except Exception:
+        return True  # assume OK on failure
+
+
+def _check_windivert_files() -> List[str]:
+    """Return list of missing critical WinDivert files."""
+    import os
+    try:
+        from config import WINDIVERT_FOLDER
+    except ImportError:
+        return []
+
+    required = ["WinDivert.dll", "WinDivert64.sys"]
+    missing = []
+    for f in required:
+        if not os.path.exists(os.path.join(WINDIVERT_FOLDER, f)):
+            missing.append(f)
+    return missing
+
+
+def _check_bfe_service() -> bool:
+    """Return True if Base Filtering Engine service is running."""
+    try:
+        result = subprocess.run(
+            ["sc", "query", "BFE"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=0x08000000,
+        )
+        return "RUNNING" in result.stdout
+    except Exception:
+        return True  # assume OK
+
+
+def _check_secure_boot() -> bool:
+    """Return True if Secure Boot is ENABLED (via registry)."""
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\SecureBoot\State",
+        )
+        val, _ = winreg.QueryValueEx(key, "UEFISecureBootEnabled")
+        winreg.CloseKey(key)
+        return val == 1
+    except Exception:
+        return False  # key doesn't exist = Secure Boot not available
+
+
+def _check_windivert_driver_disabled() -> bool:
+    """Return True if WinDivert service start type is DISABLED."""
+    try:
+        result = subprocess.run(
+            ["sc", "qc", "WinDivert"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=0x08000000,
+        )
+        # START_TYPE: 4 = DISABLED
+        return "DISABLED" in result.stdout or "START_TYPE.*4" in result.stdout
+    except Exception:
+        return False
+
+
+def _detect_active_antivirus() -> Optional[str]:
+    """Return name of active antivirus or None."""
+    try:
+        import win32com.client
+        wmi = win32com.client.GetObject("winmgmts:")
+        av_products = wmi.ExecQuery(
+            "SELECT * FROM AntiVirusProduct", "root\\SecurityCenter2"
+        )
+        for av in av_products:
+            if hasattr(av, "displayName"):
+                return av.displayName
+    except Exception:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
+#  Auto-fix actions
+# ---------------------------------------------------------------------------
+
+def execute_windivert_auto_fix(action: str) -> Tuple[bool, str]:
+    """Execute an auto-fix action. Returns (success, message)."""
+    if action == "enable_adapters":
+        return _fix_enable_adapters()
+    elif action == "enable_bfe":
+        return _fix_enable_bfe()
+    elif action == "enable_driver":
+        return _fix_enable_driver()
+    return False, f"Неизвестное действие: {action}"
+
+
+def _fix_enable_adapters() -> Tuple[bool, str]:
+    """Try to enable disabled network adapters."""
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-NetAdapter -Physical | Where-Object {$_.Status -eq 'Disabled'} | Enable-NetAdapter -Confirm:$false"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=0x08000000,
+        )
+        if result.returncode == 0:
+            return True, "Сетевые адаптеры включены. Попробуйте запустить снова"
+        return False, f"Не удалось включить адаптеры: {result.stderr[:200]}"
+    except Exception as e:
+        return False, f"Ошибка: {e}"
+
+
+def _fix_enable_bfe() -> Tuple[bool, str]:
+    """Enable and start Base Filtering Engine service."""
+    try:
+        subprocess.run(
+            ["sc", "config", "BFE", "start=", "auto"],
+            capture_output=True, timeout=5, creationflags=0x08000000,
+        )
+        result = subprocess.run(
+            ["net", "start", "BFE"],
+            capture_output=True, text=True, timeout=10, creationflags=0x08000000,
+        )
+        if result.returncode == 0 or "already been started" in (result.stderr or "").lower():
+            return True, "Служба BFE запущена. Попробуйте запустить снова"
+        return False, f"Не удалось запустить BFE: {result.stderr[:200]}"
+    except Exception as e:
+        return False, f"Ошибка: {e}"
+
+
+def _fix_enable_driver() -> Tuple[bool, str]:
+    """Set WinDivert service start type to demand."""
+    try:
+        result = subprocess.run(
+            ["sc", "config", "WinDivert", "start=", "demand"],
+            capture_output=True, text=True, timeout=5, creationflags=0x08000000,
+        )
+        if result.returncode == 0:
+            return True, "Служба WinDivert переключена на ручной запуск. Попробуйте запустить снова"
+        return False, f"Не удалось изменить настройки: {result.stderr[:200]}"
+    except Exception as e:
+        return False, f"Ошибка: {e}"

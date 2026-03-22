@@ -151,6 +151,7 @@ class CategoryBlock:
     args: str  # Full args string for the block
     strategy_args: str = ""  # Just strategy part (--lua-desync=...)
     syndata_dict: Optional[Dict] = None  # Parsed syndata/send/out-range
+    raw_args: str = ""  # Original block text from preset file (for lossless round-trip)
 
     def get_key(self) -> str:
         """Returns unique key for this block: category:protocol"""
@@ -206,6 +207,10 @@ class PresetData:
         Uses category:protocol as unique key. If duplicates exist,
         keeps the LAST occurrence (most recent update).
 
+        "unknown" blocks are NEVER deduplicated — they are structurally
+        distinct (e.g., --ipset-ip= for different servers, --ipset-exclude=
+        catch-all rules) and collapsing them loses preset data.
+
         Example:
             Before: [youtube:tcp, discord:tcp, youtube:tcp]
             After:  [discord:tcp, youtube:tcp]
@@ -214,6 +219,13 @@ class PresetData:
         unique_blocks = []
 
         for block in self.categories:
+            cat = (block.category or "").strip().lower()
+
+            # unknown blocks are structurally distinct — never deduplicate them
+            if cat == "unknown":
+                unique_blocks.append(block)
+                continue
+
             key = block.get_key()  # "category:protocol"
 
             # If we've seen this key before, remove the old one
@@ -253,7 +265,18 @@ def extract_category_from_args(args: str) -> Tuple[str, str, str]:
         # Fallback to domain or IP filters without file paths
         domains_match = re.search(r'--hostlist-domains=([^\s]+)', args)
         if domains_match:
-            return ("unknown", "hostlist", domains_match.group(1))
+            # Extract category from first domain name.
+            # e.g., "googlevideo.com" -> "googlevideo"
+            # e.g., "youtube.com,ggpht.com,ytimg.com" -> "youtube"
+            # e.g., "updates.discord.com" -> "updates.discord" (handled by canonicalize)
+            first_domain = domains_match.group(1).split(",")[0].strip()
+            # Remove TLD (.com, .org, etc.) to get category key
+            domain_parts = first_domain.rsplit(".", 1)
+            domain_cat = domain_parts[0] if len(domain_parts) > 1 else first_domain
+            # For subdomains like "updates.discord", use last part as category
+            if "." in domain_cat:
+                domain_cat = domain_cat.rsplit(".", 1)[-1]
+            return (domain_cat.lower(), "hostlist", domains_match.group(1))
         ipset_ip_match = re.search(r'--ipset-ip=([^\s]+)', args)
         if ipset_ip_match:
             return ("unknown", "ipset", ipset_ip_match.group(1))
@@ -322,6 +345,15 @@ def extract_categories_from_args(args: str) -> List[Tuple[str, str, str]]:
         seen.add(item)
         out.append(item)
 
+    # Also check --hostlist-domains= (inline domain lists without file)
+    if not out:
+        for value in re.findall(r'--hostlist-domains=([^\s]+)', args):
+            cat, filter_mode, filter_file = extract_category_from_args(f"--hostlist-domains={value}")
+            item = (cat, filter_mode, filter_file)
+            if item not in seen:
+                seen.add(item)
+                out.append(item)
+
     return out
 
 
@@ -383,20 +415,42 @@ def _canonicalize_list_category_key(
 
     categories_info = _load_category_info() or {}
 
-    # Already canonical.
-    if normalized_key in categories_info:
-        return normalized_key
+    # For domain-based selectors (--hostlist-domains=), run infer FIRST.
+    # A domain like "discord.media" extracts as "discord", but the correct
+    # category is "discord_media_tcp" — only infer can match it via base_filter
+    # tokens. If we check protocol variant first, "discord_tcp" wins incorrectly.
+    # File-based selectors (discord.txt → "discord") are safe to resolve via
+    # protocol variant because the filename IS the canonical category stem.
+    filter_file_n = str(filter_file or "").strip()
+    is_domain_based = (
+        filter_mode == "hostlist"
+        and "." in filter_file_n
+        and not filter_file_n.lower().endswith(".txt")
+    )
+    if is_domain_based:
+        selector_tokens = _extract_selector_context_tokens(block_args, filter_mode="hostlist")
+        selector_tokens.append(f"--hostlist-domains={filter_file_n}")
+        if selector_tokens:
+            inferred_key, _ = infer_category_key_from_args("\n".join(selector_tokens))
+            if inferred_key != "unknown":
+                return inferred_key
 
-    # Fast path for common `<name>_<protocol>` category keys.
+    # Check protocol-specific variant (e.g., youtube_udp for UDP blocks).
+    # This must come before the "already canonical" check, otherwise
+    # "youtube" matches before we can check for "youtube_udp".
     protocol_n = str(protocol_hint or "").strip().lower()
     if protocol_n in ("tcp", "udp"):
         protocol_candidate = f"{normalized_key}_{protocol_n}"
         if protocol_candidate in categories_info:
             return protocol_candidate
 
+    # Already canonical (no protocol-specific variant found).
+    if normalized_key in categories_info:
+        return normalized_key
+
     # Fallback: infer by block transport context + this exact selector.
     selector_mode = (filter_mode or "hostlist").strip().lower() or "hostlist"
-    selector_value = str(filter_file or "").strip()
+    selector_value = filter_file_n
 
     synthetic_tokens = _extract_selector_context_tokens(block_args, filter_mode=selector_mode)
     if selector_value:
@@ -1232,7 +1286,8 @@ def parse_preset_content(content: str) -> PresetData:
                 port=port,
                 args=block_args,
                 strategy_args=strategy_args,
-                syndata_dict=syndata_dict if syndata_dict else None
+                syndata_dict=syndata_dict if syndata_dict else None,
+                raw_args=block_args,
             )
 
             data.categories.append(block)

@@ -180,7 +180,7 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
             
             log(f"Попытка {attempt + 1}/{max_retries} скачивания", "🔄 DOWNLOAD")
             
-            chunk_size = 2097152  # 2MB
+            chunk_size = 65536  # 64KB — при 15 КБ/с callback каждые ~4с, не 133с
             timeout = (10, 90)
             
             # ✅ Resume для любой попытки, если уже есть значимый partial-файл.
@@ -191,6 +191,10 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
                 if resume_from > 1048576:  # > 1MB
                     log(f"📥 Возобновление с {resume_from/1024/1024:.1f} МБ", "🔄 DOWNLOAD")
                     session.headers['Range'] = f'bytes={resume_from}-'
+                    # При resume уже скачано достаточно — снижаем порог slow mirror
+                    # чтобы быстрее переключиться если и этот сервер медленный
+                    if resume_from >= SLOW_MIRROR_MIN_BYTES:
+                        log(f"⚡ Resume >= {SLOW_MIRROR_MIN_BYTES/1024/1024:.0f} МБ — порог slow mirror снижен до 1 МБ", "🔄 DOWNLOAD")
                 else:
                     resume_from = 0
             
@@ -223,6 +227,8 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
                     slow_window_bytes = 0
                     slow_seconds_accum = 0.0
                     last_slow_log_time = 0.0
+                    # При resume снижаем порог — уже достаточно данных для оценки
+                    effective_min_bytes = (1 * 1024 * 1024) if (resume_from >= SLOW_MIRROR_MIN_BYTES) else SLOW_MIRROR_MIN_BYTES
                     
                     try:
                         for chunk in resp.iter_content(chunk_size=chunk_size):
@@ -244,7 +250,7 @@ def _download_with_retry(url: str, dest: str, on_progress: Callable[[int, int], 
                                         downloaded_now = done - resume_from
                                         remaining = (total - done) if total > 0 else None
                                         too_slow = window_speed_bps < (SLOW_MIRROR_THRESHOLD_MBPS * 1024 * 1024)
-                                        enough_data = downloaded_now >= SLOW_MIRROR_MIN_BYTES
+                                        enough_data = downloaded_now >= effective_min_bytes
                                         after_grace = (current_time - start_time) >= SLOW_MIRROR_GRACE_SECONDS
                                         not_finishing = (remaining is None) or (remaining > (8 * 1024 * 1024))
 
@@ -466,6 +472,9 @@ class UpdateWorker(QObject):
             urls.append((upd_url, verify_ssl))
 
         # 2. Добавляем все VPS серверы как fallback
+        # ВАЖНО: сначала HTTPS всех серверов, потом HTTP всех серверов.
+        # Это гарантирует что при переключении с медленного зеркала
+        # мы попадаем на ДРУГОЙ сервер, а не на тот же по HTTP.
         try:
             from .server_config import VPS_SERVERS, should_verify_ssl
 
@@ -476,16 +485,25 @@ class UpdateWorker(QObject):
             if not filename:
                 filename = "Zapret2Setup.exe"
 
+            # Хост основного URL для дедупликации (не добавлять HTTP того же сервера)
+            try:
+                from urllib.parse import urlparse
+                _primary_host = urlparse(upd_url).hostname
+            except Exception:
+                _primary_host = None
+
+            # Сначала HTTPS всех серверов
             for server in VPS_SERVERS:
-                # HTTPS вариант
                 https_url = f"https://{server['host']}:{server['https_port']}/download/{filename}"
-                if https_url != upd_url:  # Не дублируем основной URL
+                if https_url != upd_url:
                     urls.append((https_url, should_verify_ssl()))
-                
-                # HTTP вариант (как fallback)
+
+            # Потом HTTP всех серверов (fallback), пропуская хост основного URL
+            for server in VPS_SERVERS:
+                if _primary_host and server['host'] == _primary_host:
+                    continue
                 http_url = f"http://{server['host']}:{server['http_port']}/download/{filename}"
-                if http_url != upd_url:
-                    urls.append((http_url, False))
+                urls.append((http_url, False))
                     
         except Exception as e:
             log(f"Не удалось добавить fallback серверы: {e}", "🔁 UPDATE")

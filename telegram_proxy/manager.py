@@ -49,10 +49,14 @@ class TelegramProxyManager(QThread):
         return self._controller.mode if self._controller else "socks5"
 
     @property
+    def host(self) -> str:
+        return self._controller.host if self._controller else "127.0.0.1"
+
+    @property
     def proxy_logger(self):
         return self._proxy_logger
 
-    def start_proxy(self, port: int = 1353, mode: str = "socks5") -> bool:
+    def start_proxy(self, port: int = 1353, mode: str = "socks5", host: str = "127.0.0.1") -> bool:
         """Start the proxy. Thread-safe, non-blocking."""
         if self.is_running:
             return False
@@ -61,6 +65,7 @@ class TelegramProxyManager(QThread):
             port=port,
             mode=mode,
             on_log=self._on_log,
+            host=host,
         )
         ok = self._controller.start()
         if ok:
@@ -80,10 +85,10 @@ class TelegramProxyManager(QThread):
         self._controller = None
         self.status_changed.emit(False)
 
-    def restart_proxy(self, port: int = 1353, mode: str = "socks5") -> bool:
+    def restart_proxy(self, port: int = 1353, mode: str = "socks5", host: str = "127.0.0.1") -> bool:
         """Restart with new config."""
         self.stop_proxy()
-        return self.start_proxy(port, mode)
+        return self.start_proxy(port, mode, host)
 
     def cleanup(self) -> None:
         """Called on app exit."""

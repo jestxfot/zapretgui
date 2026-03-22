@@ -5,7 +5,12 @@
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, QMetaObject, Qt, Q_ARG
 from strategy_menu import get_strategy_launch_method
 from log import log
-from dpi.process_health_check import diagnose_startup_error
+from dpi.process_health_check import (
+    diagnose_startup_error,
+    check_conflicting_processes,
+    try_kill_conflicting_processes,
+    get_conflicting_processes_report,
+)
 import time
 
 class DPIStartWorker(QObject):
@@ -620,6 +625,62 @@ class DPIController:
                 return
         except RuntimeError:
             self._dpi_start_thread = None
+
+        # Проверка конфликтующих процессов (Process Hacker, Process Explorer и т.д.)
+        conflicting = check_conflicting_processes()
+        if conflicting:
+            report = get_conflicting_processes_report()
+            log(report, "WARNING")
+
+            names = ", ".join(c['name'] for c in conflicting)
+            from PyQt6.QtWidgets import QMessageBox
+            msg = QMessageBox(self.app)
+            msg.setWindowTitle("Обнаружены конфликтующие программы")
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setText(
+                f"Обнаружены программы, которые блокируют WinDivert:\n\n"
+                f"{names}\n\n"
+                f"Эти программы перехватывают системные вызовы и не дают "
+                f"WinDivert драйверу запуститься."
+            )
+            msg.setInformativeText("Закрыть их автоматически и продолжить запуск?")
+
+            btn_kill = msg.addButton("Закрыть и продолжить", QMessageBox.ButtonRole.AcceptRole)
+            btn_ignore = msg.addButton("Продолжить без закрытия", QMessageBox.ButtonRole.DestructiveRole)
+            btn_cancel = msg.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
+            msg.setDefaultButton(btn_kill)
+
+            msg.exec()
+            clicked = msg.clickedButton()
+
+            if clicked == btn_cancel:
+                log("Запуск DPI отменён пользователем из-за конфликтующих процессов", "INFO")
+                return
+
+            if clicked == btn_kill:
+                log("Пользователь выбрал закрыть конфликтующие процессы", "INFO")
+                killed = try_kill_conflicting_processes(auto_kill=True)
+                if killed:
+                    log("Конфликтующие процессы закрыты, ожидание 1с...", "INFO")
+                    time.sleep(1)
+                else:
+                    log("Не удалось закрыть все конфликтующие процессы", "WARNING")
+                    retry_msg = QMessageBox.warning(
+                        self.app,
+                        "Не удалось закрыть процессы",
+                        "Некоторые конфликтующие процессы не удалось закрыть.\n"
+                        "Запуск DPI может завершиться ошибкой.\n\n"
+                        "Продолжить запуск?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    if retry_msg == QMessageBox.StandardButton.No:
+                        log("Запуск DPI отменён после неудачного закрытия процессов", "INFO")
+                        return
+
+            # btn_ignore — продолжаем без закрытия, логируем предупреждение
+            if clicked == btn_ignore:
+                log("Пользователь продолжил запуск несмотря на конфликтующие процессы", "WARNING")
 
         # Invalidate any pending verification loop from older starts.
         self._dpi_start_verify_generation += 1

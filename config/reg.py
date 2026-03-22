@@ -579,6 +579,19 @@ def set_tg_proxy_mode(mode: str) -> bool:
     return reg(REGISTRY_PATH, _TG_PROXY_MODE_NAME, str(mode))
 
 
+# ── Telegram Proxy Host (bind address) ──
+_TG_PROXY_HOST_NAME = "TgProxyHost"               # REG_SZ
+
+def get_tg_proxy_host() -> str:
+    from config import REGISTRY_PATH
+    val = reg(REGISTRY_PATH, _TG_PROXY_HOST_NAME)
+    return str(val) if val else "127.0.0.1"
+
+def set_tg_proxy_host(host: str) -> bool:
+    from config import REGISTRY_PATH
+    return reg(REGISTRY_PATH, _TG_PROXY_HOST_NAME, str(host))
+
+
 # ───────────── Registry Subkey Helpers ─────────────
 
 def reg_enumerate_values(subkey: str, *, root=HKCU) -> dict:

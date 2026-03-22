@@ -260,6 +260,23 @@ def load_preset(name: str) -> Optional[Preset]:
         for block in data.categories:
             cat_name = block.category
 
+            # Store raw block text for lossless round-trip save.
+            # Multiple CategoryBlocks can share the same raw_args (e.g., a block
+            # with multiple --hostlist= lines creates one CategoryBlock per list).
+            # We deduplicate by raw_text to avoid writing the same --new block
+            # multiple times when saving.
+            raw_text = getattr(block, "raw_args", "") or getattr(block, "args", "")
+            # Check if this exact raw_text was already stored (shared block)
+            already_stored = any(rt == raw_text for _, _, rt in preset._raw_blocks)
+            if already_stored:
+                # Add this category to the existing entry's category set
+                for idx, (cats, proto, rt) in enumerate(preset._raw_blocks):
+                    if rt == raw_text:
+                        cats.add(cat_name)
+                        break
+            else:
+                preset._raw_blocks.append(({cat_name}, block.protocol, raw_text))
+
             # Get or create category config
             if cat_name not in preset.categories:
                 preset.categories[cat_name] = CategoryConfig(
@@ -279,6 +296,14 @@ def load_preset(name: str) -> Optional[Preset]:
                     base = cat.syndata_udp.to_dict()
                     base.update(block.syndata_dict)
                     cat.syndata_udp = SyndataSettings.from_dict(base)
+            else:
+                # No syndata_dict = block had no --out-range/--lua-desync=send/syndata.
+                # Reset out_range to 0 so _get_out_range_args() returns "" (don't inject
+                # a default --out-range=-n8 into blocks that never had one).
+                if block.protocol == "tcp":
+                    cat.syndata_tcp.out_range = 0
+                elif block.protocol == "udp":
+                    cat.syndata_udp.out_range = 0
 
             # Set args based on protocol
             if block.protocol == "tcp":

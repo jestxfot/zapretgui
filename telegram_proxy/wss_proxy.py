@@ -509,6 +509,8 @@ class ProxyStats:
     pool_hits: int = 0
     pool_misses: int = 0
     passthrough_connections: int = 0
+    # Per-DC recv=0 counter (connection established but no data received)
+    recv_zero_count: int = 0
     http_rejected: int = 0
     start_time: float = field(default_factory=time.monotonic)
 
@@ -666,9 +668,11 @@ class TelegramWSProxy:
         port: int = 1353,
         mode: str = "socks5",
         on_log: Optional[Callable[[str], None]] = None,
+        host: str = "127.0.0.1",
     ):
         self._port = port
         self._mode = mode
+        self._host = host
         self._on_log = on_log
         self._servers: list[asyncio.Server] = []
         self._tasks: set[asyncio.Task] = set()
@@ -709,11 +713,11 @@ class TelegramWSProxy:
         # redirect impossible. Only SOCKS5 mode is supported.
         server = await asyncio.start_server(
             self._handle_socks5_client,
-            "127.0.0.1",
+            self._host,
             self._port,
         )
         self._servers.append(server)
-        self._log(f"SOCKS5 proxy started on 127.0.0.1:{self._port}")
+        self._log(f"SOCKS5 proxy started on {self._host}:{self._port}")
 
         for srv in self._servers:
             await srv.start_serving()
@@ -839,6 +843,7 @@ class TelegramWSProxy:
 
             # Only DC2 and DC4 have proven working WSS relays.
             # Cross-DC routing via kws2 does NOT work (recv=0, server rejects).
+            # Port 80 fallback tested: DC1 partial, DC5 dead. Not reliable.
             if dc not in WSS_DOMAINS:
                 self._log(f"[{label}] DC{dc} -> TCP (no WSS relay for this DC)")
                 await self._tcp_fallback(
@@ -1092,6 +1097,8 @@ class TelegramWSProxy:
             except BaseException:
                 pass
             elapsed = time.monotonic() - t0
+            if recv_total == 0 and sent_total > 0:
+                self.stats.recv_zero_count += 1
             self._log(f"[{label}] relay done: sent={sent_total} recv={recv_total} ({elapsed:.1f}s)")
 
     async def _relay_tcp(
@@ -1147,6 +1154,8 @@ class TelegramWSProxy:
                 pass
             if label:
                 elapsed = time.monotonic() - t0
+                if recv_total == 0 and sent_total > 0:
+                    self.stats.recv_zero_count += 1
                 self._log(f"[{label}] tcp relay done: sent={sent_total} recv={recv_total} ({elapsed:.1f}s)")
 
 

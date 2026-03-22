@@ -685,10 +685,23 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
     @pyqtSlot(str)
     def show_dpi_launch_error(self, message: str) -> None:
-        """Показывает ошибку сверху окна через InfoBar."""
+        """Показывает ошибку сверху окна через InfoBar.
+
+        If the message starts with ``[AUTOFIX:<action>]``, a "Fix" button is
+        added and the InfoBar stays visible until manually closed.
+        """
+        import re as _re
+
         text = str(message or "").strip()
         if not text:
             text = "Не удалось запустить DPI"
+
+        # Extract optional auto-fix action from prefix
+        auto_fix_action: str | None = None
+        m = _re.match(r"^\[AUTOFIX:(\w+)]", text)
+        if m:
+            auto_fix_action = m.group(1)
+            text = text[m.end():]
 
         # Дедупликация одинаковых ошибок, прилетевших подряд.
         try:
@@ -705,17 +718,66 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         try:
             from qfluentwidgets import InfoBar as _InfoBar, InfoBarPosition as _IBPos
 
-            _InfoBar.error(
+            # Critical/auto-fixable errors stay until manually closed
+            duration = -1 if auto_fix_action else 10000
+
+            bar = _InfoBar.error(
                 title="Ошибка",
                 content=text,
                 orient=Qt.Orientation.Vertical if len(text) > 90 else Qt.Orientation.Horizontal,
                 isClosable=True,
                 position=_IBPos.TOP,
-                duration=10000,
+                duration=duration,
                 parent=self,
             )
+
+            if auto_fix_action and bar is not None:
+                self._add_autofix_button(bar, auto_fix_action)
         except Exception as e:
             log(f"Ошибка показа InfoBar запуска DPI: {e}", "DEBUG")
+
+    def _add_autofix_button(self, bar, action: str) -> None:
+        """Add a 'Fix' button to an InfoBar that runs the auto-fix action."""
+        try:
+            from qfluentwidgets import PushButton, InfoBar as _InfoBar, InfoBarPosition as _IBPos
+
+            btn = PushButton("Исправить")
+            btn.setFixedWidth(100)
+
+            def on_fix():
+                btn.setEnabled(False)
+                btn.setText("...")
+                try:
+                    from dpi.process_health_check import execute_windivert_auto_fix
+                    ok, msg = execute_windivert_auto_fix(action)
+                    bar.close()
+                    if ok:
+                        _InfoBar.success(
+                            title="Готово",
+                            content=msg,
+                            isClosable=True,
+                            position=_IBPos.TOP,
+                            duration=5000,
+                            parent=self,
+                        )
+                    else:
+                        _InfoBar.warning(
+                            title="Не удалось",
+                            content=msg,
+                            isClosable=True,
+                            position=_IBPos.TOP,
+                            duration=8000,
+                            parent=self,
+                        )
+                except Exception as e:
+                    log(f"Auto-fix error: {e}", "ERROR")
+                    btn.setEnabled(True)
+                    btn.setText("Исправить")
+
+            btn.clicked.connect(on_fix)
+            bar.addWidget(btn)
+        except Exception as e:
+            log(f"Error adding auto-fix button: {e}", "DEBUG")
 
     def update_ui(self, running: bool) -> None:
         """Обновляет состояние кнопок в зависимости от статуса запуска"""

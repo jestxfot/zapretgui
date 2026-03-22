@@ -1,6 +1,6 @@
 # Preset: Default (game filter)
 # ActivePreset: Default (game filter)
-# BuiltinVersion: 2.10
+# BuiltinVersion: 2.12
 # Modified: 2026-01-21T17:52:34.648239
 # IconColor: #a8c5ff
 
@@ -188,6 +188,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
 --lua-desync=fakedsplit:pattern=0x00:repeats=6:tcp_ts=-600000
@@ -209,6 +211,8 @@
 --ipset=lists/ipset-ovh.txt
 --ipset=lists/ipset-whatsapp.txt
 --ipset=lists/ipset-warp.txt
+--ipset=lists/ipset-zapretkvn.txt
+--ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --payload=all
 --lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all

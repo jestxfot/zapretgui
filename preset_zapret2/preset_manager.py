@@ -267,6 +267,19 @@ class PresetManager:
             for block in data.categories:
                 cat_name = block.category
 
+                # Store raw block text for lossless round-trip save.
+                # Deduplicate: shared blocks (multiple hostlists in one --new block)
+                # create multiple CategoryBlocks but we store raw_text only once.
+                raw_text = getattr(block, "raw_args", "") or getattr(block, "args", "")
+                already_stored = any(rt == raw_text for _, _, rt in preset._raw_blocks)
+                if already_stored:
+                    for idx, (cats, proto, rt) in enumerate(preset._raw_blocks):
+                        if rt == raw_text:
+                            cats.add(cat_name)
+                            break
+                else:
+                    preset._raw_blocks.append(({cat_name}, block.protocol, raw_text))
+
                 if cat_name not in preset.categories:
                     preset.categories[cat_name] = CategoryConfig(
                         name=cat_name,
@@ -285,6 +298,14 @@ class PresetManager:
                         base = cat.syndata_udp.to_dict()
                         base.update(block.syndata_dict or {})  # type: ignore[arg-type]
                         cat.syndata_udp = SyndataSettings.from_dict(base)
+                else:
+                    # No syndata_dict = block had no --out-range/--lua-desync=send/syndata.
+                    # Reset out_range to 0 so _get_out_range_args() returns "" (don't inject
+                    # a default --out-range=-n8 into blocks that never had one).
+                    if block.protocol == "tcp":
+                        cat.syndata_tcp.out_range = 0
+                    elif block.protocol == "udp":
+                        cat.syndata_udp.out_range = 0
 
                 if block.protocol == "tcp":
                     cat.tcp_args = block.strategy_args
@@ -859,15 +880,20 @@ class PresetManager:
         """
         return self.get_active_preset()
 
-    def sync_preset_to_active_file(self, preset: Preset) -> bool:
+    def sync_preset_to_active_file(self, preset: Preset, changed_category: str = None) -> bool:
         """
         Writes preset directly to preset-zapret2.txt.
 
         Use this when editing the active preset without switching.
         Triggers DPI reload.
 
+        When changed_category is provided and preset has raw blocks from file,
+        uses RAW BLOCK PRESERVATION: only the changed category's block(s) are
+        regenerated, all other blocks are written back as-is (lossless round-trip).
+
         Args:
             preset: Preset to write
+            changed_category: Category key that was changed (None = full regeneration)
 
         Returns:
             True if successful
@@ -894,163 +920,18 @@ class PresetManager:
             # Keep wf-*-out in sync with enabled category port filters.
             preset.base_args = self._update_wf_out_ports_in_base_args(preset)
 
-            # Convert to PresetData
-            data = PresetData(
-                name=preset.name,
-                active_preset=preset.name,
-                base_args=self._maybe_inject_debug_into_base_args(preset.base_args),
-            )
+            # ── RAW BLOCK PRESERVATION MODE ──
+            # When a single category was changed and we have raw blocks from the
+            # original file, only regenerate the changed category's block(s) and
+            # keep everything else exactly as it was in the file.
+            raw_blocks = getattr(preset, "_raw_blocks", None) or []
+            if changed_category and raw_blocks:
+                return self._sync_with_raw_block_preservation(
+                    preset, active_path, changed_category, raw_blocks, is_basic_direct,
+                )
 
-            # Build header
-            icon_color = normalize_preset_icon_color(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
-            preset.icon_color = icon_color
-            data.raw_header = f"""# Preset: {preset.name}
-# ActivePreset: {preset.name}
-# Modified: {datetime.now().isoformat()}
-# IconColor: {icon_color}"""
-
-            # Convert categories
-            for cat_name, cat in preset.categories.items():
-                if cat.tcp_enabled and cat.has_tcp():
-                    from .base_filter import build_category_base_filter_lines
-                    base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
-
-                    # Fallback: keep old behavior only if base_filter is missing.
-                    args_lines = list(base_filter_lines)
-                    if not args_lines:
-                        filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
-                        from config import MAIN_DIRECTORY
-                        filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
-                        args_lines = [f"--filter-tcp={cat.tcp_port}"]
-                        if cat.filter_mode in ("hostlist", "ipset"):
-                            args_lines.append(f"--{cat.filter_mode}={filter_file}")
-
-                    # Build TCP args chain.
-                    # In Basic: strategy args only (no out-range / send / syndata from UI —
-                    #   these panels are hidden in basic mode and must not pollute args,
-                    #   otherwise infer_strategy_id_from_args fails to match catalog entries).
-                    # In Advanced: out-range + (send/syndata settings) + strategy args.
-                    # If strategy args already contain send/syndata, do not duplicate them.
-                    strategy_text = str(getattr(cat, "tcp_args", "") or "")
-                    strat_lines = [ln.strip() for ln in strategy_text.splitlines() if ln.strip()]
-                    send_present = any(ln.lower().startswith("--lua-desync=send") for ln in strat_lines)
-                    syndata_present = any(ln.lower().startswith("--lua-desync=syndata") for ln in strat_lines)
-
-                    # Keep out-range controlled by UI/settings only (avoid duplicates).
-                    strat_lines_no_out = [ln for ln in strat_lines if not ln.lower().startswith("--out-range=")]
-                    strategy_text_clean = "\n".join(strat_lines_no_out).strip()
-
-                    parts: list[str] = []
-                    try:
-                        out_range_arg = cat._get_out_range_args(cat.syndata_tcp)
-                    except Exception:
-                        out_range_arg = ""
-                    if out_range_arg:
-                        parts.append(str(out_range_arg).strip())
-
-                    try:
-                        if bool(getattr(cat.syndata_tcp, "send_enabled", False)) and not send_present:
-                            send_arg = cat._get_send_args(cat.syndata_tcp)
-                            if send_arg:
-                                parts.append(str(send_arg).strip())
-                    except Exception:
-                        pass
-
-                    try:
-                        if bool(getattr(cat.syndata_tcp, "enabled", False)) and not syndata_present:
-                            syndata_arg = cat._get_syndata_args(cat.syndata_tcp)
-                            if syndata_arg:
-                                parts.append(str(syndata_arg).strip())
-                    except Exception:
-                        pass
-
-                    if strategy_text_clean:
-                        parts.append(strategy_text_clean)
-
-                    full_tcp_args = "\n".join([p for p in parts if p]).strip()
-                    for raw in full_tcp_args.splitlines():
-                        line = (raw or "").strip()
-                        if line:
-                            args_lines.append(line)
-
-                    block = CategoryBlock(
-                        category=cat_name,
-                        protocol="tcp",
-                        filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
-                        filter_file="",
-                        port=cat.tcp_port,
-                        args='\n'.join(args_lines),
-                        strategy_args=cat.tcp_args,
-                    )
-                    data.categories.append(block)
-
-                if cat.udp_enabled and cat.has_udp():
-                    from .base_filter import build_category_base_filter_lines
-                    base_filter_lines = build_category_base_filter_lines(cat_name, cat.filter_mode)
-
-                    args_lines = list(base_filter_lines)
-                    if not args_lines:
-                        filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
-                        from config import MAIN_DIRECTORY
-                        filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
-                        args_lines = [f"--filter-udp={cat.udp_port}"]
-                        if cat.filter_mode in ("hostlist", "ipset"):
-                            args_lines.append(f"--{cat.filter_mode}={filter_file}")
-
-                    # Build UDP args chain: out-range (advanced only) + strategy args.
-                    # In Basic mode omit out-range (UI panel hidden) so args exactly match
-                    # the catalog entries and infer_strategy_id_from_args works correctly.
-                    # Keep out-range controlled by UI/settings only (avoid duplicates).
-                    udp_text = str(getattr(cat, "udp_args", "") or "")
-                    udp_lines = [ln.strip() for ln in udp_text.splitlines() if ln.strip()]
-                    udp_lines_no_out = [ln for ln in udp_lines if not ln.lower().startswith("--out-range=")]
-                    udp_text_clean = "\n".join(udp_lines_no_out).strip()
-
-                    parts: list[str] = []
-                    if not is_basic_direct:
-                        try:
-                            out_range_arg = cat._get_out_range_args(cat.syndata_udp)
-                        except Exception:
-                            out_range_arg = ""
-                        if out_range_arg:
-                            parts.append(str(out_range_arg).strip())
-                    if udp_text_clean:
-                        parts.append(udp_text_clean)
-
-                    full_udp_args = "\n".join([p for p in parts if p]).strip()
-                    for raw in full_udp_args.splitlines():
-                        line = (raw or "").strip()
-                        if line:
-                            args_lines.append(line)
-
-                    block = CategoryBlock(
-                        category=cat_name,
-                        protocol="udp",
-                        filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
-                        filter_file="",
-                        port=cat.udp_port,
-                        args='\n'.join(args_lines),
-                        strategy_args=cat.udp_args,
-                    )
-                    data.categories.append(block)
-
-            # Deduplicate categories before writing
-            data.deduplicate_categories()
-
-            # Write
-            success = generate_preset_file(data, active_path, atomic=True)
-
-            if success:
-                # Invalidate cache after sync
-                self._invalidate_active_preset_cache()
-
-                log(f"Synced preset to active file", "DEBUG")
-
-                # Trigger DPI reload
-                if self.on_dpi_reload_needed:
-                    self.on_dpi_reload_needed()
-
-            return success
+            # ── FULL REGENERATION (fallback) ──
+            return self._sync_full_regeneration(preset, active_path, is_basic_direct)
 
         except PermissionError as e:
             log(f"Cannot write preset file (locked by winws2?): {e}", "ERROR")
@@ -1058,6 +939,298 @@ class PresetManager:
         except Exception as e:
             log(f"Error syncing to active file: {e}", "ERROR")
             return False
+
+    def _sync_with_raw_block_preservation(
+        self,
+        preset: Preset,
+        active_path: str,
+        changed_category: str,
+        raw_blocks: list,
+        is_basic_direct: bool,
+    ) -> bool:
+        """
+        Lossless save: only regenerate the changed category's block(s),
+        keep all other blocks as raw text from the original file.
+        """
+        from .txt_preset_parser import generate_preset_file, PresetData, CategoryBlock
+        from .txt_preset_parser import _normalize_known_path_line
+
+        cat = preset.categories.get(changed_category)
+        cat_disabled = (not cat) or (cat.strategy_id == "none")
+
+        # _raw_blocks format: [(set_of_cat_keys, protocol, raw_text), ...]
+        # Each entry represents one --new block from the original file.
+        # A block can contain multiple categories (e.g., multiple --hostlist= lines).
+
+        # If the changed category is in a SHARED block (multiple hostlists),
+        # we cannot surgically modify just one category — fall back to full regeneration.
+        for cat_keys, _, _ in raw_blocks:
+            if changed_category in cat_keys and len(cat_keys) > 1:
+                log(
+                    f"Changed category '{changed_category}' is in a shared block "
+                    f"with {cat_keys}. Falling back to full regeneration.",
+                    "DEBUG",
+                )
+                return self._sync_full_regeneration(preset, active_path, is_basic_direct)
+
+        changed_cat_in_raw = any(
+            changed_category in cat_keys for cat_keys, _, _ in raw_blocks
+        )
+
+        result_block_texts: list[str] = []
+
+        for cat_keys, raw_protocol, raw_text in raw_blocks:
+            if changed_category in cat_keys:
+                    # Single-category block — safe to regenerate or skip.
+                    if cat_disabled:
+                        continue  # Category disabled — remove block from file
+                    new_block_text = self._build_category_block_text(
+                        preset, changed_category, raw_protocol, is_basic_direct,
+                    )
+                    if new_block_text:
+                        result_block_texts.append(new_block_text)
+            else:
+                # PASSTHROUGH: keep original raw text exactly as-is
+                result_block_texts.append(raw_text)
+
+        # If the changed category is NEW (wasn't in raw_blocks), append it
+        if not changed_cat_in_raw and not cat_disabled:
+            for proto in ("tcp", "udp"):
+                new_block_text = self._build_category_block_text(
+                    preset, changed_category, proto, is_basic_direct,
+                )
+                if new_block_text:
+                    result_block_texts.append(new_block_text)
+
+        # Assemble the file content
+        icon_color = normalize_preset_icon_color(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
+        preset.icon_color = icon_color
+
+        lines: list[str] = []
+        # Header
+        lines.append(f"# Preset: {preset.name}")
+        lines.append(f"# ActivePreset: {preset.name}")
+        lines.append(f"# Modified: {datetime.now().isoformat()}")
+        lines.append(f"# IconColor: {icon_color}")
+        lines.append("")
+
+        # Base args
+        base_args_text = self._maybe_inject_debug_into_base_args(preset.base_args)
+        if base_args_text:
+            for line in base_args_text.split('\n'):
+                if line.strip():
+                    lines.append(_normalize_known_path_line(line.strip()))
+            lines.append("")
+
+        # Category blocks joined by --new
+        for i, block_text in enumerate(result_block_texts):
+            for line in block_text.split('\n'):
+                if line.strip():
+                    lines.append(line.strip())
+            if i < len(result_block_texts) - 1:
+                lines.append("")
+                lines.append("--new")
+                lines.append("")
+
+        content = '\n'.join(lines)
+
+        try:
+            with open(active_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            success = True
+        except Exception as e:
+            log(f"Error writing preset file: {e}", "ERROR")
+            success = False
+
+        if success:
+            self._invalidate_active_preset_cache()
+            log(f"Synced preset to active file (raw block preservation, changed: {changed_category})", "DEBUG")
+            if self.on_dpi_reload_needed:
+                self.on_dpi_reload_needed()
+
+        return success
+
+    def _build_category_block_text(
+        self,
+        preset: Preset,
+        cat_key: str,
+        protocol: str,
+        is_basic_direct: bool,
+    ) -> str:
+        """
+        Build the text for a single category block from CategoryConfig.
+
+        Returns empty string if the category/protocol is not enabled or has no args.
+        """
+        cat = preset.categories.get(cat_key)
+        if not cat:
+            return ""
+
+        from .base_filter import build_category_base_filter_lines
+
+        if protocol == "tcp":
+            if not (cat.tcp_enabled and cat.has_tcp()):
+                return ""
+            strategy_text = str(getattr(cat, "tcp_args", "") or "")
+            port = cat.tcp_port
+        elif protocol == "udp":
+            if not (cat.udp_enabled and cat.has_udp()):
+                return ""
+            strategy_text = str(getattr(cat, "udp_args", "") or "")
+            port = cat.udp_port
+        else:
+            return ""
+
+        # Base filter lines from categories.txt
+        base_filter_lines = build_category_base_filter_lines(cat_key, cat.filter_mode)
+        args_lines = list(base_filter_lines)
+
+        if not args_lines:
+            # Fallback: build filter lines manually
+            if protocol == "tcp":
+                filter_file_relative = cat.get_hostlist_file() if cat.filter_mode == "hostlist" else cat.get_ipset_file()
+            else:
+                filter_file_relative = cat.get_ipset_file() if cat.filter_mode == "ipset" else cat.get_hostlist_file()
+            try:
+                from config import MAIN_DIRECTORY
+                filter_file = os.path.normpath(os.path.join(MAIN_DIRECTORY, filter_file_relative))
+            except Exception:
+                filter_file = filter_file_relative
+            args_lines = [f"--filter-{protocol}={port}"]
+            if cat.filter_mode in ("hostlist", "ipset"):
+                args_lines.append(f"--{cat.filter_mode}={filter_file}")
+
+        # Strategy args — in basic mode, use as-is from strategy catalog
+        strat_lines = [ln.strip() for ln in strategy_text.splitlines() if ln.strip()]
+
+        if is_basic_direct:
+            # Basic mode: strategy args as-is, but preserve out-range from syndata
+            # (strategy_args from parser strips --out-range, so we restore it from
+            # syndata settings which were populated from syndata_dict during load)
+            syndata_settings = cat.syndata_tcp if protocol == "tcp" else cat.syndata_udp
+            try:
+                out_range_arg = cat._get_out_range_args(syndata_settings)
+            except Exception:
+                out_range_arg = ""
+            if out_range_arg:
+                args_lines.append(str(out_range_arg).strip())
+            for line in strat_lines:
+                args_lines.append(line)
+        else:
+            # Advanced mode: out-range + send/syndata + strategy args
+            send_present = any(ln.lower().startswith("--lua-desync=send") for ln in strat_lines)
+            syndata_present = any(ln.lower().startswith("--lua-desync=syndata") for ln in strat_lines)
+
+            strat_lines_no_out = [ln for ln in strat_lines if not ln.lower().startswith("--out-range=")]
+            strategy_text_clean = "\n".join(strat_lines_no_out).strip()
+
+            parts: list[str] = []
+
+            syndata_settings = cat.syndata_tcp if protocol == "tcp" else cat.syndata_udp
+
+            try:
+                out_range_arg = cat._get_out_range_args(syndata_settings)
+            except Exception:
+                out_range_arg = ""
+            if out_range_arg:
+                parts.append(str(out_range_arg).strip())
+
+            if protocol == "tcp":
+                try:
+                    if bool(getattr(syndata_settings, "send_enabled", False)) and not send_present:
+                        send_arg = cat._get_send_args(syndata_settings)
+                        if send_arg:
+                            parts.append(str(send_arg).strip())
+                except Exception:
+                    pass
+
+                try:
+                    if bool(getattr(syndata_settings, "enabled", False)) and not syndata_present:
+                        syndata_arg = cat._get_syndata_args(syndata_settings)
+                        if syndata_arg:
+                            parts.append(str(syndata_arg).strip())
+                except Exception:
+                    pass
+
+            if strategy_text_clean:
+                parts.append(strategy_text_clean)
+
+            full_args = "\n".join([p for p in parts if p]).strip()
+            for raw_line in full_args.splitlines():
+                line = (raw_line or "").strip()
+                if line:
+                    args_lines.append(line)
+
+        return "\n".join(args_lines)
+
+    def _sync_full_regeneration(self, preset: Preset, active_path: str, is_basic_direct: bool) -> bool:
+        """
+        Full file regeneration (original behavior, used as fallback).
+        """
+        from .txt_preset_parser import CategoryBlock, PresetData, generate_preset_file
+
+        # Convert to PresetData
+        data = PresetData(
+            name=preset.name,
+            active_preset=preset.name,
+            base_args=self._maybe_inject_debug_into_base_args(preset.base_args),
+        )
+
+        # Build header
+        icon_color = normalize_preset_icon_color(getattr(preset, "icon_color", DEFAULT_PRESET_ICON_COLOR))
+        preset.icon_color = icon_color
+        data.raw_header = f"""# Preset: {preset.name}
+# ActivePreset: {preset.name}
+# Modified: {datetime.now().isoformat()}
+# IconColor: {icon_color}"""
+
+        # Convert categories
+        for cat_name, cat in preset.categories.items():
+            if cat.tcp_enabled and cat.has_tcp():
+                block_text = self._build_category_block_text(preset, cat_name, "tcp", is_basic_direct)
+                if block_text:
+                    block = CategoryBlock(
+                        category=cat_name,
+                        protocol="tcp",
+                        filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
+                        filter_file="",
+                        port=cat.tcp_port,
+                        args=block_text,
+                        strategy_args=cat.tcp_args,
+                    )
+                    data.categories.append(block)
+
+            if cat.udp_enabled and cat.has_udp():
+                block_text = self._build_category_block_text(preset, cat_name, "udp", is_basic_direct)
+                if block_text:
+                    block = CategoryBlock(
+                        category=cat_name,
+                        protocol="udp",
+                        filter_mode=cat.filter_mode if cat.filter_mode in ("hostlist", "ipset") else "",
+                        filter_file="",
+                        port=cat.udp_port,
+                        args=block_text,
+                        strategy_args=cat.udp_args,
+                    )
+                    data.categories.append(block)
+
+        # Deduplicate categories before writing
+        data.deduplicate_categories()
+
+        # Write
+        success = generate_preset_file(data, active_path, atomic=True)
+
+        if success:
+            # Invalidate cache after sync
+            self._invalidate_active_preset_cache()
+
+            log(f"Synced preset to active file", "DEBUG")
+
+            # Trigger DPI reload
+            if self.on_dpi_reload_needed:
+                self.on_dpi_reload_needed()
+
+        return success
 
     def _update_wf_out_ports_in_base_args(self, preset: Preset) -> str:
         """
@@ -1942,12 +2115,13 @@ class PresetManager:
             log(f"Error resetting preset '{name}' to Default template: {e}", "ERROR")
             return False
 
-    def _save_and_sync_preset(self, preset: Preset) -> bool:
+    def _save_and_sync_preset(self, preset: Preset, changed_category: str = None) -> bool:
         """
         Saves preset to file and syncs to active file.
 
         Args:
             preset: Preset to save
+            changed_category: Category key that was changed (for raw block preservation)
 
         Returns:
             True if successful
@@ -1962,7 +2136,7 @@ class PresetManager:
 
         # Then sync to active file (triggers DPI reload via callback)
         # Note: sync_preset_to_active_file() already invalidates active cache
-        return self.sync_preset_to_active_file(preset)
+        return self.sync_preset_to_active_file(preset, changed_category=changed_category)
 
     def _create_category_with_defaults(self, category_key: str) -> CategoryConfig:
         """
@@ -2051,7 +2225,7 @@ class PresetManager:
         preset.touch()
 
         if save_and_sync:
-            return self._save_and_sync_preset(preset)
+            return self._save_and_sync_preset(preset, changed_category=category_key)
 
         return True
 

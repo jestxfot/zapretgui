@@ -49,6 +49,21 @@ icon_color = #FF0000
 base_filter = --filter-udp=443 --ipset=ipset-youtube.txt
 strategy_type = udp
 
+[google_tcp]
+full_name = Google (сервисы)
+description = Google сервисы через TCP (порты 80, 443)
+tooltip = 🔍 Google сервисы через TCP протокол\nОбходит блокировку Google-сервисов через стандартные веб-порты.\nИспользуется в пресетах с отдельным hostlist для Google.
+color = #4285F4
+default_strategy = none
+ports = 80, 443
+protocol = TCP
+needs_new_separator = true
+command_group = youtube
+icon_name = fa5b.google
+icon_color = #4285F4
+base_filter_hostlist = --filter-tcp=80,443 --hostlist=google.txt
+strategy_type = tcp
+
 [update_discord]
 full_name = updates.discord.com
 description = Обновления Discord мессенджер (порт 443)
@@ -681,7 +696,7 @@ needs_new_separator = true
 command_group = ipsets
 icon_name = fa5s.network-wired
 icon_color = #FFA500
-base_filter = --filter-tcp=80,443-65535 --ipset-exclude=ipset-ru.txt  --ipset-exclude=ipset-dns.txt
+base_filter = --filter-tcp=80,443-65535 --ipset-exclude=ipset-ru.txt --ipset-exclude=ipset-dns.txt --ipset-exclude=ipset-exclude.txt
 strategy_type = tcp
 requires_all_ports = true
 strip_payload = true
@@ -730,6 +745,37 @@ needs_new_separator = false
 command_group = ipsets
 icon_name = fa5s.gamepad
 icon_color = #D49B00
-base_filter = --filter-udp=80,443-65535 --ipset-exclude=ipset-ru.txt --ipset-exclude=ipset-dns.txt
+base_filter = --filter-udp=80,443-65535 --ipset-exclude=ipset-ru.txt --ipset-exclude=ipset-dns.txt --ipset-exclude=ipset-exclude.txt
 strategy_type = udp
 requires_all_ports = true
+strip_payload = true
+
+[quic_all]
+full_name = ALL QUIC
+description = Весь QUIC трафик (UDP порт 443) без привязки к доменам или IP
+tooltip = 🌐 Весь QUIC трафик (UDP порт 443)\nОбходит блокировку QUIC/HTTP3 протокола для всех сайтов.\nНе использует hostlist или ipset — работает по exclude-списку.\nПолезно когда провайдер блокирует QUIC протокол целиком.
+color = #00bcd4
+default_strategy = none
+ports = 443
+protocol = QUIC/UDP
+needs_new_separator = true
+command_group = ipsets
+icon_name = fa5s.bolt
+icon_color = #00BCD4
+base_filter = --filter-udp=443 --ipset-exclude=ipset-exclude.txt --ipset-exclude=ipset-ru.txt --ipset-exclude=ipset-dns.txt
+strategy_type = udp
+
+[tcp_all]
+full_name = ALL TCP (80, 443)
+description = Весь TCP трафик (порты 80, 443) без привязки к доменам или IP
+tooltip = 🌐 Весь TCP трафик (порты 80, 443)\nОбходит блокировку TCP для всех сайтов по exclude-списку.\nНе использует hostlist или ipset.\nПолезно когда провайдер блокирует по SNI/HTTP Host для широкого круга сайтов.
+color = #ff9800
+default_strategy = none
+ports = 80, 443
+protocol = TCP
+needs_new_separator = true
+command_group = ipsets
+icon_name = fa5s.globe
+icon_color = #FF9800
+base_filter = --filter-tcp=80,443 --ipset-exclude=ipset-exclude.txt --ipset-exclude=ipset-ru.txt --ipset-exclude=ipset-dns.txt
+strategy_type = tcp

@@ -37,10 +37,12 @@ class ProxyController:
         port: int = DEFAULT_PORT,
         mode: str = "socks5",
         on_log: Optional[Callable[[str], None]] = None,
+        host: str = "127.0.0.1",
     ):
         self._port = port
         self._mode = mode
         self._on_log = on_log
+        self._host = host
         self._proxy: Optional[TelegramWSProxy] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -62,6 +64,10 @@ class ProxyController:
     def mode(self) -> str:
         return self._mode
 
+    @property
+    def host(self) -> str:
+        return self._host
+
     def start(self) -> bool:
         """Start the proxy in a background thread. Non-blocking.
 
@@ -75,6 +81,7 @@ class ProxyController:
             port=self._port,
             mode=self._mode,
             on_log=self._on_log,
+            host=self._host,
         )
         self._started.clear()
         self._thread = threading.Thread(
@@ -116,12 +123,14 @@ class ProxyController:
         if thread and thread.is_alive():
             thread.join(timeout=1.0)
 
-    def update_config(self, port: int = None, mode: str = None) -> None:
+    def update_config(self, port: int = None, mode: str = None, host: str = None) -> None:
         """Update config. Requires restart to take effect."""
         if port is not None:
             self._port = port
         if mode is not None:
             self._mode = mode
+        if host is not None:
+            self._host = host
 
     def restart(self) -> bool:
         """Restart with current config."""

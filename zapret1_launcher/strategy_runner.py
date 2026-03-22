@@ -287,20 +287,38 @@ class StrategyRunnerV1:
             log(f"Fast cleanup error: {e}", "DEBUG")
 
     def _is_windivert_conflict_error(self, stderr: str, exit_code: int) -> bool:
-        """Checks if error is WinDivert conflict (GUID/LUID already exists)"""
-        windivert_error_signatures = [
-            "GUID or LUID already exists",
-            "object with that GUID",
-            "error opening filter",
-            "WinDivert",
-            "access denied"
-        ]
+        """Checks if error is a retryable WinDivert conflict (GUID/LUID collision).
 
+        This does NOT include system-level errors like service disabled (1058),
+        driver blocked (1275), or Secure Boot (577) — those are not fixable
+        by cleanup/retry.
+        """
         if exit_code == 9:
             return True
 
-        stderr_lower = stderr.lower()
-        return any(sig.lower() in stderr_lower for sig in windivert_error_signatures)
+        stderr_lower = (stderr or "").lower()
+        conflict_signatures = [
+            "guid or luid already exists",
+            "object with that guid",
+        ]
+        return any(sig in stderr_lower for sig in conflict_signatures)
+
+    def _is_windivert_system_error(self, stderr: str, exit_code: int) -> bool:
+        """Checks if error is a non-retryable WinDivert system error."""
+        non_retryable_codes = {577, 1058, 1060, 1068, 1275, 654}
+        if exit_code in non_retryable_codes:
+            return True
+
+        stderr_lower = (stderr or "").lower()
+        system_signatures = [
+            "the service cannot be started",
+            "service is disabled",
+            "invalid image hash",
+            "driver blocked",
+            "disable secure boot",
+            "driver failed prior unload",
+        ]
+        return any(sig in stderr_lower for sig in system_signatures)
 
     def _aggressive_windivert_cleanup(self):
         """Aggressive WinDivert cleanup via Win API - for cases when normal cleanup doesn't help"""
@@ -511,30 +529,43 @@ class StrategyRunnerV1:
                 except:
                     pass
 
-                first_line = ""
-                try:
-                    first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
-                except Exception:
-                    first_line = ""
-                if first_line:
-                    self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
+                from dpi.process_health_check import diagnose_winws_exit
+                diag = diagnose_winws_exit(exit_code, stderr_output)
+                if diag:
+                    prefix = f"[AUTOFIX:{diag.auto_fix}]" if diag.auto_fix else ""
+                    self._set_last_error(f"{prefix}{diag.cause}. {diag.solution}")
+                    log(f"Diagnosis: {diag.cause} | Fix: {diag.solution} | auto_fix={diag.auto_fix}", "INFO")
                 else:
-                    self._set_last_error(f"winws завершился сразу (код {exit_code})")
+                    first_line = ""
+                    try:
+                        first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
+                    except Exception:
+                        first_line = ""
+                    if first_line:
+                        self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
+                    else:
+                        self._set_last_error(f"winws завершился сразу (код {exit_code})")
 
                 self.running_process = None
                 self.current_strategy_name = None
                 self.current_strategy_args = None
 
-                # Auto retry on WinDivert error
+                # System-level errors — don't retry
+                if self._is_windivert_system_error(stderr_output, exit_code):
+                    log("WinDivert system error — retry will not help", "WARNING")
+                    return False
+
+                # Retryable conflict
                 if self._is_windivert_conflict_error(stderr_output, exit_code) and _retry_count < MAX_RETRIES:
                     log(f"Detected WinDivert conflict, automatic retry ({_retry_count + 1}/{MAX_RETRIES})...", "INFO")
                     return self.start_strategy_custom(custom_args, strategy_name, _retry_count + 1)
 
-                causes = check_common_crash_causes()
-                if causes:
-                    log("Possible causes:", "INFO")
-                    for line in causes.split('\n')[:5]:
-                        log(f"  {line}", "INFO")
+                if not diag:
+                    causes = check_common_crash_causes()
+                    if causes:
+                        log("Possible causes:", "INFO")
+                        for line in causes.split('\n')[:5]:
+                            log(f"  {line}", "INFO")
 
                 return False
 
@@ -662,30 +693,43 @@ class StrategyRunnerV1:
                 except Exception:
                     pass
 
-                first_line = ""
-                try:
-                    first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
-                except Exception:
-                    first_line = ""
-                if first_line:
-                    self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
+                from dpi.process_health_check import diagnose_winws_exit
+                diag = diagnose_winws_exit(exit_code, stderr_output)
+                if diag:
+                    prefix = f"[AUTOFIX:{diag.auto_fix}]" if diag.auto_fix else ""
+                    self._set_last_error(f"{prefix}{diag.cause}. {diag.solution}")
+                    log(f"Diagnosis: {diag.cause} | Fix: {diag.solution} | auto_fix={diag.auto_fix}", "INFO")
                 else:
-                    self._set_last_error(f"winws завершился сразу (код {exit_code})")
+                    first_line = ""
+                    try:
+                        first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
+                    except Exception:
+                        first_line = ""
+                    if first_line:
+                        self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
+                    else:
+                        self._set_last_error(f"winws завершился сразу (код {exit_code})")
 
                 self.running_process = None
                 self.current_strategy_name = None
                 self.current_strategy_args = None
 
-                # Auto retry on WinDivert error
+                # System-level errors — don't retry
+                if self._is_windivert_system_error(stderr_output, exit_code):
+                    log("WinDivert system error — retry will not help", "WARNING")
+                    return False
+
+                # Retryable conflict
                 if self._is_windivert_conflict_error(stderr_output, exit_code) and _retry_count < MAX_RETRIES:
                     log(f"Detected WinDivert conflict, automatic retry ({_retry_count + 1}/{MAX_RETRIES})...", "INFO")
                     return self.start_from_preset_file(preset_path, strategy_name, _retry_count + 1)
 
-                causes = check_common_crash_causes()
-                if causes:
-                    log("Possible causes:", "INFO")
-                    for line in causes.split('\n')[:5]:
-                        log(f"  {line}", "INFO")
+                if not diag:
+                    causes = check_common_crash_causes()
+                    if causes:
+                        log("Possible causes:", "INFO")
+                        for line in causes.split('\n')[:5]:
+                            log(f"  {line}", "INFO")
 
                 return False
 

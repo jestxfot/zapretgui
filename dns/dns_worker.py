@@ -198,7 +198,7 @@ class DNSStartupManager:
                     if not manager.is_force_dns_enabled():
                         log("Принудительный DNS отключен в настройках", "INFO")
                         if status_callback:
-                            status_callback("DNS отключен")
+                            status_callback("Готов к работе")
                         return
                     
                     if status_callback:

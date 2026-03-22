@@ -342,20 +342,43 @@ class StrategyRunnerBase(ABC):
                 log(f"Error cleaning up service {service_name}: {e}", "DEBUG")
 
     def _is_windivert_conflict_error(self, stderr: str, exit_code: int) -> bool:
-        """Checks if error is WinDivert conflict (GUID/LUID already exists)"""
-        windivert_error_signatures = [
-            "GUID or LUID already exists",
-            "object with that GUID",
-            "error opening filter",
-            "WinDivert",
-            "access denied"
-        ]
+        """Checks if error is a retryable WinDivert conflict (GUID/LUID collision).
 
+        This does NOT include system-level errors like service disabled (1058),
+        driver blocked (1275), or Secure Boot (577) — those are not fixable
+        by cleanup/retry.
+        """
+        # Exit code 9 = ERROR_INVALID_BLOCK — stale WinDivert state
         if exit_code == 9:
             return True
 
-        stderr_lower = stderr.lower()
-        return any(sig.lower() in stderr_lower for sig in windivert_error_signatures)
+        stderr_lower = (stderr or "").lower()
+        conflict_signatures = [
+            "guid or luid already exists",
+            "object with that guid",
+        ]
+        return any(sig in stderr_lower for sig in conflict_signatures)
+
+    def _is_windivert_system_error(self, stderr: str, exit_code: int) -> bool:
+        """Checks if error is a non-retryable WinDivert system error.
+
+        These errors require user action (Secure Boot, AV, adapter, etc.)
+        and should NOT be retried.
+        """
+        non_retryable_codes = {577, 1058, 1060, 1068, 1275, 654}
+        if exit_code in non_retryable_codes:
+            return True
+
+        stderr_lower = (stderr or "").lower()
+        system_signatures = [
+            "the service cannot be started",
+            "service is disabled",
+            "invalid image hash",
+            "driver blocked",
+            "disable secure boot",
+            "driver failed prior unload",
+        ]
+        return any(sig in stderr_lower for sig in system_signatures)
 
     def _aggressive_windivert_cleanup(self):
         """Aggressive WinDivert cleanup via Win API - for cases when normal cleanup doesn't help"""

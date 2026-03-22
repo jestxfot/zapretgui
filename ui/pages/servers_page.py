@@ -710,6 +710,9 @@ class ChangelogCard(CardWidget):
         self._is_downloading = False
         self._download_start_time = 0
         self._last_bytes = 0
+        self._last_speed_time = 0.0
+        self._last_speed_bytes = 0
+        self._smoothed_speed = 0.0
         self._download_percent = 0
         self._download_done_bytes = 0
         self._download_total_bytes = 0
@@ -907,6 +910,9 @@ class ChangelogCard(CardWidget):
         self._raw_version = str(version or "")
         self._download_start_time = time.time()
         self._last_bytes = 0
+        self._last_speed_time = time.time()
+        self._last_speed_bytes = 0
+        self._smoothed_speed = 0.0  # Сглаженная скорость (bytes/sec)
         self._download_percent = 0
         self._download_done_bytes = 0
         self._download_total_bytes = 0
@@ -964,9 +970,29 @@ class ChangelogCard(CardWidget):
             ).format(done=done_mb, total=total_mb)
         )
 
-        elapsed = time.time() - self._download_start_time
-        if elapsed > 0.5 and done_bytes > 0:
-            speed = done_bytes / elapsed
+        now = time.time()
+        dt = now - self._last_speed_time
+        if dt >= 1.0 and done_bytes > 0:
+            # Мгновенная скорость за последний интервал
+            delta_bytes = done_bytes - self._last_speed_bytes
+            if delta_bytes <= 0:
+                # Смена сервера или resume — сбрасываем EMA
+                self._smoothed_speed = 0.0
+                self._last_speed_time = now
+                self._last_speed_bytes = done_bytes
+                return
+            instant_speed = delta_bytes / dt
+
+            # Сглаживание: 40% старое + 60% новое (быстро реагирует на смену сервера)
+            if self._smoothed_speed <= 0:
+                self._smoothed_speed = instant_speed
+            else:
+                self._smoothed_speed = self._smoothed_speed * 0.4 + instant_speed * 0.6
+
+            self._last_speed_time = now
+            self._last_speed_bytes = done_bytes
+
+            speed = self._smoothed_speed
             speed_kb = speed / 1024
             self._download_speed_kb = speed_kb
 

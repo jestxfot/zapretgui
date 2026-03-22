@@ -346,6 +346,7 @@ class Preset:
     icon_color: str = DEFAULT_PRESET_ICON_COLOR
     categories: Dict[str, CategoryConfig] = field(default_factory=dict)
     base_args: str = ""
+    _raw_blocks: list = field(default_factory=list)  # [(cat_key, protocol, raw_text)] for lossless save
 
     # Default base args for new presets
     DEFAULT_BASE_ARGS = """--lua-init=@lua/zapret-lib.lua

@@ -13,6 +13,11 @@ name = hostfakesplit_multi + syndata
 --lua-desync=syndata:blob=stun_pat
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
+[fake_stun_multisplit_2_32]
+name = fake + stun + multisplit pos 2,32
+--lua-desync=fake:blob=stun_pat:badsum:payload=all
+--lua-desync=multisplit:pos=2,32:payload=all
+
 [censorliber_tls_google_syndata_tcpack_fake]
 name = Censorliber tls google + Syndata + fake + TCP ACK
 author = loop-uh
@@ -1527,3 +1532,124 @@ author = Custom
 label = experimental
 description = Максимальная агрессия: disorder + ECN + fake + random IP ID
 --lua-desync=discord_ultimate_combo:fakes=2:ttl=3:pos=host:pos2=endhost
+
+[fake_tls_google_6_ts]
+name = Fake TLS Google x6 TCP_TS
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
+
+[fake_tls_google_6_seq2]
+name = Fake TLS Google x6 TCP_SEQ=2
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=2
+
+[fake_tls_google_6_ts_fakedsplit]
+name = Fake TLS Google x6 + FakedSplit TCP_TS
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
+--lua-desync=fakedsplit:pattern=0x00:repeats=6:tcp_ts=-600000
+
+[fake_tls_google_mod_hostfakesplit]
+name = Fake TLS Google mod + HostFakeSplit
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-600000
+--lua-desync=hostfakesplit:host=www.google.com:tcp_ts=-600000
+
+[fake_tls_google_6_seq1000_multisplit]
+name = Fake TLS Google x6 TCP_SEQ=1000 + Multisplit
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_seq=1000
+--lua-desync=multisplit:pos=2
+
+[fake_tls_google_8_ts_multisplit_seqovl]
+name = Fake TLS Google x8 TCP_TS + Multisplit seqovl=681
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=-600000
+--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8:tcp_ts=-600000
+
+[hostfakesplit_ozon_4_ts]
+name = HostFakeSplit Ozon x4 TCP_TS
+author = community
+--lua-desync=hostfakesplit:host=ozon.ru:repeats=4:tcp_ts=-600000
+
+[tls_multisplit_sni_seqovl_stun_autottl]
+name = TLS MultiSplit SNI seqovl=652 stun_pat AutoTTL
+author = community
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat:repeats=2
+--lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=stun_pat:ip_autottl=-3,3-20:ip6_autottl=-3,3-20
+
+[tls_multisplit_sni_seqovl_stun]
+name = TLS MultiSplit SNI seqovl=652 stun_pat
+author = community
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat
+--lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=stun_pat
+[fake_6_tls_4pda_tcp_ts]
+name = Fake TLS 4pda x6 TCP_TS
+author = community
+blobs = tls_4pda
+--lua-desync=fake:blob=tls_4pda:repeats=6:tcp_ts=-600000
+
+[fake_8_tls_google_tcp_ts]
+name = Fake TLS Google x8 TCP_TS
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=8:tcp_ts=-600000
+
+[fake_8_tls_max_tcp_ts]
+name = Fake TLS Max x8 TCP_TS
+author = community
+blobs = tls_max
+--lua-desync=fake:blob=tls_max:repeats=8:tcp_ts=-600000
+
+[fake_11_tls_google_tcp_ts]
+name = Fake TLS Google x11 TCP_TS
+author = community
+blobs = tls_google
+--lua-desync=fake:blob=tls_google:repeats=11:tcp_ts=-600000
+
+[syndata_multisplit_2_652_ts_up]
+name = Syndata + Multisplit pos=2 seqovl=652 tls_google
+author = community
+blobs = tls_google
+--lua-desync=syndata:blob=tls_google:repeats=11:tcp_ack=-66000:tcp_ts_up
+--lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+
+[fake_8_tls_max_ts_multisplit_664]
+name = Fake TLS Max x8 TCP_TS + Multisplit seqovl=664
+author = community
+blobs = tls_max
+--lua-desync=fake:blob=tls_max:repeats=8:tcp_ts=-600000
+--lua-desync=multisplit:pos=2:seqovl=664:seqovl_pattern=tls_max:repeats=8:tcp_ts=-600000
+
+[hostfakesplit_google_4_ts]
+name = HostFakeSplit google.com x4 TCP_TS
+author = community
+--lua-desync=hostfakesplit:host=www.google.com:repeats=4:tcp_ts=-600000
+
+[hostfakesplit_ozon_4_ts_md5]
+name = HostFakeSplit Ozon x4 TCP_TS + MD5
+author = community
+--lua-desync=hostfakesplit:host=ozon.ru:repeats=4:tcp_ts=-600000:tcp_md5
+
+[tls_multisplit_sni_652_syndata]
+name = TLS MultiSplit SNI seqovl=652 tls_google + syndata
+author = community
+blobs = tls_google
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=tls_multisplit_sni:seqovl=652:seqovl_pattern=tls_google
+
+[fake_tls_auto_11]
+name = Fake TLS AUTO x11 (0x0+default_tls+multidisorder_legacy)
+author = community
+--lua-desync=fake:blob=0x00000000:repeats=11:tcp_ack=-66000:tcp_ts_up
+--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:repeats=11:tcp_ack=-66000:tcp_ts_up
+--lua-desync=multidisorder_legacy:pos=1,midsld:repeats=11
