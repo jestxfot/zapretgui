@@ -30,3 +30,5 @@ logs/
 
 # Misc
 bin/
+.research_*/
+.pytest_cache/
