@@ -588,27 +588,9 @@ class InitializationManager:
             log(f"Ошибка инициализации трея: {e}", "❌ ERROR")
 
     def _init_logger(self):
-        """Инициализация отправки логов"""
-        try:
-            if getattr(self.app, 'log_sender', None):
-                log("Логгер уже инициализирован, пропускаем", "DEBUG")
-                return
-
-            from log import global_logger
-            from tgram import FullLogDaemon
-
-            log_path = getattr(global_logger, 'log_file', None)
-            if log_path:
-                self.app.log_sender = FullLogDaemon(
-                    log_path=log_path,
-                    interval=1800,  # 30 минут
-                    parent=self.app
-                )
-                log("Логгер инициализирован", "INFO")
-            else:
-                log("Не удалось инициализировать отправку логов", "⚠ WARNING")
-        except Exception as e:
-            log(f"Ошибка инициализации логгера: {e}", "ERROR")
+        """Автоматическая отправка логов отключена.
+        Логи можно отправить вручную через UI (страница Логи → Отправить)."""
+        pass
     
     def _init_subscription_check(self):
         """Фоновая проверка подписки при запуске"""

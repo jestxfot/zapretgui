@@ -10,7 +10,6 @@ __pycache__
 nul
 
 # Build output
-/build
 /dist
 
 # Build system (separate repo)
@@ -53,7 +52,6 @@ AGENTS.md
 CLAUDE.md
 **/CLAUDE.md
 .github/
-zapretbuild.py
 zapret_log.txt
 old_str*.py
 build.json
