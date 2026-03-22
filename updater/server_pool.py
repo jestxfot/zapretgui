@@ -36,12 +36,17 @@ class ServerPool:
         self.servers = VPS_SERVERS.copy()
         self.stats = self._load_stats()
         self.selected_server = self._load_selected_server()
-        
+
+        if not self.servers:
+            log("⚠️ ServerPool: нет серверов (UPDATE_SERVERS не задан в .env)", "POOL")
+            self.selected_server = None
+            return
+
         # Если нет выбранного сервера - выбираем случайный
         if not self.selected_server:
             self.selected_server = self._select_random_server()
             self._save_selected_server()
-        
+
         log(f"🌐 ServerPool инициализирован: {len(self.servers)} серверов", "POOL")
         log(f"📍 Выбран сервер: {self.selected_server['name']}", "POOL")
     
